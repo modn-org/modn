@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 #[derive(Parser)]
 #[command(
     name = "mod",
-    about = "Cyberpunk mod discovery and diagnostics (read-only)"
+    about = "Cyberpunk mod inspection and guarded management"
 )]
 struct Cli {
     #[arg(long, global = true)]
@@ -25,6 +25,32 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Install a legacy .archive ZIP after explicit approval.
+    Install {
+        archive: PathBuf,
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[arg(long, help = "Confirm writing files into the game")]
+        yes: bool,
+    },
+    /// List manager-owned packages (unmanaged mods are never included).
+    Installed {
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Remove an unchanged manager-owned package.
+    Uninstall {
+        package_id: String,
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[arg(long, help = "Confirm removing managed game files")]
+        yes: bool,
+    },
+    /// Safely roll back interrupted installs/uninstalls.
+    Recover {
+        #[arg(long, help = "Confirm rollback of interrupted transactions")]
+        yes: bool,
+    },
     /// Inspect ZIP, JAR, or 7z metadata without extracting files.
     Inspect { archive: PathBuf },
     /// Preview where files would be installed; never writes to the game.
@@ -129,13 +155,71 @@ fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let state_path = database_path(cli.state_dir.as_deref())?;
-    let store = if matches!(&cli.command, Command::Inspect { .. }) {
+    let mut store = if matches!(&cli.command, Command::Inspect { .. }) {
         None
     } else {
         validate_state_path(&state_path)?;
         Some(Store::open(&state_path)?)
     };
     match cli.command {
+        Command::Install { archive, path, yes } => {
+            if !yes {
+                bail!(
+                    "installation writes game files; rerun with --yes after reviewing 'mod plan'"
+                );
+            }
+            let game = selected_installation(store.as_ref().unwrap(), path)?;
+            let package = store.as_mut().unwrap().install_zip(&game, &archive)?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&package)?);
+            } else {
+                println!(
+                    "Installed {} ({} owned files)",
+                    package.id,
+                    package.files.len()
+                );
+            }
+        }
+        Command::Installed { path } => {
+            let game = selected_installation(store.as_ref().unwrap(), path)?;
+            let packages = store.as_ref().unwrap().installed(&game)?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&packages)?);
+            } else if packages.is_empty() {
+                println!("No manager-owned packages installed.");
+            } else {
+                for package in packages {
+                    println!("{}: {} owned files", package.id, package.files.len());
+                }
+            }
+        }
+        Command::Uninstall {
+            package_id,
+            path,
+            yes,
+        } => {
+            if !yes {
+                bail!("uninstall removes game files; rerun with --yes");
+            }
+            let game = selected_installation(store.as_ref().unwrap(), path)?;
+            store.as_mut().unwrap().uninstall(&game, &package_id)?;
+            if cli.json {
+                println!("{}", serde_json::json!({"uninstalled": package_id}));
+            } else {
+                println!("Uninstalled {package_id}");
+            }
+        }
+        Command::Recover { yes } => {
+            if !yes {
+                bail!("recovery may roll back interrupted game changes; rerun with --yes");
+            }
+            let count = store.as_mut().unwrap().recover()?;
+            if cli.json {
+                println!("{}", serde_json::json!({"recovered": count}));
+            } else {
+                println!("Recovered {count} interrupted transactions.");
+            }
+        }
         Command::Inspect { archive } => {
             let report = inspect(&archive)?;
             if cli.json {

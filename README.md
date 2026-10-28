@@ -1,6 +1,6 @@
 # Mods
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports read-only game discovery, archive inspection, and installation planning. Actual installation, Luau adapters, REDmod deployment, buckets, MCP, and desktop UI will follow in later milestones.
+A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection/planning, and **explicit, ownership-tracked installation of legacy .archive ZIP packages**. Luau adapters, REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
 
 ## Development
 
@@ -26,10 +26,26 @@ Current detection recognizes legacy `.archive` files, redscript, tweak files, RE
 
 `mod inspect <file>` reads ZIP, JAR, or 7z **headers and SHA-256 only**. It never extracts a file into the game. Archive entries with unsafe paths, duplicates, symbolic links detected in metadata, or encrypted ZIP entries are rejected. Unsupported formats (including RAR) are refused. Plan operations are **not** verified file contents, installation authorization, or game compatibility.
 
-`mod plan <file> --path <game>` maps recognized layouts (legacy archives, REDmod packages with `info.json`, redscript/tweaks, CET and RED4ext plugin directories) to game-relative destinations. An optional single outer package folder is trimmed. Unknown layouts, multiple incompatible variants, executable installers, occupied destinations, and missing REDmod tooling cause `status: "blocked"`. Other plans return `status: "reviewable"` (not "safe to install"). Each response identifies `metadata_only: true`; no install or extraction commands exist yet. **Even reviewable plans require revalidation, content integrity checking, version/compatibility checks, and approval in a future transaction engine.**
+`mod plan <file> --path <game>` maps recognized layouts (legacy archives, REDmod packages with `info.json`, redscript/tweaks, CET and RED4ext plugin directories) to game-relative destinations. An optional single outer package folder is trimmed. Unknown layouts, multiple incompatible variants, executable installers, occupied destinations, and missing REDmod tooling cause `status: "blocked"`. Other plans return `status: "reviewable"` (not "safe to install"). Each response identifies `metadata_only: true`; the install command separately revalidates and extracts ZIP legacy archives. **Even reviewable plans require revalidation, content integrity checking, version/compatibility checks, and explicit approval for installation.**
+
+## Transactional legacy archive installation (experimental)
+
+**Only** ZIP archives consisting of recognized `archive/pc/mod/*.archive` payloads (with optional outer wrapper/documentation) are currently installable. Inspect and plan first. **Do not uninstall existing framework mods or adopt manually installed files**; those remain unmanaged.
+
+```powershell
+mod plan "C:\Downloads\HD Reworked.zip" --json
+mod install "C:\Downloads\HD Reworked.zip" --yes --json
+mod installed --json
+mod uninstall <package-id> --yes --json
+mod recover --yes --json
+```
+
+`install` and `uninstall` require explicit `--yes` approval. The manager stores file hashes and ownership in SQLite in the state directory. It rejects existing destinations, linked paths, unsupported mod layouts, encrypted archives, oversized content, and attempts to uninstall modified files. Installation verifies ZIP content into manager-owned staging before creating game files; destination creation uses exclusive hard links rather than replacing existing files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `mod recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
+
+Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This first implementation does not perform REDmod deployment, framework dependency checks, package updates, file adoption, migration, or automatic recovery. Always try it on a disposable game fixture before testing against a real game.
 
 ## Scope
 
-Windows first. Minecraft, installation transactions, the Luau runtime, and a package browser remain future milestones.
+Windows first. Minecraft, additional transaction types, the Luau runtime, and a package browser remain future milestones.
 
 All first-party code is MIT licensed.
