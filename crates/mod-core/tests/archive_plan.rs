@@ -251,3 +251,105 @@ fn executable_disguised_as_documentation_is_not_ignored() {
         .iter()
         .any(|issue| issue.code == "EXECUTABLE_PAYLOAD"));
 }
+
+#[test]
+fn identical_zip_record_names_are_refused() {
+    let dir = tempdir().unwrap();
+    let archive = dir.path().join("duplicate-raw.zip");
+    zip_fixture(
+        &archive,
+        &[
+            ("archive/pc/mod/Same.archive", b"first"),
+            ("archive/pc/mod/same.archive", b"second"),
+        ],
+    );
+    // ZipWriter disallows identical names. Rewrite both local and central names.
+    let mut bytes = fs::read(&archive).unwrap();
+    let from = b"archive/pc/mod/same.archive";
+    let to = b"archive/pc/mod/Same.archive";
+    let mut replacements = 0;
+    for i in 0..=bytes.len() - from.len() {
+        if &bytes[i..i + from.len()] == from {
+            bytes[i..i + from.len()].copy_from_slice(to);
+            replacements += 1;
+        }
+    }
+    assert_eq!(replacements, 2);
+    fs::write(&archive, bytes).unwrap();
+    assert!(inspect(&archive).is_err());
+}
+
+#[test]
+fn documentation_prefix_does_not_hide_payloads() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("game");
+    setup_game(&root, false);
+    let archive = dir.path().join("readme.zip");
+    zip_fixture(
+        &archive,
+        &[
+            ("archive/pc/mod/readme.archive", b"a"),
+            ("r6/scripts/READMEHelper.reds", b"b"),
+            ("README.md", b"documentation"),
+        ],
+    );
+    let report = plan(&inspect(&archive).unwrap(), &root);
+    assert_eq!(report.status, "reviewable", "{:?}", report.blockers);
+    assert_eq!(report.operations.len(), 2);
+}
+
+#[test]
+fn conflicts_between_planned_file_and_directory_are_blocked() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("game");
+    setup_game(&root, false);
+    let archive = dir.path().join("nested.zip");
+    zip_fixture(
+        &archive,
+        &[
+            ("r6/scripts/Foo", b"file"),
+            ("r6/scripts/Foo/hello.reds", b"script"),
+        ],
+    );
+    let report = plan(&inspect(&archive).unwrap(), &root);
+    assert_eq!(report.status, "blocked");
+    assert!(report
+        .blockers
+        .iter()
+        .any(|issue| issue.code == "FILE_DIRECTORY_COLLISION"));
+}
+
+#[test]
+fn redmod_manifest_must_be_at_package_root_case_insensitively() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("game");
+    setup_game(&root, true);
+    let archive = dir.path().join("nested-info.zip");
+    zip_fixture(
+        &archive,
+        &[
+            ("mods/Foo/assets/info.json", b"{}"),
+            ("mods/Foo/archives/test.archive", b"test"),
+        ],
+    );
+    let result = plan(&inspect(&archive).unwrap(), &root);
+    assert!(result
+        .blockers
+        .iter()
+        .any(|issue| issue.code == "REDMOD_INFO_MISSING"));
+
+    let archive = dir.path().join("upper-info.zip");
+    zip_fixture(&archive, &[("mods/Foo/INFO.JSON", b"{}")]);
+    assert_eq!(
+        plan(&inspect(&archive).unwrap(), &root).status,
+        "reviewable"
+    );
+}
+
+#[test]
+fn windows_invalid_filename_chars_are_refused() {
+    let dir = tempdir().unwrap();
+    let archive = dir.path().join("invalid.zip");
+    zip_fixture(&archive, &[("archive/pc/mod/bad?.archive", b"bad")]);
+    assert!(inspect(&archive).is_err());
+}

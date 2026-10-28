@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fs::File,
-    io::BufReader,
+    io::{BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -39,6 +39,9 @@ fn validated_name(name: &str) -> Result<String> {
             || component == "."
             || component == ".."
             || component.contains(':')
+            || component
+                .chars()
+                .any(|ch| matches!(ch, '?' | '*' | '<' | '>' | '"' | '|'))
             || component.ends_with([' ', '.'])
             || component.chars().any(|ch| ch.is_control())
         {
@@ -85,6 +88,49 @@ fn append_file(
         entry: name,
         bytes: size,
     });
+    Ok(())
+}
+
+/// ZipArchive deduplicates identical names; inspect raw central records first.
+fn verify_zip_central_records(path: &Path, start: u64) -> Result<()> {
+    let mut input = File::open(path)?;
+    input.seek(SeekFrom::Start(start))?;
+    let mut seen = HashSet::new();
+    let mut count = 0;
+    loop {
+        let mut signature = [0u8; 4];
+        input
+            .read_exact(&mut signature)
+            .context("truncated ZIP central directory")?;
+        if signature != [0x50, 0x4b, 0x01, 0x02] {
+            break;
+        }
+        count += 1;
+        if count > MAX_ENTRIES {
+            bail!("archive has more than {MAX_ENTRIES} entries");
+        }
+        let mut header = [0u8; 42];
+        input
+            .read_exact(&mut header)
+            .context("truncated ZIP central record")?;
+        let name_len = u16::from_le_bytes([header[24], header[25]]) as usize;
+        let extra_len = u16::from_le_bytes([header[26], header[27]]) as i64;
+        let comment_len = u16::from_le_bytes([header[28], header[29]]) as i64;
+        let mut name = vec![0; name_len];
+        input
+            .read_exact(&mut name)
+            .context("truncated ZIP central name")?;
+        if !seen.insert(name.clone()) {
+            bail!(
+                "duplicate ZIP central record: {}",
+                String::from_utf8_lossy(&name)
+            );
+        }
+        input.seek(SeekFrom::Current(extra_len + comment_len))?;
+    }
+    if count == 0 {
+        bail!("archive contains no ZIP central records");
+    }
     Ok(())
 }
 
@@ -136,6 +182,7 @@ pub fn inspect(path: &Path) -> Result<Inspection> {
     } else {
         let mut reader = zip::ZipArchive::new(BufReader::new(File::open(path)?))
             .context("invalid ZIP/JAR archive")?;
+        verify_zip_central_records(path, reader.central_directory_start())?;
         if reader.len() > MAX_ENTRIES {
             bail!("archive has more than {MAX_ENTRIES} entries");
         }

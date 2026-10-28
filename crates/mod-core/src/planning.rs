@@ -2,7 +2,7 @@
 use crate::archive::Inspection;
 use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -67,10 +67,14 @@ fn classification(path: &str) -> Option<&'static str> {
 
 fn is_documentation(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or("").to_ascii_lowercase();
-    name.starts_with("readme")
-        || name.starts_with("license")
-        || name.starts_with("changelog")
-        || name == "description.txt"
+    let (stem, extension) = name.rsplit_once('.').unwrap_or((&name, ""));
+    name == "license"
+        || name == "copying"
+        || (matches!(extension, "md" | "txt" | "rst")
+            && (stem.starts_with("readme")
+                || stem.starts_with("license")
+                || stem.starts_with("changelog")
+                || name == "description.txt"))
 }
 
 fn prohibited_payload(path: &str) -> bool {
@@ -122,7 +126,7 @@ fn blocker(issues: &mut Vec<PlanIssue>, code: &str, message: impl Into<String>) 
 pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
     let mut operations = Vec::new();
     let mut blockers = Vec::new();
-    let mut destinations = HashSet::new();
+    let mut destinations: BTreeSet<String> = BTreeSet::new();
     let mut redmods: HashMap<String, bool> = HashMap::new();
     let mut wrappers = HashSet::new();
 
@@ -138,9 +142,6 @@ pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
             );
             continue;
         }
-        if is_documentation(&file.entry) {
-            continue;
-        }
         let mut mapped = None;
         let segments: Vec<_> = file.entry.split('/').collect();
         for start in 0..segments.len() {
@@ -151,6 +152,9 @@ pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
             }
         }
         let Some((wrapper, destination, kind)) = mapped else {
+            if is_documentation(&file.entry) {
+                continue;
+            }
             blocker(
                 &mut blockers,
                 "UNRECOGNIZED_LAYOUT",
@@ -173,7 +177,30 @@ pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
             );
             continue;
         }
-        if !destinations.insert(destination.to_lowercase()) {
+        let key = destination.to_lowercase();
+        let mut prefix = key.as_str();
+        let mut ancestor = false;
+        while let Some((before, _)) = prefix.rsplit_once('/') {
+            if destinations.contains(before) {
+                ancestor = true;
+                break;
+            }
+            prefix = before;
+        }
+        let descendant_prefix = format!("{key}/");
+        let descendant = destinations
+            .range(descendant_prefix.clone()..)
+            .next()
+            .is_some_and(|existing| existing.starts_with(&descendant_prefix));
+        if ancestor || descendant {
+            blocker(
+                &mut blockers,
+                "FILE_DIRECTORY_COLLISION",
+                format!("File and directory targets overlap: {destination}"),
+            );
+            continue;
+        }
+        if !destinations.insert(key) {
             blocker(
                 &mut blockers,
                 "DUPLICATE_DESTINATION",
@@ -190,7 +217,8 @@ pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
         }
         if kind == "redmod" {
             let mod_name = destination.split('/').nth(1).unwrap_or("");
-            let info = destination.ends_with("/info.json");
+            let parts: Vec<_> = destination.split('/').collect();
+            let info = parts.len() == 3 && parts[2].eq_ignore_ascii_case("info.json");
             redmods
                 .entry(mod_name.to_ascii_lowercase())
                 .and_modify(|v| *v |= info)
