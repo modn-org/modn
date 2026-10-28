@@ -2,8 +2,8 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use mod_core::archive::inspect;
 use mod_core::discovery::{discover, validate_installation, Candidate};
+use mod_core::inventory::{doctor_with_ownership, scan_with_ownership};
 use mod_core::planning::plan;
-use mod_core::scan::{doctor, scan};
 use mod_core::state::Store;
 use std::path::{Path, PathBuf};
 
@@ -294,7 +294,7 @@ fn run() -> Result<()> {
         }
         Command::Scan { path } => {
             let path = selected_installation(store.as_ref().unwrap(), path)?;
-            let report = scan(&path);
+            let report = scan_with_ownership(store.as_ref().unwrap(), &path)?;
             if report.incomplete {
                 eprintln!("warning: mod scan incomplete (entry limit reached)");
             }
@@ -305,16 +305,37 @@ fn run() -> Result<()> {
                 println!("REDmod executable present: {}", report.redmod_available);
                 for entry in report.mods {
                     println!(
-                        "{}: {} [unmanaged]",
+                        "{}: {} [{}{}]",
                         entry.kind,
-                        entry.relative_path.display()
+                        entry.relative_path.display(),
+                        if entry.managed {
+                            "managed"
+                        } else {
+                            "unmanaged"
+                        },
+                        entry
+                            .integrity
+                            .as_deref()
+                            .map(|status| format!(", {status}"))
+                            .unwrap_or_default()
                     );
+                }
+                for file in report.owned_files {
+                    if file.status != "intact" {
+                        println!(
+                            "OWNED {}: {} ({})",
+                            file.status, file.relative_path, file.package_id
+                        );
+                    }
+                }
+                for signal in report.framework_signals {
+                    println!("FRAMEWORK SIGNAL {}: {}", signal.name, signal.relative_path);
                 }
             }
         }
         Command::Doctor { path } => {
             let path = selected_installation(store.as_ref().unwrap(), path)?;
-            let report = doctor(&path);
+            let report = doctor_with_ownership(store.as_ref().unwrap(), &path)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -323,7 +344,16 @@ fn run() -> Result<()> {
                     "REDmod executable present: {}",
                     report.scan.redmod_available
                 );
-                println!("Detected unmanaged entries: {}", report.scan.mods.len());
+                println!(
+                    "Detected unmanaged entries: {}",
+                    report
+                        .scan
+                        .mods
+                        .iter()
+                        .filter(|entry| !entry.managed)
+                        .count()
+                );
+                println!("Owned files checked: {}", report.scan.owned_files.len());
                 for diagnostic in report.diagnostics {
                     println!(
                         "{} [{}]: {}",
