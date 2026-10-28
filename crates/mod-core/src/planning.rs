@@ -1,33 +1,49 @@
 //! Deterministic, metadata-only plans. No game writes or extraction.
 use crate::archive::Inspection;
 use serde::Serialize;
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    fs,
-    path::{Path, PathBuf},
-};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
 
+/// Proposed metadata-only file operation.
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct PlannedFile {
+    /// Entry path inside the archive.
     pub source: String,
+    /// Game-relative destination path.
     pub destination: String,
+    /// Declared uncompressed size.
     pub bytes: u64,
+    /// Recognized mod layout category.
     pub kind: String,
 }
 
+/// Blocker that prevents a proposed installation.
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct PlanIssue {
+    /// Stable machine-readable issue code.
     pub code: String,
+    /// Human-readable reason for the blocker.
     pub message: String,
 }
 
+/// Read-only installation proposal; not write authorization.
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct InstallPlan {
+    /// Archive hash observed during inspection.
     pub archive_sha256: String,
+    /// Target game directory.
     pub game_installation: PathBuf,
+    /// `reviewable` or `blocked`.
     pub status: String,
+    /// True: file contents have not been verified.
     pub metadata_only: bool,
+    /// File operations proposed for review.
     pub operations: Vec<PlannedFile>,
+    /// Issues requiring resolution before installation.
     pub blockers: Vec<PlanIssue>,
 }
 
@@ -125,6 +141,8 @@ fn blocker(issues: &mut Vec<PlanIssue>, code: &str, message: impl Into<String>) 
     });
 }
 
+/// Classify archive entries and produce a metadata-only plan for review.
+#[must_use]
 pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
     let mut operations = Vec::new();
     let mut blockers = Vec::new();

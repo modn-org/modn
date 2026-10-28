@@ -5,54 +5,91 @@ use std::path::{Path, PathBuf};
 
 const MAX_ENTRIES: usize = 20_000;
 
+/// Detected mod entry and optional ownership attribution.
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DetectedMod {
+    /// Detected layout category.
     pub kind: String,
+    /// Game-relative file or directory path.
     pub relative_path: PathBuf,
+    /// Whether a recorded manager-owned file matched.
     pub managed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Owning package ID, if managed.
     pub package_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Recorded owned-file integrity status, if available.
     pub integrity: Option<String>,
 }
 
+/// Read-only inventory of a game installation.
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct ScanReport {
+    /// Whether an entry limit truncated the scan.
     pub incomplete: bool,
+    /// Identifier of the scanned game.
     pub game_id: String,
+    /// Scanned game installation path.
     pub installation: PathBuf,
+    /// Whether REDmod tooling was found.
     pub redmod_available: bool,
+    /// Detected mod content and ownership attribution.
     pub mods: Vec<DetectedMod>,
+    /// Owned-file checks, including absent files.
     pub owned_files: Vec<OwnedFileCheck>,
+    /// Filesystem hints for possible framework installations.
     pub framework_signals: Vec<FrameworkSignal>,
 }
 
+/// Integrity result for a manager-owned file.
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OwnedFileCheck {
+    /// Package that owns the file.
     pub package_id: String,
+    /// Recorded game-relative destination.
     pub relative_path: String,
+    /// `intact`, `modified`, `missing`, `unsafe`, or `unreadable`.
     pub status: String,
+    /// SHA-256 recorded during installation.
     pub expected_sha256: String,
+    /// Size recorded during installation.
     pub expected_bytes: u64,
 }
 
+/// Presence hint for a possible mod framework, not a health check.
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FrameworkSignal {
+    /// Framework name.
     pub name: String,
+    /// Path supporting the presence hint.
     pub relative_path: String,
+    /// Observed `file` or `directory` type.
     pub kind: String,
 }
 
+/// Non-mutating diagnostic finding.
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct Diagnostic {
+    /// Machine-readable diagnostic identifier.
     pub code: String,
+    /// Severity such as `info` or `warning`.
     pub severity: String,
+    /// Description of the finding.
     pub message: String,
 }
 
+/// Read-only inventory and its diagnostic messages.
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct DoctorReport {
+    /// Underlying inventory report.
     pub scan: ScanReport,
+    /// Warnings and informational findings.
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -186,6 +223,7 @@ fn collect_directories(
 }
 
 /// Inventory only. Never assumes ownership of detected content or modifies game files.
+#[must_use]
 pub fn scan(installation: &Path) -> ScanReport {
     scan_bounded(installation, MAX_ENTRIES)
 }
@@ -257,6 +295,8 @@ fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
     }
 }
 
+/// Produce read-only diagnostics for a scanned game installation.
+#[must_use]
 pub fn doctor(installation: &Path) -> DoctorReport {
     diagnose(scan(installation))
 }

@@ -6,12 +6,20 @@ use std::path::{Path, PathBuf};
 
 const EXECUTABLE: &str = "bin/x64/Cyberpunk2077.exe";
 
+/// Discovered game installation and its discovery source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "CLI consumers construct candidates for explicit manual game paths"
+)]
 pub struct Candidate {
+    /// Canonical game installation directory.
     pub path: PathBuf,
+    /// Discovery source, such as Steam or Epic.
     pub source: String,
 }
 
+/// Canonicalize a directory and verify it contains the expected game executable.
 pub fn validate_installation(path: &Path) -> Result<PathBuf> {
     let canonical = path
         .canonicalize()
@@ -69,6 +77,7 @@ fn steam_install_dir(steamapps: &Path) -> String {
 }
 
 /// Injectable roots make discovery deterministic and testable without a live game.
+#[must_use]
 pub fn discover_in(
     steam_roots: &[PathBuf],
     epic_manifest_dirs: &[PathBuf],
@@ -120,6 +129,7 @@ pub fn discover_in(
 }
 
 /// Best-effort Windows discovery. Custom installations remain supported via --path.
+#[must_use]
 pub fn discover() -> Vec<Candidate> {
     let mut steam_roots = Vec::new();
     let mut common = Vec::new();

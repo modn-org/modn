@@ -1,16 +1,12 @@
 //! Reconcile on-disk discovery against manager-owned SQLite records without writing to a game.
-use crate::{
-    scan::{self, DoctorReport, FrameworkSignal, OwnedFileCheck, ScanReport},
-    state::Store,
-};
+use crate::scan::{self, DoctorReport, FrameworkSignal, OwnedFileCheck, ScanReport};
+use crate::state::Store;
 use anyhow::Result;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashMap,
-    fs::{self, File},
-    io::{self, Read},
-    path::{Path, PathBuf},
-};
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PathState {
@@ -233,6 +229,7 @@ pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanRep
     Ok(report)
 }
 
+/// Run inventory-aware diagnostics without modifying the game.
 pub fn doctor_with_ownership(store: &Store, installation: &Path) -> Result<DoctorReport> {
     Ok(scan::diagnose(scan_with_ownership(store, installation)?))
 }
