@@ -180,6 +180,39 @@ impl Store {
         Ok(())
     }
 
+    fn begin_staging(&mut self, id: &str, game: &Path, hash: &str) -> Result<()> {
+        self.ensure_no_pending()?;
+        self.connection.execute(
+            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
+             VALUES (?1,'install','staging',?2,?1,?3)",
+            params![id, game.to_string_lossy().as_ref(), hash],
+        )?;
+        Ok(())
+    }
+
+    fn stage_ready(&mut self, id: &str, files: &[JournalFile]) -> Result<()> {
+        let tx = self.connection.transaction()?;
+        for f in files {
+            tx.execute(
+                "INSERT INTO pending_files(transaction_id,ord,relative_path,sha256,bytes)
+                VALUES (?1,?2,?3,?4,?5)",
+                params![
+                    id,
+                    f.ordinal as i64,
+                    f.destination,
+                    f.sha256,
+                    f.bytes as i64
+                ],
+            )?;
+        }
+        tx.execute(
+            "UPDATE pending_transactions SET status='pending' WHERE id=?1 AND status='staging'",
+            [id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     fn pending(&self) -> Result<Vec<Journal>> {
         let mut statement = self.connection.prepare(
             "SELECT id, action, status, game_path FROM pending_transactions ORDER BY id",
@@ -240,6 +273,12 @@ impl Store {
     }
 
     fn recover_one(&mut self, journal: &Journal) -> Result<()> {
+        if journal.action == "install" && journal.status == "staging" {
+            if !journal.files.is_empty() {
+                bail!("staging journal contains unexpected files");
+            }
+            return self.finish_journal(&journal.id);
+        }
         let game = validate_installation(&journal.game)?;
         for f in journal.files.iter().rev() {
             let dest = target_path(&game, &f.destination, false)?;
@@ -416,36 +455,58 @@ impl Store {
             .context("missing transaction id")?
             .to_string_lossy()
             .to_string();
-        let mut zip = zip::ZipArchive::new(File::open(archive)?)?;
-        let mut files = Vec::new();
-        for (n, op) in proposal.operations.iter().enumerate() {
-            let mut input = zip.by_name(&op.source)?;
-            if input.is_dir() || input.size() != op.bytes {
-                bail!("archive metadata changed for {}", op.source);
+        self.begin_staging(&id, &game, &inspection.sha256)?;
+        let staged = (|| -> Result<Vec<JournalFile>> {
+            let mut zip = zip::ZipArchive::new(File::open(archive)?)?;
+            let mut files = Vec::new();
+            for (n, op) in proposal.operations.iter().enumerate() {
+                let mut input = zip.by_name(&op.source)?;
+                if input.is_dir() || input.size() != op.bytes {
+                    bail!("archive metadata changed for {}", op.source);
+                }
+                let stage = staging.path().join(format!("{n}.bin"));
+                let mut output = OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&stage)?;
+                let copied = io::copy(&mut input.by_ref().take(op.bytes + 1), &mut output)?;
+                output.flush()?;
+                output.sync_all()?;
+                if copied != op.bytes {
+                    bail!("archive extraction size mismatch for {}", op.source);
+                }
+                files.push(JournalFile {
+                    ordinal: n,
+                    destination: op.destination.clone(),
+                    sha256: digest(&stage)?,
+                    bytes: copied,
+                });
             }
-            let stage = staging.path().join(format!("{n}.bin"));
-            let mut output = OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&stage)?;
-            let copied = io::copy(&mut input.by_ref().take(op.bytes + 1), &mut output)?;
-            output.flush()?;
-            output.sync_all()?;
-            if copied != op.bytes {
-                bail!("archive extraction size mismatch for {}", op.source);
+            drop(zip);
+            if inspect(archive)?.sha256 != inspection.sha256 {
+                bail!("archive changed between inspection and extraction");
             }
-            files.push(JournalFile {
-                ordinal: n,
-                destination: op.destination.clone(),
-                sha256: digest(&stage)?,
-                bytes: copied,
-            });
+            Ok(files)
+        })();
+        let files = match staged {
+            Ok(files) => files,
+            Err(err) => {
+                drop(staging);
+                if let Err(recovery_error) = self.recover_locked() {
+                    bail!("{err:#}; staging recovery incomplete: {recovery_error:#}; run 'mod recover'");
+                }
+                return Err(err);
+            }
+        };
+        if let Err(err) = self.stage_ready(&id, &files) {
+            drop(staging);
+            if let Err(recovery_error) = self.recover_locked() {
+                bail!(
+                    "{err:#}; staging recovery incomplete: {recovery_error:#}; run 'mod recover'"
+                );
+            }
+            return Err(err);
         }
-        drop(zip);
-        if inspect(archive)?.sha256 != inspection.sha256 {
-            bail!("archive changed between inspection and extraction");
-        }
-        self.insert_journal(&id, "install", &game, &id, Some(&inspection.sha256), &files)?;
         let stage_path = staging.keep();
         let attempt = (|| -> Result<()> {
             for f in &files {
@@ -747,6 +808,20 @@ mod tests {
                 &archive(_dir.path(), &[("archive/pc/mod/other.archive", b"x")])
             )
             .is_err());
+    }
+
+    #[test]
+    fn recovering_crashed_extraction_removes_staging_without_game_writes() {
+        let (_dir, mut store, game) = fixture();
+        let id = "txn-crashed-extraction";
+        let stage = store.state_root.join(id);
+        fs::create_dir_all(&stage).unwrap();
+        store.begin_staging(id, &game, "sha").unwrap();
+        fs::write(stage.join("0.bin"), vec![17u8; 4096]).unwrap();
+        assert_eq!(store.recover().unwrap(), 1);
+        assert!(!stage.exists());
+        assert!(store.pending().unwrap().is_empty());
+        assert!(!game.join("archive").exists());
     }
 
     #[cfg(windows)]
