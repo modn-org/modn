@@ -230,3 +230,68 @@ fn locked_managed_file_is_unreadable_not_unmanaged() {
         "intact"
     );
 }
+
+#[test]
+fn unicode_casefold_collision_does_not_adopt_unmanaged_file() {
+    let (root, mut store, game, _archive) = fixture();
+    let zip_path = root.path().join("kelvin.zip");
+    let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    writer
+        .start_file("archive/pc/mod/k.archive", SimpleFileOptions::default())
+        .unwrap();
+    writer.write_all(b"owned contents").unwrap();
+    writer.finish().unwrap();
+    let package = store.install_zip(&game, &zip_path).unwrap();
+
+    let lookalike = game.join("archive/pc/mod/\u{212A}.archive");
+    // Skip on a filesystem that really aliases these names: never overwrite a fixture's owned file.
+    if lookalike.exists() {
+        return;
+    }
+    fs::write(&lookalike, b"manual content").unwrap();
+    let report = scan_with_ownership(&store, &game).unwrap();
+    let recorded = report
+        .mods
+        .iter()
+        .find(|m| m.relative_path == Path::new("archive/pc/mod/k.archive"))
+        .unwrap();
+    assert!(recorded.managed);
+    assert_eq!(recorded.package_id.as_deref(), Some(package.id.as_str()));
+    let unowned = report
+        .mods
+        .iter()
+        .find(|m| m.relative_path == Path::new("archive/pc/mod/\u{212A}.archive"))
+        .unwrap();
+    assert!(!unowned.managed);
+    assert!(unowned.package_id.is_none());
+    assert!(doctor_with_ownership(&store, &game)
+        .unwrap()
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "UNMANAGED_CONTENT"));
+    assert_eq!(fs::read(&lookalike).unwrap(), b"manual content");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn ordinary_case_sensitive_file_names_remain_distinct() {
+    let (root, mut store, game, _archive) = fixture();
+    let zip_path = root.path().join("case.zip");
+    let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    writer
+        .start_file("archive/pc/mod/k.archive", SimpleFileOptions::default())
+        .unwrap();
+    writer.write_all(b"owned").unwrap();
+    writer.finish().unwrap();
+    store.install_zip(&game, &zip_path).unwrap();
+    fs::write(game.join("archive/pc/mod/K.archive"), b"unmanaged").unwrap();
+    let report = scan_with_ownership(&store, &game).unwrap();
+    assert!(report
+        .mods
+        .iter()
+        .any(|m| m.relative_path == Path::new("archive/pc/mod/k.archive") && m.managed));
+    assert!(report
+        .mods
+        .iter()
+        .any(|m| m.relative_path == Path::new("archive/pc/mod/K.archive") && !m.managed));
+}

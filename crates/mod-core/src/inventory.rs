@@ -133,6 +133,16 @@ fn framework_signals(root: &Path) -> Vec<FrameworkSignal> {
     signals
 }
 
+// Windows folds ordinary ASCII case for filenames, while Linux paths must match byte-for-byte.
+// Unicode lowercase transforms (e.g. the Kelvin sign) are not filesystem identity.
+fn ownership_key(relative: &str) -> String {
+    if cfg!(windows) {
+        relative.to_ascii_lowercase()
+    } else {
+        relative.to_owned()
+    }
+}
+
 /// Scan a validated installation and reconcile exact manager-owned files without changing it.
 /// Never infer ownership from filenames, directory placement or framework presence.
 pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanReport> {
@@ -161,20 +171,30 @@ pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanRep
             .then(a.package_id.cmp(&b.package_id))
     });
     for (i, file) in report.owned_files.iter().enumerate() {
-        matched.insert(file.relative_path.to_lowercase(), i);
+        matched.insert(ownership_key(&file.relative_path), i);
     }
     for detected in &mut report.mods {
         // A directory is not wholly owned merely because one file beneath it is.
         if detected.kind != "legacy-archive" {
             continue;
         }
-        let path = detected
-            .relative_path
-            .to_string_lossy()
-            .replace('\\', "/")
-            .to_lowercase();
-        if let Some(&index) = matched.get(&path) {
+        let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
+        if let Some(&index) = matched.get(&ownership_key(&relative)) {
             let owned = &report.owned_files[index];
+            if owned.status == "unsafe" || owned.status == "missing" {
+                continue;
+            }
+            // A matching spelling is not enough when the filesystem may redirect or alias a path.
+            // For unreadable paths, preserve the owner's record but never claim intact contents.
+            if owned.status != "unreadable"
+                && !same_file::is_same_file(
+                    game.join(&owned.relative_path),
+                    game.join(&detected.relative_path),
+                )
+                .unwrap_or(false)
+            {
+                continue;
+            }
             detected.managed = true;
             detected.package_id = Some(owned.package_id.clone());
             detected.integrity = Some(owned.status.clone());
