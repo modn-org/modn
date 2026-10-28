@@ -18,9 +18,17 @@ cargo run --bin mod -- plan "./downloaded-mod.zip" --path "/path/to/Cyberpunk 20
 
 On Windows, omit `--path` to attempt discovery through Steam libraries, Epic Launcher manifests, and common game directories. Custom GOG/Epic/Steam installs may require an explicit path. Registration writes **only manager-owned state** outside the game directory; `scan` and `doctor` never modify game files.
 
-Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. No detected mod is considered managed or safe to uninstall.
+Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not adopt or authorize uninstalling detected files.
 
 Current detection recognizes legacy `.archive` files, redscript, tweak files, REDmod directories, CET mod directories, and RED4ext plugin directories. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
+
+## Read-only inventory and ownership drift
+
+`mod scan --json --path <game>` combines on-disk discovery with SQLite ownership records. The `mods` array labels discovered legacy archives as `managed` only when the observed path resolves to a recorded, manager-owned file (including valid Windows case-only aliases); managed entries also include `package_id` and `integrity`. Unmanaged CET/RED4ext directories, scripts, tweaks and REDmod folders remain unmanaged even if they appear alongside owned files.
+
+`owned_files` reports every recorded file, **including missing files absent from discovery**, with the statuses `intact`, `modified`, `missing`, `unsafe` (linked/redirected path), or `unreadable`. Content is SHA-256 checked when size and path verification succeed. Large archives may take time to hash. `mod doctor --json --path <game>` adds `OWNED_FILE_MISSING`, `OWNED_FILE_MODIFIED`, `OWNED_FILE_UNSAFE`, and `OWNED_FILE_UNREADABLE` warnings, and reports `UNMANAGED_CONTENT` only when unmanaged entries are present.
+
+The `framework_signals` array identifies candidate CET, RED4ext, redscript, and ArchiveXL directories or binaries with their relative paths. A presence signal **does not verify that a framework is installed, active, or compatible**. `scan` and `doctor` never write to the game or adopt files; the state database remains outside the game installation. A game directory redirect is not followed for ownership verification. No automatic repairs or deletion are performed.
 
 ## Archive inspection and planning
 

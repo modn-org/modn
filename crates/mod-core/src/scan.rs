@@ -10,6 +10,10 @@ pub struct DetectedMod {
     pub kind: String,
     pub relative_path: PathBuf,
     pub managed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub integrity: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -19,6 +23,24 @@ pub struct ScanReport {
     pub installation: PathBuf,
     pub redmod_available: bool,
     pub mods: Vec<DetectedMod>,
+    pub owned_files: Vec<OwnedFileCheck>,
+    pub framework_signals: Vec<FrameworkSignal>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct OwnedFileCheck {
+    pub package_id: String,
+    pub relative_path: String,
+    pub status: String,
+    pub expected_sha256: String,
+    pub expected_bytes: u64,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct FrameworkSignal {
+    pub name: String,
+    pub relative_path: String,
+    pub kind: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,6 +62,8 @@ fn push_mod(root: &Path, path: &Path, kind: &str, mods: &mut Vec<DetectedMod>) {
             kind: kind.into(),
             relative_path: relative_path.to_owned(),
             managed: false,
+            package_id: None,
+            integrity: None,
         });
     }
 }
@@ -225,6 +249,8 @@ fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
         installation: installation.to_owned(),
         redmod_available: installation.join("tools/redmod/bin/redMod.exe").is_file(),
         mods,
+        owned_files: Vec::new(),
+        framework_signals: Vec::new(),
     }
 }
 
@@ -232,7 +258,7 @@ pub fn doctor(installation: &Path) -> DoctorReport {
     diagnose(scan(installation))
 }
 
-fn diagnose(report: ScanReport) -> DoctorReport {
+pub(crate) fn diagnose(report: ScanReport) -> DoctorReport {
     let mut diagnostics = Vec::new();
     if report.incomplete {
         diagnostics.push(Diagnostic {
@@ -260,12 +286,32 @@ fn diagnose(report: ScanReport) -> DoctorReport {
             message: "REDmod-style directories exist, but redMod.exe was not found.".into(),
         });
     }
-    if !report.mods.is_empty() {
+    if report.mods.iter().any(|entry| !entry.managed) {
         diagnostics.push(Diagnostic {
             code: "UNMANAGED_CONTENT".into(),
             severity: "warning".into(),
-            message: "Detected mods are not owned by this manager; no changes will be made.".into(),
+            message: "Some detected mods are not owned by this manager; no changes will be made."
+                .into(),
         });
+    }
+    for (status, code) in [
+        ("missing", "OWNED_FILE_MISSING"),
+        ("modified", "OWNED_FILE_MODIFIED"),
+        ("unsafe", "OWNED_FILE_UNSAFE"),
+        ("unreadable", "OWNED_FILE_UNREADABLE"),
+    ] {
+        let count = report
+            .owned_files
+            .iter()
+            .filter(|file| file.status == status)
+            .count();
+        if count > 0 {
+            diagnostics.push(Diagnostic {
+                code: code.into(),
+                severity: "warning".into(),
+                message: format!("{count} manager-owned file(s) are {status}; inspect scan ownership details before uninstalling."),
+            });
+        }
     }
     DoctorReport {
         scan: report,
