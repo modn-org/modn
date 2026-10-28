@@ -81,7 +81,10 @@ fn collect_files(
             } else if file_type.is_file() {
                 let path = entry.path();
                 if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
-                    if extensions.iter().any(|candidate| extension.eq_ignore_ascii_case(candidate)) {
+                    if extensions
+                        .iter()
+                        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+                    {
                         push_mod(root, &path, kind, mods);
                     }
                 }
@@ -143,7 +146,13 @@ pub fn scan(installation: &Path) -> ScanReport {
         &mut mods,
         &mut budget,
     );
-    collect_directories(installation, "mods", "redmod-directory", &mut mods, &mut budget);
+    collect_directories(
+        installation,
+        "mods",
+        "redmod-directory",
+        &mut mods,
+        &mut budget,
+    );
     collect_directories(
         installation,
         "red4ext/plugins",
@@ -178,7 +187,10 @@ pub fn doctor(installation: &Path) -> DoctorReport {
         });
     }
     if !report.redmod_available
-        && report.mods.iter().any(|entry| entry.kind == "redmod-directory")
+        && report
+            .mods
+            .iter()
+            .any(|entry| entry.kind == "redmod-directory")
     {
         diagnostics.push(Diagnostic {
             code: "REDMOD_CONTENT_WITHOUT_TOOLS".into(),

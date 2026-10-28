@@ -33,8 +33,7 @@ fn add_candidate(candidates: &mut Vec<Candidate>, path: &Path, source: &str) {
 
 fn vdf_value(line: &str, key: &str) -> Option<String> {
     let parts: Vec<_> = line.split('"').collect();
-    (parts.len() >= 4 && parts[1].eq_ignore_ascii_case(key))
-        .then(|| parts[3].replace("\\\\", "\\"))
+    (parts.len() >= 4 && parts[1].eq_ignore_ascii_case(key)).then(|| parts[3].replace("\\\\", "\\"))
 }
 
 /// Read Steam libraryfolders.vdf without assuming library indices or drive letters.
@@ -134,9 +133,7 @@ pub fn discover() -> Vec<Candidate> {
         }
     }
     let epic_dirs = std::env::var_os("PROGRAMDATA")
-        .map(|path| {
-            vec![PathBuf::from(path).join("Epic/EpicGamesLauncher/Data/Manifests")]
-        })
+        .map(|path| vec![PathBuf::from(path).join("Epic/EpicGamesLauncher/Data/Manifests")])
         .unwrap_or_default();
     discover_in(&steam_roots, &epic_dirs, &common)
 }

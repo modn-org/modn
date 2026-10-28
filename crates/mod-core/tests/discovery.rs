@@ -19,11 +19,13 @@ fn steam_library_and_manifest_are_discovered() {
     fs::write(
         steam.join("steamapps/libraryfolders.vdf"),
         format!("\"path\" \"{}\"\n", library.display()),
-    ).unwrap();
+    )
+    .unwrap();
     fs::write(
         library.join("steamapps/appmanifest_1091500.acf"),
         "\"installdir\" \"Custom Cyberpunk\"\n",
-    ).unwrap();
+    )
+    .unwrap();
     let results = discover_in(&[steam], &[], &[]);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].source, "steam");
@@ -42,9 +44,11 @@ fn epic_manifest_is_detected_and_deduplicated() {
         serde_json::json!({
             "DisplayName": "Cyberpunk 2077",
             "InstallLocation": game.to_string_lossy()
-        }).to_string(),
-    ).unwrap();
-    let results = discover_in(&[], &[manifests], &[game.clone()]);
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let results = discover_in(&[], &[manifests], std::slice::from_ref(&game));
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].source, "epic");
 }

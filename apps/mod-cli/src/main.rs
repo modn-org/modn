@@ -6,7 +6,10 @@ use mod_core::state::Store;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(name = "mod", about = "Cyberpunk mod discovery and diagnostics (read-only)")]
+#[command(
+    name = "mod",
+    about = "Cyberpunk mod discovery and diagnostics (read-only)"
+)]
 struct Cli {
     #[arg(long, global = true)]
     json: bool,
@@ -117,7 +120,12 @@ fn run() -> Result<()> {
                 println!("No game installations registered.");
             } else {
                 for entry in entries {
-                    println!("{}: {} ({})", entry.game_id, entry.path.display(), entry.source);
+                    println!(
+                        "{}: {} ({})",
+                        entry.game_id,
+                        entry.path.display(),
+                        entry.source
+                    );
                 }
             }
         }
@@ -130,7 +138,11 @@ fn run() -> Result<()> {
                 println!("Cyberpunk 2077: {}", report.installation.display());
                 println!("REDmod executable present: {}", report.redmod_available);
                 for entry in report.mods {
-                    println!("{}: {} [unmanaged]", entry.kind, entry.relative_path.display());
+                    println!(
+                        "{}: {} [unmanaged]",
+                        entry.kind,
+                        entry.relative_path.display()
+                    );
                 }
             }
         }
@@ -141,10 +153,16 @@ fn run() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!("Cyberpunk 2077: {}", report.scan.installation.display());
-                println!("REDmod executable present: {}", report.scan.redmod_available);
+                println!(
+                    "REDmod executable present: {}",
+                    report.scan.redmod_available
+                );
                 println!("Detected unmanaged entries: {}", report.scan.mods.len());
                 for diagnostic in report.diagnostics {
-                    println!("{} [{}]: {}", diagnostic.severity, diagnostic.code, diagnostic.message);
+                    println!(
+                        "{} [{}]: {}",
+                        diagnostic.severity, diagnostic.code, diagnostic.message
+                    );
                 }
             }
         }

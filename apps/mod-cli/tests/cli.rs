@@ -18,10 +18,22 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     let game_str = game.to_str().unwrap();
 
     let add = Command::new(env!("CARGO_BIN_EXE_mod"))
-        .args(["--state-dir", state_str, "game", "add", "cyberpunk", "--path", game_str])
+        .args([
+            "--state-dir",
+            state_str,
+            "game",
+            "add",
+            "cyberpunk",
+            "--path",
+            game_str,
+        ])
         .output()
         .unwrap();
-    assert!(add.status.success(), "{:?}", String::from_utf8_lossy(&add.stderr));
+    assert!(
+        add.status.success(),
+        "{:?}",
+        String::from_utf8_lossy(&add.stderr)
+    );
 
     let list = Command::new(env!("CARGO_BIN_EXE_mod"))
         .args(["--state-dir", state_str, "game", "list", "--json"])
@@ -47,7 +59,10 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     assert!(doctor.status.success());
     let diagnosed: Value = serde_json::from_slice(&doctor.stdout).unwrap();
     assert_eq!(diagnosed["scan"]["redmod_available"], false);
-    assert!(diagnosed["diagnostics"].as_array().unwrap().iter()
+    assert!(diagnosed["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
         .any(|entry| entry["code"] == "UNMANAGED_CONTENT"));
 
     assert_eq!(fs::read(game_exe).unwrap(), b"game unchanged");
@@ -63,7 +78,11 @@ fn refuses_to_register_a_non_game_directory() {
         .args([
             "--state-dir",
             state.to_str().unwrap(),
-            "game", "add", "cyberpunk", "--path", temp.path().to_str().unwrap()
+            "game",
+            "add",
+            "cyberpunk",
+            "--path",
+            temp.path().to_str().unwrap(),
         ])
         .output()
         .unwrap();

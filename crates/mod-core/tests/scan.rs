@@ -26,10 +26,19 @@ fn reports_known_layouts_without_modifying_files() {
     assert!(report.redmod_available);
     assert_eq!(report.mods.len(), 6);
     assert!(report.mods.iter().all(|entry| !entry.managed));
-    assert!(report.mods.iter().any(|entry| entry.kind == "legacy-archive"));
-    assert!(report.mods.iter().any(|entry| entry.kind == "redmod-directory"));
+    assert!(report
+        .mods
+        .iter()
+        .any(|entry| entry.kind == "legacy-archive"));
+    assert!(report
+        .mods
+        .iter()
+        .any(|entry| entry.kind == "redmod-directory"));
     assert!(report.mods.iter().any(|entry| entry.kind == "cet-mod"));
-    assert!(doctor(root).diagnostics.iter().any(|d| d.code == "UNMANAGED_CONTENT"));
+    assert!(doctor(root)
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "UNMANAGED_CONTENT"));
     for file in files {
         assert_eq!(fs::read_to_string(root.join(file)).unwrap(), "unchanged");
     }
@@ -40,7 +49,10 @@ fn missing_redmod_tools_warns_without_failing_scan() {
     let temp = tempdir().unwrap();
     fs::create_dir_all(temp.path().join("mods/Test")).unwrap();
     let result = doctor(temp.path());
-    assert!(result.diagnostics.iter().any(|d| d.code == "REDMOD_CONTENT_WITHOUT_TOOLS"));
+    assert!(result
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "REDMOD_CONTENT_WITHOUT_TOOLS"));
 }
 
 #[cfg(unix)]
