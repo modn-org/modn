@@ -108,19 +108,6 @@ fn temp_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> {
         .join(format!(".mods-txn-{id}-{n}.tmp")))
 }
 
-fn cleanup_empty_dirs(game: &Path, relative: &str) {
-    let mut parent = game.join(relative).parent().map(Path::to_path_buf);
-    while let Some(dir) = parent {
-        if dir == game {
-            break;
-        }
-        if fs::remove_dir(&dir).is_err() {
-            break;
-        }
-        parent = dir.parent().map(Path::to_path_buf);
-    }
-}
-
 impl Store {
     pub fn installed(&self, game: &Path) -> Result<Vec<ManagedPackage>> {
         let game = validate_installation(game)?;
@@ -277,7 +264,6 @@ impl Store {
                     if witness {
                         fs::remove_file(&temp)?;
                     }
-                    cleanup_empty_dirs(&game, &f.destination);
                 }
                 ("uninstall", "pending") => {
                     if witness {
@@ -557,6 +543,15 @@ impl Store {
                 }
                 let temp = temp_path(&target, &id, f.ordinal)?;
                 fs::hard_link(&target, &temp)?;
+                if !same_file::is_same_file(&target, &temp)?
+                    || digest(&temp)? != f.sha256
+                    || digest(&target)? != f.sha256
+                {
+                    bail!(
+                        "owned file changed while backing it up: {}",
+                        target.display()
+                    );
+                }
                 fs::remove_file(&target)?;
             }
             self.commit_uninstall(&id, package_id)
@@ -744,6 +739,26 @@ mod tests {
                 &archive(_dir.path(), &[("archive/pc/mod/other.archive", b"x")])
             )
             .is_err());
+    }
+
+    #[test]
+    fn recovery_never_deletes_preexisting_empty_directories() {
+        let (_dir, mut store, game) = fixture();
+        let directory = game.join("archive/pc/mod");
+        fs::create_dir_all(&directory).unwrap();
+        let file = prepared_file("archive/pc/mod/not-written.archive", b"never written");
+        store
+            .insert_journal(
+                "txn-empty-dir",
+                "install",
+                &game,
+                "txn-empty-dir",
+                None,
+                std::slice::from_ref(&file),
+            )
+            .unwrap();
+        assert_eq!(store.recover().unwrap(), 1);
+        assert!(directory.is_dir());
     }
 
     #[test]
