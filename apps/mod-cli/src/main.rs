@@ -65,6 +65,30 @@ fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".local/state/mods/state.sqlite"))
 }
 
+fn validate_state_path(state_path: &Path) -> Result<()> {
+    let parent = state_path.parent().context("invalid state path")?;
+    let mut directory = if parent.is_absolute() {
+        parent.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(parent)
+    };
+    loop {
+        if let Ok(existing) = directory.canonicalize() {
+            if existing
+                .ancestors()
+                .any(|ancestor| ancestor.join("bin/x64/Cyberpunk2077.exe").is_file())
+            {
+                bail!("state directory must be outside the Cyberpunk 2077 installation");
+            }
+            return Ok(());
+        }
+        directory = directory
+            .parent()
+            .context("cannot resolve state directory")?
+            .to_path_buf();
+    }
+}
+
 fn choose_candidate(path: Option<PathBuf>) -> Result<Candidate> {
     if let Some(path) = path {
         return Ok(Candidate {
@@ -94,7 +118,9 @@ fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
-    let store = Store::open(&database_path(cli.state_dir.as_deref())?)?;
+    let state_path = database_path(cli.state_dir.as_deref())?;
+    validate_state_path(&state_path)?;
+    let store = Store::open(&state_path)?;
     match cli.command {
         Command::Game {
             command: GameCommand::Add { game, path },
@@ -132,6 +158,9 @@ fn run() -> Result<()> {
         Command::Scan { path } => {
             let path = selected_installation(&store, path)?;
             let report = scan(&path);
+            if report.incomplete {
+                eprintln!("warning: mod scan incomplete (entry limit reached)");
+            }
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {

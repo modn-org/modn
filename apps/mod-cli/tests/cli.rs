@@ -89,3 +89,27 @@ fn refuses_to_register_a_non_game_directory() {
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("Cyberpunk2077.exe"));
 }
+
+#[test]
+fn refuses_state_database_inside_game_directory() {
+    let temp = tempdir().unwrap();
+    let game = temp.path().join("Cyberpunk 2077");
+    let executable = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    fs::write(&executable, b"original").unwrap();
+    let state = game.join("private/manager-state");
+    let output = Command::new(env!("CARGO_BIN_EXE_mod"))
+        .args([
+            "--state-dir",
+            state.to_str().unwrap(),
+            "scan",
+            "--path",
+            game.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("state directory must be outside"));
+    assert!(!game.join("private").exists());
+    assert_eq!(fs::read(executable).unwrap(), b"original");
+}

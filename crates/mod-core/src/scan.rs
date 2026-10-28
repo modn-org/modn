@@ -14,6 +14,7 @@ pub struct DetectedMod {
 
 #[derive(Debug, Serialize)]
 pub struct ScanReport {
+    pub incomplete: bool,
     pub game_id: String,
     pub installation: PathBuf,
     pub redmod_available: bool,
@@ -49,6 +50,23 @@ fn is_real_directory(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn verified_folder(root: &Path, relative: &str) -> Option<PathBuf> {
+    let canonical_root = root.canonicalize().ok()?;
+    let mut directory = root.to_path_buf();
+    for part in Path::new(relative).components() {
+        let std::path::Component::Normal(segment) = part else {
+            return None;
+        };
+        directory.push(segment);
+        if !is_real_directory(&directory)
+            || !directory.canonicalize().ok()?.starts_with(&canonical_root)
+        {
+            return None;
+        }
+    }
+    Some(directory)
+}
+
 fn collect_files(
     root: &Path,
     folder: &str,
@@ -57,7 +75,13 @@ fn collect_files(
     mods: &mut Vec<DetectedMod>,
     budget: &mut usize,
 ) {
-    let mut pending = vec![root.join(folder)];
+    let Some(initial) = verified_folder(root, folder) else {
+        return;
+    };
+    let canonical_root = root
+        .canonicalize()
+        .expect("verified folder has canonical root");
+    let mut pending = vec![initial];
     while let Some(directory) = pending.pop() {
         if !is_real_directory(&directory) {
             continue;
@@ -77,7 +101,14 @@ fn collect_files(
                 continue;
             }
             if file_type.is_dir() {
-                pending.push(entry.path());
+                let path = entry.path();
+                if is_real_directory(&path)
+                    && path
+                        .canonicalize()
+                        .is_ok_and(|p| p.starts_with(&canonical_root))
+                {
+                    pending.push(path);
+                }
             } else if file_type.is_file() {
                 let path = entry.path();
                 if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
@@ -100,10 +131,9 @@ fn collect_directories(
     mods: &mut Vec<DetectedMod>,
     budget: &mut usize,
 ) {
-    let folder = root.join(folder);
-    if !is_real_directory(&folder) {
+    let Some(folder) = verified_folder(root, folder) else {
         return;
-    }
+    };
     let Ok(entries) = fs::read_dir(folder) else {
         return;
     };
@@ -112,16 +142,26 @@ fn collect_directories(
             return;
         }
         *budget -= 1;
-        if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-            push_mod(root, &entry.path(), kind, mods);
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|type_| type_.is_dir())
+            && is_real_directory(&path)
+            && path
+                .canonicalize()
+                .is_ok_and(|p| p.starts_with(root.canonicalize().unwrap()))
+        {
+            push_mod(root, &path, kind, mods);
         }
     }
 }
 
 /// Inventory only. Never assumes ownership of detected content or modifies game files.
 pub fn scan(installation: &Path) -> ScanReport {
+    scan_bounded(installation, MAX_ENTRIES)
+}
+
+fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
     let mut mods = Vec::new();
-    let mut budget = MAX_ENTRIES;
+    let mut budget = limit;
     collect_files(
         installation,
         "archive/pc/mod",
@@ -169,6 +209,7 @@ pub fn scan(installation: &Path) -> ScanReport {
     );
     mods.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     ScanReport {
+        incomplete: budget == 0,
         game_id: CYBERPUNK_ID.into(),
         installation: installation.to_owned(),
         redmod_available: installation.join("tools/redmod/bin/redMod.exe").is_file(),
@@ -177,8 +218,18 @@ pub fn scan(installation: &Path) -> ScanReport {
 }
 
 pub fn doctor(installation: &Path) -> DoctorReport {
-    let report = scan(installation);
+    diagnose(scan(installation))
+}
+
+fn diagnose(report: ScanReport) -> DoctorReport {
     let mut diagnostics = Vec::new();
+    if report.incomplete {
+        diagnostics.push(Diagnostic {
+            code: "SCAN_INCOMPLETE".into(),
+            severity: "warning".into(),
+            message: "Inventory is incomplete because the scan entry limit was reached.".into(),
+        });
+    }
     if !report.redmod_available {
         diagnostics.push(Diagnostic {
             code: "REDMOD_NOT_FOUND".into(),
@@ -208,5 +259,49 @@ pub fn doctor(installation: &Path) -> DoctorReport {
     DoctorReport {
         scan: report,
         diagnostics,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn exhausted_budget_is_reported() {
+        let game = tempdir().unwrap();
+        let dir = game.path().join("archive/pc/mod");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("unrelated.txt"), "fixture").unwrap();
+        fs::create_dir_all(game.path().join("mods/ActualRedmod")).unwrap();
+        let report = scan_bounded(game.path(), 1);
+        assert!(report.incomplete);
+        assert!(report.mods.is_empty());
+        assert!(diagnose(report)
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "SCAN_INCOMPLETE"));
+    }
+
+    #[test]
+    fn linked_ancestor_is_excluded() {
+        let game = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        fs::create_dir_all(outside.path().join("pc/mod")).unwrap();
+        fs::write(outside.path().join("pc/mod/external.archive"), "fixture").unwrap();
+        #[cfg(windows)]
+        {
+            let link = game.path().join("archive");
+            assert!(std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&link)
+                .arg(outside.path())
+                .status()
+                .unwrap()
+                .success());
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), game.path().join("archive")).unwrap();
+        assert!(scan(game.path()).mods.is_empty());
     }
 }
