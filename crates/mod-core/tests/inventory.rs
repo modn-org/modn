@@ -1,12 +1,9 @@
-use mod_core::{
-    inventory::{doctor_with_ownership, scan_with_ownership},
-    state::Store,
-};
-use std::{
-    fs::{self, File},
-    io::Write,
-    path::{Path, PathBuf},
-};
+//! Integration checks for inventory behavior.
+use mod_core::inventory::{doctor_with_ownership, scan_with_ownership};
+use mod_core::state::Store;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 

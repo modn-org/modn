@@ -1,9 +1,9 @@
-use mod_core::{archive::inspect, planning::plan};
-use std::{
-    fs::{self, File},
-    io::Write,
-    path::Path,
-};
+//! Integration checks for archive plan behavior.
+use mod_core::archive::inspect;
+use mod_core::planning::plan;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::Path;
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 

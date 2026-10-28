@@ -1,10 +1,8 @@
 use serde_json::Value;
-use std::{
-    fs::{self, File},
-    io::Write,
-    path::Path,
-    process::{Command, Output},
-};
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Output};
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 

@@ -2,30 +2,40 @@
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashSet,
-    fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
-    path::{Path, PathBuf},
-};
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 
 const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE: u64 = 16 * 1024 * 1024 * 1024;
 
+/// Sanitized archive entry and declared size.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct ArchiveFile {
+    /// Normalized archive-relative entry path.
     pub entry: String,
+    /// Declared uncompressed size in bytes.
     pub bytes: u64,
 }
 
+/// Read-only archive metadata, not verified contents or compatibility.
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct Inspection {
+    /// Source archive path.
     pub archive: PathBuf,
+    /// Detected archive format.
     pub format: String,
+    /// SHA-256 of the archive at inspection.
     pub sha256: String,
+    /// Sum of declared uncompressed sizes.
     pub total_uncompressed_bytes: u64,
+    /// Validated entries in the archive.
     pub files: Vec<ArchiveFile>,
+    /// True: no game files are extracted.
     pub metadata_only: bool,
 }
 
@@ -134,6 +144,7 @@ fn verify_zip_central_records(path: &Path, start: u64) -> Result<()> {
     Ok(())
 }
 
+/// Inspect validated archive headers and hash the archive without extracting game files.
 pub fn inspect(path: &Path) -> Result<Inspection> {
     let metadata = path
         .metadata()

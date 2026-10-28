@@ -5,10 +5,15 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Persisted registration for a single game installation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GameInstallation {
+    /// Registered game identifier.
     pub game_id: String,
+    /// Registered installation path.
     pub path: PathBuf,
+    /// Registration or discovery origin.
     pub source: String,
 }
 
@@ -19,6 +24,7 @@ pub struct Store {
 }
 
 impl Store {
+    /// Open the manager-owned SQLite database and initialize its schema.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
@@ -76,6 +82,7 @@ impl Store {
         })
     }
 
+    /// Register an existing validated Cyberpunk installation in manager state.
     pub fn add_cyberpunk(&self, path: &Path, source: &str) -> Result<GameInstallation> {
         let path_text = path.to_str().context("game path must be valid UTF-8")?;
         self.connection.execute(
@@ -91,6 +98,7 @@ impl Store {
         })
     }
 
+    /// List persisted game registrations, ordered by game and path.
     pub fn list(&self) -> Result<Vec<GameInstallation>> {
         let mut statement = self.connection.prepare(
             "SELECT game_id, path, source FROM game_installations ORDER BY game_id, path",

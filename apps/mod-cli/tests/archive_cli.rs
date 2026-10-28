@@ -1,9 +1,7 @@
 use serde_json::Value;
-use std::{
-    fs::{self, File},
-    io::Write,
-    process::Command,
-};
+use std::fs::{self, File};
+use std::io::Write;
+use std::process::Command;
 use tempfile::tempdir;
 
 #[test]
