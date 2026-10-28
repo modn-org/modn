@@ -133,11 +133,11 @@ fn framework_signals(root: &Path) -> Vec<FrameworkSignal> {
     signals
 }
 
-// Unicode casefolding on Windows is only a candidate search. Names that compare equal
-// under Unicode lowercasing can still be distinct directory entries on NTFS.
+// Non-contextual per-character case folding is only a Windows candidate search.
+// Different names can fold identically on NTFS; actual file identity still decides ownership.
 fn ownership_key(relative: &str) -> String {
     if cfg!(windows) {
-        relative.to_lowercase()
+        relative.chars().flat_map(char::to_lowercase).collect()
     } else {
         relative.to_owned()
     }

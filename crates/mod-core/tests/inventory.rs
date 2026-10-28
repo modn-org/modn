@@ -358,3 +358,38 @@ fn different_hardlink_alias_does_not_gain_ownership() {
         .iter()
         .any(|m| m.relative_path == Path::new("archive/pc/mod/\u{212A}.archive") && !m.managed));
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_greek_sigma_contextual_case_rename_stays_managed() {
+    let (root, mut store, game, _archive) = fixture();
+    let zip_path = root.path().join("greek-sigma.zip");
+    let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    writer
+        .start_file(
+            "archive/pc/mod/\u{039F}\u{03A3}1.archive",
+            SimpleFileOptions::default(),
+        )
+        .unwrap();
+    writer.write_all(b"owned").unwrap();
+    writer.finish().unwrap();
+    let package = store.install_zip(&game, &zip_path).unwrap();
+    let original = game.join("archive/pc/mod/\u{039F}\u{03A3}1.archive");
+    let renamed = game.join("archive/pc/mod/\u{03BF}\u{03C3}1.archive");
+    fs::rename(&original, &renamed).unwrap();
+    assert!(same_file::is_same_file(&original, &renamed).unwrap());
+    let report = scan_with_ownership(&store, &game).unwrap();
+    assert_eq!(report.owned_files[0].status, "intact");
+    let detected = report
+        .mods
+        .iter()
+        .find(|m| m.relative_path == Path::new("archive/pc/mod/\u{03BF}\u{03C3}1.archive"))
+        .unwrap();
+    assert!(detected.managed);
+    assert_eq!(detected.package_id.as_deref(), Some(package.id.as_str()));
+    assert!(!doctor_with_ownership(&store, &game)
+        .unwrap()
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "UNMANAGED_CONTENT"));
+}
