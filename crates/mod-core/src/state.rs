@@ -14,7 +14,8 @@ pub struct GameInstallation {
 
 /// Manager-owned state; never stored inside a game's installation directory.
 pub struct Store {
-    connection: Connection,
+    pub(crate) connection: Connection,
+    pub(crate) state_root: PathBuf,
 }
 
 impl Store {
@@ -33,7 +34,46 @@ impl Store {
                 PRIMARY KEY (game_id, path)
             );",
         )?;
-        Ok(Self { connection })
+        connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS managed_packages (
+                id TEXT PRIMARY KEY,
+                game_path TEXT NOT NULL,
+                archive_sha256 TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS managed_files (
+                game_path TEXT NOT NULL,
+                path_key TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                package_id TEXT NOT NULL REFERENCES managed_packages(id),
+                sha256 TEXT NOT NULL,
+                bytes INTEGER NOT NULL,
+                PRIMARY KEY(game_path, path_key)
+            );
+            CREATE TABLE IF NOT EXISTS pending_transactions (
+                id TEXT PRIMARY KEY,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                game_path TEXT NOT NULL,
+                package_id TEXT NOT NULL,
+                archive_sha256 TEXT
+            );
+            CREATE TABLE IF NOT EXISTS pending_files (
+                transaction_id TEXT NOT NULL REFERENCES pending_transactions(id),
+                ord INTEGER NOT NULL,
+                relative_path TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                bytes INTEGER NOT NULL,
+                PRIMARY KEY(transaction_id, ord)
+            );",
+        )?;
+        Ok(Self {
+            connection,
+            state_root: path
+                .parent()
+                .context("missing state parent")?
+                .canonicalize()?,
+        })
     }
 
     pub fn add_cyberpunk(&self, path: &Path, source: &str) -> Result<GameInstallation> {
