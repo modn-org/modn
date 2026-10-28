@@ -74,6 +74,7 @@ fn collect_files(
     kind: &str,
     mods: &mut Vec<DetectedMod>,
     budget: &mut usize,
+    incomplete: &mut bool,
 ) {
     let Some(initial) = verified_folder(root, folder) else {
         return;
@@ -91,6 +92,7 @@ fn collect_files(
         };
         for entry in entries.flatten() {
             if *budget == 0 {
+                *incomplete = true;
                 return;
             }
             *budget -= 1;
@@ -130,6 +132,7 @@ fn collect_directories(
     kind: &str,
     mods: &mut Vec<DetectedMod>,
     budget: &mut usize,
+    incomplete: &mut bool,
 ) {
     let Some(folder) = verified_folder(root, folder) else {
         return;
@@ -139,6 +142,7 @@ fn collect_directories(
     };
     for entry in entries.flatten() {
         if *budget == 0 {
+            *incomplete = true;
             return;
         }
         *budget -= 1;
@@ -162,6 +166,7 @@ pub fn scan(installation: &Path) -> ScanReport {
 fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
     let mut mods = Vec::new();
     let mut budget = limit;
+    let mut incomplete = false;
     collect_files(
         installation,
         "archive/pc/mod",
@@ -169,6 +174,7 @@ fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
         "legacy-archive",
         &mut mods,
         &mut budget,
+        &mut incomplete,
     );
     collect_files(
         installation,
@@ -177,6 +183,7 @@ fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
         "redscript",
         &mut mods,
         &mut budget,
+        &mut incomplete,
     );
     collect_files(
         installation,
@@ -185,6 +192,7 @@ fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
         "tweak",
         &mut mods,
         &mut budget,
+        &mut incomplete,
     );
     collect_directories(
         installation,
@@ -192,6 +200,7 @@ fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
         "redmod-directory",
         &mut mods,
         &mut budget,
+        &mut incomplete,
     );
     collect_directories(
         installation,
@@ -199,6 +208,7 @@ fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
         "red4ext-plugin",
         &mut mods,
         &mut budget,
+        &mut incomplete,
     );
     collect_directories(
         installation,
@@ -206,10 +216,11 @@ fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
         "cet-mod",
         &mut mods,
         &mut budget,
+        &mut incomplete,
     );
     mods.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     ScanReport {
-        incomplete: budget == 0,
+        incomplete,
         game_id: CYBERPUNK_ID.into(),
         installation: installation.to_owned(),
         redmod_available: installation.join("tools/redmod/bin/redMod.exe").is_file(),
@@ -278,6 +289,21 @@ mod tests {
         assert!(report.incomplete);
         assert!(report.mods.is_empty());
         assert!(diagnose(report)
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "SCAN_INCOMPLETE"));
+    }
+
+    #[test]
+    fn exact_entry_limit_is_not_truncation() {
+        let game = tempdir().unwrap();
+        let dir = game.path().join("archive/pc/mod");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("one.archive"), "fixture").unwrap();
+        let report = scan_bounded(game.path(), 1);
+        assert!(!report.incomplete);
+        assert_eq!(report.mods.len(), 1);
+        assert!(!diagnose(report)
             .diagnostics
             .iter()
             .any(|d| d.code == "SCAN_INCOMPLETE"));
