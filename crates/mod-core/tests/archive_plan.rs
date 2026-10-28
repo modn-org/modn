@@ -7,6 +7,7 @@ use std::{
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+#[expect(clippy::unwrap_used, reason = "Fixture setup may fail fast in tests")]
 fn zip_fixture(path: &Path, entries: &[(&str, &[u8])]) {
     let mut writer = zip::ZipWriter::new(File::create(path).unwrap());
     for (name, data) in entries {
@@ -18,6 +19,7 @@ fn zip_fixture(path: &Path, entries: &[(&str, &[u8])]) {
     writer.finish().unwrap();
 }
 
+#[expect(clippy::unwrap_used, reason = "Fixture setup may fail fast in tests")]
 fn setup_game(root: &Path, redmod: bool) {
     fs::create_dir_all(root.join("bin/x64")).unwrap();
     fs::write(root.join("bin/x64/Cyberpunk2077.exe"), "game").unwrap();

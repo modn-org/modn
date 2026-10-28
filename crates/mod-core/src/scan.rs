@@ -161,6 +161,9 @@ fn collect_directories(
     let Some(folder) = verified_folder(root, folder) else {
         return;
     };
+    let Ok(canonical_root) = root.canonicalize() else {
+        return;
+    };
     let Ok(entries) = fs::read_dir(folder) else {
         return;
     };
@@ -175,7 +178,7 @@ fn collect_directories(
             && is_real_directory(&path)
             && path
                 .canonicalize()
-                .is_ok_and(|p| p.starts_with(root.canonicalize().unwrap()))
+                .is_ok_and(|p| p.starts_with(&canonical_root))
         {
             push_mod(root, &path, kind, mods);
         }

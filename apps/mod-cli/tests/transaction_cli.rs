@@ -8,6 +8,7 @@ use std::{
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+#[expect(clippy::unwrap_used, reason = "Fixture setup may fail fast in tests")]
 fn cli(state: &Path, args: &[&str]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mod"));
     cmd.args(["--state-dir", state.to_str().unwrap(), "--json"]);

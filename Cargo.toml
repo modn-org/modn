@@ -6,3 +6,17 @@ resolver = "2"
 edition = "2021"
 license = "MIT"
 version = "0.1.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unstable_features = "deny"
+
+[workspace.lints.clippy]
+ref_option = "deny"
+disallowed_methods = "deny"
+unwrap_used = "deny"
+wildcard_imports = "deny"
+needless_for_each = "deny"
+undocumented_unsafe_blocks = "deny"
+derive_partial_eq_without_eq = "allow"
+missing_const_for_fn = "allow"

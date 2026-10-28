@@ -10,6 +10,7 @@ use std::{
 use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
+#[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
 fn fixture() -> (TempDir, Store, PathBuf, PathBuf) {
     let root = tempdir().unwrap();
     let game = root.path().join("game");
@@ -29,6 +30,7 @@ fn fixture() -> (TempDir, Store, PathBuf, PathBuf) {
     (root, state, game, archive)
 }
 
+#[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
 fn owned<'a>(scan: &'a mod_core::scan::ScanReport, name: &str) -> &'a str {
     scan.owned_files
         .iter()

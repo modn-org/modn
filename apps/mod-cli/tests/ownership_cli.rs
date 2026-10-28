@@ -8,6 +8,7 @@ use std::{
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+#[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
 fn call(state: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mod"))
         .args(["--state-dir", state.to_str().unwrap(), "--json"])
@@ -16,6 +17,7 @@ fn call(state: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
+#[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
 fn output_json(output: Output) -> Value {
     assert!(
         output.status.success(),

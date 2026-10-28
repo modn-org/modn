@@ -1,0 +1,11 @@
+# Google Rust Style Guide: https://google.github.io/styleguide/rustguide.html
+# Check public APIs, not only private code.
+avoid-breaking-exported-api = false
+allow-unwrap-in-tests = true
+
+disallowed-methods = [
+  { path = "std::panic::catch_unwind", reason = "Google Rust style forbids catch_unwind in first-party code" },
+  { path = "std::sync::PoisonError::into_inner", reason = "Never reach inside a poisoned mutex" },
+  { path = "std::sync::PoisonError::get_ref", reason = "Never reach inside a poisoned mutex" },
+  { path = "std::sync::PoisonError::get_mut", reason = "Never reach inside a poisoned mutex" },
+]

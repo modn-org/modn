@@ -168,8 +168,14 @@ fn run() -> Result<()> {
                     "installation writes game files; rerun with --yes after reviewing 'mod plan'"
                 );
             }
-            let game = selected_installation(store.as_ref().unwrap(), path)?;
-            let package = store.as_mut().unwrap().install_zip(&game, &archive)?;
+            let game = selected_installation(
+                store.as_ref().expect("non-inspect command has store"),
+                path,
+            )?;
+            let package = store
+                .as_mut()
+                .expect("non-inspect command has store")
+                .install_zip(&game, &archive)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&package)?);
             } else {
@@ -181,8 +187,14 @@ fn run() -> Result<()> {
             }
         }
         Command::Installed { path } => {
-            let game = selected_installation(store.as_ref().unwrap(), path)?;
-            let packages = store.as_ref().unwrap().installed(&game)?;
+            let game = selected_installation(
+                store.as_ref().expect("non-inspect command has store"),
+                path,
+            )?;
+            let packages = store
+                .as_ref()
+                .expect("non-inspect command has store")
+                .installed(&game)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&packages)?);
             } else if packages.is_empty() {
@@ -201,8 +213,14 @@ fn run() -> Result<()> {
             if !yes {
                 bail!("uninstall removes game files; rerun with --yes");
             }
-            let game = selected_installation(store.as_ref().unwrap(), path)?;
-            store.as_mut().unwrap().uninstall(&game, &package_id)?;
+            let game = selected_installation(
+                store.as_ref().expect("non-inspect command has store"),
+                path,
+            )?;
+            store
+                .as_mut()
+                .expect("non-inspect command has store")
+                .uninstall(&game, &package_id)?;
             if cli.json {
                 println!("{}", serde_json::json!({"uninstalled": package_id}));
             } else {
@@ -213,7 +231,10 @@ fn run() -> Result<()> {
             if !yes {
                 bail!("recovery may roll back interrupted game changes; rerun with --yes");
             }
-            let count = store.as_mut().unwrap().recover()?;
+            let count = store
+                .as_mut()
+                .expect("non-inspect command has store")
+                .recover()?;
             if cli.json {
                 println!("{}", serde_json::json!({"recovered": count}));
             } else {
@@ -238,7 +259,10 @@ fn run() -> Result<()> {
         }
         Command::Plan { archive, path } => {
             let inspection = inspect(&archive)?;
-            let game = selected_installation(store.as_ref().unwrap(), path)?;
+            let game = selected_installation(
+                store.as_ref().expect("non-inspect command has store"),
+                path,
+            )?;
             let report = plan(&inspection, &game);
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
@@ -265,7 +289,7 @@ fn run() -> Result<()> {
             let candidate = choose_candidate(path)?;
             let entry = store
                 .as_ref()
-                .unwrap()
+                .expect("non-inspect command has store")
                 .add_cyberpunk(&candidate.path, &candidate.source)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&entry)?);
@@ -276,7 +300,10 @@ fn run() -> Result<()> {
         Command::Game {
             command: GameCommand::List,
         } => {
-            let entries = store.as_ref().unwrap().list()?;
+            let entries = store
+                .as_ref()
+                .expect("non-inspect command has store")
+                .list()?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&entries)?);
             } else if entries.is_empty() {
@@ -293,8 +320,14 @@ fn run() -> Result<()> {
             }
         }
         Command::Scan { path } => {
-            let path = selected_installation(store.as_ref().unwrap(), path)?;
-            let report = scan_with_ownership(store.as_ref().unwrap(), &path)?;
+            let path = selected_installation(
+                store.as_ref().expect("non-inspect command has store"),
+                path,
+            )?;
+            let report = scan_with_ownership(
+                store.as_ref().expect("non-inspect command has store"),
+                &path,
+            )?;
             if report.incomplete {
                 eprintln!("warning: mod scan incomplete (entry limit reached)");
             }
@@ -334,8 +367,14 @@ fn run() -> Result<()> {
             }
         }
         Command::Doctor { path } => {
-            let path = selected_installation(store.as_ref().unwrap(), path)?;
-            let report = doctor_with_ownership(store.as_ref().unwrap(), &path)?;
+            let path = selected_installation(
+                store.as_ref().expect("non-inspect command has store"),
+                path,
+            )?;
+            let report = doctor_with_ownership(
+                store.as_ref().expect("non-inspect command has store"),
+                &path,
+            )?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {

@@ -1,0 +1,5 @@
+# Stable rustfmt. Google's preferred imports_granularity = "Module",
+# hex_literal_case = "Lower", and format_macro_matchers = true require nightly
+# rustfmt and are enforced in review rather than breaking stable CI.
+edition = "2021"
+max_width = 100

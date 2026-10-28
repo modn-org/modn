@@ -3,6 +3,7 @@ use mod_core::state::Store;
 use std::fs;
 use tempfile::tempdir;
 
+#[expect(clippy::unwrap_used, reason = "Fixture setup may fail fast in tests")]
 fn game_at(path: &std::path::Path) {
     fs::create_dir_all(path.join("bin/x64")).unwrap();
     fs::write(path.join("bin/x64/Cyberpunk2077.exe"), "fixture").unwrap();
