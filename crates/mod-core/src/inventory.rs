@@ -133,11 +133,11 @@ fn framework_signals(root: &Path) -> Vec<FrameworkSignal> {
     signals
 }
 
-// Windows folds ordinary ASCII case for filenames, while Linux paths must match byte-for-byte.
-// Unicode lowercase transforms (e.g. the Kelvin sign) are not filesystem identity.
+// Unicode casefolding on Windows is only a candidate search. Names that compare equal
+// under Unicode lowercasing can still be distinct directory entries on NTFS.
 fn ownership_key(relative: &str) -> String {
     if cfg!(windows) {
-        relative.to_ascii_lowercase()
+        relative.to_lowercase()
     } else {
         relative.to_owned()
     }
@@ -150,7 +150,7 @@ pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanRep
     let installed = store.installed(&game)?;
     let mut report = scan::scan(&game);
     report.framework_signals = framework_signals(&game);
-    let mut matched = HashMap::new();
+    let mut matched: HashMap<String, Vec<usize>> = HashMap::new();
 
     for package in installed {
         for file in package.files {
@@ -170,29 +170,59 @@ pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanRep
             .cmp(&b.relative_path)
             .then(a.package_id.cmp(&b.package_id))
     });
-    for (i, file) in report.owned_files.iter().enumerate() {
-        matched.insert(ownership_key(&file.relative_path), i);
+    for (index, file) in report.owned_files.iter().enumerate() {
+        matched
+            .entry(ownership_key(&file.relative_path))
+            .or_default()
+            .push(index);
     }
-    for detected in &mut report.mods {
-        // A directory is not wholly owned merely because one file beneath it is.
+
+    // Gather actual matching directory entries before choosing a managed attribution.
+    // Distinct hard links may have identical file IDs; the exact recorded name wins.
+    let mut candidates = vec![Vec::<usize>::new(); report.owned_files.len()];
+    for (detected_index, detected) in report.mods.iter().enumerate() {
         if detected.kind != "legacy-archive" {
             continue;
         }
         let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
-        if let Some(&index) = matched.get(&ownership_key(&relative)) {
-            let owned = &report.owned_files[index];
-            if owned.status == "unsafe" || owned.status == "missing" {
-                continue;
-            }
-            // A matching spelling is not enough when the filesystem may redirect or alias a path.
-            // For unreadable paths, preserve the owner's record but never claim intact contents.
-            if owned.status != "unreadable"
-                && !same_file::is_same_file(
+        if let Some(indices) = matched.get(&ownership_key(&relative)) {
+            for &owned_index in indices {
+                let owned = &report.owned_files[owned_index];
+                if owned.status == "missing" || owned.status == "unsafe" {
+                    continue;
+                }
+                // An unreadable file cannot prove identity, so require exact spelling.
+                // Neither branch may ever infer an intact hash from an unrelated alias.
+                if owned.status == "unreadable" {
+                    if relative == owned.relative_path {
+                        candidates[owned_index].push(detected_index);
+                    }
+                } else if same_file::is_same_file(
                     game.join(&owned.relative_path),
                     game.join(&detected.relative_path),
                 )
                 .unwrap_or(false)
-            {
+                {
+                    candidates[owned_index].push(detected_index);
+                }
+            }
+        }
+    }
+
+    for (owned_index, entries) in candidates.iter().enumerate() {
+        let owned = &report.owned_files[owned_index];
+        let exact = entries.iter().copied().find(|&index| {
+            report.mods[index]
+                .relative_path
+                .to_string_lossy()
+                .replace('\\', "/")
+                == owned.relative_path
+        });
+        // Ambiguous aliases must remain unmanaged rather than adopt extra hard links.
+        let selected = exact.or_else(|| (entries.len() == 1).then(|| entries[0]));
+        if let Some(detected_index) = selected {
+            let detected = &mut report.mods[detected_index];
+            if detected.managed {
                 continue;
             }
             detected.managed = true;

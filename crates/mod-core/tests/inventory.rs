@@ -295,3 +295,66 @@ fn ordinary_case_sensitive_file_names_remain_distinct() {
         .iter()
         .any(|m| m.relative_path == Path::new("archive/pc/mod/K.archive") && !m.managed));
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_non_ascii_case_only_rename_stays_managed() {
+    let (root, mut store, game, _archive) = fixture();
+    let zip_path = root.path().join("unicode-case.zip");
+    let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    writer
+        .start_file(
+            "archive/pc/mod/\u{00C9}.archive",
+            SimpleFileOptions::default(),
+        )
+        .unwrap();
+    writer.write_all(b"owned").unwrap();
+    writer.finish().unwrap();
+    let package = store.install_zip(&game, &zip_path).unwrap();
+    let original = game.join("archive/pc/mod/\u{00C9}.archive");
+    let renamed = game.join("archive/pc/mod/\u{00E9}.archive");
+    fs::rename(&original, &renamed).unwrap();
+    let detected = scan_with_ownership(&store, &game).unwrap();
+    assert_eq!(detected.owned_files[0].status, "intact");
+    let entry = detected
+        .mods
+        .iter()
+        .find(|m| m.relative_path == Path::new("archive/pc/mod/\u{00E9}.archive"))
+        .unwrap();
+    assert!(entry.managed);
+    assert_eq!(entry.package_id.as_deref(), Some(package.id.as_str()));
+    assert!(!doctor_with_ownership(&store, &game)
+        .unwrap()
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "UNMANAGED_CONTENT"));
+}
+
+#[test]
+fn different_hardlink_alias_does_not_gain_ownership() {
+    let (root, mut store, game, _archive) = fixture();
+    let zip_path = root.path().join("hardlink.zip");
+    let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    writer
+        .start_file("archive/pc/mod/k.archive", SimpleFileOptions::default())
+        .unwrap();
+    writer.write_all(b"owned").unwrap();
+    writer.finish().unwrap();
+    store.install_zip(&game, &zip_path).unwrap();
+    let original = game.join("archive/pc/mod/k.archive");
+    let alias = game.join("archive/pc/mod/\u{212A}.archive");
+    if alias.exists() {
+        return;
+    }
+    fs::hard_link(&original, &alias).unwrap();
+    let report = scan_with_ownership(&store, &game).unwrap();
+    assert_eq!(report.mods.len(), 2);
+    assert!(report
+        .mods
+        .iter()
+        .any(|m| m.relative_path == Path::new("archive/pc/mod/k.archive") && m.managed));
+    assert!(report
+        .mods
+        .iter()
+        .any(|m| m.relative_path == Path::new("archive/pc/mod/\u{212A}.archive") && !m.managed));
+}
