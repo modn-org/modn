@@ -353,3 +353,22 @@ fn windows_invalid_filename_chars_are_refused() {
     zip_fixture(&archive, &[("archive/pc/mod/bad?.archive", b"bad")]);
     assert!(inspect(&archive).is_err());
 }
+
+#[test]
+fn extensionless_readme_and_changelog_do_not_block_valid_package() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("game");
+    setup_game(&root, false);
+    let archive = dir.path().join("docs.zip");
+    zip_fixture(
+        &archive,
+        &[
+            ("archive/pc/mod/real.archive", b"mod"),
+            ("README", b"read me"),
+            ("CHANGELOG", b"history"),
+        ],
+    );
+    let report = plan(&inspect(&archive).unwrap(), &root);
+    assert_eq!(report.status, "reviewable", "{:?}", report.blockers);
+    assert_eq!(report.operations.len(), 1);
+}

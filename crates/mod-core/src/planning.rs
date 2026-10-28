@@ -70,6 +70,8 @@ fn is_documentation(path: &str) -> bool {
     let (stem, extension) = name.rsplit_once('.').unwrap_or((&name, ""));
     name == "license"
         || name == "copying"
+        || name == "readme"
+        || name == "changelog"
         || (matches!(extension, "md" | "txt" | "rst")
             && (stem.starts_with("readme")
                 || stem.starts_with("license")
