@@ -223,11 +223,19 @@ impl Store {
     }
 
     fn finish_journal(&mut self, id: &str) -> Result<()> {
+        let staging = self.state_root.join(id);
+        if staging.exists() {
+            fs::remove_dir_all(&staging).with_context(|| {
+                format!(
+                    "cannot clean staged transaction {}; retry 'mod recover'",
+                    staging.display()
+                )
+            })?;
+        }
         let tx = self.connection.transaction()?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
-        let _ = fs::remove_dir_all(self.state_root.join(id));
         Ok(())
     }
 
@@ -739,6 +747,33 @@ mod tests {
                 &archive(_dir.path(), &[("archive/pc/mod/other.archive", b"x")])
             )
             .is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn locked_staging_cleanup_keeps_journal_for_retry() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (_dir, mut store, game) = fixture();
+        let f = prepared_file("archive/pc/mod/never-created.archive", b"not installed");
+        let id = "txn-locked-staging";
+        store
+            .insert_journal(id, "install", &game, id, None, std::slice::from_ref(&f))
+            .unwrap();
+        let stage = store.state_root.join(id);
+        fs::create_dir_all(&stage).unwrap();
+        let file = stage.join("locked.bin");
+        fs::write(&file, b"staged").unwrap();
+        let handle = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&file)
+            .unwrap();
+        assert!(store.recover().is_err());
+        assert_eq!(store.pending().unwrap().len(), 1);
+        drop(handle);
+        assert_eq!(store.recover().unwrap(), 1);
+        assert!(!stage.exists());
+        assert!(store.pending().unwrap().is_empty());
     }
 
     #[test]
