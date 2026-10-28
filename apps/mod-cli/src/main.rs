@@ -1,0 +1,207 @@
+use anyhow::{bail, Context, Result};
+use clap::{Parser, Subcommand};
+use mod_core::discovery::{discover, validate_installation, Candidate};
+use mod_core::scan::{doctor, scan};
+use mod_core::state::Store;
+use std::path::{Path, PathBuf};
+
+#[derive(Parser)]
+#[command(
+    name = "mod",
+    about = "Cyberpunk mod discovery and diagnostics (read-only)"
+)]
+struct Cli {
+    #[arg(long, global = true)]
+    json: bool,
+
+    #[arg(long, global = true, value_name = "DIR")]
+    state_dir: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Game {
+        #[command(subcommand)]
+        command: GameCommand,
+    },
+    /// Inspect known mod directories without modifying game files.
+    Scan {
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Check REDmod availability and report unmanaged content.
+    Doctor {
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum GameCommand {
+    /// Register a Cyberpunk installation by detection or explicit path.
+    Add {
+        game: String,
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Show registered installations.
+    List,
+}
+
+fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
+    if let Some(dir) = state_dir {
+        return Ok(dir.join("state.sqlite"));
+    }
+    if let Some(path) = std::env::var_os("LOCALAPPDATA") {
+        return Ok(PathBuf::from(path).join("Mods/state.sqlite"));
+    }
+    if let Some(path) = std::env::var_os("XDG_STATE_HOME") {
+        return Ok(PathBuf::from(path).join("mods/state.sqlite"));
+    }
+    let home = std::env::var_os("HOME").context("no HOME or app state directory available")?;
+    Ok(PathBuf::from(home).join(".local/state/mods/state.sqlite"))
+}
+
+fn validate_state_path(state_path: &Path) -> Result<()> {
+    let parent = state_path.parent().context("invalid state path")?;
+    let mut directory = if parent.is_absolute() {
+        parent.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(parent)
+    };
+    loop {
+        if let Ok(existing) = directory.canonicalize() {
+            if existing
+                .ancestors()
+                .any(|ancestor| ancestor.join("bin/x64/Cyberpunk2077.exe").is_file())
+            {
+                bail!("state directory must be outside the Cyberpunk 2077 installation");
+            }
+            return Ok(());
+        }
+        directory = directory
+            .parent()
+            .context("cannot resolve state directory")?
+            .to_path_buf();
+    }
+}
+
+fn choose_candidate(path: Option<PathBuf>) -> Result<Candidate> {
+    if let Some(path) = path {
+        return Ok(Candidate {
+            path: validate_installation(&path)?,
+            source: "manual".into(),
+        });
+    }
+    let candidates = discover();
+    match candidates.as_slice() {
+        [candidate] => Ok(candidate.clone()),
+        [] => bail!("Cyberpunk 2077 not found; specify --path to its installation directory"),
+        _ => bail!("multiple installations found; specify --path to select one"),
+    }
+}
+
+fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(path) = path {
+        return validate_installation(&path);
+    }
+    let entries = store.list()?;
+    match entries.as_slice() {
+        [entry] => validate_installation(&entry.path),
+        [] => bail!("no game registered; run 'mod game add cyberpunk --path <directory>'"),
+        _ => bail!("multiple games registered; specify --path to select an installation"),
+    }
+}
+
+fn run() -> Result<()> {
+    let cli = Cli::parse();
+    let state_path = database_path(cli.state_dir.as_deref())?;
+    validate_state_path(&state_path)?;
+    let store = Store::open(&state_path)?;
+    match cli.command {
+        Command::Game {
+            command: GameCommand::Add { game, path },
+        } => {
+            if !["cyberpunk", "cyberpunk-2077"].contains(&game.as_str()) {
+                bail!("unsupported game '{game}'; only cyberpunk-2077 is available in v0");
+            }
+            let candidate = choose_candidate(path)?;
+            let entry = store.add_cyberpunk(&candidate.path, &candidate.source)?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&entry)?);
+            } else {
+                println!("Registered {} ({})", entry.path.display(), entry.source);
+            }
+        }
+        Command::Game {
+            command: GameCommand::List,
+        } => {
+            let entries = store.list()?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&entries)?);
+            } else if entries.is_empty() {
+                println!("No game installations registered.");
+            } else {
+                for entry in entries {
+                    println!(
+                        "{}: {} ({})",
+                        entry.game_id,
+                        entry.path.display(),
+                        entry.source
+                    );
+                }
+            }
+        }
+        Command::Scan { path } => {
+            let path = selected_installation(&store, path)?;
+            let report = scan(&path);
+            if report.incomplete {
+                eprintln!("warning: mod scan incomplete (entry limit reached)");
+            }
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("Cyberpunk 2077: {}", report.installation.display());
+                println!("REDmod executable present: {}", report.redmod_available);
+                for entry in report.mods {
+                    println!(
+                        "{}: {} [unmanaged]",
+                        entry.kind,
+                        entry.relative_path.display()
+                    );
+                }
+            }
+        }
+        Command::Doctor { path } => {
+            let path = selected_installation(&store, path)?;
+            let report = doctor(&path);
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("Cyberpunk 2077: {}", report.scan.installation.display());
+                println!(
+                    "REDmod executable present: {}",
+                    report.scan.redmod_available
+                );
+                println!("Detected unmanaged entries: {}", report.scan.mods.len());
+                for diagnostic in report.diagnostics {
+                    println!(
+                        "{} [{}]: {}",
+                        diagnostic.severity, diagnostic.code, diagnostic.message
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("error: {error:#}");
+        std::process::exit(1);
+    }
+}
