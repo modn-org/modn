@@ -1,6 +1,8 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use mod_core::archive::inspect;
 use mod_core::discovery::{discover, validate_installation, Candidate};
+use mod_core::planning::plan;
 use mod_core::scan::{doctor, scan};
 use mod_core::state::Store;
 use std::path::{Path, PathBuf};
@@ -23,6 +25,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Inspect ZIP, JAR, or 7z metadata without extracting files.
+    Inspect { archive: PathBuf },
+    /// Preview where files would be installed; never writes to the game.
+    Plan {
+        archive: PathBuf,
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
     Game {
         #[command(subcommand)]
         command: GameCommand,
@@ -119,9 +129,49 @@ fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let state_path = database_path(cli.state_dir.as_deref())?;
-    validate_state_path(&state_path)?;
-    let store = Store::open(&state_path)?;
+    let store = if matches!(&cli.command, Command::Inspect { .. }) {
+        None
+    } else {
+        validate_state_path(&state_path)?;
+        Some(Store::open(&state_path)?)
+    };
     match cli.command {
+        Command::Inspect { archive } => {
+            let report = inspect(&archive)?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "{} ({}, metadata only)",
+                    report.archive.display(),
+                    report.format
+                );
+                println!("SHA-256: {}", report.sha256);
+                for file in report.files {
+                    println!("{} ({} bytes)", file.entry, file.bytes);
+                }
+            }
+        }
+        Command::Plan { archive, path } => {
+            let inspection = inspect(&archive)?;
+            let game = selected_installation(store.as_ref().unwrap(), path)?;
+            let report = plan(&inspection, &game);
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "Plan: {} (metadata only; {})",
+                    report.status,
+                    archive.display()
+                );
+                for file in report.operations {
+                    println!("{} => {}", file.source, file.destination);
+                }
+                for issue in report.blockers {
+                    println!("BLOCKER {}: {}", issue.code, issue.message);
+                }
+            }
+        }
         Command::Game {
             command: GameCommand::Add { game, path },
         } => {
@@ -129,7 +179,10 @@ fn run() -> Result<()> {
                 bail!("unsupported game '{game}'; only cyberpunk-2077 is available in v0");
             }
             let candidate = choose_candidate(path)?;
-            let entry = store.add_cyberpunk(&candidate.path, &candidate.source)?;
+            let entry = store
+                .as_ref()
+                .unwrap()
+                .add_cyberpunk(&candidate.path, &candidate.source)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&entry)?);
             } else {
@@ -139,7 +192,7 @@ fn run() -> Result<()> {
         Command::Game {
             command: GameCommand::List,
         } => {
-            let entries = store.list()?;
+            let entries = store.as_ref().unwrap().list()?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&entries)?);
             } else if entries.is_empty() {
@@ -156,7 +209,7 @@ fn run() -> Result<()> {
             }
         }
         Command::Scan { path } => {
-            let path = selected_installation(&store, path)?;
+            let path = selected_installation(store.as_ref().unwrap(), path)?;
             let report = scan(&path);
             if report.incomplete {
                 eprintln!("warning: mod scan incomplete (entry limit reached)");
@@ -176,7 +229,7 @@ fn run() -> Result<()> {
             }
         }
         Command::Doctor { path } => {
-            let path = selected_installation(&store, path)?;
+            let path = selected_installation(store.as_ref().unwrap(), path)?;
             let report = doctor(&path);
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
