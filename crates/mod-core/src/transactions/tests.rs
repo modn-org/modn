@@ -1,7 +1,9 @@
 use super::journal::{target_path, temp_path, JournalFile};
 use crate::state::Store;
 use sha2::{Digest, Sha256};
-use std::fs::{self, File, OpenOptions};
+#[cfg(windows)]
+use std::fs::OpenOptions;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
