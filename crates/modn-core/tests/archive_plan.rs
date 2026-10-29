@@ -227,7 +227,7 @@ fn mixed_framework_layouts_are_plannable() {
     assert!(report
         .blockers
         .iter()
-        .any(|issue| issue.code == "NOT_INSTALLABLE"));
+        .any(|issue| issue.code == "REDSCRIPT_NOT_INSTALLED"));
     assert!(!game_dir.join("r6").exists());
 }
 
@@ -315,7 +315,7 @@ fn documentation_prefix_does_not_hide_payloads() {
     assert!(report
         .blockers
         .iter()
-        .any(|issue| issue.code == "NOT_INSTALLABLE"));
+        .any(|issue| issue.code == "REDSCRIPT_NOT_INSTALLED"));
     assert_eq!(report.operations.len(), 2);
 }
 

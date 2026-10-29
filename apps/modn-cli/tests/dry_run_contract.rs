@@ -265,7 +265,7 @@ fn preview_blocks_non_installable_formats_and_layouts() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|issue| issue["code"] == "NOT_INSTALLABLE"),
+            .any(|issue| issue["code"] == "REDSCRIPT_NOT_INSTALLED"),
         "{report}"
     );
     let jar = temp.path().join("payload.jar");

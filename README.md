@@ -1,6 +1,6 @@
 # modn
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET and RED4ext plugin ZIP packages**. The runtime-loaded Luau Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
+A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP packages**. The runtime-loaded Luau Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
 
 ## Development
 
@@ -20,7 +20,7 @@ On Windows, omit `--path` to attempt discovery through Steam libraries, Epic Lau
 
 Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not adopt or authorize uninstalling detected files.
 
-Current detection recognizes legacy `.archive` files, redscript, tweak files, REDmod directories, CET mod directories, and RED4ext plugin directories. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
+Current detection recognizes legacy `.archive` files, ArchiveXL `.xl` metadata, redscript `.reds` files, redscript hint `.toml`, tweak `.yaml`/`.yml` files, REDmod directories, CET mods and RED4ext plugins. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
 
 ## Local Luau game modules (experimental, read-only)
 
@@ -115,11 +115,11 @@ replacement, and the Luau VM is not a formal security boundary.
 
 ## Read-only inventory and ownership drift
 
-`modn --game <game-id> scan --json --path <game>` combines on-disk discovery with SQLite ownership records. The `mods` array labels discovered legacy archives as `managed` only when the observed path resolves to a recorded, manager-owned file (including valid Windows case-only aliases); managed entries also include `package_id` and `integrity`. The Cyberpunk scanner emits individual CET and RED4ext plugin files for exact file-level ownership attribution; empty mod directories remain unmanaged. To preserve the one-second Luau execution budget, framework traversal is capped at 256 directory entries per scan; larger inventories return `incomplete: true` and `SCAN_INCOMPLETE` diagnostics rather than aborting. The ownership ledger still lists all recorded files. Unmanaged mods, scripts, tweaks and REDmod folders remain unmanaged even if they appear alongside owned files.
+`modn --game <game-id> scan --json --path <game>` combines on-disk discovery with SQLite ownership records. The `mods` array labels discovered legacy archives as `managed` only when the observed path resolves to a recorded, manager-owned file (including valid Windows case-only aliases); managed entries also include `package_id` and `integrity`. The Cyberpunk scanner emits individual CET/RED4ext files, redscript and tweak files, ArchiveXL metadata, and redscript hints for exact file-level ownership attribution; empty mod directories remain unmanaged. To preserve the one-second Luau execution budget, CET, RED4ext, redscript, hint and tweak traversal shares a bounded 256-entry budget; larger inventories return `incomplete: true` and `SCAN_INCOMPLETE` diagnostics rather than aborting. The ownership ledger still lists all recorded files. Unmanaged content and REDmod folders remain unmanaged even if they appear alongside owned files.
 
 `owned_files` reports every recorded file, **including missing files absent from discovery**, with the statuses `intact`, `modified`, `missing`, `unsafe` (linked/redirected path), or `unreadable`. Content is SHA-256 checked when size and path verification succeed. Large archives may take time to hash. `modn --game <game-id> doctor --json --path <game>` adds `OWNED_FILE_MISSING`, `OWNED_FILE_MODIFIED`, `OWNED_FILE_UNSAFE`, and `OWNED_FILE_UNREADABLE` warnings, and reports `UNMANAGED_CONTENT` only when unmanaged entries are present.
 
-The `framework_signals` array identifies candidate CET, RED4ext, redscript, and ArchiveXL directories or binaries with their relative paths. A presence signal **does not verify that a framework is installed, active, or compatible**. `scan` and `doctor` never write to the game or adopt files; the state database remains outside the game installation. A game directory redirect is not followed for ownership verification. No automatic repairs or deletion are performed.
+The `framework_signals` array identifies candidate CET, RED4ext, redscript/compiler, ArchiveXL and TweakXL directories or binaries with their relative paths. Doctor emits `REDSCRIPT_NOT_INSTALLED`, `ARCHIVEXL_NOT_INSTALLED`, or `TWEAKXL_NOT_INSTALLED` when corresponding content is present but a known framework marker is absent. A presence signal **does not verify that a framework is installed, active, or compatible**. `scan` and `doctor` never write to the game or adopt files; the state database remains outside the game installation. A game directory redirect is not followed for ownership verification. No automatic repairs or deletion are performed.
 
 ## Archive inspection and dry-run resolution
 
@@ -127,11 +127,11 @@ The `framework_signals` array identifies candidate CET, RED4ext, redscript, and 
 
 `modn --game <game-id> install <file> --dry-run --path <game> --json` resolves archive contents into proposed file operations without writing game files. The runtime-loaded Luau game policy provides a **schema-v1** proposal (`schema_version = 1`, `operations = { { source, destination, kind, package_root }, ... }`, `blockers = { { code, message }, ... }`). Rust independently validates source membership, game-root confinement, target paths, case-insensitive duplicates, file/directory overlap, occupied or linked destinations, prohibited executables, declared byte limits, and source-archive changes. The module cannot choose an arbitrary destination root or access write APIs. To keep the existing 8 MiB/1-second sandbox predictable, previews with more than 2,048 archive files return a blocked result (TOO_MANY_FILES), not a partial proposal. Replacing the Luau policy alone changes the preview without rebuilding Rust.
 
-An optional outer package folder is trimmed by the game policy. Unknown layouts, incompatible package variants, executable installers, occupied destinations, and missing REDmod tooling block the preview. A `status: "reviewable"` preview means the selected Luau policy proposed safe operations, **not** that archive content is verified or installation approved. The bundled Cyberpunk module permits legacy `.archive` files, CET mods under `bin/x64/plugins/cyber_engine_tweaks/mods/<name>/` and RED4ext plugins under `red4ext/plugins/<name>/`; it still blocks redscript, tweaks and REDmod layouts. The Rust executor accepts independently validated ZIP file operations from any selected game policy. Changing Luau mappings changes both preview and approved installation without rebuilding Rust. `metadata_only: true` means file contents have not been staged or verified. Untrusted Luau results have an 8 MiB copied-string budget and strict per-field limits.
+An optional outer package folder is trimmed by the game policy. Unknown layouts, incompatible package variants, executable installers, occupied destinations, and missing REDmod tooling block the preview. A `status: "reviewable"` preview means the selected Luau policy proposed safe operations, **not** that archive content is verified or installation approved. The bundled Cyberpunk module permits legacy `.archive` and ArchiveXL `.xl`/`.archive.xl` metadata directly under `archive/pc/mod/`, `.reds` under `r6/scripts/` and its subdirectories, `.toml` under `r6/config/redsUserHints/`, `.yaml`/`.yml` under `r6/tweaks/`, CET mods under `bin/x64/plugins/cyber_engine_tweaks/mods/<name>/`, and RED4ext plugins under `red4ext/plugins/<name>/`. It still blocks REDmod deployment and unsupported content. The Rust executor accepts independently validated ZIP file operations from any selected game policy. Changing Luau mappings changes both preview and approved installation without rebuilding Rust. `metadata_only: true` means file contents have not been staged or verified. Untrusted Luau results have an 8 MiB copied-string budget and strict per-field limits.
 
 `modn install <file> --yes` re-resolves the same Luau policy as `--dry-run`, then submits its operations to Rust for fresh source hashes, filesystem conflicts and ownership checks under the exclusive transaction lock. Luau itself has no write binding, and preview results are neither stored nor accepted as approval tokens. `--dry-run --path <game>` does not initialize manager state; previews using a registered game open an existing database read-only. Without `--yes` or `--dry-run`, `install` refuses to run. These options are mutually exclusive. **A reviewable dry run never authorizes installation.**
 
-### CET and RED4ext preview examples
+### Supported Cyberpunk ZIP preview examples
 
 ```powershell
 modn --game cyberpunk-2077 install "<mod-package.zip>" --dry-run --path "<game-root>" --json
@@ -143,17 +143,21 @@ Both CET and RED4ext are **game policy**, not hardcoded Rust installers. A CET m
 can contain multiple Lua/config files, while RED4ext plugins can include DLLs
 and nested assets. These are not claims that the required framework is present
 or that a particular mod is compatible with the installed game version.
-Framework directory names in CET and RED4ext ZIPs must use the documented
-lowercase casing (`bin/x64/plugins/cyber_engine_tweaks/mods` and `red4ext/plugins`).
-An incorrectly cased prefix blocks the entire package so files remain visible
-to the inventory scanner on case-sensitive filesystems.
-If an archive also includes redscript, ArchiveXL-associated configuration,
-unrecognized files, installers or unsafe ZIP names, the entire proposal is blocked.
+Recognized directory prefixes use canonical casing (`bin/x64/plugins/cyber_engine_tweaks/mods`,
+`red4ext/plugins`, `r6/scripts`, `r6/tweaks`, `r6/config/redsUserHints` and
+`archive/pc/mod`); the per-mod filenames retain their original spelling.
+Mismatched prefix casing, unrelated file types, REDmod, installers or unsafe ZIP
+names block the **entire** package. The presence of `engine/tools/scc.exe`,
+`red4ext/plugins/ArchiveXL/ArchiveXL.dll` or
+`red4ext/plugins/TweakXL/TweakXL.dll` is required respectively for redscript
+sources/hints, ArchiveXL metadata or TweakXL YAML tweaks. Missing markers return
+specific blocked-preview codes; a marker does **not** establish a working
+framework, game-version compatibility or per-mod dependency completeness.
 
 For an optional, **read-only** local benchmark of downloaded ZIP archives,
 build `modn` then run `python .agents/skills/verify-modn/scripts/benchmark_cp77.py "<archives-folder>"`
 (`python3` on Linux). It previews eligible local ZIPs only against a disposable
-game marker; it never extracts, executes, installs, copies or alters archives,
+game marker and synthetic redscript/ArchiveXL/TweakXL framework markers; it never extracts, executes, installs, copies or alters archives,
 and does not create manager state. The source archives stay outside the repo;
 benchmark results are terminal output only. Use `--max-archive-mib` to change
 the default 64 MiB per-file cap. The benchmark also skips ZIPs advertising over
@@ -162,7 +166,7 @@ records before loading entry metadata.
 
 ## Transactional Luau-planned ZIP installation (experimental)
 
-The Cyberpunk Luau policy permits ZIP packages containing recognized legacy `archive/pc/mod/*.archive` content, CET mods and RED4ext plugin files, alone or together, with an optional wrapper and recognized package-level documentation. A supported multi-file package is installed and uninstalled under one ownership record. Unknown or unsupported layouts block the entire package; `r6/scripts`, `r6/tweaks`, `mods` (REDmod), unrelated framework/bootstrap files and executable installers remain out of scope. Inspect and use `install --dry-run` first. **Do not uninstall existing framework mods or adopt manually installed files**; those remain unmanaged.
+The Cyberpunk Luau policy permits ZIP packages containing recognized legacy archives, ArchiveXL metadata, redscript sources/hints, YAML tweaks, CET mods and RED4ext plugin files, alone or together, with an optional wrapper and recognized documentation. A supported multi-file package is installed and uninstalled under one ownership record. Unknown or unsupported layouts block the entire package; `mods` (REDmod), unrelated framework/bootstrap files and executable installers remain out of scope. Inspect and use `install --dry-run` first. **Do not uninstall existing framework mods or adopt manually installed files**; those remain unmanaged.
 
 ```powershell
 modn --game cyberpunk-2077 install "C:\Downloads\HD Reworked.zip" --dry-run --json --path <game>
@@ -176,7 +180,7 @@ modn recover --yes --json
 
 The transaction executor is game-agnostic: Rust callers may submit an explicitly approved `InstallPlan` to `Store::install_operations_zip` for any real installation root. Under the exclusive store lock it independently re-inspects the ZIP, verifies archive hashes and all source sizes, validates destinations, collisions, executable payloads, ownership conflicts, and size limits before staging. The ownership ledger, rollback, crash recovery, and uninstall operate on generic installation roots. The CLI now resolves installation operations from Luau; no Cyberpunk-specific Rust installation planner or legacy compatibility adapter remains. No new archive extraction formats or REDmod deployment are enabled. CET/RED4ext `.dll` plugin files are permitted within the recognized plugin layout, but neither Modn nor its preview executes them or certifies their compatibility; prohibited installer/script executables remain blocked.
 
-Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, framework dependency checks, package updates, file adoption, migration, or automatic recovery. Always try it on a disposable game fixture before testing against a real game.
+Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), package updates, file adoption, migration, or automatic recovery. Always try it on a disposable game fixture before testing against a real game.
 
 ## Scope
 

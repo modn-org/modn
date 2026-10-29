@@ -203,6 +203,13 @@ pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
             owned.set(index + 1, value)?;
         }
         input.set("owned_files", owned)?;
+        let signals = lua.create_table()?;
+        for (index, signal) in report.framework_signals.iter().enumerate() {
+            let value = lua.create_table()?;
+            value.set("relative_path", signal.relative_path.as_str())?;
+            signals.set(index + 1, value)?;
+        }
+        input.set("framework_signals", signals)?;
         let doctor: Function = policy.get("doctor")?;
         let entries: Table = doctor.call(input)?;
         let mut messages = Vec::new();

@@ -30,6 +30,7 @@ The driver performs [feature-mapped](features/README.md) CLI actions, including:
 - Register `test-game`, then install through its recorded identity without `--game`.
 - Independently verify written bytes, owned/unmanaged scan, conflict rejection, doctor drift, modified-file uninstall protection, safe uninstall and idle recovery.
 - Register and install a second `cyberpunk-2077` fixture concurrently, confirm independent ownership for both games, reject ambiguous selection, and uninstall each without changing the other.
+- Exercise a wrapped redscript/ArchiveXL/TweakXL ZIP on disposable Cyberpunk paths with **synthetic presence-only** framework markers, verifying read-only preview, approved install, owned scan, doctor and uninstall without altering manual markers or the other game.
 
 The `test-game` module uses ordinary runtime Luau policy and ZIP operations; its full CLI lifecycle is now verified. No game-specific Rust adapter or default ID is used.
 
@@ -41,6 +42,6 @@ Each step produces a numbered JSON command transcript (arguments, exit, stdout, 
 
 The driver deletes only the uniquely created disposable `modn-verify-fixture-*` directory, even on failure. It preserves evidence after cleanup. It never touches real installations, other test processes or other runs.
 
-Optional read-only compatibility benchmarking: `python .agents/skills/verify-modn/scripts/benchmark_cp77.py <download-directory>` uses a disposable game root and local ZIP metadata/CLI dry-runs only. It never executes, copies or extracts downloaded mod payloads or creates state; results remain local and are not committed. This is separate from the synthetic write-path tests.
+Optional metadata-only ZIP layout benchmarking with synthetic dependency markers:  `python .agents/skills/verify-modn/scripts/benchmark_cp77.py <download-directory>` uses a disposable game root and local ZIP metadata/CLI dry-runs only. It never executes, copies or extracts downloaded mod payloads or creates state; results remain local and are not committed. This is separate from the synthetic write-path tests.
 
 Crash-injected recovery is not covered by this CLI exercise. Keep existing Rust crash-recovery tests and project-mandated cargo fmt/clippy/tests as separate required checks. CI exercises this skill on Linux and Windows.
