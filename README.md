@@ -1,6 +1,6 @@
 # modn
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection/planning, and **explicit, ownership-tracked installation of legacy .archive ZIP packages**. Luau adapters, REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
+A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection/planning, and **explicit, ownership-tracked installation of legacy .archive ZIP packages**. The first read-only Luau game-module loader is available; game-specific capabilities and adapters, REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
 
 ## Development
 
@@ -21,6 +21,30 @@ On Windows, omit `--path` to attempt discovery through Steam libraries, Epic Lau
 Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not adopt or authorize uninstalling detected files.
 
 Current detection recognizes legacy `.archive` files, redscript, tweak files, REDmod directories, CET mod directories, and RED4ext plugin directories. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
+
+## Local Luau game modules (experimental, read-only)
+
+`modn module check <directory> --json` validates a local module without creating manager state or touching a game installation. The selected directory must contain `module.json` and one flat `.luau` entrypoint. [A runnable example](examples/game-modules/sample-game/) is included:
+
+```sh
+cargo run --bin modn -- module check examples/game-modules/sample-game --json
+```
+
+`module.json`:
+
+```json
+{"game_id":"sample-game","version":"0.1.0","api_version":1,"entrypoint":"main.luau"}
+```
+
+`main.luau`:
+
+```lua
+return { game_id = "sample-game", api_version = mods_host.api_version }
+```
+
+The loader negotiates **host API v1** and rejects mismatching manifest/script identities, unsupported versions, malformed input, unsafe filenames, linked files and directories, and oversized source files. The VM is fresh per check, with an 8 MiB memory ceiling, a 1-second execution deadline checked at Luau interrupt points, and a limit of 100,000 interrupts. Manifest size is capped at 16 KiB and script size at 256 KiB. Script failures produce explicit errors.
+
+This is a **restricted, untrusted local module inspection** workflow, not module installation, enablement, or compatibility certification. Luau only receives `mods_host.api_version`; it has no host filesystem, state database, game directory, archive, network, or process API. OS, IO, package loading, dynamic script loading and debug globals are unavailable. `mlua` sandboxing and resource limits reduce exposure but are **not a formal security boundary** against native runtime vulnerabilities, and local scripts must not be treated as automatically trusted. No modules are auto-discovered or executed; the operator selects the path. Later roadmap PRs will introduce narrowly validated read-only capabilities and game policy. Existing Rust Cyberpunk CLI commands and transaction semantics remain unchanged.
 
 ## Read-only inventory and ownership drift
 
@@ -54,6 +78,6 @@ Transactions are **recoverable** rather than one single filesystem-wide atomic v
 
 ## Scope
 
-Windows first. Minecraft, additional transaction types, the Luau runtime, and a package browser remain future milestones.
+Windows first. Minecraft, additional transaction types, game-specific Luau integrations and a package browser remain future milestones.
 
 All first-party code is MIT licensed.

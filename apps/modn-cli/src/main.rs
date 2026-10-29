@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use modn_core::archive::inspect;
 use modn_core::discovery::{discover, validate_installation, Candidate};
+use modn_core::game_modules::check_module;
 use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
 use modn_core::planning::plan;
 use modn_core::state::Store;
@@ -59,6 +60,11 @@ enum Command {
         #[arg(long)]
         path: Option<PathBuf>,
     },
+    /// Validate a local Luau module without granting file or game-write access.
+    Module {
+        #[command(subcommand)]
+        command: ModuleCommand,
+    },
     Game {
         #[command(subcommand)]
         command: GameCommand,
@@ -73,6 +79,12 @@ enum Command {
         #[arg(long)]
         path: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum ModuleCommand {
+    /// Load a local game module and report its identity and API compatibility.
+    Check { directory: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -155,13 +167,23 @@ fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let state_path = database_path(cli.state_dir.as_deref())?;
-    let mut store = if matches!(&cli.command, Command::Inspect { .. }) {
+    let mut store = if matches!(&cli.command, Command::Inspect { .. } | Command::Module { .. }) {
         None
     } else {
         validate_state_path(&state_path)?;
         Some(Store::open(&state_path)?)
     };
     match cli.command {
+        Command::Module {
+            command: ModuleCommand::Check { directory },
+        } => {
+            let module = check_module(&directory)?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&module)?);
+            } else {
+                println!("Game module {} v{} (host API {})", module.game_id, module.version, module.api_version);
+            }
+        }
         Command::Install { archive, path, yes } => {
             if !yes {
                 bail!(
