@@ -1,21 +1,17 @@
-//! Local Luau game module validation. No game or manager-state writes are exposed.
-use super::capabilities::{self, AllowedRoots};
+//! Local Luau module validation with bounded, root-scoped reads; no mutation APIs.
+use super::capabilities::{AllowedRoots, ReadProfile};
+use super::runtime;
 use anyhow::{bail, Context, Result};
-use mlua::{Lua, LuaOptions, StdLib, Table, VmState};
+use mlua::Table;
 use serde::{Deserialize, Serialize};
-use std::cell::Cell;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 /// First host API revision. Future incompatible changes require a new revision.
 pub const HOST_API_VERSION: u32 = 1;
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 const MAX_SCRIPT_BYTES: u64 = 256 * 1024;
-const MAX_VM_BYTES: usize = 8 * 1024 * 1024;
-const MAX_INTERRUPTS: u64 = 100_000;
-const MAX_EXECUTION: Duration = Duration::from_secs(1);
 
 /// Validated identity of one external game integration; no installation privileges implied.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -113,62 +109,22 @@ fn execute_module(script: &[u8], manifest: &ModuleManifest, roots: AllowedRoots)
     if source.contains('\0') {
         bail!("Luau entrypoint cannot contain NUL bytes or binary chunks");
     }
-    let execute = || -> mlua::Result<()> {
-        // No IO, OS, process, package loader, native module, network, or filesystem capability.
-        let lua = Lua::new_with(
-            StdLib::TABLE | StdLib::STRING | StdLib::MATH,
-            LuaOptions::default(),
-        )?;
-        lua.set_memory_limit(MAX_VM_BYTES)?;
-        let globals = lua.globals();
-        for restricted in [
-            "io",
-            "os",
-            "package",
-            "debug",
-            "require",
-            "loadstring",
-            "dofile",
-            "loadfile",
-            "getfenv",
-            "setfenv",
-            "print",
-            "warn",
-        ] {
-            globals.set(restricted, mlua::Value::Nil)?;
-        }
-
-        let host = lua.create_table()?;
-        host.set("api_version", HOST_API_VERSION)?;
-        capabilities::register(&lua, &host, roots)?;
-        host.set_readonly(true);
-        globals.set("mods_host", host)?;
-        lua.sandbox(true)?;
-
-        let started = Instant::now();
-        let interrupts = Cell::new(0u64);
-        lua.set_interrupt(move |_| {
-            let next = interrupts.get().saturating_add(1);
-            interrupts.set(next);
-            if next > MAX_INTERRUPTS || started.elapsed() > MAX_EXECUTION {
+    runtime::evaluate(
+        source,
+        &manifest.entrypoint,
+        roots,
+        ReadProfile::Standard,
+        |_, output: Table| {
+            let declared_api: u32 = output.get("api_version")?;
+            let declared_game: String = output.get("game_id")?;
+            if declared_api != manifest.api_version || declared_game != manifest.game_id {
                 return Err(mlua::Error::RuntimeError(
-                    "Luau module execution budget exceeded".into(),
+                    "Luau module identity or host API disagrees with manifest".into(),
                 ));
             }
-            Ok(VmState::Continue)
-        });
-
-        let output: Table = lua.load(source).set_name(&manifest.entrypoint).eval()?;
-        let declared_api: u32 = output.get("api_version")?;
-        let declared_game: String = output.get("game_id")?;
-        if declared_api != manifest.api_version || declared_game != manifest.game_id {
-            return Err(mlua::Error::RuntimeError(
-                "Luau module identity or host API disagrees with manifest".into(),
-            ));
-        }
-        Ok(())
-    };
-    execute().map_err(|error| anyhow::anyhow!("Luau module execution failed: {error}"))
+            Ok(())
+        },
+    )
 }
 
 /// Load a user-selected local module solely to validate its identity and host API.
@@ -192,6 +148,38 @@ pub fn check_module_with_roots(
     allowed_roots: &[PathBuf],
 ) -> Result<GameModuleInfo> {
     let roots = AllowedRoots::validate(allowed_roots)?;
+    let (info, script) = read_verified_module(directory)?;
+    let manifest = ModuleManifest {
+        game_id: info.game_id.clone(),
+        version: info.version.clone(),
+        api_version: info.api_version,
+        entrypoint: info.entrypoint.clone(),
+    };
+    execute_module(script.as_bytes(), &manifest, roots)
+        .with_context(|| format!("module {} failed validation", manifest.game_id))?;
+    Ok(info.into())
+}
+
+#[derive(Debug)]
+pub(super) struct VerifiedModule {
+    pub(super) game_id: String,
+    pub(super) version: String,
+    pub(super) api_version: u32,
+    pub(super) entrypoint: String,
+}
+
+impl From<VerifiedModule> for GameModuleInfo {
+    fn from(value: VerifiedModule) -> Self {
+        Self {
+            game_id: value.game_id,
+            version: value.version,
+            api_version: value.api_version,
+        }
+    }
+}
+
+/// Read and validate the same manifest/source boundary for executable game policies.
+pub(super) fn read_verified_module(directory: &Path) -> Result<(VerifiedModule, String)> {
     let metadata = fs::symlink_metadata(directory)
         .with_context(|| format!("cannot inspect game module {}", directory.display()))?;
     if !metadata.file_type().is_dir() {
@@ -203,11 +191,17 @@ pub fn check_module_with_roots(
         serde_json::from_slice(&manifest_bytes).context("invalid module.json manifest")?;
     validate_manifest(&manifest)?;
     let script = bounded_file(&root.join(&manifest.entrypoint), &root, MAX_SCRIPT_BYTES)?;
-    execute_module(&script, &manifest, roots)
-        .with_context(|| format!("module {} failed validation", manifest.game_id))?;
-    Ok(GameModuleInfo {
-        game_id: manifest.game_id,
-        version: manifest.version,
-        api_version: HOST_API_VERSION,
-    })
+    let source = std::str::from_utf8(&script).context("Luau entrypoint must be UTF-8 source")?;
+    if source.contains('\0') {
+        bail!("Luau entrypoint cannot contain NUL bytes or binary chunks");
+    }
+    Ok((
+        VerifiedModule {
+            game_id: manifest.game_id,
+            version: manifest.version,
+            api_version: manifest.api_version,
+            entrypoint: manifest.entrypoint,
+        },
+        source.to_owned(),
+    ))
 }

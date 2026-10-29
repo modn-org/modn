@@ -136,3 +136,89 @@ fn modn_name_and_default_state_directory() {
     assert!(!temp.path().join("mods/state.sqlite").exists());
     assert!(!temp.path().join("Mods/state.sqlite").exists());
 }
+
+#[test]
+fn cyberpunk_luau_policy_changes_without_rebuilding_executable() {
+    use std::path::Path;
+    let root = tempdir().expect("fixture root");
+    let module_base = root.path().join("game-modules");
+    let module = module_base.join("cyberpunk-2077");
+    fs::create_dir_all(&module).expect("module directory");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/modn-core/game-modules/cyberpunk-2077");
+    fs::copy(source.join("module.json"), module.join("module.json")).expect("manifest fixture");
+    let original = fs::read_to_string(source.join("main.luau")).expect("Luau policy");
+    fs::write(module.join("main.luau"), &original).expect("initial policy");
+
+    let game = root.path().join("game");
+    fs::create_dir_all(game.join("bin/x64")).expect("game bin");
+    fs::create_dir_all(game.join("archive/pc/mod")).expect("archive dir");
+    fs::write(game.join("bin/x64/AlternateGame.exe"), b"fixture").expect("marker");
+    fs::write(game.join("archive/pc/mod/example.archive"), b"manual").expect("mod");
+    let state = root.path().join("state");
+    let add = || {
+        Command::new(env!("CARGO_BIN_EXE_modn"))
+            .env("MODN_GAME_MODULES_DIR", &module_base)
+            .arg("--state-dir")
+            .arg(&state)
+            .args(["game", "add", "cyberpunk", "--path"])
+            .arg(&game)
+            .output()
+            .expect("invoke modn")
+    };
+    let before = add();
+    assert!(
+        !before.status.success(),
+        "old policy cannot recognize alternate marker"
+    );
+
+    let updated = original
+        .replace("bin/x64/Cyberpunk2077.exe", "bin/x64/AlternateGame.exe")
+        .replace(r#""legacy-archive""#, r#""external-archive""#);
+    assert_ne!(updated, original, "fixture must change policy");
+    fs::write(module.join("main.luau"), updated).expect("update Lua without rebuilding");
+    let after = add();
+    assert!(
+        after.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after.stderr)
+    );
+
+    let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .env("MODN_GAME_MODULES_DIR", &module_base)
+        .arg("--state-dir")
+        .arg(&state)
+        .args(["scan", "--json"])
+        .output()
+        .expect("invoke scan");
+    assert!(
+        scan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scan.stderr)
+    );
+    let report: Value = serde_json::from_slice(&scan.stdout).expect("JSON scan");
+    assert_eq!(report["mods"][0]["kind"], "external-archive");
+    assert_eq!(report["mods"][0]["managed"], false);
+    // A module can change the game marker, but it cannot weaken Rust's
+    // independent state-directory exclusion for executable-layout roots.
+    let unsafe_state = game.join("private/state");
+    let forbidden = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .env("MODN_GAME_MODULES_DIR", &module_base)
+        .arg("--state-dir")
+        .arg(&unsafe_state)
+        .args(["scan", "--path"])
+        .arg(&game)
+        .output()
+        .expect("run unsafe state check");
+    assert!(!forbidden.status.success());
+    assert!(!game.join("private").exists());
+
+    assert_eq!(
+        fs::read(game.join("bin/x64/AlternateGame.exe")).unwrap(),
+        b"fixture"
+    );
+    assert_eq!(
+        fs::read(game.join("archive/pc/mod/example.archive")).unwrap(),
+        b"manual"
+    );
+}

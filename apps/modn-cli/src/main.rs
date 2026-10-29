@@ -127,10 +127,12 @@ fn validate_state_path(state_path: &Path) -> Result<()> {
     };
     loop {
         if let Ok(existing) = directory.canonicalize() {
-            if existing
-                .ancestors()
-                .any(|ancestor| ancestor.join("bin/x64/Cyberpunk2077.exe").is_file())
-            {
+            if existing.ancestors().any(|ancestor| {
+                // The state database must not enter a game, even if a mutable
+                // Luau policy rejects the game or fails to load. Conservatively
+                // reserve this existing executable layout independently.
+                ancestor.join("bin/x64").is_dir() || validate_installation(ancestor).is_ok()
+            }) {
                 bail!("state directory must be outside the Cyberpunk 2077 installation");
             }
             return Ok(());

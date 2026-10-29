@@ -305,3 +305,34 @@ fn junction_components_and_roots_are_rejected() {
     assert!(error.contains("linked or special"), "{error}");
     assert!(check_module_with_roots(&module, &[link]).is_err());
 }
+
+#[test]
+fn bounded_directory_listing_and_utf8_text_reads_are_root_scoped() {
+    let (_temp, module, game) = fixture();
+    fs::write(game.join("oversized.txt"), vec![b'x'; 65 * 1024]).expect("large text fixture");
+    run(
+        r#"
+        local listing = mods_host.directory.list(1, "packages")
+        assert(#listing.items == 1 and not listing.incomplete)
+        assert(listing.items[1].name == "test.zip")
+        assert(listing.items[1].kind == "file")
+        assert(mods_host.directory.read_text(1, "game.marker") == "abc")
+        assert(not pcall(function()
+            return mods_host.directory.read_text(1, "oversized.txt")
+        end))
+        assert(not pcall(function()
+            return mods_host.directory.read_text(1, "../outside.txt")
+        end))
+        assert(not pcall(function()
+            return mods_host.directory.list(1, "game.marker")
+        end))
+        assert(not pcall(function()
+            return mods_host.directory.list(2, "packages")
+        end))
+        return {game_id="example-game", api_version=mods_host.api_version}
+    "#,
+        &game,
+        &module,
+    )
+    .expect("read-only directory and UTF-8 metadata");
+}

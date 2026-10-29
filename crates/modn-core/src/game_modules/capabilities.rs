@@ -13,6 +13,14 @@ const MAX_ROOTS: usize = 8;
 const MAX_RELATIVE_BYTES: usize = 256;
 const MAX_DEPTH: usize = 16;
 const MAX_CALLS: u32 = 128;
+const MAX_SCAN_CALLS: u32 = 20_128;
+const MAX_TOTAL_DIRECTORY_ENTRIES: usize = 20_000;
+
+#[derive(Clone, Copy)]
+pub(super) enum ReadProfile {
+    Standard,
+    Scan,
+}
 const MAX_TOTAL_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ONE_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 256;
@@ -106,15 +114,28 @@ fn safe_target(root: &Path, relative: &str) -> Result<(PathBuf, fs::Metadata)> {
     Ok((current, metadata))
 }
 
-#[derive(Default)]
 struct Budget {
     calls: Cell<u32>,
     bytes: Cell<u64>,
+    directory_entries: Cell<usize>,
+    call_limit: u32,
 }
 impl Budget {
+    fn new(profile: ReadProfile) -> Self {
+        Self {
+            calls: Cell::new(0),
+            bytes: Cell::new(0),
+            directory_entries: Cell::new(0),
+            call_limit: match profile {
+                ReadProfile::Standard => MAX_CALLS,
+                ReadProfile::Scan => MAX_SCAN_CALLS,
+            },
+        }
+    }
+
     fn operation(&self) -> Result<()> {
         let next = self.calls.get().saturating_add(1);
-        if next > MAX_CALLS {
+        if next > self.call_limit {
             bail!("read-only capability call budget exceeded");
         }
         self.calls.set(next);
@@ -280,10 +301,122 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
     Ok(service)
 }
 
+const MAX_DIRECTORY_ENTRIES: usize = 2_048;
+const MAX_TEXT_BYTES: u64 = 64 * 1024;
+
+fn directory_service(
+    lua: &Lua,
+    roots: Rc<AllowedRoots>,
+    budget: Rc<Budget>,
+) -> mlua::Result<Table> {
+    let service = lua.create_table()?;
+    let read_roots = Rc::clone(&roots);
+    let read_budget = Rc::clone(&budget);
+    service.set(
+        "list",
+        lua.create_function(move |lua, (id, relative): (u32, String)| {
+            let (path, metadata) = authorized_path(&read_roots, &read_budget, id, &relative)
+                .map_err(mlua::Error::external)?;
+            if !metadata.is_dir() {
+                return Err(mlua::Error::RuntimeError(
+                    "listing requires a directory".into(),
+                ));
+            }
+            let root = selected_root(&read_roots, id).map_err(mlua::Error::external)?;
+            let mut names = Vec::new();
+            let mut incomplete = false;
+            for entry in fs::read_dir(path).map_err(mlua::Error::external)? {
+                // Cap the native enumeration before allocating Lua tables.
+                if names.len() >= MAX_DIRECTORY_ENTRIES {
+                    incomplete = true;
+                    break;
+                }
+                let next = read_budget.directory_entries.get().saturating_add(1);
+                if next > MAX_TOTAL_DIRECTORY_ENTRIES {
+                    incomplete = true;
+                    break;
+                }
+                read_budget.directory_entries.set(next);
+                let entry = entry.map_err(mlua::Error::external)?;
+                let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                    incomplete = true;
+                    continue;
+                };
+                let relative_entry = format!("{relative}/{name}");
+                if relative_components(&relative_entry).is_err() {
+                    incomplete = true;
+                    continue;
+                }
+                let Ok((_, metadata)) = safe_target(root, &relative_entry) else {
+                    continue;
+                };
+                names.push((
+                    name,
+                    if metadata.is_dir() {
+                        "directory"
+                    } else {
+                        "file"
+                    },
+                ));
+            }
+            names.sort_by(|a, b| a.0.cmp(&b.0));
+            let items = lua.create_table()?;
+            for (index, (name, kind)) in names.iter().enumerate() {
+                let item = lua.create_table()?;
+                item.set("name", name.as_str())?;
+                item.set("kind", *kind)?;
+                item.set_readonly(true);
+                items.set(index + 1, item)?;
+            }
+            items.set_readonly(true);
+            let response = lua.create_table()?;
+            response.set("items", items)?;
+            response.set("incomplete", incomplete)?;
+            response.set_readonly(true);
+            Ok(response)
+        })?,
+    )?;
+    service.set(
+        "read_text",
+        lua.create_function(move |_, (id, relative): (u32, String)| {
+            let (path, metadata) =
+                authorized_path(&roots, &budget, id, &relative).map_err(mlua::Error::external)?;
+            regular_file(&metadata).map_err(mlua::Error::external)?;
+            if metadata.len() > MAX_TEXT_BYTES {
+                return Err(mlua::Error::RuntimeError(
+                    "text file exceeds 64 KiB limit".into(),
+                ));
+            }
+            budget
+                .charge(metadata.len())
+                .map_err(mlua::Error::external)?;
+            let mut data = Vec::new();
+            File::open(path)
+                .map_err(mlua::Error::external)?
+                .take(metadata.len() + 1)
+                .read_to_end(&mut data)
+                .map_err(mlua::Error::external)?;
+            if data.len() as u64 != metadata.len() {
+                return Err(mlua::Error::RuntimeError(
+                    "text file changed during read".into(),
+                ));
+            }
+            String::from_utf8(data).map_err(mlua::Error::external)
+        })?,
+    )?;
+    service.set_readonly(true);
+    Ok(service)
+}
+
 /// Add only read-only host services to the existing sandbox; never pass raw paths.
-pub(super) fn register(lua: &Lua, host: &Table, roots: AllowedRoots) -> mlua::Result<()> {
+pub(super) fn register(
+    lua: &Lua,
+    host: &Table,
+    roots: AllowedRoots,
+    profile: ReadProfile,
+) -> mlua::Result<()> {
     let roots = Rc::new(roots);
-    let budget = Rc::new(Budget::default());
+    let budget = Rc::new(Budget::new(profile));
     let discovery = lua.create_table()?;
     let allowed = Rc::clone(&roots);
     let limit = Rc::clone(&budget);
@@ -312,6 +445,10 @@ pub(super) fn register(lua: &Lua, host: &Table, roots: AllowedRoots) -> mlua::Re
         "hash",
         hashing_service(lua, Rc::clone(&roots), Rc::clone(&budget))?,
     )?;
-    host.set("archive", archive_service(lua, roots, budget)?)?;
+    host.set(
+        "archive",
+        archive_service(lua, Rc::clone(&roots), Rc::clone(&budget))?,
+    )?;
+    host.set("directory", directory_service(lua, roots, budget)?)?;
     Ok(())
 }

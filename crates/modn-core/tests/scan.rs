@@ -4,6 +4,38 @@ use std::fs;
 use tempfile::tempdir;
 
 #[test]
+fn directory_heavy_scan_preserves_every_mod() {
+    let temp = tempdir().unwrap();
+    let base = temp.path().join("archive/pc/mod");
+    for number in 0..141 {
+        let folder = base.join(format!("folder-{number:03}"));
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("example.archive"), b"fixture").unwrap();
+    }
+
+    let report = scan(temp.path());
+    assert!(!report.incomplete, "scan must not silently truncate");
+    assert_eq!(report.mods.len(), 141);
+}
+
+#[test]
+fn nested_unreadable_depth_marks_scan_incomplete() {
+    let temp = tempdir().unwrap();
+    let mut nested = temp.path().join("archive/pc/mod");
+    for number in 0..18 {
+        nested = nested.join(format!("d{number:02}"));
+    }
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("deep.archive"), b"fixture").unwrap();
+
+    let report = scan(temp.path());
+    assert!(
+        report.incomplete,
+        "failed nested directory read must be reported"
+    );
+}
+
+#[test]
 fn reports_known_layouts_without_modifying_files() {
     let temp = tempdir().unwrap();
     let root = temp.path();
