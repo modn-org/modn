@@ -14,7 +14,7 @@
 
 ## Driving it with Python subprocess
 
-The driver creates `addons/manual.plugin` before installation, then installs `addons/example.plugin` through the Luau-planned ZIP. It checks bytes on disk, owned package IDs, scan `kind: test-plugin`, and unmanaged detection. A duplicate install fails; manually modified managed bytes trigger `OWNED_FILE_DRIFT` and an uninstall refusal. After restoring bytes, uninstall removes only the owned file and the package disappears from the ledger.
+The driver creates `addons/manual.plugin` before installation, then installs `addons/example.plugin` through the Luau-planned ZIP. It checks bytes on disk, owned package IDs, scan `kind: test-plugin`, and unmanaged detection. A duplicate install fails; manually modified managed bytes trigger `OWNED_FILE_DRIFT` and an uninstall refusal. The driver also installs an owned Cyberpunk package in the same SQLite state while test-game remains installed. After restoring bytes, each uninstall removes only its own game files and the two ownership ledgers remain isolated.
 
 ## Gotchas
 

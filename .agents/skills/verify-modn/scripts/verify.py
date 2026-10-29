@@ -94,6 +94,10 @@ def verify(driver):
     driver.json("no-default-game", ["install", test_zip, "--dry-run", "--path", game],
                 success=False)
     require(not (root / "state").exists(), "unselected dry run created state")
+    driver.run("selectorless-list-no-state",
+               ["--state-dir", game / "selectorless-state", "game", "list"])
+    require(not (game / "selectorless-state").exists(),
+            "selectorless game list initialized database inside a game")
     driver.run("state-inside-game-rejected",
                ["--state-dir", game / "private-state", "game", "add", "test-game",
                 "--path", game], success=False)
@@ -136,6 +140,22 @@ def verify(driver):
     require(any(x["game_id"] == "test-game"
                 for x in driver.json("list-games", ["game", "list"])),
             "registered game missing")
+    state_before = snapshot(root / "state")
+    same = driver.json("registered-game-read-only-preview",
+                       ["install", test_zip, "--dry-run", "--path", game])
+    require(same["status"] == "reviewable" and
+            same["operations"][0]["destination"] == "addons/example.plugin",
+            "registered dry run did not resolve the stored game ID")
+    direct = driver.json("registered-game-unambiguous-preview",
+                         ["install", test_zip, "--dry-run"])
+    require(direct["status"] == "reviewable" and
+            direct["operations"][0]["destination"] == "addons/example.plugin",
+            "unambiguous registration was not selected")
+    driver.json("registered-game-conflicting-preview-blocked",
+                ["--game", "cyberpunk-2077", "install", test_zip,
+                 "--dry-run", "--path", game], success=False)
+    require(snapshot(root / "state") == state_before and snapshot(game) == before,
+            "registered preview modified game or database")
     installed = driver.json("install-test-game",
                             ["install", test_zip, "--yes", "--path", game])
     package_id = installed["id"]
@@ -156,6 +176,27 @@ def verify(driver):
                 ["install", test_zip, "--yes", "--path", game], success=False)
     require(owned.read_bytes() == b"fixture-plugin", "duplicate mutated owned file")
 
+    # Both distinct Luau policies own files simultaneously in the same database.
+    driver.json("register-cyberpunk",
+                ["game", "add", "cyberpunk-2077", "--path", cyberpunk])
+    second = driver.json("cyberpunk-dry-run",
+                         ["--game", "cyberpunk-2077", "install", cyber_zip,
+                          "--dry-run", "--path", cyberpunk])
+    require(second["status"] == "reviewable" and
+            second["operations"][0]["destination"] == "archive/pc/mod/managed.archive",
+            "Cyberpunk policy regressed")
+    cyber_package = driver.json("install-cyberpunk",
+                                ["install", cyber_zip, "--yes", "--path", cyberpunk])
+    cyber_file = cyberpunk / "archive/pc/mod/managed.archive"
+    require(cyber_file.read_bytes() == PAYLOAD, "second game install failed")
+    require(any(x["id"] == cyber_package["id"] for x in
+                driver.json("cyberpunk-installed", ["installed", "--path", cyberpunk])),
+            "second game's ownership record missing")
+    require(any(x["id"] == package_id for x in
+                driver.json("test-game-still-installed", ["installed", "--path", game])),
+            "installing another game disturbed test-game ownership")
+    driver.json("ambiguous-game-rejected", ["scan"], success=False)
+
     owned.write_bytes(b"operator-modification")
     doctor = driver.json("doctor-drift", ["doctor", "--path", game])
     require(any(x["code"] == "OWNED_FILE_DRIFT" for x in doctor["diagnostics"]),
@@ -170,21 +211,19 @@ def verify(driver):
     require(driver.json("installed-empty", ["installed", "--path", game]) == [],
             "ownership ledger not cleared")
 
-    driver.json("register-cyberpunk",
-                ["game", "add", "cyberpunk-2077", "--path", cyberpunk])
-    second = driver.json("cyberpunk-dry-run",
-                         ["--game", "cyberpunk-2077", "install", cyber_zip,
-                          "--dry-run", "--path", cyberpunk])
-    require(second["status"] == "reviewable" and
-            second["operations"][0]["destination"] == "archive/pc/mod/managed.archive",
-            "Cyberpunk policy regressed")
-    driver.json("ambiguous-game-rejected", ["scan"], success=False)
+    require(cyber_file.read_bytes() == PAYLOAD,
+            "uninstalling first game changed second game")
+    driver.json("uninstall-cyberpunk",
+                ["uninstall", cyber_package["id"], "--yes", "--path", cyberpunk])
+    require(not cyber_file.exists(), "second game's owned file not removed")
+    require(driver.json("cyberpunk-installed-empty", ["installed", "--path", cyberpunk]) == [],
+            "second game's ownership record remains")
     require(driver.json("recover-idle", ["recover", "--yes"])["recovered"] == 0,
             "unexpected recovery pending")
     return {
         "result": "PASS", "game_module": "test-game",
         "test_game_install": "full ordinary CLI lifecycle verified",
-        "second_game": "Cyberpunk coexists in the same state",
+        "second_game": "concurrent Cyberpunk/test-game owned installs isolated and uninstalled",
         "command_count": driver.index, "package_id": package_id,
         "game_files_after": snapshot(game),
     }

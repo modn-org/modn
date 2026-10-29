@@ -145,6 +145,58 @@ fn modn_name_and_default_state_directory() {
         "{:?}",
         String::from_utf8_lossy(&output.stderr)
     );
+    // An empty selector-free listing must never initialize SQLite inside
+    // an unrecognized game root (or any other caller-provided directory).
+    assert!(!temp.path().join("modn/state.sqlite").exists());
+    let game = temp.path().join("fixture-game");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    fs::write(&marker, b"fixture").unwrap();
+    let nested_state = game.join("private/state");
+    let listing = Command::new(exe)
+        .args([
+            "--state-dir",
+            nested_state.to_str().unwrap(),
+            "game",
+            "list",
+        ])
+        .output()
+        .unwrap();
+    assert!(listing.status.success());
+    assert!(
+        !nested_state.exists(),
+        "selector-free list wrote inside game"
+    );
+    let recovery = Command::new(exe)
+        .args([
+            "--state-dir",
+            nested_state.to_str().unwrap(),
+            "recover",
+            "--yes",
+        ])
+        .output()
+        .unwrap();
+    assert!(!recovery.status.success());
+    assert!(
+        !nested_state.exists(),
+        "selector-free recovery initialized state"
+    );
+    let add = Command::new(exe)
+        .env("LOCALAPPDATA", temp.path())
+        .args([
+            "game",
+            "add",
+            "cyberpunk-2077",
+            "--path",
+            game.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add.status.success(),
+        "{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
     assert!(temp.path().join("modn/state.sqlite").is_file());
     assert!(!temp.path().join("mods/state.sqlite").exists());
     assert!(!temp.path().join("Mods/state.sqlite").exists());

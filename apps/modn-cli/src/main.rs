@@ -1,14 +1,15 @@
 mod selection;
+mod state_access;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use modn_core::archive::inspect;
-use modn_core::discovery::validate_installation_for;
 use modn_core::game_modules::check_module_with_roots;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::planning::preview_install_zip;
 use modn_core::state::Store;
 use selection::{choose_candidate, selected_installation};
-use std::path::{Path, PathBuf};
+use state_access::{database_path, validate_state_path};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "modn", about = "Game mod inspection and guarded management")]
@@ -107,53 +108,6 @@ enum GameCommand {
     List,
 }
 
-fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
-    if let Some(dir) = state_dir {
-        return Ok(dir.join("state.sqlite"));
-    }
-    if let Some(path) = std::env::var_os("LOCALAPPDATA") {
-        return Ok(PathBuf::from(path).join("modn/state.sqlite"));
-    }
-    if let Some(path) = std::env::var_os("XDG_STATE_HOME") {
-        return Ok(PathBuf::from(path).join("modn/state.sqlite"));
-    }
-    let home = std::env::var_os("HOME").context("no HOME or app state directory available")?;
-    Ok(PathBuf::from(home).join(".local/state/modn/state.sqlite"))
-}
-
-fn validate_state_path(
-    state_path: &Path,
-    selected_game: Option<&str>,
-    selected_path: Option<&Path>,
-) -> Result<()> {
-    let selected_root = selected_path.map(Path::canonicalize).transpose()?;
-    let parent = state_path.parent().context("invalid state path")?;
-    let mut directory = if parent.is_absolute() {
-        parent.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(parent)
-    };
-    loop {
-        if let Ok(existing) = directory.canonicalize() {
-            if existing.ancestors().any(|ancestor| {
-                // Check the explicit module, never a baked-in default marker.
-                selected_root
-                    .as_ref()
-                    .is_some_and(|root| existing.starts_with(root))
-                    || selected_game
-                        .is_some_and(|game| validate_installation_for(game, ancestor).is_ok())
-            }) {
-                bail!("state directory must be outside a game installation");
-            }
-            return Ok(());
-        }
-        directory = directory
-            .parent()
-            .context("cannot resolve state directory")?
-            .to_path_buf();
-    }
-}
-
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let requested = cli.game_id.as_deref();
@@ -176,13 +130,65 @@ fn run() -> Result<()> {
         | Command::Doctor { path } => path.as_deref(),
         _ => None,
     };
+    let state_path = database_path(cli.state_dir.as_deref())?;
+
+    // Before opening writable state, establish the selected game identity and
+    // root using only the existing read-only registration database.
+    let registered_only = matches!(
+        &cli.command,
+        Command::Install { path: None, .. }
+            | Command::Installed { path: None }
+            | Command::Uninstall { path: None, .. }
+            | Command::Scan { path: None }
+            | Command::Doctor { path: None }
+    );
+    // Reads do not create an empty manager database. Existing registrations
+    // provide concrete physical roots for checks before any writable open.
+    let standalone = matches!(
+        &cli.command,
+        Command::Inspect { .. } | Command::Module { .. }
+    );
+    let existing_state = if !standalone && state_path.is_file() {
+        Some(Store::open_readonly(&state_path)?)
+    } else {
+        None
+    };
+    let registered_roots: Vec<PathBuf> = existing_state
+        .as_ref()
+        .map(Store::list)
+        .transpose()?
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|entry| entry.path.canonicalize().ok())
+        .collect();
+    let preselected = if registered_only {
+        Some(selected_installation(
+            existing_state.as_ref(),
+            None,
+            requested,
+        )?)
+    } else {
+        None
+    };
+    let registration_candidate = match &cli.command {
+        Command::Game {
+            command: GameCommand::Add { game, path },
+        } => Some(choose_candidate(game, path.clone())?),
+        _ => None,
+    };
     let state_game = match &cli.command {
         Command::Game {
             command: GameCommand::Add { game, .. },
         } => Some(game.as_str()),
-        _ => requested,
+        _ => requested.or_else(|| preselected.as_ref().map(|(id, _)| id.as_str())),
     };
-    let state_path = database_path(cli.state_dir.as_deref())?;
+    let protected_root = selected_path
+        .or_else(|| preselected.as_ref().map(|(_, path)| path.as_path()))
+        .or_else(|| {
+            registration_candidate
+                .as_ref()
+                .map(|candidate| candidate.path.as_path())
+        });
     let explicit_preview = matches!(
         &cli.command,
         Command::Install {
@@ -195,13 +201,24 @@ fn run() -> Result<()> {
     let mut store = if matches!(
         &cli.command,
         Command::Inspect { .. } | Command::Module { .. }
-    ) || explicit_preview
-    {
+    ) {
+        None
+    } else if matches!(
+        &cli.command,
+        Command::Game {
+            command: GameCommand::List
+        }
+    ) {
+        existing_state
+    } else if explicit_preview && existing_state.is_none() {
         None
     } else {
-        validate_state_path(&state_path, state_game, selected_path)?;
+        if matches!(&cli.command, Command::Recover { .. }) && existing_state.is_none() {
+            bail!("no manager state database to recover");
+        }
+        validate_state_path(&state_path, state_game, protected_root, &registered_roots)?;
         Some(if read_only_preview {
-            Store::open_readonly(&state_path)?
+            existing_state.context("no registered game database for preview")?
         } else {
             Store::open(&state_path)?
         })
@@ -329,10 +346,12 @@ fn run() -> Result<()> {
             }
         }
         Command::Game {
-            command: GameCommand::Add { game, path },
+            command: GameCommand::Add { game, path: _ },
         } => {
             let id = game.as_str();
-            let candidate = choose_candidate(id, path)?;
+            let candidate = registration_candidate
+                .as_ref()
+                .context("game add candidate already validated")?;
             let entry = store
                 .as_ref()
                 .expect("non-inspect command has store")
@@ -348,8 +367,9 @@ fn run() -> Result<()> {
         } => {
             let entries = store
                 .as_ref()
-                .expect("non-inspect command has store")
-                .list()?;
+                .map(Store::list)
+                .transpose()?
+                .unwrap_or_default();
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&entries)?);
             } else if entries.is_empty() {

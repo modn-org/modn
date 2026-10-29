@@ -29,7 +29,7 @@ The driver performs [feature-mapped](features/README.md) CLI actions, including:
 - Preview test-game ZIP mapping with explicit `--game test-game`; verify no writes.
 - Register `test-game`, then install through its recorded identity without `--game`.
 - Independently verify written bytes, owned/unmanaged scan, conflict rejection, doctor drift, modified-file uninstall protection, safe uninstall and idle recovery.
-- Register a second `cyberpunk-2077` fixture, preview its distinct Luau mapping, and ensure ambiguous game selection fails.
+- Register and install a second `cyberpunk-2077` fixture concurrently, confirm independent ownership for both games, reject ambiguous selection, and uninstall each without changing the other.
 
 The `test-game` module uses ordinary runtime Luau policy and ZIP operations; its full CLI lifecycle is now verified. No game-specific Rust adapter or default ID is used.
 

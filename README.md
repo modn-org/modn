@@ -8,7 +8,7 @@ Requires a current stable Rust toolchain.
 
 ```sh
 cargo test --workspace
-cargo run --bin modn -- game add cyberpunk --path "/path/to/Cyberpunk 2077"
+cargo run --bin modn -- game add cyberpunk-2077 --path "/path/to/Cyberpunk 2077"
 cargo run --bin modn -- game list
 cargo run --bin modn -- scan --json
 cargo run --bin modn -- doctor --json
