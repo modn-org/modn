@@ -4,8 +4,8 @@ use modn_core::archive::inspect;
 use modn_core::discovery::{discover, validate_installation, Candidate};
 use modn_core::game_modules::check_module_with_roots;
 use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
-use modn_core::planning::resolve;
 use modn_core::state::Store;
+use modn_core::transactions::preview_install_zip;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -174,14 +174,28 @@ fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let state_path = database_path(cli.state_dir.as_deref())?;
+    let explicit_preview = matches!(
+        &cli.command,
+        Command::Install {
+            dry_run: true,
+            path: Some(_),
+            ..
+        }
+    );
+    let read_only_preview = matches!(&cli.command, Command::Install { dry_run: true, .. });
     let mut store = if matches!(
         &cli.command,
         Command::Inspect { .. } | Command::Module { .. }
-    ) {
+    ) || explicit_preview
+    {
         None
     } else {
         validate_state_path(&state_path)?;
-        Some(Store::open(&state_path)?)
+        Some(if read_only_preview {
+            Store::open_readonly(&state_path)?
+        } else {
+            Store::open(&state_path)?
+        })
     };
     match cli.command {
         Command::Module {
@@ -210,11 +224,18 @@ fn run() -> Result<()> {
             if !yes && !dry_run {
                 bail!("installation writes game files; choose --dry-run or explicitly approve with --yes");
             }
-            let game =
-                selected_installation(store.as_ref().expect("install command has store"), path)?;
+            let game = if let Some(path) = path {
+                validate_installation(&path)?
+            } else {
+                selected_installation(
+                    store
+                        .as_ref()
+                        .context("no registered game database for preview")?,
+                    None,
+                )?
+            };
             if dry_run {
-                let inspection = inspect(&archive)?;
-                let report = resolve(modn_core::CYBERPUNK_ID, &inspection, &game)?;
+                let report = preview_install_zip(&game, &archive)?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {

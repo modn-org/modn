@@ -215,3 +215,81 @@ fn oversized_plan_is_blocked_before_luau_execution() {
     );
     assert!(!game.join("r6").exists());
 }
+
+#[test]
+fn changed_module_mapping_cannot_misrepresent_actual_install() {
+    let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
+    let module = module_with(temp.path(), &single_operation("r6/scripts/different.reds"));
+    let report = preview(&game, &archive, &state, Some(&module));
+    assert_eq!(report["status"], "blocked", "{report}");
+    assert!(
+        report["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["code"] == "NOT_INSTALLABLE"),
+        "{report}"
+    );
+    assert!(!game.join("r6").exists());
+    assert!(!state.exists());
+}
+
+#[test]
+fn preview_blocks_non_installable_formats_and_layouts() {
+    let (temp, game, archive, state) = fixture(&["r6/scripts/hello.reds"]);
+    let report = preview(&game, &archive, &state, None);
+    assert_eq!(report["status"], "blocked", "{report}");
+    assert!(
+        report["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["code"] == "NOT_INSTALLABLE"),
+        "{report}"
+    );
+    let jar = temp.path().join("payload.jar");
+    fs::copy(&archive, &jar).unwrap();
+    let report = preview(&game, &jar, &state, None);
+    assert_eq!(report["status"], "blocked");
+    assert!(
+        report["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["code"] == "NOT_INSTALLABLE"),
+        "{report}"
+    );
+    assert!(!state.exists());
+    assert!(!game.join("r6").exists());
+}
+
+#[test]
+fn repeated_shared_luau_strings_respect_host_allocation_budget() {
+    let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
+    let module = module_with(temp.path(),
+        "local source = string.rep('a', 4096)\nlocal target = string.rep('b', 1024)\nlocal root = string.rep('c', 256)\nlocal ops = {}\nfor i = 1, 2048 do\n  ops[i] = { source = source, destination = target, kind = 'legacy-archive', package_root = root }\nend\nreturn { schema_version = 1, operations = ops, blockers = {} }");
+    let output = run(&game, &archive, &state, Some(&module));
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("installation plan result exceeds 8 MiB"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!state.exists());
+    assert!(!game.join("archive").exists());
+}
+
+#[test]
+fn oversized_luau_blocker_messages_are_denied_before_copying() {
+    let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
+    let module = module_with(temp.path(),
+        "return { schema_version = 1, operations = {}, blockers = { { code = 'ERROR', message = string.rep('x', 1048576) } } }");
+    let output = run(&game, &archive, &state, Some(&module));
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("installation field message exceeds 512"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!state.exists());
+}

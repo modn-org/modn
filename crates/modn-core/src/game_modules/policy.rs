@@ -218,6 +218,29 @@ pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
     })
 }
 
+// Check Luau string lengths before copying into Rust's memory (outside the VM limit).
+fn plan_field(
+    table: &Table,
+    field: &str,
+    limit: usize,
+    budget: &mut usize,
+) -> mlua::Result<String> {
+    let value: mlua::LuaString = table.get(field)?;
+    let bytes = value.as_bytes().len();
+    if bytes > limit {
+        return Err(mlua::Error::RuntimeError(format!(
+            "installation field {field} exceeds {limit} bytes"
+        )));
+    }
+    if bytes > *budget {
+        return Err(mlua::Error::RuntimeError(
+            "installation plan result exceeds 8 MiB byte budget".into(),
+        ));
+    }
+    *budget -= bytes;
+    Ok(value.to_str()?.to_string())
+}
+
 /// Decode a game module's versioned, metadata-only proposal. No host mutation is exposed.
 pub(crate) fn plan(
     game_id: &str,
@@ -259,15 +282,16 @@ pub(crate) fn plan(
                 "installation plan exceeds result limit".into(),
             ));
         }
+        let mut result_budget = 8 * 1024 * 1024;
         let operations = entries
             .sequence_values::<Table>()
             .map(|value| {
                 let value = value?;
                 Ok(RequestedFile {
-                    source: value.get("source")?,
-                    destination: value.get("destination")?,
-                    kind: value.get("kind")?,
-                    package_root: value.get("package_root")?,
+                    source: plan_field(&value, "source", 4_096, &mut result_budget)?,
+                    destination: plan_field(&value, "destination", 1_024, &mut result_budget)?,
+                    kind: plan_field(&value, "kind", 64, &mut result_budget)?,
+                    package_root: plan_field(&value, "package_root", 256, &mut result_budget)?,
                 })
             })
             .collect::<mlua::Result<Vec<_>>>()?;
@@ -276,8 +300,8 @@ pub(crate) fn plan(
             .map(|value| {
                 let value = value?;
                 Ok((
-                    value.get::<String>("code")?,
-                    value.get::<String>("message")?,
+                    plan_field(&value, "code", 64, &mut result_budget)?,
+                    plan_field(&value, "message", 512, &mut result_budget)?,
                 ))
             })
             .collect::<mlua::Result<Vec<_>>>()?;
