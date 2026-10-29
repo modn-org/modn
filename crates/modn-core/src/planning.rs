@@ -50,7 +50,8 @@ pub struct InstallPlan {
 pub(crate) fn prohibited_payload(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     [
-        ".exe", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".lnk", ".url",
+        ".exe", ".com", ".scr", ".hta", ".pif", ".cpl", ".msi", ".bat", ".cmd", ".ps1", ".vbs",
+        ".lnk", ".url",
     ]
     .iter()
     .any(|suffix| lower.ends_with(suffix))

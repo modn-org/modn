@@ -84,11 +84,11 @@ function policy.scan(limit)
         return true
     end
 
-    local function collect_files(folder, extensions, kind)
+    local function collect_files(folder, extensions, kind, required_root)
         local stack = { folder }
         while #stack > 0 do
             local current = table.remove(stack)
-            local response = listing(current, current ~= folder)
+            local response = listing(current, current ~= folder or required_root)
             if response ~= nil then
                 if response.incomplete then incomplete = true end
                 for _, entry in ipairs(response.items) do
@@ -107,7 +107,7 @@ function policy.scan(limit)
         end
     end
 
-    local function collect_directories(folder, kind)
+    local function collect_directories(folder, kind, scan_files)
         local response = listing(folder)
         if response == nil then return end
         if response.incomplete then incomplete = true end
@@ -115,11 +115,13 @@ function policy.scan(limit)
             if not consume(entry) then return end
             if entry.kind == "directory" then
                 local subfolder = folder .. "/" .. entry.name
-                -- Emit individual files so ownership reconciliation remains
-                -- exact; a directory alone cannot prove package ownership.
-                local start = #mods
-                collect_files(subfolder, nil, kind)
-                if #mods == start then
+                if scan_files then
+                    -- Emit individual files for CET/RED4ext ownership.
+                    local start = #mods
+                    collect_files(subfolder, nil, kind, true)
+                    if #mods == start then push(subfolder, kind) end
+                else
+                    -- REDmod remains a directory-only presence signal.
                     push(subfolder, kind)
                 end
             end
@@ -129,9 +131,9 @@ function policy.scan(limit)
     collect_files("archive/pc/mod", { archive = true }, "legacy-archive")
     collect_files("r6/scripts", { reds = true }, "redscript")
     collect_files("r6/tweaks", { yaml = true, yml = true }, "tweak")
-    collect_directories("mods", "redmod-directory")
-    collect_directories("red4ext/plugins", "red4ext-plugin")
-    collect_directories("bin/x64/plugins/cyber_engine_tweaks/mods", "cet-mod")
+    collect_directories("mods", "redmod-directory", false)
+    collect_directories("red4ext/plugins", "red4ext-plugin", true)
+    collect_directories("bin/x64/plugins/cyber_engine_tweaks/mods", "cet-mod", true)
     table.sort(mods, function(a,b) return a.relative_path < b.relative_path end)
 
     local candidates = {
@@ -243,6 +245,10 @@ function policy.plan(files)
                 or string.sub(stem, 1, 7) == "license"
                 or string.sub(stem, 1, 9) == "changelog")
     end
+    local canonical_framework_prefixes = {
+        cet = { "bin", "x64", "plugins", "cyber_engine_tweaks", "mods" },
+        red4ext = { "red4ext", "plugins" },
+    }
     for _, file in ipairs(files) do
         local parts = {}
         for item in string.gmatch(file.source, "[^/]+") do
@@ -252,6 +258,16 @@ function policy.plan(files)
         for i = 1, #parts do
             local kind = kind_of(parts, i)
             if kind ~= nil then
+                local expected = canonical_framework_prefixes[kind]
+                if expected ~= nil then
+                    for offset, component in ipairs(expected) do
+                        if parts[i + offset - 1] ~= component then
+                            block("NONCANONICAL_LAYOUT",
+                                "Framework directory casing differs: " .. file.source)
+                            break
+                        end
+                    end
+                end
                 local wrapper = table.concat(parts, "/", 1, i - 1)
                 local target = table.concat(parts, "/", i)
                 table.insert(operations, {

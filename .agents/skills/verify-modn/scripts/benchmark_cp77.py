@@ -17,6 +17,24 @@ import zipfile
 REPO = Path(__file__).resolve().parents[4]
 CET = "bin/x64/plugins/cyber_engine_tweaks/mods/"
 RED4EXT = "red4ext/plugins/"
+MAX_ZIP_ENTRIES = 2048
+MAX_ZIP_INDEX_BYTES = 2 * 1024 * 1024
+
+
+def zip_index_within_budget(archive):
+    # zipfile constructs every entry on open; bound the directory first.
+    with archive.open("rb") as source:
+        source.seek(max(0, archive.stat().st_size - (22 + 65535)))
+        tail = source.read()
+    offset = tail.rfind(b"PK\x05\x06")
+    if offset < 0 or offset + 22 > len(tail):
+        raise zipfile.BadZipFile("Missing ZIP end-of-central-directory record")
+    comment_size = int.from_bytes(tail[offset + 20:offset + 22], "little")
+    if offset + 22 + comment_size != len(tail):
+        raise zipfile.BadZipFile("Invalid ZIP end-of-central-directory comment")
+    entries = int.from_bytes(tail[offset + 10:offset + 12], "little")
+    index_bytes = int.from_bytes(tail[offset + 12:offset + 16], "little")
+    return entries < 0xFFFF and entries <= MAX_ZIP_ENTRIES and index_bytes <= MAX_ZIP_INDEX_BYTES
 
 
 def run(archive_dir, binary, max_archive_mib):
@@ -42,6 +60,9 @@ def run(archive_dir, binary, max_archive_mib):
                 item["result"] = "skipped-size-cap"
                 continue
             try:
+                if not zip_index_within_budget(archive):
+                    item["result"] = "skipped-index-cap"
+                    continue
                 with zipfile.ZipFile(archive) as reader:
                     names = [entry.filename for entry in reader.infolist() if not entry.is_dir()]
                 normalized = [name.replace("\\", "/").lower() for name in names]

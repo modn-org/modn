@@ -142,6 +142,10 @@ Both CET and RED4ext are **game policy**, not hardcoded Rust installers. A CET m
 can contain multiple Lua/config files, while RED4ext plugins can include DLLs
 and nested assets. These are not claims that the required framework is present
 or that a particular mod is compatible with the installed game version.
+Framework directory names in CET and RED4ext ZIPs must use the documented
+lowercase casing (`bin/x64/plugins/cyber_engine_tweaks/mods` and `red4ext/plugins`).
+An incorrectly cased prefix blocks the entire package so files remain visible
+to the inventory scanner on case-sensitive filesystems.
 If an archive also includes redscript, ArchiveXL-associated configuration,
 unrecognized files, installers or unsafe ZIP names, the entire proposal is blocked.
 
@@ -151,7 +155,9 @@ build `modn` then run `python .agents/skills/verify-modn/scripts/benchmark_cp77.
 game marker; it never extracts, executes, installs, copies or alters archives,
 and does not create manager state. The source archives stay outside the repo;
 benchmark results are terminal output only. Use `--max-archive-mib` to change
-the default 64 MiB per-file cap.
+the default 64 MiB per-file cap. The benchmark also skips ZIPs advertising over
+2,048 entries, over 2 MiB of central-directory metadata, or ZIP64 sentinel sizes
+before loading entry metadata.
 
 ## Transactional Luau-planned ZIP installation (experimental)
 

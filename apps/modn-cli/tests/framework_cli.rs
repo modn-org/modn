@@ -382,3 +382,117 @@ fn preexisting_directory_and_duplicate_target_remain_blocked() {
         b"unmanaged"
     );
 }
+
+#[test]
+fn redmod_scan_stays_directory_only_and_does_not_traverse_large_mods() {
+    let (_temp, game, state) = fixture();
+    let root = game.join("mods/UnmanagedREDmod");
+    fs::create_dir_all(root.join("nested")).expect("REDmod directory fixture");
+    fs::write(root.join("info.json"), b"{}").expect("REDmod metadata");
+    fs::write(root.join("nested/asset.tweak"), b"data").expect("REDmod payload");
+    let report = success(&state, &["scan", "--path", game.to_str().expect("game")]);
+    let redmods: Vec<&Value> = report["mods"]
+        .as_array()
+        .expect("mods array")
+        .iter()
+        .filter(|mod_entry| mod_entry["kind"] == "redmod-directory")
+        .collect();
+    assert_eq!(redmods.len(), 1, "REDmod files must not be emitted as mods");
+    assert_eq!(redmods[0]["relative_path"], "mods/UnmanagedREDmod");
+    assert_eq!(redmods[0]["managed"], false);
+    assert_eq!(report["incomplete"], false);
+}
+
+#[test]
+fn executable_windows_payload_suffixes_block_framework_packages() {
+    let (temp, game, state) = fixture();
+    let zip = temp.path().join("unsafe-executable.zip");
+    for extension in ["com", "scr", "hta", "pif", "cpl"] {
+        let payload = format!("red4ext/plugins/Fixture/launch.{extension}");
+        archive(&zip, &[(payload.as_str(), b"unsafe")]);
+        let preview = success(
+            &state,
+            &[
+                "install",
+                zip.to_str().expect("archive"),
+                "--dry-run",
+                "--path",
+                game.to_str().expect("game"),
+            ],
+        );
+        assert_eq!(preview["status"], "blocked", "unsafe extension {extension}");
+        assert!(preview["blockers"]
+            .as_array()
+            .expect("blockers")
+            .iter()
+            .any(|issue| issue["code"] == "EXECUTABLE_PAYLOAD"));
+        let approved = cli(
+            &state,
+            &[
+                "install",
+                zip.to_str().expect("archive"),
+                "--yes",
+                "--path",
+                game.to_str().expect("game"),
+            ],
+        );
+        assert!(
+            !approved.status.success(),
+            "unsafe executable installed: {extension}"
+        );
+        assert!(!game.join("red4ext").exists());
+    }
+}
+
+#[test]
+fn incorrectly_cased_framework_paths_block_mixed_zip_without_writes() {
+    let (temp, game, state) = fixture();
+    let zip = temp.path().join("wrong-case.zip");
+    let legacy = "archive/pc/mod/Safe.archive";
+    for invalid in [
+        "Bin/x64/plugins/cyber_engine_tweaks/mods/Case/init.lua",
+        "bin/X64/plugins/cyber_engine_tweaks/mods/Case/init.lua",
+        "bin/x64/Plugins/cyber_engine_tweaks/mods/Case/init.lua",
+        "bin/x64/plugins/Cyber_Engine_Tweaks/mods/Case/init.lua",
+        "bin/x64/plugins/cyber_engine_tweaks/Mods/Case/init.lua",
+        "RED4ext/plugins/Case/Case.dll",
+        "red4ext/Plugins/Case/Case.dll",
+    ] {
+        archive(&zip, &[(legacy, b"legacy"), (invalid, b"plugin")]);
+        let existed_before_preview = state.exists();
+        let report = preview(&game, &state, &zip);
+        assert_eq!(report["status"], "blocked", "{invalid}: {report}");
+        assert!(report["blockers"]
+            .as_array()
+            .expect("blockers")
+            .iter()
+            .any(|item| item["code"] == "NONCANONICAL_LAYOUT"));
+        assert_eq!(
+            state.exists(),
+            existed_before_preview,
+            "preview changed state"
+        );
+        let approved = cli(
+            &state,
+            &[
+                "install",
+                zip.to_str().expect("archive"),
+                "--yes",
+                "--path",
+                game.to_str().expect("game"),
+            ],
+        );
+        assert!(
+            !approved.status.success(),
+            "installed wrong-cased {invalid}"
+        );
+        assert!(!game.join(invalid).exists(), "stray framework files");
+        assert!(!game.join(legacy).exists(), "partial legacy installation");
+        let scan = success(&state, &["scan", "--path", game.to_str().expect("game")]);
+        assert!(scan["mods"].as_array().expect("mods").is_empty());
+        assert!(scan["owned_files"]
+            .as_array()
+            .expect("owned files")
+            .is_empty());
+    }
+}
