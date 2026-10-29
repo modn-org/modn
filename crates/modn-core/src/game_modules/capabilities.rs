@@ -352,6 +352,7 @@ fn directory_service(
                         continue;
                     }
                     let Ok((_, metadata)) = safe_target(root, &relative_entry) else {
+                        incomplete = true;
                         continue;
                     };
                     names.push((

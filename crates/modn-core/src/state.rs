@@ -43,7 +43,8 @@ impl Store {
             "CREATE TABLE IF NOT EXISTS managed_packages (
                 id TEXT PRIMARY KEY,
                 game_path TEXT NOT NULL,
-                archive_sha256 TEXT NOT NULL,
+                archive_sha256 TEXT,
+                origin TEXT NOT NULL DEFAULT 'archive',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS managed_files (
@@ -72,6 +73,42 @@ impl Store {
                 PRIMARY KEY(transaction_id, ord)
             );",
         )?;
+        // SQLite transactions make metadata-only adoption atomic: no game-file journal
+        // is needed because this migration and adoption only change manager state.
+        let (nullable, has_origin): (bool, bool) = {
+            let mut stmt = connection.prepare("PRAGMA table_info(managed_packages)")?;
+            let columns = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            (
+                columns
+                    .iter()
+                    .any(|(name, nonnull)| name == "archive_sha256" && *nonnull == 0),
+                columns.iter().any(|(name, _)| name == "origin"),
+            )
+        };
+        if !nullable || !has_origin {
+            let tx = connection.unchecked_transaction()?;
+            tx.execute_batch(
+                "CREATE TABLE managed_packages_new (
+                id TEXT PRIMARY KEY, game_path TEXT NOT NULL,
+                archive_sha256 TEXT, origin TEXT NOT NULL DEFAULT 'archive',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+            )?;
+            tx.execute(
+                "INSERT INTO managed_packages_new (id,game_path,archive_sha256,created_at)
+                SELECT id,game_path,archive_sha256,created_at FROM managed_packages",
+                [],
+            )?;
+            tx.execute_batch(
+                "DROP TABLE managed_packages;
+                ALTER TABLE managed_packages_new RENAME TO managed_packages;",
+            )?;
+            tx.commit()?;
+        }
         Ok(Self {
             connection,
             state_root: path

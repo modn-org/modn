@@ -1,7 +1,10 @@
+mod adopt;
+mod commands;
 mod selection;
 mod state_access;
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::Parser;
+use commands::{Cli, Command, GameCommand, ModuleCommand};
 use modn_core::archive::inspect;
 use modn_core::game_modules::check_module_with_roots;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
@@ -10,103 +13,6 @@ use modn_core::state::Store;
 use selection::{choose_candidate, selected_installation};
 use state_access::{database_path, validate_state_path};
 use std::path::PathBuf;
-
-#[derive(Parser)]
-#[command(name = "modn", about = "Game mod inspection and guarded management")]
-struct Cli {
-    #[arg(long, global = true)]
-    json: bool,
-
-    #[arg(long, global = true, value_name = "DIR")]
-    state_dir: Option<PathBuf>,
-
-    /// Select a runtime-loaded game policy by ID.
-    #[arg(long = "game", global = true, value_name = "ID")]
-    game_id: Option<String>,
-
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Preview or install a ZIP with the selected Luau policy after approval.
-    Install {
-        archive: PathBuf,
-        #[arg(long)]
-        path: Option<PathBuf>,
-        #[arg(long, help = "Confirm writing files into the game")]
-        yes: bool,
-        #[arg(
-            long,
-            conflicts_with = "yes",
-            help = "Preview operations without writing game files"
-        )]
-        dry_run: bool,
-    },
-    /// List manager-owned packages (unmanaged mods are never included).
-    Installed {
-        #[arg(long)]
-        path: Option<PathBuf>,
-    },
-    /// Remove an unchanged manager-owned package.
-    Uninstall {
-        package_id: String,
-        #[arg(long)]
-        path: Option<PathBuf>,
-        #[arg(long, help = "Confirm removing managed game files")]
-        yes: bool,
-    },
-    /// Safely roll back interrupted installs/uninstalls.
-    Recover {
-        #[arg(long, help = "Confirm rollback of interrupted transactions")]
-        yes: bool,
-    },
-    /// Inspect ZIP, JAR, or 7z metadata without extracting files.
-    Inspect { archive: PathBuf },
-    /// Validate a local Luau module without granting file or game-write access.
-    Module {
-        #[command(subcommand)]
-        command: ModuleCommand,
-    },
-    Game {
-        #[command(subcommand)]
-        command: GameCommand,
-    },
-    /// Inspect known mod directories without modifying game files.
-    Scan {
-        #[arg(long)]
-        path: Option<PathBuf>,
-    },
-    /// Check REDmod availability and report unmanaged content.
-    Doctor {
-        #[arg(long)]
-        path: Option<PathBuf>,
-    },
-}
-
-#[derive(Subcommand)]
-enum ModuleCommand {
-    /// Load a local game module and report its identity and API compatibility.
-    Check {
-        directory: PathBuf,
-        /// Explicitly permit read-only discovery and inspection within this directory.
-        #[arg(long = "allow-root", value_name = "DIR")]
-        allow_roots: Vec<PathBuf>,
-    },
-}
-
-#[derive(Subcommand)]
-enum GameCommand {
-    /// Register an installation using its game's Luau module.
-    Add {
-        game: String,
-        #[arg(long)]
-        path: Option<PathBuf>,
-    },
-    /// Show registered installations.
-    List,
-}
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -125,6 +31,7 @@ fn run() -> Result<()> {
         }
         | Command::Install { path, .. }
         | Command::Installed { path }
+        | Command::Adopt { path, .. }
         | Command::Uninstall { path, .. }
         | Command::Scan { path }
         | Command::Doctor { path } => path.as_deref(),
@@ -138,6 +45,7 @@ fn run() -> Result<()> {
         &cli.command,
         Command::Install { path: None, .. }
             | Command::Installed { path: None }
+            | Command::Adopt { path: None, .. }
             | Command::Uninstall { path: None, .. }
             | Command::Scan { path: None }
             | Command::Doctor { path: None }
@@ -195,9 +103,16 @@ fn run() -> Result<()> {
             dry_run: true,
             path: Some(_),
             ..
+        } | Command::Adopt {
+            dry_run: true,
+            path: Some(_),
+            ..
         }
     );
-    let read_only_preview = matches!(&cli.command, Command::Install { dry_run: true, .. });
+    let read_only_preview = matches!(
+        &cli.command,
+        Command::Install { dry_run: true, .. } | Command::Adopt { dry_run: true, .. }
+    );
     let mut store = if matches!(
         &cli.command,
         Command::Inspect { .. } | Command::Module { .. }
@@ -279,6 +194,23 @@ fn run() -> Result<()> {
                     );
                 }
             }
+        }
+        Command::Adopt {
+            selector,
+            path,
+            yes,
+            dry_run,
+        } => {
+            let (game_id, game) = selected_installation(store.as_ref(), path, requested)?;
+            adopt::run(
+                store.as_mut(),
+                &game_id,
+                &game,
+                selector.as_deref(),
+                yes,
+                dry_run,
+                cli.json,
+            )?;
         }
         Command::Installed { path } => {
             let (_, game) = selected_installation(store.as_ref(), path, requested)?;

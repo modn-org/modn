@@ -15,7 +15,7 @@ const MAX_FILE: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_TOTAL: u64 = 8 * 1024 * 1024 * 1024;
 
 /// Require an existing real directory; no game-specific executable or layout checks.
-pub(super) fn validate_transaction_root(game: &Path) -> Result<PathBuf> {
+pub(crate) fn validate_transaction_root(game: &Path) -> Result<PathBuf> {
     let metadata = fs::symlink_metadata(game)?;
     if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
         bail!("transaction root must be a real directory, not a link");
@@ -105,9 +105,23 @@ pub(super) fn validate_execution_plan(
 /// Reserve even missing owned destinations before staging. SQLite ownership
 /// must not be silently replaced if a managed file has disappeared on disk.
 pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallPlan) -> Result<()> {
-    // Ownership is recorded relative to each installation root. Nested roots
-    // can address the same physical file with different (game_path, path_key)
-    // pairs, bypassing uniqueness and causing cross-package uninstall deletes.
+    validate_ownership_paths(
+        store,
+        game,
+        proposal
+            .operations
+            .iter()
+            .map(|operation| operation.destination.as_str()),
+    )
+}
+
+/// Reject overlapping installation roots, owned destinations and aliases.
+/// Reused by both installation and metadata-only adoption.
+pub(crate) fn validate_ownership_paths<'a>(
+    store: &Store,
+    game: &Path,
+    paths: impl IntoIterator<Item = &'a str>,
+) -> Result<()> {
     let selected = PathBuf::from(game.to_string_lossy().to_lowercase());
     let mut roots = store
         .connection
@@ -121,7 +135,6 @@ pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallP
             bail!("installation root overlaps another managed installation");
         }
     }
-
     let mut query = store
         .connection
         .prepare("SELECT path_key FROM managed_files WHERE game_path=?1")?;
@@ -131,12 +144,27 @@ pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallP
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut reserved: BTreeSet<String> = owned.into_iter().collect();
-    for operation in &proposal.operations {
-        if let Some(code) = insert_destination(&mut reserved, &operation.destination) {
-            bail!(
-                "{code}: destination already reserved by manager: {}",
-                operation.destination
-            );
+    for destination in paths {
+        if let Some(code) = insert_destination(&mut reserved, destination) {
+            bail!("{code}: destination already reserved by manager: {destination}");
+        }
+    }
+    Ok(())
+}
+
+// Registered game roots must not overlap another game's adoption target.
+// An existing game marker alone does not authorize cross-game file ownership.
+pub(crate) fn validate_registered_adoption_roots(
+    store: &Store,
+    game_id: &str,
+    game: &Path,
+) -> Result<()> {
+    for registration in store.list()? {
+        let other = registration.path.canonicalize()?;
+        if (other == game && registration.game_id != game_id)
+            || (other != game && (other.starts_with(game) || game.starts_with(&other)))
+        {
+            bail!("adoption installation root overlaps another registered game");
         }
     }
     Ok(())

@@ -29,6 +29,15 @@ impl Store {
             })
             .collect();
         for f in &files {
+            if package.origin == "manual" {
+                let (_, bytes, sha) = crate::adoption::checked_file(&game, &f.destination)?;
+                if bytes != f.bytes || sha != f.sha256 {
+                    bail!(
+                        "adopted file changed; refusing uninstall: {}",
+                        f.destination
+                    );
+                }
+            }
             let target = target_path(&game, &f.destination, /* create_parents= */ false)?;
             if !target.is_file() || digest(&target)? != f.sha256 {
                 bail!(
@@ -48,6 +57,12 @@ impl Store {
         self.insert_journal(&id, "uninstall", &game, package_id, None, &files)?;
         let attempt = (|| -> Result<()> {
             for f in &files {
+                if package.origin == "manual" {
+                    let (_, bytes, sha) = crate::adoption::checked_file(&game, &f.destination)?;
+                    if bytes != f.bytes || sha != f.sha256 {
+                        bail!("adopted file changed during uninstall: {}", f.destination);
+                    }
+                }
                 let target = target_path(&game, &f.destination, /* create_parents= */ false)?;
                 if !target.is_file() || digest(&target)? != f.sha256 {
                     bail!("owned file modified during uninstall: {}", target.display());
