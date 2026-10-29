@@ -80,9 +80,14 @@ pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'
                 // new file below an ancestor addressed through a different name.
                 #[cfg(windows)]
                 {
-                    if !resolved.file_name().is_some_and(|actual| {
-                        actual.to_string_lossy().eq_ignore_ascii_case(component)
-                    }) {
+                    // Use the same Unicode lowercase keys as SQLite ownership
+                    // reservation, including ordinary Windows case aliases.
+                    let key = component.to_lowercase();
+                    if !resolved
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|actual| actual.to_lowercase() == key)
+                    {
                         return Some("ALIASED_DESTINATION");
                     }
                     if component.contains('~')
@@ -91,8 +96,8 @@ pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'
                                 entries.flatten().any(|entry| {
                                     entry
                                         .file_name()
-                                        .to_string_lossy()
-                                        .eq_ignore_ascii_case(component)
+                                        .to_str()
+                                        .is_some_and(|actual| actual.to_lowercase() == key)
                                 })
                             })
                         })

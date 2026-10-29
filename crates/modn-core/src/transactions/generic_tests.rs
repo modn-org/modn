@@ -313,3 +313,30 @@ fn short_directory_alias_cannot_reclaim_missing_owned_files() {
         assert!(!game.join(&file.destination).exists());
     }
 }
+
+#[cfg(windows)]
+#[test]
+fn existing_unicode_case_variant_directory_remains_installable() {
+    let (_dir, mut store, game, archive) = fixture();
+    let actual = game.join("r6/scripts/\u{00C9}cole");
+    fs::create_dir_all(&actual).unwrap();
+    let alternate = game.join("r6/scripts/\u{00E9}cole");
+    assert_eq!(
+        actual.canonicalize().unwrap(),
+        alternate.canonicalize().unwrap()
+    );
+
+    let mut proposal = plan(&game, &archive);
+    for operation in &mut proposal.operations {
+        let name = operation.destination.rsplit('/').next().unwrap();
+        operation.destination = format!("r6/scripts/\u{00E9}cole/{name}");
+    }
+    let owned = store
+        .install_operations_zip(&game, &archive, &proposal)
+        .unwrap();
+    assert_eq!(fs::read(actual.join("a.bin")).unwrap(), b"one");
+    assert_eq!(fs::read(alternate.join("b.bin")).unwrap(), b"two");
+    store.uninstall(&game, &owned.id).unwrap();
+    assert!(!actual.join("a.bin").exists());
+    assert!(!actual.join("b.bin").exists());
+}
