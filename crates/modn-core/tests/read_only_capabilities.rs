@@ -161,6 +161,7 @@ fn invalid_root_ids_and_nonexistent_files_fail_explicitly() {
 fn oversized_files_and_excessive_operations_are_rejected() {
     let (_temp, module, game) = fixture();
     fs::write(game.join("big.bin"), vec![0u8; 9 * 1024 * 1024]).expect("large file");
+    fs::copy(game.join("big.bin"), game.join("big.zip")).expect("large archive fixture");
     let error = failure(
         "mods_host.hash.sha256(1,'big.bin'); return {}",
         &game,
@@ -187,11 +188,36 @@ fn oversized_files_and_excessive_operations_are_rejected() {
     );
     assert!(error.contains("call budget exceeded"), "{error}");
     let error = failure(
-        "mods_host.archive.inspect(1,'big.bin'); return {}",
+        "mods_host.archive.inspect(1,'big.zip'); return {}",
         &game,
         &module,
     );
     assert!(error.contains("per-call read limit"), "{error}");
+}
+
+#[test]
+fn encoded_7z_headers_are_never_passed_to_unbounded_native_parser() {
+    let (_temp, module, game) = fixture();
+    // Even an apparently tiny 7z is rejected before attempting header decode.
+    fs::write(game.join("packages/encoded.7z"), b"7z\xbc\xaf\x27\x1c").expect("7z fixture");
+    let error = failure(
+        "mods_host.archive.inspect(1, 'packages/encoded.7z'); return {}",
+        &game,
+        &module,
+    );
+    assert!(error.contains("ZIP/JAR only"), "{error}");
+    // The shared standalone archive inspector remains unchanged.
+    fs::copy(
+        game.join("packages/test.zip"),
+        game.join("packages/test.jar"),
+    )
+    .expect("jar fixture");
+    run(
+        "assert(mods_host.archive.inspect(1, 'packages/test.jar').format == 'jar'); return {game_id='example-game',api_version=mods_host.api_version}",
+        &game,
+        &module,
+    )
+    .expect("bounded ZIP-formatted JAR still supported");
 }
 
 #[test]

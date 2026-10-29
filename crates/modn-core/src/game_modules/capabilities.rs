@@ -238,6 +238,16 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
             let (path, metadata) =
                 authorized_path(&roots, &budget, id, &relative).map_err(mlua::Error::external)?;
             regular_file(&metadata).map_err(mlua::Error::external)?;
+            // 7z encoded headers can expand unboundedly inside the native parser,
+            // before its entry-count validation. Do not expose that path to Luau
+            // until decoded-header allocations are demonstrably bounded.
+            let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("");
+            if !extension.eq_ignore_ascii_case("zip") && !extension.eq_ignore_ascii_case("jar") {
+                return Err(mlua::Error::RuntimeError(
+                    "Luau archive inspection supports ZIP/JAR only; 7z decoded headers are not bounded"
+                        .into(),
+                ));
+            }
             budget
                 .charge(metadata.len())
                 .map_err(mlua::Error::external)?;
