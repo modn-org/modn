@@ -105,6 +105,23 @@ pub(super) fn validate_execution_plan(
 /// Reserve even missing owned destinations before staging. SQLite ownership
 /// must not be silently replaced if a managed file has disappeared on disk.
 pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallPlan) -> Result<()> {
+    // Ownership is recorded relative to each installation root. Nested roots
+    // can address the same physical file with different (game_path, path_key)
+    // pairs, bypassing uniqueness and causing cross-package uninstall deletes.
+    let selected = PathBuf::from(game.to_string_lossy().to_lowercase());
+    let mut roots = store
+        .connection
+        .prepare("SELECT DISTINCT game_path FROM managed_packages")?;
+    let roots = roots
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for recorded in roots {
+        let other = PathBuf::from(recorded.to_lowercase());
+        if other != selected && (other.starts_with(&selected) || selected.starts_with(&other)) {
+            bail!("installation root overlaps another managed installation");
+        }
+    }
+
     let mut query = store
         .connection
         .prepare("SELECT path_key FROM managed_files WHERE game_path=?1")?;

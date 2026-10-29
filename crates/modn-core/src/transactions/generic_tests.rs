@@ -201,3 +201,51 @@ fn generic_executor_refuses_jar_instead_of_zip() {
         .is_err());
     assert!(store.installed(&game).unwrap().is_empty());
 }
+
+#[test]
+fn nested_root_cannot_take_ownership_of_missing_managed_files() {
+    let (_dir, mut store, game, archive) = fixture();
+    let original = plan(&game, &archive);
+    let owned = store
+        .install_operations_zip(&game, &archive, &original)
+        .unwrap();
+    let nested = game.join("data");
+    for file in &owned.files {
+        fs::remove_file(game.join(&file.destination)).unwrap();
+    }
+    let mut request = plan(&nested, &archive);
+    for operation in &mut request.operations {
+        operation.destination = operation.destination.strip_prefix("data/").unwrap().into();
+    }
+    assert!(store
+        .install_operations_zip(&nested, &archive, &request)
+        .is_err());
+    assert!(store.pending().unwrap().is_empty());
+    assert!(store.installed(&nested).unwrap().is_empty());
+    assert_eq!(store.installed(&game).unwrap().len(), 1);
+    assert!(!game.join("data/mods/a.bin").exists());
+}
+
+#[test]
+fn parent_root_cannot_take_ownership_of_nested_managed_installation() {
+    let (_dir, mut store, game, archive) = fixture();
+    let nested = game.join("data");
+    fs::create_dir(&nested).unwrap();
+    let mut nested_plan = plan(&nested, &archive);
+    for operation in &mut nested_plan.operations {
+        operation.destination = operation.destination.strip_prefix("data/").unwrap().into();
+    }
+    let owned = store
+        .install_operations_zip(&nested, &archive, &nested_plan)
+        .unwrap();
+    for file in &owned.files {
+        fs::remove_file(nested.join(&file.destination)).unwrap();
+    }
+    let parent_plan = plan(&game, &archive);
+    assert!(store
+        .install_operations_zip(&game, &archive, &parent_plan)
+        .is_err());
+    assert!(store.pending().unwrap().is_empty());
+    assert_eq!(store.installed(&nested).unwrap().len(), 1);
+    assert!(store.installed(&game).unwrap().is_empty());
+}
