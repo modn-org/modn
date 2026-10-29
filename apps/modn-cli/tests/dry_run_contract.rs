@@ -195,3 +195,23 @@ fn occupied_target_is_blocked_even_if_module_requests_it() {
         .any(|b| b["code"] == "EXISTING_FILE"));
     assert_eq!(fs::read(&destination).unwrap(), b"unmanaged");
 }
+
+#[test]
+fn oversized_plan_is_blocked_before_luau_execution() {
+    let names: Vec<String> = (0..2_049)
+        .map(|i| format!("r6/scripts/fixture/{i:05}.reds"))
+        .collect();
+    let entries: Vec<&str> = names.iter().map(String::as_str).collect();
+    let (_temp, game, archive, state) = fixture(&entries);
+    let report = preview(&game, &archive, &state, None);
+    assert_eq!(report["status"], "blocked", "{report}");
+    assert!(
+        report["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["code"] == "TOO_MANY_FILES"),
+        "{report}"
+    );
+    assert!(!game.join("r6").exists());
+}

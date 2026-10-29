@@ -224,8 +224,17 @@ pub(crate) fn plan(
     root: &Path,
     inspection: &crate::archive::Inspection,
 ) -> Result<RequestedPlan> {
-    const MAX_PROPOSALS: usize = 20_000;
+    const MAX_PROPOSALS: usize = 2_048;
     let root = root.canonicalize()?;
+    if inspection.files.len() > MAX_PROPOSALS {
+        return Ok(RequestedPlan {
+            operations: Vec::new(),
+            blockers: vec![(
+                "TOO_MANY_FILES".into(),
+                format!("Read-only preview supports at most {MAX_PROPOSALS} files"),
+            )],
+        });
+    }
     evaluate(game_id, &[root], |lua, policy| {
         let input = lua.create_table()?;
         for (index, file) in inspection.files.iter().enumerate() {
