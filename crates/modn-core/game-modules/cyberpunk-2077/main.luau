@@ -57,9 +57,11 @@ function policy.is_epic(display_name)
     return display_name == "Cyberpunk 2077"
 end
 
-local function listing(folder)
+local function listing(folder, required)
     local ok, response = pcall(dir.list, 1, folder)
     if ok then return response end
+    -- Missing layout roots are optional; discovered descendants must be readable.
+    if required then return { items = {}, incomplete = true } end
     return nil
 end
 
@@ -86,7 +88,7 @@ function policy.scan(limit)
         local stack = { folder }
         while #stack > 0 do
             local current = table.remove(stack)
-            local response = listing(current)
+            local response = listing(current, current ~= folder)
             if response ~= nil then
                 if response.incomplete then incomplete = true end
                 for _, entry in ipairs(response.items) do

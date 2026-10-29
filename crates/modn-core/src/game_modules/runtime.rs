@@ -1,5 +1,5 @@
 //! Shared bounded Luau VM for external and bundled game policies.
-use super::capabilities::{self, AllowedRoots};
+use super::capabilities::{self, AllowedRoots, ReadProfile};
 use super::loader::HOST_API_VERSION;
 use anyhow::Result;
 use mlua::{Lua, LuaOptions, StdLib, Table, VmState};
@@ -14,6 +14,7 @@ pub(super) fn evaluate<T>(
     source: &str,
     label: &str,
     roots: AllowedRoots,
+    profile: ReadProfile,
     evaluate: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
     let run = || -> mlua::Result<T> {
@@ -41,7 +42,7 @@ pub(super) fn evaluate<T>(
         }
         let host = lua.create_table()?;
         host.set("api_version", HOST_API_VERSION)?;
-        capabilities::register(&lua, &host, roots)?;
+        capabilities::register(&lua, &host, roots, profile)?;
         host.set_readonly(true);
         globals.set("mods_host", host)?;
         lua.sandbox(true)?;

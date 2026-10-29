@@ -1,5 +1,5 @@
 //! Local Luau module validation with bounded, root-scoped reads; no mutation APIs.
-use super::capabilities::AllowedRoots;
+use super::capabilities::{AllowedRoots, ReadProfile};
 use super::runtime;
 use anyhow::{bail, Context, Result};
 use mlua::Table;
@@ -109,16 +109,22 @@ fn execute_module(script: &[u8], manifest: &ModuleManifest, roots: AllowedRoots)
     if source.contains('\0') {
         bail!("Luau entrypoint cannot contain NUL bytes or binary chunks");
     }
-    runtime::evaluate(source, &manifest.entrypoint, roots, |_, output: Table| {
-        let declared_api: u32 = output.get("api_version")?;
-        let declared_game: String = output.get("game_id")?;
-        if declared_api != manifest.api_version || declared_game != manifest.game_id {
-            return Err(mlua::Error::RuntimeError(
-                "Luau module identity or host API disagrees with manifest".into(),
-            ));
-        }
-        Ok(())
-    })
+    runtime::evaluate(
+        source,
+        &manifest.entrypoint,
+        roots,
+        ReadProfile::Standard,
+        |_, output: Table| {
+            let declared_api: u32 = output.get("api_version")?;
+            let declared_game: String = output.get("game_id")?;
+            if declared_api != manifest.api_version || declared_game != manifest.game_id {
+                return Err(mlua::Error::RuntimeError(
+                    "Luau module identity or host API disagrees with manifest".into(),
+                ));
+            }
+            Ok(())
+        },
+    )
 }
 
 /// Load a user-selected local module solely to validate its identity and host API.

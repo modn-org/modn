@@ -13,6 +13,14 @@ const MAX_ROOTS: usize = 8;
 const MAX_RELATIVE_BYTES: usize = 256;
 const MAX_DEPTH: usize = 16;
 const MAX_CALLS: u32 = 128;
+const MAX_SCAN_CALLS: u32 = 20_128;
+const MAX_TOTAL_DIRECTORY_ENTRIES: usize = 20_000;
+
+#[derive(Clone, Copy)]
+pub(super) enum ReadProfile {
+    Standard,
+    Scan,
+}
 const MAX_TOTAL_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ONE_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 256;
@@ -106,15 +114,28 @@ fn safe_target(root: &Path, relative: &str) -> Result<(PathBuf, fs::Metadata)> {
     Ok((current, metadata))
 }
 
-#[derive(Default)]
 struct Budget {
     calls: Cell<u32>,
     bytes: Cell<u64>,
+    directory_entries: Cell<usize>,
+    call_limit: u32,
 }
 impl Budget {
+    fn new(profile: ReadProfile) -> Self {
+        Self {
+            calls: Cell::new(0),
+            bytes: Cell::new(0),
+            directory_entries: Cell::new(0),
+            call_limit: match profile {
+                ReadProfile::Standard => MAX_CALLS,
+                ReadProfile::Scan => MAX_SCAN_CALLS,
+            },
+        }
+    }
+
     fn operation(&self) -> Result<()> {
         let next = self.calls.get().saturating_add(1);
-        if next > MAX_CALLS {
+        if next > self.call_limit {
             bail!("read-only capability call budget exceeded");
         }
         self.calls.set(next);
@@ -310,6 +331,12 @@ fn directory_service(
                     incomplete = true;
                     break;
                 }
+                let next = read_budget.directory_entries.get().saturating_add(1);
+                if next > MAX_TOTAL_DIRECTORY_ENTRIES {
+                    incomplete = true;
+                    break;
+                }
+                read_budget.directory_entries.set(next);
                 let entry = entry.map_err(mlua::Error::external)?;
                 let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                     incomplete = true;
@@ -317,6 +344,7 @@ fn directory_service(
                 };
                 let relative_entry = format!("{relative}/{name}");
                 if relative_components(&relative_entry).is_err() {
+                    incomplete = true;
                     continue;
                 }
                 let Ok((_, metadata)) = safe_target(root, &relative_entry) else {
@@ -381,9 +409,14 @@ fn directory_service(
 }
 
 /// Add only read-only host services to the existing sandbox; never pass raw paths.
-pub(super) fn register(lua: &Lua, host: &Table, roots: AllowedRoots) -> mlua::Result<()> {
+pub(super) fn register(
+    lua: &Lua,
+    host: &Table,
+    roots: AllowedRoots,
+    profile: ReadProfile,
+) -> mlua::Result<()> {
     let roots = Rc::new(roots);
-    let budget = Rc::new(Budget::default());
+    let budget = Rc::new(Budget::new(profile));
     let discovery = lua.create_table()?;
     let allowed = Rc::clone(&roots);
     let limit = Rc::clone(&budget);

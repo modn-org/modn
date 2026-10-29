@@ -1,5 +1,5 @@
 //! Generic adapter for runtime-loaded, game-specific Luau policies.
-use super::capabilities::AllowedRoots;
+use super::capabilities::{AllowedRoots, ReadProfile};
 use super::loader::{self, HOST_API_VERSION};
 use super::runtime;
 use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport};
@@ -41,22 +41,37 @@ fn evaluate<T>(
     roots: &[PathBuf],
     action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
+    evaluate_with_profile(game_id, roots, ReadProfile::Standard, action)
+}
+
+fn evaluate_with_profile<T>(
+    game_id: &str,
+    roots: &[PathBuf],
+    profile: ReadProfile,
+    action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
+) -> Result<T> {
     let directory = module_directory(game_id)?;
     let (manifest, source) = loader::read_verified_module(&directory)?;
     if manifest.game_id != game_id {
         bail!("game module identity does not match requested game");
     }
     let roots = AllowedRoots::validate(roots)?;
-    runtime::evaluate(&source, &manifest.entrypoint, roots, |lua, policy| {
-        let id: String = policy.get("game_id")?;
-        let version: u32 = policy.get("api_version")?;
-        if id != game_id || version != HOST_API_VERSION {
-            return Err(mlua::Error::RuntimeError(
-                "game module identity or host API mismatch".into(),
-            ));
-        }
-        action(lua, policy)
-    })
+    runtime::evaluate(
+        &source,
+        &manifest.entrypoint,
+        roots,
+        profile,
+        |lua, policy| {
+            let id: String = policy.get("game_id")?;
+            let version: u32 = policy.get("api_version")?;
+            if id != game_id || version != HOST_API_VERSION {
+                return Err(mlua::Error::RuntimeError(
+                    "game module identity or host API mismatch".into(),
+                ));
+            }
+            action(lua, policy)
+        },
+    )
 }
 
 /// Validate a selected installation by its game policy, not a hardcoded Rust executable path.
@@ -154,11 +169,16 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
 /// Obtain game-specific inventory policy through a bounded read-only Luau VM.
 pub(crate) fn scan(game_id: &str, root: &Path, limit: usize) -> Result<ScanReport> {
     let canonical = root.canonicalize()?;
-    evaluate(game_id, std::slice::from_ref(&canonical), |_, policy| {
-        let scan: Function = policy.get("scan")?;
-        let report: Table = scan.call(limit.min(MAX_ITEMS))?;
-        decode_scan(&canonical, game_id, report)
-    })
+    evaluate_with_profile(
+        game_id,
+        std::slice::from_ref(&canonical),
+        ReadProfile::Scan,
+        |_, policy| {
+            let scan: Function = policy.get("scan")?;
+            let report: Table = scan.call(limit.min(MAX_ITEMS))?;
+            decode_scan(&canonical, game_id, report)
+        },
+    )
 }
 
 /// Game-specific diagnostic policy receives only a sanitized inventory summary.
