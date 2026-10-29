@@ -95,7 +95,7 @@ fn is_documentation(path: &str) -> bool {
                 || name == "description.txt"))
 }
 
-fn prohibited_payload(path: &str) -> bool {
+pub(crate) fn prohibited_payload(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     [
         ".exe", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".lnk", ".url",
@@ -103,8 +103,7 @@ fn prohibited_payload(path: &str) -> bool {
     .iter()
     .any(|suffix| lower.ends_with(suffix))
 }
-
-fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str> {
+pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str> {
     let mut current = game.to_path_buf();
     let canonical_game = game.canonicalize().ok()?;
     let components: Vec<_> = target.split('/').collect();
@@ -133,8 +132,10 @@ fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str>
         None
     }
 }
-
-fn insert_destination(targets: &mut BTreeSet<String>, destination: &str) -> Option<&'static str> {
+pub(crate) fn insert_destination(
+    targets: &mut BTreeSet<String>,
+    destination: &str,
+) -> Option<&'static str> {
     let key = destination.to_lowercase();
     let mut ancestor = key.as_str();
     while let Some((parent, _)) = ancestor.rsplit_once('/') {
@@ -296,7 +297,6 @@ pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
         blockers,
     }
 }
-
 // Untrusted, versioned Luau file mapping. It carries no installation authority.
 pub(crate) struct RequestedFile {
     pub(crate) source: String,

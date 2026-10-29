@@ -1,100 +1,46 @@
+//! Game-agnostic, ownership-aware ZIP operation executor.
 use super::journal::{
     digest, lock_store, target_path, temp_path, JournalFile, ManagedPackage, OwnedFile,
 };
+use super::validation::{validate_execution_plan, validate_ownership, validate_transaction_root};
 use crate::archive::inspect;
-use crate::discovery::validate_installation;
-use crate::planning::{plan, resolve, InstallPlan, PlanIssue};
+use crate::planning::InstallPlan;
 use crate::state::Store;
-use crate::CYBERPUNK_ID;
 use anyhow::{bail, Context, Result};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use tempfile::Builder;
 
-const MAX_TOTAL: u64 = 8 * 1024 * 1024 * 1024;
-const MAX_FILE: u64 = 4 * 1024 * 1024 * 1024;
-
-/// Preview only operations the current legacy ZIP transaction engine can execute.
-///
-/// The Luau mapping is untrusted. Until the installer consumes the same
-/// validated mapping in a later milestone, reject previews that disagree with
-/// the current Rust executor instead of showing a misleading dry run.
-pub fn preview_install_zip(game: &Path, archive: &Path) -> Result<InstallPlan> {
-    let inspection = inspect(archive)?;
-    let mut preview = resolve(CYBERPUNK_ID, &inspection, game)?;
-    let actual = plan(&inspection, &preview.game_installation);
-    let agrees = actual.operations.len() == preview.operations.len()
-        && actual
-            .operations
-            .iter()
-            .zip(&preview.operations)
-            .all(|(a, b)| {
-                a.source == b.source
-                    && a.destination == b.destination
-                    && a.bytes == b.bytes
-                    && a.kind == b.kind
-            });
-    if inspection.format != "zip"
-        || actual.status != "reviewable"
-        || actual
-            .operations
-            .iter()
-            .any(|file| file.kind != "legacy-archive")
-        || !agrees
-    {
-        preview.blockers.push(PlanIssue {
-            code: "NOT_INSTALLABLE".into(),
-            message: "This archive or proposed mapping is not supported by the current installer"
-                .into(),
-        });
-        preview.status = "blocked".into();
-    }
-    Ok(preview)
-}
-
 impl Store {
-    /// Install a ZIP of legacy archives; never adopts or replaces existing files.
-    pub fn install_zip(&mut self, game: &Path, archive: &Path) -> Result<ManagedPackage> {
-        self.install_inner(game, archive, None)
-    }
-
-    pub(super) fn install_inner(
+    /// Execute a caller-approved proposal, independently checked against the current archive
+    /// and filesystem. This is a write API, not exposed to untrusted Luau modules.
+    /// For now, only ZIP file-copy operations are supported.
+    pub fn install_operations_zip(
         &mut self,
         game: &Path,
         archive: &Path,
+        proposal: &InstallPlan,
+    ) -> Result<ManagedPackage> {
+        self.install_operations_inner(game, archive, proposal, None)
+    }
+
+    pub(super) fn install_operations_inner(
+        &mut self,
+        game: &Path,
+        archive: &Path,
+        proposal: &InstallPlan,
         fail_after: Option<usize>,
     ) -> Result<ManagedPackage> {
         let _guard = lock_store(self)?;
         self.ensure_no_pending()?;
-        let game = validate_installation(game)?;
+        let game = validate_transaction_root(game)?;
         if self.state_root.starts_with(&game) || game.starts_with(&self.state_root) {
             bail!("manager state must be separate from the game directory");
         }
         let inspection = inspect(archive)?;
-        if inspection.format != "zip" {
-            bail!("installation supports ZIP packages only");
-        }
-        let proposal = plan(&inspection, &game);
-        if proposal.status != "reviewable" {
-            bail!("installation plan blocked: {:?}", proposal.blockers);
-        }
-        if proposal
-            .operations
-            .iter()
-            .any(|f| f.kind != "legacy-archive")
-        {
-            bail!("installation currently supports legacy .archive files only");
-        }
-        if proposal.operations.iter().any(|f| f.bytes > MAX_FILE)
-            || proposal
-                .operations
-                .iter()
-                .try_fold(0u64, |n, f| n.checked_add(f.bytes))
-                .is_none_or(|n| n > MAX_TOTAL)
-        {
-            bail!("installation exceeds file (4 GiB) or total (8 GiB) limit");
-        }
+        validate_execution_plan(&inspection, &game, proposal)?;
+        validate_ownership(self, &game, proposal)?;
         let staging = Builder::new().prefix("txn-").tempdir_in(&self.state_root)?;
         let id = staging
             .path()

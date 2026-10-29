@@ -1,5 +1,5 @@
 use super::journal::{digest, lock_store, target_path, temp_path, JournalFile};
-use crate::discovery::validate_installation;
+use super::validation::validate_transaction_root;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use std::fs;
@@ -11,7 +11,7 @@ impl Store {
     pub fn uninstall(&mut self, game: &Path, package_id: &str) -> Result<()> {
         let _guard = lock_store(self)?;
         self.ensure_no_pending()?;
-        let game = validate_installation(game)?;
+        let game = validate_transaction_root(game)?;
         let package = self
             .installed(&game)?
             .into_iter()
