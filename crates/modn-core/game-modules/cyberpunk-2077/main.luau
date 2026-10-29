@@ -98,7 +98,7 @@ function policy.scan(limit)
                         table.insert(stack, relative)
                     elseif entry.kind == "file" then
                         local ext = string.match(entry.name, "%.([^%.]+)$")
-                        if ext ~= nil and extensions[string.lower(ext)] then
+                        if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
                             push(relative, kind)
                         end
                     end
@@ -114,7 +114,14 @@ function policy.scan(limit)
         for _, entry in ipairs(response.items) do
             if not consume(entry) then return end
             if entry.kind == "directory" then
-                push(folder .. "/" .. entry.name, kind)
+                local subfolder = folder .. "/" .. entry.name
+                -- Emit individual files so ownership reconciliation remains
+                -- exact; a directory alone cannot prove package ownership.
+                local start = #mods
+                collect_files(subfolder, nil, kind)
+                if #mods == start then
+                    push(subfolder, kind)
+                end
             end
         end
     end
@@ -251,10 +258,11 @@ function policy.plan(files)
                     source = file.source, destination = target, kind = kind,
                     package_root = wrapper,
                 })
-                -- Extended layouts remain preview-only until their own milestones.
-                if kind ~= "legacy-archive" then
+                -- Only legacy archives, CET mods and RED4ext plugins are
+                -- supported. redscript, tweaks and REDmod have later milestones.
+                if kind ~= "legacy-archive" and kind ~= "cet" and kind ~= "red4ext" then
                     block("NOT_INSTALLABLE",
-                        "ZIP installation currently supports legacy .archive content only")
+                        "ZIP installation supports legacy archives, CET mods and RED4ext plugins only")
                 end
                 if kind == "redmod" then
                     local name = string.lower(parts[i + 1])
