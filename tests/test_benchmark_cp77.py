@@ -35,11 +35,16 @@ class ZipIndexBudgetTest(unittest.TestCase):
             zip64_locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, eocd, 1)
             ordinary_end = bytearray(raw[eocd:])
             struct.pack_into("<HHII", ordinary_end, 8, 1, 1, 42, central_offset)
-            archive.write_bytes(raw[:eocd] + zip64_end + zip64_locator + ordinary_end)
-
-            with zipfile.ZipFile(archive) as reader:
-                self.assertEqual(len(reader.infolist()), 2050)
-            self.assertFalse(within_budget(archive), "must inspect effective ZIP64 index")
+            for comment in (b"", b"x" * 65535):
+                end = bytearray(ordinary_end)
+                struct.pack_into("<H", end, 20, len(comment))
+                archive.write_bytes(raw[:eocd] + zip64_end + zip64_locator + end + comment)
+                with zipfile.ZipFile(archive) as reader:
+                    self.assertEqual(len(reader.infolist()), 2050)
+                self.assertFalse(
+                    within_budget(archive),
+                    f"must reject ZIP64 directory for comment size {len(comment)}",
+                )
 
 
 if __name__ == "__main__":

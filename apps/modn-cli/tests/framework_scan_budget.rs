@@ -45,3 +45,48 @@ fn dense_cet_assets_produce_incomplete_inventory_without_vm_timeout() {
         }
     }
 }
+
+#[test]
+fn exact_framework_budget_does_not_report_truncation() {
+    let temp = tempdir().expect("fixture");
+    let game = temp.path().join("game");
+    let state = temp.path().join("state");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().expect("marker directory")).expect("game");
+    fs::write(marker, b"marker").expect("game marker");
+    let plugin = game.join("red4ext/plugins/Complete");
+    fs::create_dir_all(&plugin).expect("plugin directory");
+    for index in 0..255 {
+        fs::write(plugin.join(format!("asset-{index:03}.json")), b"{}").expect("plugin asset");
+    }
+
+    for command in ["scan", "doctor"] {
+        let result = Command::new(env!("CARGO_BIN_EXE_modn"))
+            .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
+            .arg(&state)
+            .arg(command)
+            .arg("--path")
+            .arg(&game)
+            .output()
+            .expect("real CLI");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let report: Value = serde_json::from_slice(&result.stdout).expect("JSON");
+        if command == "scan" {
+            assert_eq!(
+                report["incomplete"], false,
+                "complete scan was marked incomplete"
+            );
+            assert_eq!(report["mods"].as_array().expect("mods").len(), 255);
+        } else {
+            assert!(!report["diagnostics"]
+                .as_array()
+                .expect("diagnostics")
+                .iter()
+                .any(|item| item["code"] == "SCAN_INCOMPLETE"));
+        }
+    }
+}

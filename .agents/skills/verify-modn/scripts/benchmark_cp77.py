@@ -24,7 +24,7 @@ MAX_ZIP_INDEX_BYTES = 2 * 1024 * 1024
 def zip_index_within_budget(archive):
     # zipfile constructs every entry on open; bound the directory first.
     with archive.open("rb") as source:
-        source.seek(max(0, archive.stat().st_size - (22 + 65535)))
+        source.seek(max(0, archive.stat().st_size - (22 + 65535 + 20)))
         tail = source.read()
     offset = tail.rfind(b"PK\x05\x06")
     if offset < 0 or offset + 22 > len(tail):

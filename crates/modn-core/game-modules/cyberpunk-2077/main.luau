@@ -116,10 +116,6 @@ function policy.scan(limit)
     end
 
     local function collect_directories(folder, kind, scan_files)
-        if scan_files and framework_remaining <= 0 then
-            incomplete = true
-            return
-        end
         local response = listing(folder, nil, scan_files and framework_remaining or nil)
         if response == nil then return end
         if response.incomplete then incomplete = true end
@@ -148,7 +144,6 @@ function policy.scan(limit)
     collect_directories("mods", "redmod-directory", false)
     collect_directories("red4ext/plugins", "red4ext-plugin", true)
     collect_directories("bin/x64/plugins/cyber_engine_tweaks/mods", "cet-mod", true)
-    if framework_remaining <= 0 then incomplete = true end
     table.sort(mods, function(a,b) return a.relative_path < b.relative_path end)
 
     local candidates = {
