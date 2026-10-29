@@ -158,3 +158,57 @@ fn exact_redscript_budget_is_complete_when_no_other_framework_content_exists() {
     assert_eq!(scan["incomplete"], false, "no files were truncated");
     assert_eq!(scan["mods"].as_array().expect("mods").len(), 255);
 }
+
+#[test]
+fn exhausted_budget_checks_all_queued_directories_before_claiming_complete() {
+    let temp = tempdir().expect("fixture");
+    let game = temp.path().join("game");
+    let state = temp.path().join("state");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().expect("marker parent")).expect("game");
+    fs::write(marker, b"marker").expect("game marker");
+    let scripts = game.join("r6/scripts");
+    fs::create_dir_all(scripts.join("A")).expect("nested script directory");
+    fs::create_dir_all(scripts.join("Z")).expect("empty queued directory");
+    for index in 0..254 {
+        fs::write(
+            scripts.join(format!("script-{index:03}.reds")),
+            b"class Fixture {}",
+        )
+        .expect("script");
+    }
+    fs::write(scripts.join("A/hidden.reds"), b"class Hidden {}").expect("queued script");
+    for command in ["scan", "doctor"] {
+        let response = Command::new(env!("CARGO_BIN_EXE_modn"))
+            .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
+            .arg(&state)
+            .arg(command)
+            .arg("--path")
+            .arg(&game)
+            .output()
+            .expect("real CLI");
+        assert!(
+            response.status.success(),
+            "{}",
+            String::from_utf8_lossy(&response.stderr)
+        );
+        let report: Value = serde_json::from_slice(&response.stdout).expect("JSON");
+        if command == "scan" {
+            assert_eq!(
+                report["incomplete"], true,
+                "queued nonempty directory was omitted"
+            );
+            assert!(!report["mods"]
+                .as_array()
+                .expect("mods")
+                .iter()
+                .any(|m| m["relative_path"] == "r6/scripts/A/hidden.reds"));
+        } else {
+            assert!(report["diagnostics"]
+                .as_array()
+                .expect("diagnostics")
+                .iter()
+                .any(|d| d["code"] == "SCAN_INCOMPLETE"));
+        }
+    }
+}

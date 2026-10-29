@@ -90,29 +90,37 @@ function policy.scan(limit)
         local framework = kind == "cet-mod" or kind == "red4ext-plugin"
             or kind == "redscript" or kind == "redscript-hint" or kind == "tweak"
         local stack = { folder }
+        local empty_peeks = 0
         while #stack > 0 do
             local current = table.remove(stack)
             if framework and framework_remaining <= 0 then
+                -- Bounded peeks: uncertainty must be reported as incomplete.
+                empty_peeks += 1
+                if empty_peeks > 32 then
+                    incomplete = true
+                    return
+                end
                 local peek = listing(current, current ~= folder or required_root, 1)
                 if peek ~= nil and (peek.incomplete or #peek.items > 0) then
                     incomplete = true
+                    return
                 end
-                return
-            end
-            local max_items = framework and framework_remaining or nil
-            local response = listing(current, current ~= folder or required_root, max_items)
-            if response ~= nil then
-                if response.incomplete then incomplete = true end
-                for _, entry in ipairs(response.items) do
-                    if not consume(framework) then return end
-                    local relative = current .. "/" .. entry.name
-                    if entry.kind == "directory" then
-                        table.insert(stack, relative)
-                    elseif entry.kind == "file" then
-                        local ext = string.match(entry.name, "%.([^%.]+)$")
-                        if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
-                            push(relative, kind == "legacy-archive" and string.lower(ext) == "xl"
-                            and "archive-xl" or kind)
+            else
+                local max_items = framework and framework_remaining or nil
+                local response = listing(current, current ~= folder or required_root, max_items)
+                if response ~= nil then
+                    if response.incomplete then incomplete = true end
+                    for _, entry in ipairs(response.items) do
+                        if not consume(framework) then return end
+                        local relative = current .. "/" .. entry.name
+                        if entry.kind == "directory" then
+                            table.insert(stack, relative)
+                        elseif entry.kind == "file" then
+                            local ext = string.match(entry.name, "%.([^%.]+)$")
+                            if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
+                                push(relative, kind == "legacy-archive" and string.lower(ext) == "xl"
+                                and "archive-xl" or kind)
+                            end
                         end
                     end
                 end
