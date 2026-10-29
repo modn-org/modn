@@ -249,3 +249,67 @@ fn parent_root_cannot_take_ownership_of_nested_managed_installation() {
     assert_eq!(store.installed(&nested).unwrap().len(), 1);
     assert!(store.installed(&game).unwrap().is_empty());
 }
+
+#[cfg(windows)]
+#[test]
+fn short_directory_alias_cannot_reclaim_missing_owned_files() {
+    let (_dir, mut store, game, archive) = fixture();
+    let long = game.join("r6/scripts/LongDirectoryName");
+    fs::create_dir_all(&long).unwrap();
+    let command = format!("for %I in ({}) do @echo %~sI", long.display());
+    let response = std::process::Command::new("cmd")
+        .args(["/C", &command])
+        .output()
+        .unwrap();
+    assert!(response.status.success());
+    let short_path = String::from_utf8_lossy(&response.stdout).trim().to_owned();
+    let short = Path::new(&short_path)
+        .file_name()
+        .unwrap()
+        .to_string_lossy();
+    if short.eq_ignore_ascii_case("LongDirectoryName") {
+        eprintln!(
+            "NTFS 8.3 aliases unavailable for new test directories; skipping integration path"
+        );
+        return;
+    }
+    assert!(
+        Path::new(&short_path).exists(),
+        "short path: {short_path:?}"
+    );
+    assert_eq!(
+        Path::new(&short_path).canonicalize().unwrap(),
+        long.canonicalize().unwrap()
+    );
+
+    let mut first = plan(&game, &archive);
+    for operation in &mut first.operations {
+        let name = operation.destination.rsplit('/').next().unwrap();
+        operation.destination = format!("r6/scripts/LongDirectoryName/{name}");
+    }
+    let owned = store
+        .install_operations_zip(&game, &archive, &first)
+        .unwrap();
+    for file in &owned.files {
+        fs::remove_file(game.join(&file.destination)).unwrap();
+    }
+
+    let mut alias = plan(&game, &archive);
+    for operation in &mut alias.operations {
+        let name = operation.destination.rsplit('/').next().unwrap();
+        operation.destination = format!("r6/scripts/{short}/{name}");
+    }
+    let error = store
+        .install_operations_zip(&game, &archive, &alias)
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("ALIASED_DESTINATION"),
+        "{error:#}"
+    );
+    assert!(store.pending().unwrap().is_empty());
+    assert_eq!(store.installed(&game).unwrap().len(), 1);
+    assert!(store.installed(&game).unwrap()[0].id == owned.id);
+    for file in &owned.files {
+        assert!(!game.join(&file.destination).exists());
+    }
+}

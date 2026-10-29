@@ -66,12 +66,39 @@ pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'
                 if index + 1 < components.len() && !metadata.is_dir() {
                     return Some("NON_DIRECTORY_ANCESTOR");
                 }
-                if metadata.file_type().is_symlink()
-                    || !current
-                        .canonicalize()
-                        .is_ok_and(|resolved| resolved.starts_with(&canonical_game))
-                {
+                if metadata.file_type().is_symlink() {
                     return Some("LINKED_DESTINATION");
+                }
+                let Ok(resolved) = current.canonicalize() else {
+                    return Some("LINKED_DESTINATION");
+                };
+                if !resolved.starts_with(&canonical_game) {
+                    return Some("LINKED_DESTINATION");
+                }
+                // On Windows, a short (8.3) name can alias a long directory name
+                // without matching its SQLite ownership key. Never publish a
+                // new file below an ancestor addressed through a different name.
+                #[cfg(windows)]
+                {
+                    if !resolved.file_name().is_some_and(|actual| {
+                        actual.to_string_lossy().eq_ignore_ascii_case(component)
+                    }) {
+                        return Some("ALIASED_DESTINATION");
+                    }
+                    if component.contains('~')
+                        && !current.parent().is_some_and(|parent| {
+                            fs::read_dir(parent).is_ok_and(|entries| {
+                                entries.flatten().any(|entry| {
+                                    entry
+                                        .file_name()
+                                        .to_string_lossy()
+                                        .eq_ignore_ascii_case(component)
+                                })
+                            })
+                        })
+                    {
+                        return Some("ALIASED_DESTINATION");
+                    }
                 }
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => break,
