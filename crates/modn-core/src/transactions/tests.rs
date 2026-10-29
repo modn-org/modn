@@ -267,3 +267,30 @@ fn rejects_non_zip_or_mixed_framework_package() {
     fs::write(&other, b"wrong format").unwrap();
     assert!(install_zip(&mut store, &game, &other).is_err());
 }
+
+#[test]
+fn cet_and_red4ext_multifile_injected_failure_rolls_back_and_recovers() {
+    let (dir, mut store, game) = fixture();
+    let cet = "bin/x64/plugins/cyber_engine_tweaks/mods/Fixture/init.lua";
+    let red = "red4ext/plugins/Fixture/Fixture.dll";
+    let path = archive(dir.path(), &[(cet, b"lua"), (red, b"plugin")]);
+    let proposal = crate::planning::preview_install_zip("cyberpunk-2077", &game, &path)
+        .expect("Luau mixed CET/RED4ext plan");
+    assert_eq!(proposal.status, "reviewable");
+    assert_eq!(proposal.operations.len(), 2);
+    assert!(store
+        .install_operations_inner(&game, &path, &proposal, Some(1))
+        .is_err());
+    assert!(!game.join(cet).exists());
+    assert!(!game.join(red).exists());
+    assert!(store.pending().expect("journal state").is_empty());
+    assert!(store.installed(&game).expect("ownership state").is_empty());
+    assert_eq!(store.recover().expect("idle recovery"), 0);
+    let package = store
+        .install_operations_zip(&game, &path, &proposal)
+        .expect("normal mixed install");
+    assert_eq!(package.files.len(), 2);
+    store.uninstall(&game, &package.id).expect("safe uninstall");
+    assert!(!game.join(cet).exists());
+    assert!(!game.join(red).exists());
+}

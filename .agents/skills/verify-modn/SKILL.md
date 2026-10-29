@@ -41,4 +41,6 @@ Each step produces a numbered JSON command transcript (arguments, exit, stdout, 
 
 The driver deletes only the uniquely created disposable `modn-verify-fixture-*` directory, even on failure. It preserves evidence after cleanup. It never touches real installations, other test processes or other runs.
 
+Optional read-only compatibility benchmarking: `python .agents/skills/verify-modn/scripts/benchmark_cp77.py <download-directory>` uses a disposable game root and local ZIP metadata/CLI dry-runs only. It never executes, copies or extracts downloaded mod payloads or creates state; results remain local and are not committed. This is separate from the synthetic write-path tests.
+
 Crash-injected recovery is not covered by this CLI exercise. Keep existing Rust crash-recovery tests and project-mandated cargo fmt/clippy/tests as separate required checks. CI exercises this skill on Linux and Windows.

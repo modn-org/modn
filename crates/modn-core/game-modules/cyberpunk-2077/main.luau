@@ -57,8 +57,8 @@ function policy.is_epic(display_name)
     return display_name == "Cyberpunk 2077"
 end
 
-local function listing(folder, required)
-    local ok, response = pcall(dir.list, 1, folder)
+local function listing(folder, required, max_items)
+    local ok, response = pcall(dir.list, 1, folder, max_items)
     if ok then return response end
     -- Missing layout roots are optional; discovered descendants must be readable.
     if required then return { items = {}, incomplete = true } end
@@ -69,36 +69,44 @@ function policy.scan(limit)
     local mods = {}
     local signals = {}
     local remaining = limit
+    local framework_remaining = 256
     local incomplete = false
 
     local function push(relative, kind)
         table.insert(mods, { relative_path = relative, kind = kind })
     end
 
-    local function consume(items)
-        if remaining <= 0 then
+    local function consume(framework)
+        if remaining <= 0 or (framework and framework_remaining <= 0) then
             incomplete = true
             return false
         end
         remaining -= 1
+        if framework then framework_remaining -= 1 end
         return true
     end
 
-    local function collect_files(folder, extensions, kind)
+    local function collect_files(folder, extensions, kind, required_root)
+        local framework = kind == "cet-mod" or kind == "red4ext-plugin"
         local stack = { folder }
         while #stack > 0 do
             local current = table.remove(stack)
-            local response = listing(current, current ~= folder)
+            if framework and framework_remaining <= 0 then
+                incomplete = true
+                return
+            end
+            local max_items = framework and framework_remaining or nil
+            local response = listing(current, current ~= folder or required_root, max_items)
             if response ~= nil then
                 if response.incomplete then incomplete = true end
                 for _, entry in ipairs(response.items) do
-                    if not consume(entry) then return end
+                    if not consume(framework) then return end
                     local relative = current .. "/" .. entry.name
                     if entry.kind == "directory" then
                         table.insert(stack, relative)
                     elseif entry.kind == "file" then
                         local ext = string.match(entry.name, "%.([^%.]+)$")
-                        if ext ~= nil and extensions[string.lower(ext)] then
+                        if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
                             push(relative, kind)
                         end
                     end
@@ -107,14 +115,25 @@ function policy.scan(limit)
         end
     end
 
-    local function collect_directories(folder, kind)
-        local response = listing(folder)
+    local function collect_directories(folder, kind, scan_files)
+        local response = listing(folder, nil, scan_files and framework_remaining or nil)
         if response == nil then return end
         if response.incomplete then incomplete = true end
         for _, entry in ipairs(response.items) do
-            if not consume(entry) then return end
+            if not consume(scan_files) then return end
             if entry.kind == "directory" then
-                push(folder .. "/" .. entry.name, kind)
+                local subfolder = folder .. "/" .. entry.name
+                if scan_files then
+                    -- Emit individual files for CET/RED4ext ownership.
+                    local start = #mods
+                    collect_files(subfolder, nil, kind, true)
+                    if #mods == start and framework_remaining > 0 then
+                        push(subfolder, kind)
+                    end
+                else
+                    -- REDmod remains a directory-only presence signal.
+                    push(subfolder, kind)
+                end
             end
         end
     end
@@ -122,9 +141,9 @@ function policy.scan(limit)
     collect_files("archive/pc/mod", { archive = true }, "legacy-archive")
     collect_files("r6/scripts", { reds = true }, "redscript")
     collect_files("r6/tweaks", { yaml = true, yml = true }, "tweak")
-    collect_directories("mods", "redmod-directory")
-    collect_directories("red4ext/plugins", "red4ext-plugin")
-    collect_directories("bin/x64/plugins/cyber_engine_tweaks/mods", "cet-mod")
+    collect_directories("mods", "redmod-directory", false)
+    collect_directories("red4ext/plugins", "red4ext-plugin", true)
+    collect_directories("bin/x64/plugins/cyber_engine_tweaks/mods", "cet-mod", true)
     table.sort(mods, function(a,b) return a.relative_path < b.relative_path end)
 
     local candidates = {
@@ -236,6 +255,10 @@ function policy.plan(files)
                 or string.sub(stem, 1, 7) == "license"
                 or string.sub(stem, 1, 9) == "changelog")
     end
+    local canonical_framework_prefixes = {
+        cet = { "bin", "x64", "plugins", "cyber_engine_tweaks", "mods" },
+        red4ext = { "red4ext", "plugins" },
+    }
     for _, file in ipairs(files) do
         local parts = {}
         for item in string.gmatch(file.source, "[^/]+") do
@@ -245,16 +268,27 @@ function policy.plan(files)
         for i = 1, #parts do
             local kind = kind_of(parts, i)
             if kind ~= nil then
+                local expected = canonical_framework_prefixes[kind]
+                if expected ~= nil then
+                    for offset, component in ipairs(expected) do
+                        if parts[i + offset - 1] ~= component then
+                            block("NONCANONICAL_LAYOUT",
+                                "Framework directory casing differs: " .. file.source)
+                            break
+                        end
+                    end
+                end
                 local wrapper = table.concat(parts, "/", 1, i - 1)
                 local target = table.concat(parts, "/", i)
                 table.insert(operations, {
                     source = file.source, destination = target, kind = kind,
                     package_root = wrapper,
                 })
-                -- Extended layouts remain preview-only until their own milestones.
-                if kind ~= "legacy-archive" then
+                -- Only legacy archives, CET mods and RED4ext plugins are
+                -- supported. redscript, tweaks and REDmod have later milestones.
+                if kind ~= "legacy-archive" and kind ~= "cet" and kind ~= "red4ext" then
                     block("NOT_INSTALLABLE",
-                        "ZIP installation currently supports legacy .archive content only")
+                        "ZIP installation supports legacy archives, CET mods and RED4ext plugins only")
                 end
                 if kind == "redmod" then
                     local name = string.lower(parts[i + 1])
