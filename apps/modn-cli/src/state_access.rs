@@ -1,7 +1,7 @@
 //! Validate manager-state location without assuming any default game.
 use anyhow::{bail, Context, Result};
 use modn_core::discovery::validate_installation_for;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub(super) fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
     if let Some(dir) = state_dir {
@@ -23,6 +23,14 @@ pub(super) fn validate_state_path(
     selected_path: Option<&Path>,
     registered_roots: &[PathBuf],
 ) -> Result<()> {
+    // A missing component followed by '..' can escape ancestor-by-ancestor
+    // confinement checks before create_dir_all materializes the path.
+    if state_path
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        bail!("state directory must not contain parent-directory components");
+    }
     let selected_root = selected_path.map(Path::canonicalize).transpose()?;
     if let Ok(metadata) = std::fs::symlink_metadata(state_path) {
         if metadata.file_type().is_symlink() {

@@ -32,7 +32,12 @@ pub(crate) fn selected_installation(
         let registered = store.map(Store::list).transpose()?.unwrap_or_default();
         let ids: Vec<_> = registered
             .iter()
-            .filter(|entry| entry.path == canonical)
+            .filter(|entry| {
+                entry
+                    .path
+                    .canonicalize()
+                    .is_ok_and(|registered_root| registered_root == canonical)
+            })
             .map(|entry| entry.game_id.as_str())
             .collect();
         let id = match (selected, ids.as_slice()) {
