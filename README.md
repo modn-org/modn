@@ -89,8 +89,9 @@ must ship the module folder beside the executable. For an explicit override set
 Missing or incompatible modules fail closed. Policy edits are observed on the
 next CLI command without recompiling (covered by a CLI integration test).
 
-The shared read-only host adds `mods_host.directory.list(root_id,relative)`
-(bounded to 2,048 entries) and `mods_host.directory.read_text(root_id,relative)`
+The shared read-only host adds `mods_host.directory.list(root_id,relative[,max_entries])`
+(default and maximum 2,048 entries; an optional per-call bound reports
+`incomplete=true` when truncated) and `mods_host.directory.read_text(root_id,relative)`
 (UTF-8, max 64 KiB). Existing root containment, link denial, budgets and
 no-write guarantees remain. Rust retains platform access, CLI path selection,
 SQLite ownership, file identity and integrity checks, transactions and recovery.
@@ -114,7 +115,7 @@ replacement, and the Luau VM is not a formal security boundary.
 
 ## Read-only inventory and ownership drift
 
-`modn --game <game-id> scan --json --path <game>` combines on-disk discovery with SQLite ownership records. The `mods` array labels discovered legacy archives as `managed` only when the observed path resolves to a recorded, manager-owned file (including valid Windows case-only aliases); managed entries also include `package_id` and `integrity`. The Cyberpunk scanner emits individual CET and RED4ext plugin files for exact file-level ownership attribution; empty mod directories remain unmanaged. Unmanaged mods, scripts, tweaks and REDmod folders remain unmanaged even if they appear alongside owned files.
+`modn --game <game-id> scan --json --path <game>` combines on-disk discovery with SQLite ownership records. The `mods` array labels discovered legacy archives as `managed` only when the observed path resolves to a recorded, manager-owned file (including valid Windows case-only aliases); managed entries also include `package_id` and `integrity`. The Cyberpunk scanner emits individual CET and RED4ext plugin files for exact file-level ownership attribution; empty mod directories remain unmanaged. To preserve the one-second Luau execution budget, framework traversal is capped at 256 directory entries per scan; larger inventories return `incomplete: true` and `SCAN_INCOMPLETE` diagnostics rather than aborting. The ownership ledger still lists all recorded files. Unmanaged mods, scripts, tweaks and REDmod folders remain unmanaged even if they appear alongside owned files.
 
 `owned_files` reports every recorded file, **including missing files absent from discovery**, with the statuses `intact`, `modified`, `missing`, `unsafe` (linked/redirected path), or `unreadable`. Content is SHA-256 checked when size and path verification succeed. Large archives may take time to hash. `modn --game <game-id> doctor --json --path <game>` adds `OWNED_FILE_MISSING`, `OWNED_FILE_MODIFIED`, `OWNED_FILE_UNSAFE`, and `OWNED_FILE_UNREADABLE` warnings, and reports `UNMANAGED_CONTENT` only when unmanaged entries are present.
 
@@ -156,8 +157,8 @@ game marker; it never extracts, executes, installs, copies or alters archives,
 and does not create manager state. The source archives stay outside the repo;
 benchmark results are terminal output only. Use `--max-archive-mib` to change
 the default 64 MiB per-file cap. The benchmark also skips ZIPs advertising over
-2,048 entries, over 2 MiB of central-directory metadata, or ZIP64 sentinel sizes
-before loading entry metadata.
+2,048 entries, over 2 MiB of central-directory metadata, or ZIP64 directory
+records before loading entry metadata.
 
 ## Transactional Luau-planned ZIP installation (experimental)
 

@@ -314,67 +314,72 @@ fn directory_service(
     let read_budget = Rc::clone(&budget);
     service.set(
         "list",
-        lua.create_function(move |lua, (id, relative): (u32, String)| {
-            let (path, metadata) = authorized_path(&read_roots, &read_budget, id, &relative)
-                .map_err(mlua::Error::external)?;
-            if !metadata.is_dir() {
-                return Err(mlua::Error::RuntimeError(
-                    "listing requires a directory".into(),
-                ));
-            }
-            let root = selected_root(&read_roots, id).map_err(mlua::Error::external)?;
-            let mut names = Vec::new();
-            let mut incomplete = false;
-            for entry in fs::read_dir(path).map_err(mlua::Error::external)? {
-                // Cap the native enumeration before allocating Lua tables.
-                if names.len() >= MAX_DIRECTORY_ENTRIES {
-                    incomplete = true;
-                    break;
+        lua.create_function(
+            move |lua, (id, relative, max_items): (u32, String, Option<usize>)| {
+                let max_items = max_items
+                    .unwrap_or(MAX_DIRECTORY_ENTRIES)
+                    .min(MAX_DIRECTORY_ENTRIES);
+                let (path, metadata) = authorized_path(&read_roots, &read_budget, id, &relative)
+                    .map_err(mlua::Error::external)?;
+                if !metadata.is_dir() {
+                    return Err(mlua::Error::RuntimeError(
+                        "listing requires a directory".into(),
+                    ));
                 }
-                let next = read_budget.directory_entries.get().saturating_add(1);
-                if next > MAX_TOTAL_DIRECTORY_ENTRIES {
-                    incomplete = true;
-                    break;
+                let root = selected_root(&read_roots, id).map_err(mlua::Error::external)?;
+                let mut names = Vec::new();
+                let mut incomplete = false;
+                for entry in fs::read_dir(path).map_err(mlua::Error::external)? {
+                    // Cap the native enumeration before allocating Lua tables.
+                    if names.len() >= max_items {
+                        incomplete = true;
+                        break;
+                    }
+                    let next = read_budget.directory_entries.get().saturating_add(1);
+                    if next > MAX_TOTAL_DIRECTORY_ENTRIES {
+                        incomplete = true;
+                        break;
+                    }
+                    read_budget.directory_entries.set(next);
+                    let entry = entry.map_err(mlua::Error::external)?;
+                    let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                        incomplete = true;
+                        continue;
+                    };
+                    let relative_entry = format!("{relative}/{name}");
+                    if relative_components(&relative_entry).is_err() {
+                        incomplete = true;
+                        continue;
+                    }
+                    let Ok((_, metadata)) = safe_target(root, &relative_entry) else {
+                        continue;
+                    };
+                    names.push((
+                        name,
+                        if metadata.is_dir() {
+                            "directory"
+                        } else {
+                            "file"
+                        },
+                    ));
                 }
-                read_budget.directory_entries.set(next);
-                let entry = entry.map_err(mlua::Error::external)?;
-                let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-                    incomplete = true;
-                    continue;
-                };
-                let relative_entry = format!("{relative}/{name}");
-                if relative_components(&relative_entry).is_err() {
-                    incomplete = true;
-                    continue;
+                names.sort_by(|a, b| a.0.cmp(&b.0));
+                let items = lua.create_table()?;
+                for (index, (name, kind)) in names.iter().enumerate() {
+                    let item = lua.create_table()?;
+                    item.set("name", name.as_str())?;
+                    item.set("kind", *kind)?;
+                    item.set_readonly(true);
+                    items.set(index + 1, item)?;
                 }
-                let Ok((_, metadata)) = safe_target(root, &relative_entry) else {
-                    continue;
-                };
-                names.push((
-                    name,
-                    if metadata.is_dir() {
-                        "directory"
-                    } else {
-                        "file"
-                    },
-                ));
-            }
-            names.sort_by(|a, b| a.0.cmp(&b.0));
-            let items = lua.create_table()?;
-            for (index, (name, kind)) in names.iter().enumerate() {
-                let item = lua.create_table()?;
-                item.set("name", name.as_str())?;
-                item.set("kind", *kind)?;
-                item.set_readonly(true);
-                items.set(index + 1, item)?;
-            }
-            items.set_readonly(true);
-            let response = lua.create_table()?;
-            response.set("items", items)?;
-            response.set("incomplete", incomplete)?;
-            response.set_readonly(true);
-            Ok(response)
-        })?,
+                items.set_readonly(true);
+                let response = lua.create_table()?;
+                response.set("items", items)?;
+                response.set("incomplete", incomplete)?;
+                response.set_readonly(true);
+                Ok(response)
+            },
+        )?,
     )?;
     service.set(
         "read_text",

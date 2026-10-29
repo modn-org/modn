@@ -57,8 +57,8 @@ function policy.is_epic(display_name)
     return display_name == "Cyberpunk 2077"
 end
 
-local function listing(folder, required)
-    local ok, response = pcall(dir.list, 1, folder)
+local function listing(folder, required, max_items)
+    local ok, response = pcall(dir.list, 1, folder, max_items)
     if ok then return response end
     -- Missing layout roots are optional; discovered descendants must be readable.
     if required then return { items = {}, incomplete = true } end
@@ -69,30 +69,38 @@ function policy.scan(limit)
     local mods = {}
     local signals = {}
     local remaining = limit
+    local framework_remaining = 256
     local incomplete = false
 
     local function push(relative, kind)
         table.insert(mods, { relative_path = relative, kind = kind })
     end
 
-    local function consume(items)
-        if remaining <= 0 then
+    local function consume(framework)
+        if remaining <= 0 or (framework and framework_remaining <= 0) then
             incomplete = true
             return false
         end
         remaining -= 1
+        if framework then framework_remaining -= 1 end
         return true
     end
 
     local function collect_files(folder, extensions, kind, required_root)
+        local framework = kind == "cet-mod" or kind == "red4ext-plugin"
         local stack = { folder }
         while #stack > 0 do
             local current = table.remove(stack)
-            local response = listing(current, current ~= folder or required_root)
+            if framework and framework_remaining <= 0 then
+                incomplete = true
+                return
+            end
+            local max_items = framework and framework_remaining or nil
+            local response = listing(current, current ~= folder or required_root, max_items)
             if response ~= nil then
                 if response.incomplete then incomplete = true end
                 for _, entry in ipairs(response.items) do
-                    if not consume(entry) then return end
+                    if not consume(framework) then return end
                     local relative = current .. "/" .. entry.name
                     if entry.kind == "directory" then
                         table.insert(stack, relative)
@@ -108,18 +116,24 @@ function policy.scan(limit)
     end
 
     local function collect_directories(folder, kind, scan_files)
-        local response = listing(folder)
+        if scan_files and framework_remaining <= 0 then
+            incomplete = true
+            return
+        end
+        local response = listing(folder, nil, scan_files and framework_remaining or nil)
         if response == nil then return end
         if response.incomplete then incomplete = true end
         for _, entry in ipairs(response.items) do
-            if not consume(entry) then return end
+            if not consume(scan_files) then return end
             if entry.kind == "directory" then
                 local subfolder = folder .. "/" .. entry.name
                 if scan_files then
                     -- Emit individual files for CET/RED4ext ownership.
                     local start = #mods
                     collect_files(subfolder, nil, kind, true)
-                    if #mods == start then push(subfolder, kind) end
+                    if #mods == start and framework_remaining > 0 then
+                        push(subfolder, kind)
+                    end
                 else
                     -- REDmod remains a directory-only presence signal.
                     push(subfolder, kind)
@@ -134,6 +148,7 @@ function policy.scan(limit)
     collect_directories("mods", "redmod-directory", false)
     collect_directories("red4ext/plugins", "red4ext-plugin", true)
     collect_directories("bin/x64/plugins/cyber_engine_tweaks/mods", "cet-mod", true)
+    if framework_remaining <= 0 then incomplete = true end
     table.sort(mods, function(a,b) return a.relative_path < b.relative_path end)
 
     local candidates = {

@@ -29,6 +29,9 @@ def zip_index_within_budget(archive):
     offset = tail.rfind(b"PK\x05\x06")
     if offset < 0 or offset + 22 > len(tail):
         raise zipfile.BadZipFile("Missing ZIP end-of-central-directory record")
+    # A ZIP64 locator overrides these ordinary counts, even without sentinels.
+    if offset >= 20 and tail[offset - 20:offset - 16] == b"PK\x06\x07":
+        return False
     comment_size = int.from_bytes(tail[offset + 20:offset + 22], "little")
     if offset + 22 + comment_size != len(tail):
         raise zipfile.BadZipFile("Invalid ZIP end-of-central-directory comment")
