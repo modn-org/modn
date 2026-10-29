@@ -251,6 +251,11 @@ function policy.plan(files)
                     source = file.source, destination = target, kind = kind,
                     package_root = wrapper,
                 })
+                -- Extended layouts remain preview-only until their own milestones.
+                if kind ~= "legacy-archive" then
+                    block("NOT_INSTALLABLE",
+                        "ZIP installation currently supports legacy .archive content only")
+                end
                 if kind == "redmod" then
                     local name = string.lower(parts[i + 1])
                     if redmods[name] == nil then redmods[name] = false end

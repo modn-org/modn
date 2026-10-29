@@ -4,8 +4,9 @@ use modn_core::archive::inspect;
 use modn_core::discovery::{discover, validate_installation, Candidate};
 use modn_core::game_modules::check_module_with_roots;
 use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
+use modn_core::planning::preview_install_zip;
 use modn_core::state::Store;
-use modn_core::transactions::preview_install_zip;
+use modn_core::CYBERPUNK_ID;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -26,7 +27,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Preview or install a legacy .archive ZIP after explicit approval.
+    /// Preview or install a ZIP with the selected Luau policy after approval.
     Install {
         archive: PathBuf,
         #[arg(long)]
@@ -234,8 +235,8 @@ fn run() -> Result<()> {
                     None,
                 )?
             };
+            let report = preview_install_zip(CYBERPUNK_ID, &game, &archive)?;
             if dry_run {
-                let report = preview_install_zip(&game, &archive)?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
@@ -251,7 +252,7 @@ fn run() -> Result<()> {
                 let package = store
                     .as_mut()
                     .expect("install command has store")
-                    .install_zip(&game, &archive)?;
+                    .install_operations_zip(&game, &archive, &report)?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&package)?);
                 } else {

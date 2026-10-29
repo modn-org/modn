@@ -1,6 +1,6 @@
 //! Integration checks for archive plan behavior.
 use modn_core::archive::inspect;
-use modn_core::planning::plan;
+use modn_core::planning::resolve;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
@@ -27,6 +27,14 @@ fn setup_game(root: &Path, redmod: bool) {
         fs::create_dir_all(root.join("tools/redmod/bin")).unwrap();
         fs::write(root.join("tools/redmod/bin/redMod.exe"), "tool").unwrap();
     }
+}
+
+#[expect(clippy::unwrap_used, reason = "Disposable fixture plan resolution")]
+fn plan(
+    inspection: &modn_core::archive::Inspection,
+    game: &Path,
+) -> modn_core::planning::InstallPlan {
+    resolve(modn_core::CYBERPUNK_ID, inspection, game).unwrap()
 }
 
 #[test]
@@ -99,7 +107,10 @@ fn redmod_package_requires_info_and_tools() {
         .iter()
         .any(|issue| issue.code == "REDMOD_NOT_INSTALLED"));
     setup_game(&game, true);
-    assert_eq!(plan(&inspection, &game).status, "reviewable");
+    assert!(plan(&inspection, &game)
+        .blockers
+        .iter()
+        .any(|issue| issue.code == "NOT_INSTALLABLE"));
 
     let missing = dir.path().join("missing-info.zip");
     zip_fixture(&missing, &[("mods/Sample/archives/test.archive", b"data")]);
@@ -211,8 +222,12 @@ fn mixed_framework_layouts_are_plannable() {
         ],
     );
     let report = plan(&inspect(&archive).unwrap(), &game_dir);
-    assert_eq!(report.status, "reviewable", "{:?}", report.blockers);
+    assert_eq!(report.status, "blocked", "{:?}", report.blockers);
     assert_eq!(report.operations.len(), 4);
+    assert!(report
+        .blockers
+        .iter()
+        .any(|issue| issue.code == "NOT_INSTALLABLE"));
     assert!(!game_dir.join("r6").exists());
 }
 
@@ -296,7 +311,11 @@ fn documentation_prefix_does_not_hide_payloads() {
         ],
     );
     let report = plan(&inspect(&archive).unwrap(), &root);
-    assert_eq!(report.status, "reviewable", "{:?}", report.blockers);
+    assert_eq!(report.status, "blocked", "{:?}", report.blockers);
+    assert!(report
+        .blockers
+        .iter()
+        .any(|issue| issue.code == "NOT_INSTALLABLE"));
     assert_eq!(report.operations.len(), 2);
 }
 
@@ -342,10 +361,10 @@ fn redmod_manifest_must_be_at_package_root_case_insensitively() {
 
     let archive = dir.path().join("upper-info.zip");
     zip_fixture(&archive, &[("mods/Foo/INFO.JSON", b"{}")]);
-    assert_eq!(
-        plan(&inspect(&archive).unwrap(), &root).status,
-        "reviewable"
-    );
+    assert!(plan(&inspect(&archive).unwrap(), &root)
+        .blockers
+        .iter()
+        .any(|issue| issue.code == "NOT_INSTALLABLE"));
 }
 
 #[test]

@@ -37,10 +37,26 @@ fn owned<'a>(scan: &'a modn_core::scan::ScanReport, name: &str) -> &'a str {
         .as_str()
 }
 
+#[expect(
+    clippy::unwrap_used,
+    reason = "Test fixtures fail immediately on setup errors"
+)]
+fn install_zip(
+    store: &mut Store,
+    game: &Path,
+    archive: &Path,
+) -> modn_core::transactions::ManagedPackage {
+    let proposal =
+        modn_core::planning::preview_install_zip(modn_core::CYBERPUNK_ID, game, archive).unwrap();
+    store
+        .install_operations_zip(game, archive, &proposal)
+        .unwrap()
+}
+
 #[test]
 fn discovers_unmanaged_frameworks_and_owned_legacy_archives() {
     let (_root, mut store, game, archive) = fixture();
-    let installed = store.install_zip(&game, &archive).unwrap();
+    let installed = install_zip(&mut store, &game, &archive);
     fs::write(game.join("archive/pc/mod/unmanaged.archive"), b"manual").unwrap();
     fs::create_dir_all(game.join("red4ext/plugins/SomePlugin")).unwrap();
     fs::create_dir_all(game.join("bin/x64/plugins/cyber_engine_tweaks/mods/nativeSettings"))
@@ -111,7 +127,7 @@ fn discovers_unmanaged_frameworks_and_owned_legacy_archives() {
 #[test]
 fn reports_modified_missing_and_restored_files_without_changing_them() {
     let (_root, mut store, game, archive) = fixture();
-    store.install_zip(&game, &archive).unwrap();
+    install_zip(&mut store, &game, &archive);
     let file = game.join("archive/pc/mod/managed.archive");
     fs::write(&file, b"changed!").unwrap(); // same byte length tests actual SHA-256, not only size.
     let report = scan_with_ownership(&store, &game).unwrap();
@@ -150,7 +166,7 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
 #[test]
 fn keeps_inventory_separate_across_game_installations() {
     let (root, mut store, game, archive) = fixture();
-    store.install_zip(&game, &archive).unwrap();
+    install_zip(&mut store, &game, &archive);
     let another = root.path().join("other-game");
     fs::create_dir_all(another.join("bin/x64")).unwrap();
     fs::write(another.join("bin/x64/Cyberpunk2077.exe"), b"game").unwrap();
@@ -165,7 +181,7 @@ fn keeps_inventory_separate_across_game_installations() {
 #[test]
 fn redirects_away_from_game_are_never_marked_intact() {
     let (root, mut store, game, archive) = fixture();
-    store.install_zip(&game, &archive).unwrap();
+    install_zip(&mut store, &game, &archive);
     let folder = game.join("archive").join("pc").join("mod");
     let outside = root.path().join("outside");
     fs::rename(&folder, &outside).unwrap();
@@ -203,7 +219,7 @@ fn redirects_away_from_game_are_never_marked_intact() {
 fn locked_managed_file_is_unreadable_not_unmanaged() {
     use std::os::windows::fs::OpenOptionsExt;
     let (_root, mut store, game, archive) = fixture();
-    store.install_zip(&game, &archive).unwrap();
+    install_zip(&mut store, &game, &archive);
     let target = game.join("archive/pc/mod/managed.archive");
     let lock = fs::OpenOptions::new()
         .read(true)
@@ -240,7 +256,7 @@ fn unicode_casefold_collision_does_not_adopt_unmanaged_file() {
         .unwrap();
     writer.write_all(b"owned contents").unwrap();
     writer.finish().unwrap();
-    let package = store.install_zip(&game, &zip_path).unwrap();
+    let package = install_zip(&mut store, &game, &zip_path);
 
     let lookalike = game.join("archive/pc/mod/\u{212A}.archive");
     // Skip on a filesystem that really aliases these names: never overwrite a fixture's owned file.
@@ -282,7 +298,7 @@ fn ordinary_case_sensitive_file_names_remain_distinct() {
         .unwrap();
     writer.write_all(b"owned").unwrap();
     writer.finish().unwrap();
-    store.install_zip(&game, &zip_path).unwrap();
+    install_zip(&mut store, &game, &zip_path);
     fs::write(game.join("archive/pc/mod/K.archive"), b"unmanaged").unwrap();
     let report = scan_with_ownership(&store, &game).unwrap();
     assert!(report
@@ -309,7 +325,7 @@ fn windows_non_ascii_case_only_rename_stays_managed() {
         .unwrap();
     writer.write_all(b"owned").unwrap();
     writer.finish().unwrap();
-    let package = store.install_zip(&game, &zip_path).unwrap();
+    let package = install_zip(&mut store, &game, &zip_path);
     let original = game.join("archive/pc/mod/\u{00C9}.archive");
     let renamed = game.join("archive/pc/mod/\u{00E9}.archive");
     fs::rename(&original, &renamed).unwrap();
@@ -339,7 +355,7 @@ fn different_hardlink_alias_does_not_gain_ownership() {
         .unwrap();
     writer.write_all(b"owned").unwrap();
     writer.finish().unwrap();
-    store.install_zip(&game, &zip_path).unwrap();
+    install_zip(&mut store, &game, &zip_path);
     let original = game.join("archive/pc/mod/k.archive");
     let alias = game.join("archive/pc/mod/\u{212A}.archive");
     if alias.exists() {
@@ -372,7 +388,7 @@ fn windows_greek_sigma_contextual_case_rename_stays_managed() {
         .unwrap();
     writer.write_all(b"owned").unwrap();
     writer.finish().unwrap();
-    let package = store.install_zip(&game, &zip_path).unwrap();
+    let package = install_zip(&mut store, &game, &zip_path);
     let original = game.join("archive/pc/mod/\u{039F}\u{03A3}1.archive");
     let renamed = game.join("archive/pc/mod/\u{03BF}\u{03C3}1.archive");
     fs::rename(&original, &renamed).unwrap();

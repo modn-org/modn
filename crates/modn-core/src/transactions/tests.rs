@@ -9,6 +9,15 @@ use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+fn install_zip(
+    store: &mut Store,
+    game: &Path,
+    archive: &Path,
+) -> anyhow::Result<super::ManagedPackage> {
+    let proposal = crate::planning::preview_install_zip(crate::CYBERPUNK_ID, game, archive)?;
+    store.install_operations_zip(game, archive, &proposal)
+}
+
 fn fixture() -> (tempfile::TempDir, Store, PathBuf) {
     let root = tempdir().unwrap();
     let game = root.path().join("game");
@@ -53,7 +62,7 @@ fn install_list_and_uninstall_preserve_unmanaged_files() {
     fs::create_dir_all(game.join("archive/pc/mod")).unwrap();
     let unmanaged = game.join("archive/pc/mod/unmanaged.archive");
     fs::write(&unmanaged, b"keep").unwrap();
-    let installed = store.install_zip(&game, &path).unwrap();
+    let installed = install_zip(&mut store, &game, &path).unwrap();
     assert_eq!(installed.files.len(), 1);
     assert_eq!(
         fs::read(game.join(&installed.files[0].destination)).unwrap(),
@@ -73,7 +82,7 @@ fn existing_file_blocks_install_without_changing_it() {
     fs::create_dir_all(game.join("archive/pc/mod")).unwrap();
     let dest = game.join("archive/pc/mod/x.archive");
     fs::write(&dest, b"unmanaged").unwrap();
-    assert!(store.install_zip(&game, &path).is_err());
+    assert!(install_zip(&mut store, &game, &path).is_err());
     assert_eq!(fs::read(dest).unwrap(), b"unmanaged");
     assert!(store.installed(&game).unwrap().is_empty());
 }
@@ -82,7 +91,7 @@ fn existing_file_blocks_install_without_changing_it() {
 fn modified_managed_content_cannot_be_uninstalled() {
     let (dir, mut store, game) = fixture();
     let path = archive(dir.path(), &[("archive/pc/mod/x.archive", b"original")]);
-    let package = store.install_zip(&game, &path).unwrap();
+    let package = install_zip(&mut store, &game, &path).unwrap();
     let dest = game.join(&package.files[0].destination);
     fs::write(&dest, b"user edits").unwrap();
     assert!(store.uninstall(&game, &package.id).is_err());
@@ -100,12 +109,19 @@ fn injected_partial_install_rolls_back_all_owned_files() {
             ("archive/pc/mod/two.archive", b"second"),
         ],
     );
-    assert!(store.install_inner(&game, &path, Some(1)).is_err());
+    assert!(store
+        .install_operations_inner(
+            &game,
+            &path,
+            &crate::planning::preview_install_zip(crate::CYBERPUNK_ID, &game, &path).unwrap(),
+            Some(1),
+        )
+        .is_err());
     assert!(!game.join("archive/pc/mod/one.archive").exists());
     assert!(!game.join("archive/pc/mod/two.archive").exists());
     assert!(store.installed(&game).unwrap().is_empty());
     assert_eq!(store.recover().unwrap(), 0);
-    assert!(store.install_zip(&game, &path).is_ok());
+    assert!(install_zip(&mut store, &game, &path).is_ok());
 }
 
 #[test]
@@ -166,12 +182,12 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
     fs::write(&dest, b"changed").unwrap();
     assert!(store.recover().is_err());
     assert_eq!(fs::read(&dest).unwrap(), b"changed");
-    assert!(store
-        .install_zip(
-            &game,
-            &archive(_dir.path(), &[("archive/pc/mod/other.archive", b"x")])
-        )
-        .is_err());
+    assert!(install_zip(
+        &mut store,
+        &game,
+        &archive(_dir.path(), &[("archive/pc/mod/other.archive", b"x")])
+    )
+    .is_err());
 }
 
 #[test]
@@ -245,9 +261,9 @@ fn rejects_non_zip_or_mixed_framework_package() {
             ("r6/scripts/script.reds", b"script"),
         ],
     );
-    assert!(store.install_zip(&game, &path).is_err());
+    assert!(install_zip(&mut store, &game, &path).is_err());
     assert!(!game.join("archive").exists());
     let other = dir.path().join("fake.7z");
     fs::write(&other, b"wrong format").unwrap();
-    assert!(store.install_zip(&game, &other).is_err());
+    assert!(install_zip(&mut store, &game, &other).is_err());
 }

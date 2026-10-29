@@ -217,21 +217,40 @@ fn oversized_plan_is_blocked_before_luau_execution() {
 }
 
 #[test]
-fn changed_module_mapping_cannot_misrepresent_actual_install() {
+fn changed_module_mapping_is_the_actual_install_mapping() {
     let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
     let module = module_with(temp.path(), &single_operation("r6/scripts/different.reds"));
     let report = preview(&game, &archive, &state, Some(&module));
-    assert_eq!(report["status"], "blocked", "{report}");
-    assert!(
-        report["blockers"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|issue| issue["code"] == "NOT_INSTALLABLE"),
-        "{report}"
+    assert_eq!(report["status"], "reviewable", "{report}");
+    assert_eq!(
+        report["operations"][0]["destination"],
+        "r6/scripts/different.reds"
     );
     assert!(!game.join("r6").exists());
     assert!(!state.exists());
+    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args([
+            "--state-dir",
+            state.to_str().unwrap(),
+            "install",
+            archive.to_str().unwrap(),
+            "--path",
+            game.to_str().unwrap(),
+            "--yes",
+        ])
+        .env("MODN_GAME_MODULES_DIR", module)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read(game.join("r6/scripts/different.reds")).unwrap(),
+        b"payload"
+    );
+    assert!(!game.join("archive/pc/mod/a.archive").exists());
 }
 
 #[test]
@@ -292,4 +311,98 @@ fn oversized_luau_blocker_messages_are_denied_before_copying() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(!state.exists());
+}
+
+#[test]
+fn approved_install_rejects_untrusted_luau_mappings_without_game_writes() {
+    let (temp, game, archive, state) = fixture(&["archive/pc/mod/good.archive"]);
+    for implementation in [
+        single_operation("../outside/escape.archive"),
+        single_operation("r6/scripts/install.exe"),
+        "return { schema_version = 1, operations = { { source = 'missing', destination = 'archive/pc/mod/good.archive', kind = 'legacy-archive', package_root = '' } }, blockers = {} }".into(),
+        "return { schema_version = 2, operations = {}, blockers = {} }".into(),
+        "return { schema_version = 1, operations = {}, blockers = { { code = 'BLOCKED', message = 'not approved' } } }".into(),
+    ] {
+        let module = module_with(temp.path(), &implementation);
+        let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+            .args([
+                "--state-dir", state.to_str().unwrap(),
+                "install", archive.to_str().unwrap(), "--path", game.to_str().unwrap(),
+                "--yes",
+            ])
+            .env("MODN_GAME_MODULES_DIR", module)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{implementation}");
+        assert!(!game.join("archive").exists());
+        assert!(!game.join("r6").exists());
+        assert!(!temp.path().join("outside").exists());
+    }
+}
+
+#[test]
+fn bundled_luau_policy_rejects_expanded_layouts_until_enabled() {
+    let (_temp, game, archive, state) = fixture(&["r6/scripts/hello.reds"]);
+    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args([
+            "--state-dir",
+            state.to_str().unwrap(),
+            "install",
+            archive.to_str().unwrap(),
+            "--path",
+            game.to_str().unwrap(),
+            "--yes",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!game.join("r6").exists());
+}
+
+#[test]
+fn luau_mapped_install_can_be_uninstalled_without_original_mapping() {
+    let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
+    let module = module_with(temp.path(), &single_operation("r6/scripts/new.reds"));
+    let install = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args([
+            "--state-dir",
+            state.to_str().unwrap(),
+            "--json",
+            "install",
+            archive.to_str().unwrap(),
+            "--path",
+            game.to_str().unwrap(),
+            "--yes",
+        ])
+        .env("MODN_GAME_MODULES_DIR", module)
+        .output()
+        .unwrap();
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let package: Value = serde_json::from_slice(&install.stdout).unwrap();
+    assert_eq!(
+        fs::read(game.join("r6/scripts/new.reds")).unwrap(),
+        b"payload"
+    );
+    let remove = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args([
+            "--state-dir",
+            state.to_str().unwrap(),
+            "uninstall",
+            package["id"].as_str().unwrap(),
+            "--path",
+            game.to_str().unwrap(),
+            "--yes",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        remove.status.success(),
+        "{}",
+        String::from_utf8_lossy(&remove.stderr)
+    );
+    assert!(!game.join("r6/scripts/new.reds").exists());
 }
