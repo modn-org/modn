@@ -1,6 +1,6 @@
 # modn
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection/planning, and **explicit, ownership-tracked installation of legacy .archive ZIP packages**. The first read-only Luau game-module loader is available; game-specific capabilities and adapters, REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
+A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection/planning, and **explicit, ownership-tracked installation of legacy .archive ZIP packages**. The runtime-loaded Luau Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
 
 ## Development
 
@@ -44,7 +44,7 @@ return { game_id = "sample-game", api_version = mods_host.api_version }
 
 The loader negotiates **host API v1** and rejects mismatching manifest/script identities, unsupported versions, malformed input, unsafe filenames, linked files and directories, oversized source files, and binary/non-UTF-8 Luau chunks. The VM is fresh per check, with an 8 MiB memory ceiling, a 1-second execution deadline checked at Luau interrupt points, and a limit of 100,000 interrupts. Manifest size is capped at 16 KiB and script size at 256 KiB. Script failures produce explicit errors.
 
-This is a **restricted, untrusted local module inspection** workflow, not module installation, enablement, or compatibility certification. Luau only receives `mods_host.api_version`; it has no host filesystem, state database, game directory, archive, network, or process API. OS, IO, package loading, dynamic script loading, debug, print and warn globals are unavailable. Untrusted scripts cannot write to CLI stdout or corrupt `--json` responses. `mlua` sandboxing and resource limits reduce exposure but are **not a formal security boundary** against native runtime vulnerabilities, and local scripts must not be treated as automatically trusted. No modules are auto-discovered or executed; the operator selects the path. Later roadmap PRs will introduce narrowly validated read-only capabilities and game policy. Existing Rust Cyberpunk CLI commands and transaction semantics remain unchanged.
+This is a **restricted, untrusted local module inspection** workflow, not module installation, enablement, or compatibility certification. Luau only receives `mods_host.api_version`; it has no host filesystem, state database, game directory, archive, network, or process API. OS, IO, package loading, dynamic script loading, debug, print and warn globals are unavailable. Untrusted scripts cannot write to CLI stdout or corrupt `--json` responses. `mlua` sandboxing and resource limits reduce exposure but are **not a formal security boundary** against native runtime vulnerabilities, and local scripts must not be treated as automatically trusted. No modules are auto-discovered or executed; the operator selects the path. Read-only capabilities and the bundled game policy are documented below. Existing Rust Cyberpunk CLI commands and transaction semantics remain unchanged.
 
 ## Read-only Luau host capabilities (experimental)
 
@@ -73,7 +73,34 @@ return { game_id = "my-game", api_version = mods_host.api_version }
 
 All paths passed to Lua capabilities are relative to a short-lived **numeric root ID**, not absolute paths. Rust rejects absolute paths, traversal, invalid components, links/junctions and paths escaping the canonical authorized root. Lua receives only immutable metadata, hashes and validated archive entry descriptions, never host file handles, file contents, or writable APIs. Missing files, unsafe paths and exhausted resource budgets fail explicitly. Each invocation has at most 128 host calls, a 16 MiB aggregate file-byte allowance, an 8 MiB per-file limit, a 256-entry archive result limit and the existing Luau memory/interrupt budgets. Luau inspection supports **ZIP and JAR only**; 7z encoded headers can expand without a native parser allocation budget and are explicitly refused until safely bounded. The existing standalone CLI inspector is unchanged. All supported Luau archive inspection is metadata-only; no extraction or installation occurs.
 
-**Security limitations:** Permission to read a root must be granted by the operator; it authorizes metadata and hashing for files beneath it, not module trust. These path checks are not atomic against a *concurrent external attacker modifying the filesystem* between verification and opening; no general-purpose portable no-follow/openat handle confinement is claimed. The bounded native archive parser is also outside the Luau interrupt timer. Do not point an untrusted module at sensitive directories. Game-specific discovery outside operator-approved roots, plans, mutation, ownership and transaction APIs are not included. The existing `modn module check <directory>` behavior without `--allow-root` remains valid.
+**Security limitations:** Permission to read a root must be granted by the operator; it authorizes metadata and hashing for files beneath it, not module trust. These path checks are not atomic against a *concurrent external attacker modifying the filesystem* between verification and opening; no general-purpose portable no-follow/openat handle confinement is claimed. The bounded native archive parser is also outside the Luau interrupt timer. Do not point an untrusted module at sensitive directories. Game-specific discovery runs only inside approved roots; plans, mutation, ownership and transaction APIs are not exposed to Luau. The existing `modn module check <directory>` behavior without `--allow-root` remains valid.
+
+## Runtime-loaded Cyberpunk game policy
+
+Cyberpunk discovery, scan classification, framework signals and doctor diagnostics
+now reside in `crates/modn-core/game-modules/cyberpunk-2077/` as
+`module.json` and `main.luau`. Rust loads them **at runtime** through a
+game-agnostic policy executor, not an embedded `cyberpunk.rs` adapter.
+
+The loader first looks for `game-modules/<game-id>/` beside the executable,
+then uses the repository module directory for development builds. Distributions
+must ship the module folder beside the executable. For an explicit override set
+`MODN_GAME_MODULES_DIR` to a parent containing `cyberpunk-2077/`.
+Missing or incompatible modules fail closed. Policy edits are observed on the
+next CLI command without recompiling (covered by a CLI integration test).
+
+The shared read-only host adds `mods_host.directory.list(root_id,relative)`
+(bounded to 2,048 entries) and `mods_host.directory.read_text(root_id,relative)`
+(UTF-8, max 64 KiB). Existing root containment, link denial, budgets and
+no-write guarantees remain. Rust retains platform access, CLI path selection,
+SQLite ownership, file identity and integrity checks, transactions and recovery.
+Luau presence signals do not certify runtime compatibility.
+
+Legacy CLI commands remain Cyberpunk-first for compatibility. General game
+selection and a second game installer belong to later roadmap PRs. Do not
+grant sensitive roots to untrusted modules: confinement is not atomic against
+external concurrent path replacement, and the Luau VM is not a formal security
+boundary.
 
 ## Read-only inventory and ownership drift
 

@@ -1,5 +1,5 @@
 //! Reconcile on-disk discovery against manager-owned SQLite records without writing to a game.
-use crate::scan::{self, DoctorReport, FrameworkSignal, OwnedFileCheck, ScanReport};
+use crate::scan::{self, DoctorReport, OwnedFileCheck, ScanReport};
 use crate::state::Store;
 use anyhow::Result;
 use sha2::{Digest, Sha256};
@@ -97,38 +97,6 @@ fn verify_owned(root: &Path, relative: &str, expected_bytes: u64, expected_sha: 
     }
 }
 
-fn framework_signals(root: &Path) -> Vec<FrameworkSignal> {
-    // These are presence signals, not proof that a framework is installed or operational.
-    const CANDIDATES: &[(&str, &str, bool)] = &[
-        ("CET", "bin/x64/plugins/cyber_engine_tweaks.asi", false),
-        ("CET", "bin/x64/plugins/cyber_engine_tweaks", true),
-        ("RED4ext", "red4ext/RED4ext.dll", false),
-        ("RED4ext", "red4ext/plugins", true),
-        ("redscript", "r6/scripts", true),
-        (
-            "ArchiveXL",
-            "red4ext/plugins/ArchiveXL/ArchiveXL.dll",
-            false,
-        ),
-        ("ArchiveXL", "red4ext/plugins/ArchiveXL", true),
-    ];
-    let mut signals = CANDIDATES
-        .iter()
-        .filter(|(_, path, directory)| checked_path(root, path, *directory).0 == PathState::Present)
-        .map(|(name, path, directory)| FrameworkSignal {
-            name: (*name).into(),
-            relative_path: (*path).into(),
-            kind: if *directory { "directory" } else { "file" }.into(),
-        })
-        .collect::<Vec<_>>();
-    signals.sort_by(|a, b| {
-        a.name
-            .cmp(&b.name)
-            .then(a.relative_path.cmp(&b.relative_path))
-    });
-    signals
-}
-
 // Non-contextual per-character case folding is only a Windows candidate search.
 // Different names can fold identically on NTFS; actual file identity still decides ownership.
 fn ownership_key(relative: &str) -> String {
@@ -144,8 +112,7 @@ fn ownership_key(relative: &str) -> String {
 pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanReport> {
     let game = crate::discovery::validate_installation(installation)?;
     let installed = store.installed(&game)?;
-    let mut report = scan::scan(&game);
-    report.framework_signals = framework_signals(&game);
+    let mut report = scan::scan_checked(&game, 20_000)?;
     let mut matched: HashMap<String, Vec<usize>> = HashMap::new();
 
     for package in installed {
@@ -177,9 +144,6 @@ pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanRep
     // Distinct hard links may have identical file IDs; the exact recorded name wins.
     let mut candidates = vec![Vec::<usize>::new(); report.owned_files.len()];
     for (detected_index, detected) in report.mods.iter().enumerate() {
-        if detected.kind != "legacy-archive" {
-            continue;
-        }
         let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
         if let Some(indices) = matched.get(&ownership_key(&relative)) {
             for &owned_index in indices {
@@ -231,5 +195,5 @@ pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanRep
 
 /// Run inventory-aware diagnostics without modifying the game.
 pub fn doctor_with_ownership(store: &Store, installation: &Path) -> Result<DoctorReport> {
-    Ok(scan::diagnose(scan_with_ownership(store, installation)?))
+    scan::diagnose_checked(scan_with_ownership(store, installation)?)
 }

@@ -1,40 +1,60 @@
+//! Generic filesystem discovery plumbing. The bundled game module owns game policy.
+use crate::game_modules::policy;
+use crate::CYBERPUNK_ID;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
-const EXECUTABLE: &str = "bin/x64/Cyberpunk2077.exe";
-
-/// Discovered game installation and its discovery source.
+/// Discovered installation and the source of its location.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[expect(
     clippy::exhaustive_structs,
-    reason = "CLI consumers construct candidates for explicit manual game paths"
+    reason = "CLI constructs explicit manual game candidates"
 )]
 pub struct Candidate {
-    /// Canonical game installation directory.
+    /// Canonical installation directory.
     pub path: PathBuf,
-    /// Discovery source, such as Steam or Epic.
+    /// Discovery origin: Steam, Epic, common or manual.
     pub source: String,
 }
 
-/// Canonicalize a directory and verify it contains the expected game executable.
+/// Confirm that the selected path satisfies the bundled game's Lua marker policy.
 pub fn validate_installation(path: &Path) -> Result<PathBuf> {
+    validate_installation_for(CYBERPUNK_ID, path)
+}
+
+/// Validate an installation against a runtime-selected game's Luau policy.
+pub fn validate_installation_for(game_id: &str, path: &Path) -> Result<PathBuf> {
     let canonical = path
         .canonicalize()
         .with_context(|| format!("cannot access game directory {}", path.display()))?;
-    if !canonical.join(EXECUTABLE).is_file() {
-        bail!("{} does not contain {}", canonical.display(), EXECUTABLE);
+    let (valid, marker) = policy::validate(game_id, &canonical)?;
+    if !valid {
+        bail!("{} does not contain {}", canonical.display(), marker);
     }
     Ok(canonical)
 }
 
-fn add_candidate(candidates: &mut Vec<Candidate>, path: &Path, source: &str) {
-    if let Ok(path) = validate_installation(path) {
+fn valid_install_folder(name: &str) -> bool {
+    let path = Path::new(name);
+    !name.is_empty()
+        && name.len() <= 128
+        && !name.contains(':')
+        && !name.contains('\\')
+        && !name.chars().any(char::is_control)
+        && path.components().count() == 1
+        && path
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
+}
+
+fn add_candidate(candidates: &mut Vec<Candidate>, game_id: &str, path: &Path, source: &str) {
+    if let Ok(path) = validate_installation_for(game_id, path) {
         candidates.push(Candidate {
             path,
-            source: source.to_owned(),
+            source: source.into(),
         });
     }
 }
@@ -44,7 +64,7 @@ fn vdf_value(line: &str, key: &str) -> Option<String> {
     (parts.len() >= 4 && parts[1].eq_ignore_ascii_case(key)).then(|| parts[3].replace("\\\\", "\\"))
 }
 
-/// Read Steam libraryfolders.vdf without assuming library indices or drive letters.
+/// Collect shared Steam library locations; the app ID and install name belong to Luau.
 fn steam_libraries(root: &Path) -> Vec<PathBuf> {
     let mut libraries = vec![root.to_owned()];
     if let Ok(vdf) = fs::read_to_string(root.join("steamapps/libraryfolders.vdf")) {
@@ -57,28 +77,25 @@ fn steam_libraries(root: &Path) -> Vec<PathBuf> {
     libraries
 }
 
-fn steam_install_dir(steamapps: &Path) -> String {
-    let manifest = steamapps.join("appmanifest_1091500.acf");
-    fs::read_to_string(manifest)
-        .ok()
-        .and_then(|content| {
-            content
-                .lines()
-                .find_map(|line| vdf_value(line.trim(), "installdir"))
-        })
-        .filter(|value| {
-            !value.is_empty()
-                && value != "."
-                && value != ".."
-                && !value.contains('/')
-                && !value.contains('\\')
-        })
-        .unwrap_or_else(|| "Cyberpunk 2077".to_owned())
-}
-
-/// Injectable roots make discovery deterministic and testable without a live game.
+/// Injectable platform locations for deterministic multi-installation fixture tests.
 #[must_use]
 pub fn discover_in(
+    steam_roots: &[PathBuf],
+    epic_manifest_dirs: &[PathBuf],
+    common_game_dirs: &[PathBuf],
+) -> Vec<Candidate> {
+    discover_in_for(
+        CYBERPUNK_ID,
+        steam_roots,
+        epic_manifest_dirs,
+        common_game_dirs,
+    )
+}
+
+/// Discover installations with a dynamically selected game's policy.
+#[must_use]
+pub fn discover_in_for(
+    game_id: &str,
     steam_roots: &[PathBuf],
     epic_manifest_dirs: &[PathBuf],
     common_game_dirs: &[PathBuf],
@@ -86,16 +103,19 @@ pub fn discover_in(
     let mut candidates = Vec::new();
     for root in steam_roots {
         for library in steam_libraries(root) {
-            let apps = library.join("steamapps");
-            let game_name = steam_install_dir(&apps);
-            add_candidate(
-                &mut candidates,
-                &apps.join("common").join(game_name),
-                "steam",
-            );
+            if let Ok(game_name) = policy::steam_name(game_id, &library) {
+                if !valid_install_folder(&game_name) {
+                    continue;
+                }
+                add_candidate(
+                    &mut candidates,
+                    game_id,
+                    &library.join("steamapps/common").join(game_name),
+                    "steam",
+                );
+            }
         }
     }
-
     for directory in epic_manifest_dirs {
         let Ok(entries) = fs::read_dir(directory) else {
             continue;
@@ -110,40 +130,58 @@ pub fn discover_in(
             let Ok(data) = serde_json::from_str::<serde_json::Value>(&contents) else {
                 continue;
             };
-            if data["DisplayName"].as_str() == Some("Cyberpunk 2077") {
-                if let Some(location) = data["InstallLocation"].as_str() {
-                    add_candidate(&mut candidates, Path::new(location), "epic");
-                }
+            let (Some(display_name), Some(location)) = (
+                data["DisplayName"].as_str(),
+                data["InstallLocation"].as_str(),
+            ) else {
+                continue;
+            };
+            if policy::epic_match(game_id, display_name).unwrap_or(false) {
+                add_candidate(&mut candidates, game_id, Path::new(location), "epic");
             }
         }
     }
-
     for path in common_game_dirs {
-        add_candidate(&mut candidates, path, "common");
+        add_candidate(&mut candidates, game_id, path, "common");
     }
-
     let mut seen = HashSet::new();
     candidates.retain(|candidate| seen.insert(candidate.path.clone()));
     candidates.sort_by(|a, b| a.path.cmp(&b.path));
     candidates
 }
 
-/// Best-effort Windows discovery. Custom installations remain supported via --path.
+/// Best-effort platform search. Explicit --path remains supported.
 #[must_use]
 pub fn discover() -> Vec<Candidate> {
+    discover_for(CYBERPUNK_ID)
+}
+
+/// Search known platform locations using a runtime-selected game module.
+#[must_use]
+pub fn discover_for(game_id: &str) -> Vec<Candidate> {
     let mut steam_roots = Vec::new();
     let mut common = Vec::new();
+    let hints = policy::common_paths(game_id).unwrap_or_default();
     for key in ["PROGRAMFILES(X86)", "PROGRAMFILES"] {
         if let Some(root) = std::env::var_os(key) {
             let root = PathBuf::from(root);
             steam_roots.push(root.join("Steam"));
-            common.push(root.join("GOG Galaxy/Games/Cyberpunk 2077"));
-            common.push(root.join("Epic Games/Cyberpunk2077"));
-            common.push(root.join("Epic Games/Cyberpunk 2077"));
+            for hint in &hints {
+                if !hint.is_empty()
+                    && hint.len() <= 256
+                    && !hint.contains(':')
+                    && !hint.contains('\\')
+                    && Path::new(hint)
+                        .components()
+                        .all(|component| matches!(component, Component::Normal(_)))
+                {
+                    common.push(root.join(hint));
+                }
+            }
         }
     }
     let epic_dirs = std::env::var_os("PROGRAMDATA")
-        .map(|path| vec![PathBuf::from(path).join("Epic/EpicGamesLauncher/Data/Manifests")])
+        .map(|root| vec![PathBuf::from(root).join("Epic/EpicGamesLauncher/Data/Manifests")])
         .unwrap_or_default();
-    discover_in(&steam_roots, &epic_dirs, &common)
+    discover_in_for(game_id, &steam_roots, &epic_dirs, &common)
 }
