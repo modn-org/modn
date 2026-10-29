@@ -1,4 +1,4 @@
-# Mods development instructions
+# modn development instructions
 
 ## Authority and scope
 

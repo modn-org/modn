@@ -1,6 +1,6 @@
 //! Integration checks for archive plan behavior.
-use mod_core::archive::inspect;
-use mod_core::planning::plan;
+use modn_core::archive::inspect;
+use modn_core::planning::plan;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;

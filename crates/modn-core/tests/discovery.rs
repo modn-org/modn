@@ -1,6 +1,6 @@
 //! Integration checks for discovery behavior.
-use mod_core::discovery::{discover_in, validate_installation};
-use mod_core::state::Store;
+use modn_core::discovery::{discover_in, validate_installation};
+use modn_core::state::Store;
 use std::fs;
 use tempfile::tempdir;
 

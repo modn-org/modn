@@ -1,15 +1,15 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use mod_core::archive::inspect;
-use mod_core::discovery::{discover, validate_installation, Candidate};
-use mod_core::inventory::{doctor_with_ownership, scan_with_ownership};
-use mod_core::planning::plan;
-use mod_core::state::Store;
+use modn_core::archive::inspect;
+use modn_core::discovery::{discover, validate_installation, Candidate};
+use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
+use modn_core::planning::plan;
+use modn_core::state::Store;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(
-    name = "mod",
+    name = "modn",
     about = "Cyberpunk mod inspection and guarded management"
 )]
 struct Cli {
@@ -92,13 +92,13 @@ fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
         return Ok(dir.join("state.sqlite"));
     }
     if let Some(path) = std::env::var_os("LOCALAPPDATA") {
-        return Ok(PathBuf::from(path).join("Mods/state.sqlite"));
+        return Ok(PathBuf::from(path).join("modn/state.sqlite"));
     }
     if let Some(path) = std::env::var_os("XDG_STATE_HOME") {
-        return Ok(PathBuf::from(path).join("mods/state.sqlite"));
+        return Ok(PathBuf::from(path).join("modn/state.sqlite"));
     }
     let home = std::env::var_os("HOME").context("no HOME or app state directory available")?;
-    Ok(PathBuf::from(home).join(".local/state/mods/state.sqlite"))
+    Ok(PathBuf::from(home).join(".local/state/modn/state.sqlite"))
 }
 
 fn validate_state_path(state_path: &Path) -> Result<()> {
@@ -147,7 +147,7 @@ fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf
     let entries = store.list()?;
     match entries.as_slice() {
         [entry] => validate_installation(&entry.path),
-        [] => bail!("no game registered; run 'mod game add cyberpunk --path <directory>'"),
+        [] => bail!("no game registered; run 'modn game add cyberpunk --path <directory>'"),
         _ => bail!("multiple games registered; specify --path to select an installation"),
     }
 }
@@ -165,7 +165,7 @@ fn run() -> Result<()> {
         Command::Install { archive, path, yes } => {
             if !yes {
                 bail!(
-                    "installation writes game files; rerun with --yes after reviewing 'mod plan'"
+                    "installation writes game files; rerun with --yes after reviewing 'modn plan'"
                 );
             }
             let game = selected_installation(
@@ -329,7 +329,7 @@ fn run() -> Result<()> {
                 &path,
             )?;
             if report.incomplete {
-                eprintln!("warning: mod scan incomplete (entry limit reached)");
+                eprintln!("warning: modn scan incomplete (entry limit reached)");
             }
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);

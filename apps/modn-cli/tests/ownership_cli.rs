@@ -8,7 +8,7 @@ use zip::write::SimpleFileOptions;
 
 #[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
 fn call(state: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_mod"))
+    Command::new(env!("CARGO_BIN_EXE_modn"))
         .args(["--state-dir", state.to_str().unwrap(), "--json"])
         .args(args)
         .output()

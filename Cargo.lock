@@ -443,19 +443,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "mod-cli"
+name = "modn-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "mod-core",
+ "modn-core",
  "serde_json",
  "tempfile",
  "zip",
 ]
 
 [[package]]
-name = "mod-core"
+name = "modn-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",

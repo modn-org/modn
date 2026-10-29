@@ -1,6 +1,6 @@
 //! Integration checks for inventory behavior.
-use mod_core::inventory::{doctor_with_ownership, scan_with_ownership};
-use mod_core::state::Store;
+use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
+use modn_core::state::Store;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ fn fixture() -> (TempDir, Store, PathBuf, PathBuf) {
 }
 
 #[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
-fn owned<'a>(scan: &'a mod_core::scan::ScanReport, name: &str) -> &'a str {
+fn owned<'a>(scan: &'a modn_core::scan::ScanReport, name: &str) -> &'a str {
     scan.owned_files
         .iter()
         .find(|f| f.relative_path == name)

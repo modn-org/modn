@@ -1,5 +1,5 @@
 //! Integration checks for scan behavior.
-use mod_core::scan::{doctor, scan};
+use modn_core::scan::{doctor, scan};
 use std::fs;
 use tempfile::tempdir;
 

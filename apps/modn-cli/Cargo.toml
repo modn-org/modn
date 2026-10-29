@@ -1,5 +1,5 @@
 [package]
-name = "mod-cli"
+name = "modn-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,13 +8,13 @@ license.workspace = true
 workspace = true
 
 [[bin]]
-name = "mod"
+name = "modn"
 path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
 clap = { version = "4.5", features = ["derive"] }
-mod-core = { path = "../../crates/mod-core" }
+modn-core = { path = "../../crates/modn-core" }
 serde_json = "1"
 
 [dev-dependencies]

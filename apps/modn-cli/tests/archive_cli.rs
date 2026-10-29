@@ -22,7 +22,7 @@ fn inspect_and_plan_json_do_not_write_game_files() {
     fs::write(game.join("bin/x64/Cyberpunk2077.exe"), "game").unwrap();
     let state = temp.path().join("state");
 
-    let inspect = Command::new(env!("CARGO_BIN_EXE_mod"))
+    let inspect = Command::new(env!("CARGO_BIN_EXE_modn"))
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -42,7 +42,7 @@ fn inspect_and_plan_json_do_not_write_game_files() {
     assert_eq!(inventory["metadata_only"], true);
     assert!(!state.exists());
 
-    let plan = Command::new(env!("CARGO_BIN_EXE_mod"))
+    let plan = Command::new(env!("CARGO_BIN_EXE_modn"))
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -70,7 +70,7 @@ fn inspect_and_plan_json_do_not_write_game_files() {
 
     fs::create_dir_all(game.join("archive/pc/mod")).unwrap();
     fs::write(game.join("archive/pc/mod/weather.archive"), "unmanaged").unwrap();
-    let plan = Command::new(env!("CARGO_BIN_EXE_mod"))
+    let plan = Command::new(env!("CARGO_BIN_EXE_modn"))
         .args([
             "--state-dir",
             state.to_str().unwrap(),

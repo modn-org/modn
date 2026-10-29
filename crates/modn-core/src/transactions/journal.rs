@@ -111,7 +111,7 @@ pub(super) fn temp_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> {
     Ok(target
         .parent()
         .context("target has no parent")?
-        .join(format!(".mods-txn-{id}-{n}.tmp")))
+        .join(format!(".modn-txn-{id}-{n}.tmp")))
 }
 
 impl Store {
@@ -143,7 +143,7 @@ impl Store {
                     row.get(0)
                 })?;
         if count > 0 {
-            bail!("unfinished transaction detected; run 'mod recover' before another write");
+            bail!("unfinished transaction detected; run 'modn recover' before another write");
         }
         Ok(())
     }
@@ -267,7 +267,7 @@ impl Store {
         if staging.exists() {
             fs::remove_dir_all(&staging).with_context(|| {
                 format!(
-                    "cannot clean staged transaction {}; retry 'mod recover'",
+                    "cannot clean staged transaction {}; retry 'modn recover'",
                     staging.display()
                 )
             })?;

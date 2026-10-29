@@ -101,7 +101,7 @@ impl Store {
             Err(err) => {
                 drop(staging);
                 if let Err(recovery_error) = self.recover_locked() {
-                    bail!("{err:#}; staging recovery incomplete: {recovery_error:#}; run 'mod recover'");
+                    bail!("{err:#}; staging recovery incomplete: {recovery_error:#}; run 'modn recover'");
                 }
                 return Err(err);
             }
@@ -110,7 +110,7 @@ impl Store {
             drop(staging);
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
-                    "{err:#}; staging recovery incomplete: {recovery_error:#}; run 'mod recover'"
+                    "{err:#}; staging recovery incomplete: {recovery_error:#}; run 'modn recover'"
                 );
             }
             return Err(err);
@@ -152,7 +152,7 @@ impl Store {
             let recover = self.recover_locked();
             if let Err(recovery_error) = recover {
                 bail!(
-                    "{err:#}; automatic rollback incomplete: {recovery_error:#}; run 'mod recover'"
+                    "{err:#}; automatic rollback incomplete: {recovery_error:#}; run 'modn recover'"
                 );
             }
             return Err(err);

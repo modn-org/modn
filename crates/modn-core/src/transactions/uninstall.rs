@@ -70,13 +70,13 @@ impl Store {
         if let Err(err) = attempt {
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
-                    "{err:#}; uninstall recovery incomplete: {recovery_error:#}; run 'mod recover'"
+                    "{err:#}; uninstall recovery incomplete: {recovery_error:#}; run 'modn recover'"
                 );
             }
             return Err(err);
         }
         self.recover_locked()
-            .context("uninstall committed; cleanup incomplete, run 'mod recover'")?;
+            .context("uninstall committed; cleanup incomplete, run 'modn recover'")?;
         Ok(())
     }
 }
