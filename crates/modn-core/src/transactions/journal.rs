@@ -1,5 +1,5 @@
 //! Transaction journal persistence, locking, rollback and recovery.
-use crate::discovery::validate_installation;
+use super::validation::validate_transaction_root;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
@@ -117,7 +117,7 @@ pub(super) fn temp_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> {
 impl Store {
     /// List packages installed by this manager for the selected game.
     pub fn installed(&self, game: &Path) -> Result<Vec<ManagedPackage>> {
-        let game = validate_installation(game)?;
+        let game = validate_transaction_root(game)?;
         let name = game.to_string_lossy().into_owned();
         let mut query = self.connection.prepare(
             "SELECT id, archive_sha256 FROM managed_packages WHERE game_path=?1 ORDER BY created_at, id")?;
@@ -286,7 +286,7 @@ impl Store {
             }
             return self.finish_journal(&journal.id);
         }
-        let game = validate_installation(&journal.game)?;
+        let game = validate_transaction_root(&journal.game)?;
         for f in journal.files.iter().rev() {
             let dest = target_path(&game, &f.destination, /* create_parents= */ false)?;
             let temp = temp_path(&dest, &journal.id, f.ordinal)?;
