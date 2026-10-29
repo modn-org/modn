@@ -46,6 +46,35 @@ The loader negotiates **host API v1** and rejects mismatching manifest/script id
 
 This is a **restricted, untrusted local module inspection** workflow, not module installation, enablement, or compatibility certification. Luau only receives `mods_host.api_version`; it has no host filesystem, state database, game directory, archive, network, or process API. OS, IO, package loading, dynamic script loading, debug, print and warn globals are unavailable. Untrusted scripts cannot write to CLI stdout or corrupt `--json` responses. `mlua` sandboxing and resource limits reduce exposure but are **not a formal security boundary** against native runtime vulnerabilities, and local scripts must not be treated as automatically trusted. No modules are auto-discovered or executed; the operator selects the path. Later roadmap PRs will introduce narrowly validated read-only capabilities and game policy. Existing Rust Cyberpunk CLI commands and transaction semantics remain unchanged.
 
+## Read-only Luau host capabilities (experimental)
+
+PR #7 adds optional, strictly scoped read-only capabilities to the existing local module check command. **No directory is authorized by default.** The operator can explicitly permit up to eight real directories:
+
+```sh
+modn module check ./module --allow-root "/path/to/game" --json
+# Repeat --allow-root for more than one candidate installation.
+```
+
+The host exposes a version-1 additive API on the existing read-only `mods_host` table. Only the operator-selected roots are enumerated; there is **no automatic drive scanning**, no generic Rust claim of game compatibility and no unrestricted filesystem access. A game-specific Luau module uses file metadata to recognize installations among those roots:
+
+```lua
+local roots = mods_host.discovery.roots() -- { { id = 1 }, ... }
+local root = roots[1]
+if root then
+    local metadata = mods_host.fs.metadata(root.id, "game.marker")
+    -- metadata: { kind = "file" | "directory", bytes = integer }
+    local digest = mods_host.hash.sha256(root.id, "game.marker") -- hex string
+    local archive = mods_host.archive.inspect(root.id, "mods/package.zip")
+    -- { format, sha256, total_uncompressed_bytes, metadata_only = true,
+    --   files = { { entry, bytes }, ... } }
+end
+return { game_id = "my-game", api_version = mods_host.api_version }
+```
+
+All paths passed to Lua capabilities are relative to a short-lived **numeric root ID**, not absolute paths. Rust rejects absolute paths, traversal, invalid components, links/junctions and paths escaping the canonical authorized root. Lua receives only immutable metadata, hashes and validated archive entry descriptions, never host file handles, file contents, or writable APIs. Missing files, unsafe paths and exhausted resource budgets fail explicitly. Each invocation has at most 128 host calls, a 16 MiB aggregate file-byte allowance, an 8 MiB per-file limit, a 256-entry archive result limit and the existing Luau memory/interrupt budgets. ZIP/JAR/7z inspection is metadata-only; no extraction or installation occurs.
+
+**Security limitations:** Permission to read a root must be granted by the operator; it authorizes metadata and hashing for files beneath it, not module trust. These path checks are not atomic against a *concurrent external attacker modifying the filesystem* between verification and opening; no general-purpose portable no-follow/openat handle confinement is claimed. The bounded native archive parser is also outside the Luau interrupt timer. Do not point an untrusted module at sensitive directories. Game-specific discovery outside operator-approved roots, plans, mutation, ownership and transaction APIs are not included. The existing `modn module check <directory>` behavior without `--allow-root` remains valid.
+
 ## Read-only inventory and ownership drift
 
 `modn scan --json --path <game>` combines on-disk discovery with SQLite ownership records. The `mods` array labels discovered legacy archives as `managed` only when the observed path resolves to a recorded, manager-owned file (including valid Windows case-only aliases); managed entries also include `package_id` and `integrity`. Unmanaged CET/RED4ext directories, scripts, tweaks and REDmod folders remain unmanaged even if they appear alongside owned files.

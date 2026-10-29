@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use modn_core::archive::inspect;
 use modn_core::discovery::{discover, validate_installation, Candidate};
-use modn_core::game_modules::check_module;
+use modn_core::game_modules::check_module_with_roots;
 use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
 use modn_core::planning::plan;
 use modn_core::state::Store;
@@ -84,7 +84,12 @@ enum Command {
 #[derive(Subcommand)]
 enum ModuleCommand {
     /// Load a local game module and report its identity and API compatibility.
-    Check { directory: PathBuf },
+    Check {
+        directory: PathBuf,
+        /// Explicitly permit read-only discovery and inspection within this directory.
+        #[arg(long = "allow-root", value_name = "DIR")]
+        allow_roots: Vec<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -178,9 +183,13 @@ fn run() -> Result<()> {
     };
     match cli.command {
         Command::Module {
-            command: ModuleCommand::Check { directory },
+            command:
+                ModuleCommand::Check {
+                    directory,
+                    allow_roots,
+                },
         } => {
-            let module = check_module(&directory)?;
+            let module = check_module_with_roots(&directory, &allow_roots)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&module)?);
             } else {

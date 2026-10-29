@@ -79,3 +79,65 @@ fn command_reports_module_identity_without_opening_state_database() {
     );
     assert!(!state.exists(), "failure must not initialize SQLite");
 }
+
+#[test]
+fn scoped_cli_roots_work_without_creating_state_or_writing_to_game() {
+    let temp = tempfile::tempdir().expect("fixture");
+    let module = temp.path().join("module");
+    let game = temp.path().join("authorized-game");
+    let state = temp.path().join("state");
+    fs::create_dir(&module).expect("module dir");
+    fs::create_dir(&game).expect("game dir");
+    fs::write(
+        module.join("module.json"),
+        r#"{"api_version":1,"game_id":"demo-game","version":"1.0.0","entrypoint":"main.luau"}"#,
+    )
+    .expect("manifest");
+    fs::write(game.join("marker.txt"), b"abc").expect("marker");
+    fs::write(
+        module.join("main.luau"),
+        r#"
+            local roots = mods_host.discovery.roots()
+            assert(#roots == 1 and roots[1].id == 1)
+            assert(mods_host.fs.metadata(1, "marker.txt").bytes == 3)
+            assert(mods_host.hash.sha256(1, "marker.txt") ==
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+            return { game_id="demo-game", api_version=mods_host.api_version }
+        "#,
+    )
+    .expect("script");
+
+    let command = || {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_modn"));
+        cmd.args(["--json", "--state-dir"])
+            .arg(&state)
+            .args(["module", "check"])
+            .arg(&module);
+        cmd
+    };
+    let missing_grant = command().output().expect("run without grant");
+    assert!(!missing_grant.status.success());
+    assert!(missing_grant.stdout.is_empty());
+
+    let allowed = command()
+        .arg("--allow-root")
+        .arg(&game)
+        .output()
+        .expect("run with explicit grant");
+    assert!(
+        allowed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&allowed.stdout).expect("valid JSON");
+    assert_eq!(report["game_id"], "demo-game");
+    assert_eq!(report["api_version"], 1);
+    assert_eq!(
+        fs::read(game.join("marker.txt")).expect("marker intact"),
+        b"abc"
+    );
+    assert!(
+        !state.exists(),
+        "module capabilities must not create manager state"
+    );
+}
