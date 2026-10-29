@@ -14,7 +14,7 @@ fn install_zip(
     game: &Path,
     archive: &Path,
 ) -> anyhow::Result<super::ManagedPackage> {
-    let proposal = crate::planning::preview_install_zip(crate::CYBERPUNK_ID, game, archive)?;
+    let proposal = crate::planning::preview_install_zip("cyberpunk-2077", game, archive)?;
     store.install_operations_zip(game, archive, &proposal)
 }
 
@@ -113,7 +113,7 @@ fn injected_partial_install_rolls_back_all_owned_files() {
         .install_operations_inner(
             &game,
             &path,
-            &crate::planning::preview_install_zip(crate::CYBERPUNK_ID, &game, &path).unwrap(),
+            &crate::planning::preview_install_zip("cyberpunk-2077", &game, &path).unwrap(),
             Some(1),
         )
         .is_err());

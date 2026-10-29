@@ -2,17 +2,17 @@
 
 ## Sub-features
 
-- R1: Completed transactions leave no pending recovery work.
-- R2: Crash-injection recovery is not yet exercised by this CLI-only verifier.
+- R1: Completed install/uninstall leaves no pending transactions.
+- R2: Crash-injected rollback and recovery remain unverified by this CLI driver.
 
 ## How to get to it (user POV)
 
-`modn recover --yes --json` and `modn installed --path <game> --json`.
+`modn recover --yes --json`, with the same `--state-dir` used by installation.
 
 ## Driving it with Python subprocess
 
-After a complete disposable installation and uninstall, the driver invokes `recover --yes` against the same state and asserts `recovered == 0`. It also checks the managed-package list is empty and the pre-existing unmanaged file remains intact. Existing Rust transaction integration tests cover injected crashes, but this driver has no public CLI crash injection switch, so it must not claim crash recovery was exercised.
+Following the full test-game install/uninstall and second-game preview, the driver runs `recover --yes` on its isolated store and checks `recovered == 0`. Ownership and filesystem tests prove no accidental unmanaged deletion.
 
 ## Gotchas
 
-Do not simulate a crash by killing a CLI while writing to a real installation. A future safe test harness may cover interrupted transactions using only disposable state and a supported injection entry point. Report this path as unverified by `verify-modn`.
+No public CLI crash-injection capability exists; the skill does not fabricate one. Existing Rust transaction tests cover deliberate interrupted states. The driver deletes only its own temporary game roots and preserves evidence.

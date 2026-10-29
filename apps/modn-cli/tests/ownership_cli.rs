@@ -9,6 +9,7 @@ use zip::write::SimpleFileOptions;
 #[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
 fn call(state: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir", state.to_str().unwrap(), "--json"])
         .args(args)
         .output()

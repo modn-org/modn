@@ -8,7 +8,7 @@ Requires a current stable Rust toolchain.
 
 ```sh
 cargo test --workspace
-cargo run --bin modn -- game add cyberpunk --path "/path/to/Cyberpunk 2077"
+cargo run --bin modn -- game add cyberpunk-2077 --path "/path/to/Cyberpunk 2077"
 cargo run --bin modn -- game list
 cargo run --bin modn -- scan --json
 cargo run --bin modn -- doctor --json
@@ -96,17 +96,27 @@ no-write guarantees remain. Rust retains platform access, CLI path selection,
 SQLite ownership, file identity and integrity checks, transactions and recovery.
 Luau presence signals do not certify runtime compatibility.
 
-Legacy CLI commands remain Cyberpunk-first for compatibility. General game
-selection and a second game installer belong to later roadmap PRs. Do not
-grant sensitive roots to untrusted modules: confinement is not atomic against
-external concurrent path replacement, and the Luau VM is not a formal security
-boundary.
+The CLI has **no default game**. Use `modn game add <game-id> --path <directory>`
+to register an installation with its ordinary Luau module; use `--game <game-id>`
+with `--path` before registration. When a path or registered installation has
+one unambiguous recorded game identity, later commands may select it without
+`--game`. Ambiguous registrations fail closed. There are no Cyberpunk aliases,
+fallback markers, or game-specific Rust install branches.
+
+The fictional `tests/fixtures/test-game/` Luau module uses `bin/TestGame.exe`,
+`package/plugins/*.plugin` and `addons/*.plugin`, independently of Cyberpunk.
+`verify-modn` proves its actual CLI install, scan, ownership, diagnostics and
+uninstall behavior as well as Cyberpunk coexistence, with disposable fixtures.
+Run `python .agents/skills/verify-modn/scripts/verify.py --build` from the
+repository root (use `python3` on Linux). Do not grant sensitive roots to
+untrusted modules: confinement is not atomic against external concurrent path
+replacement, and the Luau VM is not a formal security boundary.
 
 ## Read-only inventory and ownership drift
 
-`modn scan --json --path <game>` combines on-disk discovery with SQLite ownership records. The `mods` array labels discovered legacy archives as `managed` only when the observed path resolves to a recorded, manager-owned file (including valid Windows case-only aliases); managed entries also include `package_id` and `integrity`. Unmanaged CET/RED4ext directories, scripts, tweaks and REDmod folders remain unmanaged even if they appear alongside owned files.
+`modn --game <game-id> scan --json --path <game>` combines on-disk discovery with SQLite ownership records. The `mods` array labels discovered legacy archives as `managed` only when the observed path resolves to a recorded, manager-owned file (including valid Windows case-only aliases); managed entries also include `package_id` and `integrity`. Unmanaged CET/RED4ext directories, scripts, tweaks and REDmod folders remain unmanaged even if they appear alongside owned files.
 
-`owned_files` reports every recorded file, **including missing files absent from discovery**, with the statuses `intact`, `modified`, `missing`, `unsafe` (linked/redirected path), or `unreadable`. Content is SHA-256 checked when size and path verification succeed. Large archives may take time to hash. `modn doctor --json --path <game>` adds `OWNED_FILE_MISSING`, `OWNED_FILE_MODIFIED`, `OWNED_FILE_UNSAFE`, and `OWNED_FILE_UNREADABLE` warnings, and reports `UNMANAGED_CONTENT` only when unmanaged entries are present.
+`owned_files` reports every recorded file, **including missing files absent from discovery**, with the statuses `intact`, `modified`, `missing`, `unsafe` (linked/redirected path), or `unreadable`. Content is SHA-256 checked when size and path verification succeed. Large archives may take time to hash. `modn --game <game-id> doctor --json --path <game>` adds `OWNED_FILE_MISSING`, `OWNED_FILE_MODIFIED`, `OWNED_FILE_UNSAFE`, and `OWNED_FILE_UNREADABLE` warnings, and reports `UNMANAGED_CONTENT` only when unmanaged entries are present.
 
 The `framework_signals` array identifies candidate CET, RED4ext, redscript, and ArchiveXL directories or binaries with their relative paths. A presence signal **does not verify that a framework is installed, active, or compatible**. `scan` and `doctor` never write to the game or adopt files; the state database remains outside the game installation. A game directory redirect is not followed for ownership verification. No automatic repairs or deletion are performed.
 
@@ -114,7 +124,7 @@ The `framework_signals` array identifies candidate CET, RED4ext, redscript, and 
 
 `modn inspect <file>` reads ZIP, JAR, or 7z **headers and SHA-256 only**. It never extracts a file into the game. Archive entries with unsafe paths, duplicates, symbolic links detected in metadata, or encrypted ZIP entries are rejected. Unsupported formats (including RAR) are refused. Plan operations are **not** verified file contents, installation authorization, or game compatibility.
 
-`modn install <file> --dry-run --path <game> --json` resolves archive contents into proposed file operations without writing game files. The runtime-loaded Luau game policy provides a **schema-v1** proposal (`schema_version = 1`, `operations = { { source, destination, kind, package_root }, ... }`, `blockers = { { code, message }, ... }`). Rust independently validates source membership, game-root confinement, target paths, case-insensitive duplicates, file/directory overlap, occupied or linked destinations, prohibited executables, declared byte limits, and source-archive changes. The module cannot choose an arbitrary destination root or access write APIs. To keep the existing 8 MiB/1-second sandbox predictable, previews with more than 2,048 archive files return a blocked result (TOO_MANY_FILES), not a partial proposal. Replacing the Luau policy alone changes the preview without rebuilding Rust.
+`modn --game <game-id> install <file> --dry-run --path <game> --json` resolves archive contents into proposed file operations without writing game files. The runtime-loaded Luau game policy provides a **schema-v1** proposal (`schema_version = 1`, `operations = { { source, destination, kind, package_root }, ... }`, `blockers = { { code, message }, ... }`). Rust independently validates source membership, game-root confinement, target paths, case-insensitive duplicates, file/directory overlap, occupied or linked destinations, prohibited executables, declared byte limits, and source-archive changes. The module cannot choose an arbitrary destination root or access write APIs. To keep the existing 8 MiB/1-second sandbox predictable, previews with more than 2,048 archive files return a blocked result (TOO_MANY_FILES), not a partial proposal. Replacing the Luau policy alone changes the preview without rebuilding Rust.
 
 An optional outer package folder is trimmed by the game policy. Unknown layouts, incompatible package variants, executable installers, occupied destinations, and missing REDmod tooling block the preview. A `status: "reviewable"` preview means the selected Luau policy proposed safe operations, **not** that archive content is verified or installation approved. The bundled Cyberpunk module blocks non-legacy layouts with `NOT_INSTALLABLE`, while the Rust executor accepts independently validated ZIP file operations from any selected game policy. Changing Luau mappings changes both preview and approved installation without rebuilding Rust. `metadata_only: true` means file contents have not been staged or verified. Untrusted Luau results have an 8 MiB copied-string budget and strict per-field limits.
 
@@ -122,11 +132,11 @@ An optional outer package folder is trimmed by the game policy. Unknown layouts,
 
 ## Transactional Luau-planned ZIP installation (experimental)
 
-The bundled Cyberpunk Luau policy currently permits only ZIP packages of recognized `archive/pc/mod/*.archive` content (with optional wrapper/documentation). Other game layouts remain preview-only until their Luau policy is deliberately enabled in future milestones. Inspect and use `install --dry-run` first. **Do not uninstall existing framework mods or adopt manually installed files**; those remain unmanaged.
+The Cyberpunk Luau policy currently permits only ZIP packages of recognized `archive/pc/mod/*.archive` content (with optional wrapper/documentation). Other game layouts remain preview-only until their Luau policy is deliberately enabled in future milestones. Inspect and use `install --dry-run` first. **Do not uninstall existing framework mods or adopt manually installed files**; those remain unmanaged.
 
 ```powershell
-modn install "C:\Downloads\HD Reworked.zip" --dry-run --json
-modn install "C:\Downloads\HD Reworked.zip" --yes --json
+modn --game cyberpunk-2077 install "C:\Downloads\HD Reworked.zip" --dry-run --json --path <game>
+modn --game cyberpunk-2077 install "C:\Downloads\HD Reworked.zip" --yes --json --path <game>
 modn installed --json
 modn uninstall <package-id> --yes --json
 modn recover --yes --json

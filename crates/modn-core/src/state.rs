@@ -1,4 +1,3 @@
-use crate::CYBERPUNK_ID;
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
@@ -95,18 +94,19 @@ impl Store {
         })
     }
 
-    /// Register an existing validated Cyberpunk installation in manager state.
-    pub fn add_cyberpunk(&self, path: &Path, source: &str) -> Result<GameInstallation> {
+    /// Register a game installation using its runtime Luau validation policy.
+    pub fn add_game(&self, game_id: &str, path: &Path, source: &str) -> Result<GameInstallation> {
+        let path = crate::discovery::validate_installation_for(game_id, path)?;
         let path_text = path.to_str().context("game path must be valid UTF-8")?;
         self.connection.execute(
             "INSERT INTO game_installations (game_id, path, source)
              VALUES (?1, ?2, ?3)
              ON CONFLICT(game_id, path) DO UPDATE SET source=excluded.source",
-            params![CYBERPUNK_ID, path_text, source],
+            params![game_id, path_text, source],
         )?;
         Ok(GameInstallation {
-            game_id: CYBERPUNK_ID.into(),
-            path: path.to_owned(),
+            game_id: game_id.into(),
+            path,
             source: source.into(),
         })
     }

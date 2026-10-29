@@ -1,21 +1,20 @@
-# Fictional game module discovery and validation
+# Game selection and module loading
 
 ## Sub-features
 
-- M1: Load an ordinary `test-game` module through host API v1.
-- M2: Grant only a disposable filesystem root for module identity checks.
-- M3: Record CLI game selection and installation as unsupported until PR #12.
+- M1: Check `test-game` API v1 identity through the public CLI.
+- M2: Reject unregistered `--path` without an explicit `--game`.
+- M3: Register test-game and select its recorded game identity.
+- M4: Register Cyberpunk alongside test-game; reject ambiguous selection.
 
 ## How to get to it (user POV)
 
-Use `modn module check <directory> --allow-root <game>` (optionally `--json`), `modn game add test-game --path <game>`, or `modn install <zip> --dry-run --path <game>`.
+`modn module check <directory> --allow-root <root>`; `modn game add test-game --path <game>`; `modn game list`; use global `--game test-game` on unregistered game operations.
 
 ## Driving it with Python subprocess
 
-The driver creates `bin/TestGame.exe` under its isolated test-game root and invokes `modn --json --state-dir <state> module check tests/fixtures/test-game --allow-root <game>`. Assert `game_id == "test-game"`, `api_version == 1`, and unchanged fixture contents. Then invoke game registration and a test-game dry run as negative CLI tests: both currently fail and must not write into the game directory.
-
-The normal module includes `validate`, `scan`, `doctor`, `steam_name`, `is_epic`, and schema-v1 `plan` functions, but the current CLI does not invoke them for the `test-game` ID. Their integration is not claimed verified here.
+The script copies `tests/fixtures/test-game/` into its temporary module root, checks module identity using the real CLI, and confirms `install --dry-run --path <unregistered-game>` fails without touching state. It previews with `--game test-game`, registers the game, then runs the remaining commands using the recorded identity. A second `game add cyberpunk-2077` uses a distinct fixture, and `scan` without disambiguation fails.
 
 ## Gotchas
 
-Module `check` validates identity/compatibility; it does **not** activate or register a game or execute a plan. A fake Cyberpunk executable or Rust test-only override would invalidate the architecture proof. PR #12 should replace these negative tests with the full test-game lifecycle.
+Module validation does not authorize installation, and an unregistered path requires `--game`. Game IDs must match actual module manifests; no implicit Cyberpunk alias or fallback is provided.

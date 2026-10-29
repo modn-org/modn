@@ -1,19 +1,20 @@
-# Metadata inspection and dry-run
+# ZIP inspection and read-only preview
 
 ## Sub-features
 
-- A1: Inspect a ZIP with fictional test-game source names.
-- A2: Preview known legacy archive mapping under the currently selectable game.
-- A3: Prove dry run is read-only through independent filesystem/state checks.
+- A1: Inspect fictional package ZIP metadata.
+- A2: Resolve `test-game` Luau ZIP mapping.
+- A3: Verify preview preserves game bytes and does not initialize manager state.
+- A4: Verify a second game's independent ZIP mapping.
 
 ## How to get to it (user POV)
 
-`modn inspect <zip> --json` and `modn install <zip> --dry-run --path <game> --json` (global `--json` flag may precede the subcommand).
+`modn inspect <archive> --json`; `modn --game test-game install <archive> --dry-run --path <game> --json`; `--game` is global.
 
 ## Driving it with Python subprocess
 
-The driver creates a ZIP with `Demo/package/plugins/example.plugin`, inspects it, and checks the entry list. It separately creates a disposable Cyberpunk-compatible game marker plus `archive/pc/mod/managed.archive` ZIP and calls `modn --json --state-dir <state> install <zip> --dry-run --path <cyberpunk-fixture>`. Assert `status == "reviewable"`, `metadata_only == true`, and the declared destination. Compare file-content hashes before and after and assert the state directory was never created.
+The driver creates `Demo/package/plugins/example.plugin` in a ZIP. The real CLI produces a `reviewable`, `metadata_only` schema-v1 operation mapping to `addons/example.plugin`, with a `Demo` wrapper. The driver checks the exact mapping, takes independent file snapshots, and asserts no state directory was created. It later previews Cyberpunk's unrelated `archive/pc/mod/managed.archive` operation.
 
 ## Gotchas
 
-ZIP inspection alone does not exercise test-game's Luau `plan` method. Preview output is not install approval or proof that extracted content is safe. Only the Cyberpunk-shaped fixture is currently recognized by the CLI; PR #12 must add actual test-game policy execution via normal selection.
+A dry run never authorizes installation; the transaction engine validates sources and destinations again on approved writes. The two modules are selected by explicit or stored game IDs, not destination layout sniffing.

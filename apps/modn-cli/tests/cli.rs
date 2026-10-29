@@ -18,12 +18,13 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     let game_str = game.to_str().unwrap();
 
     let add = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state_str,
             "game",
             "add",
-            "cyberpunk",
+            "cyberpunk-2077",
             "--path",
             game_str,
         ])
@@ -36,6 +37,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     );
 
     let list = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir", state_str, "game", "list", "--json"])
         .output()
         .unwrap();
@@ -44,6 +46,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     assert_eq!(registered.as_array().unwrap().len(), 1);
 
     let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir", state_str, "scan", "--json"])
         .output()
         .unwrap();
@@ -53,6 +56,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     assert_eq!(scanned["mods"][0]["managed"], false);
 
     let doctor = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir", state_str, "doctor", "--json"])
         .output()
         .unwrap();
@@ -74,15 +78,18 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
 fn refuses_to_register_a_non_game_directory() {
     let temp = tempdir().unwrap();
     let state = temp.path().join("state");
+    let candidate = temp.path().join("not-a-game");
+    fs::create_dir_all(&candidate).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
             "game",
             "add",
-            "cyberpunk",
+            "cyberpunk-2077",
             "--path",
-            temp.path().to_str().unwrap(),
+            candidate.to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -99,6 +106,7 @@ fn refuses_state_database_inside_game_directory() {
     fs::write(&executable, b"original").unwrap();
     let state = game.join("private/manager-state");
     let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -118,11 +126,16 @@ fn refuses_state_database_inside_game_directory() {
 fn modn_name_and_default_state_directory() {
     let temp = tempdir().unwrap();
     let exe = env!("CARGO_BIN_EXE_modn");
-    let help = Command::new(exe).arg("--help").output().unwrap();
+    let help = Command::new(exe)
+        .args(["--game", "cyberpunk-2077"])
+        .arg("--help")
+        .output()
+        .unwrap();
     assert!(help.status.success());
     assert!(String::from_utf8_lossy(&help.stdout).contains("Usage: modn"));
 
     let output = Command::new(exe)
+        .args(["--game", "cyberpunk-2077"])
         .env("LOCALAPPDATA", temp.path())
         .args(["game", "list"])
         .output()
@@ -131,6 +144,58 @@ fn modn_name_and_default_state_directory() {
         output.status.success(),
         "{:?}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    // An empty selector-free listing must never initialize SQLite inside
+    // an unrecognized game root (or any other caller-provided directory).
+    assert!(!temp.path().join("modn/state.sqlite").exists());
+    let game = temp.path().join("fixture-game");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    fs::write(&marker, b"fixture").unwrap();
+    let nested_state = game.join("private/state");
+    let listing = Command::new(exe)
+        .args([
+            "--state-dir",
+            nested_state.to_str().unwrap(),
+            "game",
+            "list",
+        ])
+        .output()
+        .unwrap();
+    assert!(listing.status.success());
+    assert!(
+        !nested_state.exists(),
+        "selector-free list wrote inside game"
+    );
+    let recovery = Command::new(exe)
+        .args([
+            "--state-dir",
+            nested_state.to_str().unwrap(),
+            "recover",
+            "--yes",
+        ])
+        .output()
+        .unwrap();
+    assert!(!recovery.status.success());
+    assert!(
+        !nested_state.exists(),
+        "selector-free recovery initialized state"
+    );
+    let add = Command::new(exe)
+        .env("LOCALAPPDATA", temp.path())
+        .args([
+            "game",
+            "add",
+            "cyberpunk-2077",
+            "--path",
+            game.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add.status.success(),
+        "{}",
+        String::from_utf8_lossy(&add.stderr)
     );
     assert!(temp.path().join("modn/state.sqlite").is_file());
     assert!(!temp.path().join("mods/state.sqlite").exists());
@@ -158,10 +223,11 @@ fn cyberpunk_luau_policy_changes_without_rebuilding_executable() {
     let state = root.path().join("state");
     let add = || {
         Command::new(env!("CARGO_BIN_EXE_modn"))
+            .args(["--game", "cyberpunk-2077"])
             .env("MODN_GAME_MODULES_DIR", &module_base)
             .arg("--state-dir")
             .arg(&state)
-            .args(["game", "add", "cyberpunk", "--path"])
+            .args(["game", "add", "cyberpunk-2077", "--path"])
             .arg(&game)
             .output()
             .expect("invoke modn")
@@ -185,6 +251,7 @@ fn cyberpunk_luau_policy_changes_without_rebuilding_executable() {
     );
 
     let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .env("MODN_GAME_MODULES_DIR", &module_base)
         .arg("--state-dir")
         .arg(&state)
@@ -203,6 +270,7 @@ fn cyberpunk_luau_policy_changes_without_rebuilding_executable() {
     // independent state-directory exclusion for executable-layout roots.
     let unsafe_state = game.join("private/state");
     let forbidden = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .env("MODN_GAME_MODULES_DIR", &module_base)
         .arg("--state-dir")
         .arg(&unsafe_state)

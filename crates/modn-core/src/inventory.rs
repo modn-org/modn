@@ -107,12 +107,15 @@ fn ownership_key(relative: &str) -> String {
     }
 }
 
-/// Scan a validated installation and reconcile exact manager-owned files without changing it.
-/// Never infer ownership from filenames, directory placement or framework presence.
-pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanReport> {
-    let game = crate::discovery::validate_installation(installation)?;
+/// Reconcile owned files using the selected game's ordinary Luau scan policy.
+pub fn scan_with_ownership_for(
+    store: &Store,
+    game_id: &str,
+    installation: &Path,
+) -> Result<ScanReport> {
+    let game = crate::discovery::validate_installation_for(game_id, installation)?;
     let installed = store.installed(&game)?;
-    let mut report = scan::scan_checked(&game, 20_000)?;
+    let mut report = crate::game_modules::policy::scan(game_id, &game, 20_000)?;
     let mut matched: HashMap<String, Vec<usize>> = HashMap::new();
 
     for package in installed {
@@ -193,7 +196,11 @@ pub fn scan_with_ownership(store: &Store, installation: &Path) -> Result<ScanRep
     Ok(report)
 }
 
-/// Run inventory-aware diagnostics without modifying the game.
-pub fn doctor_with_ownership(store: &Store, installation: &Path) -> Result<DoctorReport> {
-    scan::diagnose_checked(scan_with_ownership(store, installation)?)
+/// Evaluate the selected game's Luau doctor policy over the reconciled inventory.
+pub fn doctor_with_ownership_for(
+    store: &Store,
+    game_id: &str,
+    installation: &Path,
+) -> Result<DoctorReport> {
+    scan::diagnose_checked(scan_with_ownership_for(store, game_id, installation)?)
 }

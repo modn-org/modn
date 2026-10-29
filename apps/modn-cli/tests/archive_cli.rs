@@ -23,6 +23,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
     let state = temp.path().join("state");
 
     let inspect = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -43,6 +44,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
     assert!(!state.exists());
 
     let plan = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -73,6 +75,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
     fs::create_dir_all(game.join("archive/pc/mod")).unwrap();
     fs::write(game.join("archive/pc/mod/weather.archive"), "unmanaged").unwrap();
     let plan = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -113,12 +116,13 @@ fn registered_install_dry_run_reads_existing_db_without_changes() {
 
     let state = temp.path().join("state");
     let registered = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
             "game",
             "add",
-            "cyberpunk",
+            "cyberpunk-2077",
             "--path",
             game.to_str().unwrap(),
         ])
@@ -133,6 +137,7 @@ fn registered_install_dry_run_reads_existing_db_without_changes() {
     let before = fs::read(&database).unwrap();
 
     let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),

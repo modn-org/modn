@@ -1,5 +1,4 @@
 use crate::game_modules::policy;
-use crate::CYBERPUNK_ID;
 use anyhow::Result;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -94,25 +93,10 @@ pub struct DoctorReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Scan using bundled game policy. Any VM failure makes the report incomplete.
-#[must_use]
-pub fn scan(installation: &Path) -> ScanReport {
-    scan_for(CYBERPUNK_ID, installation)
-}
-
 /// Scan using a runtime-selected game's Luau module.
 #[must_use]
 pub fn scan_for(game_id: &str, installation: &Path) -> ScanReport {
     scan_bounded_for(game_id, installation, MAX_ENTRIES)
-}
-
-pub(crate) fn scan_checked(installation: &Path, limit: usize) -> Result<ScanReport> {
-    policy::scan(CYBERPUNK_ID, installation, limit)
-}
-
-#[cfg(test)]
-fn scan_bounded(installation: &Path, limit: usize) -> ScanReport {
-    scan_bounded_for(CYBERPUNK_ID, installation, limit)
 }
 
 fn scan_bounded_for(game_id: &str, installation: &Path, limit: usize) -> ScanReport {
@@ -125,12 +109,6 @@ fn scan_bounded_for(game_id: &str, installation: &Path, limit: usize) -> ScanRep
         owned_files: Vec::new(),
         framework_signals: Vec::new(),
     })
-}
-
-/// Diagnose a read-only game report with its Luau policy.
-#[must_use]
-pub fn doctor(installation: &Path) -> DoctorReport {
-    doctor_for(CYBERPUNK_ID, installation)
 }
 
 /// Diagnose a runtime-selected game's read-only inventory.
@@ -180,7 +158,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("unrelated.txt"), "fixture").unwrap();
         fs::create_dir_all(game.path().join("mods/ActualRedmod")).unwrap();
-        let report = scan_bounded(game.path(), 1);
+        let report = scan_bounded_for("cyberpunk-2077", game.path(), 1);
         assert!(report.incomplete);
         assert!(report.mods.is_empty());
         assert!(diagnose(report)
@@ -195,7 +173,7 @@ mod tests {
         let dir = game.path().join("archive/pc/mod");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("one.archive"), "fixture").unwrap();
-        let report = scan_bounded(game.path(), 1);
+        let report = scan_bounded_for("cyberpunk-2077", game.path(), 1);
         assert!(!report.incomplete);
         assert_eq!(report.mods.len(), 1);
         assert!(!diagnose(report)
@@ -223,6 +201,6 @@ mod tests {
         }
         #[cfg(unix)]
         std::os::unix::fs::symlink(outside.path(), game.path().join("archive")).unwrap();
-        assert!(scan(game.path()).mods.is_empty());
+        assert!(scan_for("cyberpunk-2077", game.path()).mods.is_empty());
     }
 }
