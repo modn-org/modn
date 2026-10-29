@@ -167,7 +167,10 @@ fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let state_path = database_path(cli.state_dir.as_deref())?;
-    let mut store = if matches!(&cli.command, Command::Inspect { .. } | Command::Module { .. }) {
+    let mut store = if matches!(
+        &cli.command,
+        Command::Inspect { .. } | Command::Module { .. }
+    ) {
         None
     } else {
         validate_state_path(&state_path)?;
@@ -181,7 +184,10 @@ fn run() -> Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&module)?);
             } else {
-                println!("Game module {} v{} (host API {})", module.game_id, module.version, module.api_version);
+                println!(
+                    "Game module {} v{} (host API {})",
+                    module.game_id, module.version, module.api_version
+                );
             }
         }
         Command::Install { archive, path, yes } => {

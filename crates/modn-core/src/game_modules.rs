@@ -131,6 +131,8 @@ fn execute_module(script: &[u8], manifest: &ModuleManifest) -> Result<()> {
             "loadfile",
             "getfenv",
             "setfenv",
+            "print",
+            "warn",
         ] {
             globals.set(restricted, mlua::Value::Nil)?;
         }

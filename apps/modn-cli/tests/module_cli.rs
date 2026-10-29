@@ -26,7 +26,7 @@ fn command_reports_module_identity_without_opening_state_database() {
         .arg("check")
         .arg(&module)
         .output()
-        .expect("run mod");
+        .expect("run modn");
     assert!(
         output.status.success(),
         "{}",
@@ -40,6 +40,23 @@ fn command_reports_module_identity_without_opening_state_database() {
         !state.exists(),
         "module inspection must not initialize SQLite"
     );
+
+    fs::write(
+        module.join("main.luau"),
+        "print('unexpected stdout'); return {game_id='demo-game',api_version=1}",
+    )
+    .expect("replace module with printing script");
+    let printing = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--json", "--state-dir"])
+        .arg(&state)
+        .arg("module")
+        .arg("check")
+        .arg(&module)
+        .output()
+        .expect("run printing module");
+    assert!(!printing.status.success(), "module print must be denied");
+    assert!(printing.stdout.is_empty(), "untrusted stdout must be empty");
+    assert!(!state.exists(), "denied print must not open state");
 
     fs::write(
         module.join("main.luau"),

@@ -83,6 +83,7 @@ fn no_os_or_file_write_capability_is_exposed() {
         assert(io == nil and os == nil and package == nil)
         assert(require == nil and loadfile == nil and dofile == nil)
         assert(loadstring == nil and debug == nil)
+        assert(print == nil and warn == nil)
         assert(type(mods_host.api_version) == "number")
         assert(not pcall(function() mods_host.api_version = 99 end))
         return { game_id='fixture-game', api_version=mods_host.api_version }
