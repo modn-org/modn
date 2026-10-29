@@ -127,6 +127,17 @@ fn malformed_manifests_and_untrusted_entrypoints_are_rejected() {
 }
 
 #[test]
+fn bytecode_or_non_utf8_entrypoints_are_rejected_as_source() {
+    let (_root, directory) = fixture();
+    fs::write(directory.join("main.luau"), [0xff, 0, 0]).expect("binary fixture");
+    let error = format!("{:#}", check_module(&directory).unwrap_err());
+    assert!(error.contains("UTF-8 source"), "{error}");
+    fs::write(directory.join("main.luau"), b"return {}\0").expect("NUL fixture");
+    let error = format!("{:#}", check_module(&directory).unwrap_err());
+    assert!(error.contains("binary chunks"), "{error}");
+}
+
+#[test]
 fn oversized_manifest_and_script_are_rejected() {
     let (_root, directory) = fixture();
     write_script(&directory, &" ".repeat(256 * 1024 + 1));

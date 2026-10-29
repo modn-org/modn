@@ -108,6 +108,10 @@ fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
 }
 
 fn execute_module(script: &[u8], manifest: &ModuleManifest) -> Result<()> {
+    let source = std::str::from_utf8(script).context("Luau entrypoint must be UTF-8 source")?;
+    if source.contains('\0') {
+        bail!("Luau entrypoint cannot contain NUL bytes or binary chunks");
+    }
     let execute = || -> mlua::Result<()> {
         // No IO, OS, process, package loader, native module, network, or filesystem capability.
         let lua = Lua::new_with(
@@ -150,7 +154,7 @@ fn execute_module(script: &[u8], manifest: &ModuleManifest) -> Result<()> {
             Ok(VmState::Continue)
         });
 
-        let output: Table = lua.load(script).set_name(&manifest.entrypoint).eval()?;
+        let output: Table = lua.load(source).set_name(&manifest.entrypoint).eval()?;
         let declared_api: u32 = output.get("api_version")?;
         let declared_game: String = output.get("game_id")?;
         if declared_api != manifest.api_version || declared_game != manifest.game_id {
