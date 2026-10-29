@@ -10,6 +10,8 @@
 pub mod archive;
 /// Validate installations and discover registered game locations.
 pub mod discovery;
+/// Local, sandboxed Luau game module inspection without host filesystem capabilities.
+pub mod game_modules;
 pub mod inventory;
 pub mod planning;
 /// Inventory detected game files and produce diagnostic findings.
