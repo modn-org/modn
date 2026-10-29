@@ -1,6 +1,6 @@
 use crate::CYBERPUNK_ID;
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -73,6 +73,19 @@ impl Store {
                 PRIMARY KEY(transaction_id, ord)
             );",
         )?;
+        Ok(Self {
+            connection,
+            state_root: path
+                .parent()
+                .context("missing state parent")?
+                .canonicalize()?,
+        })
+    }
+
+    /// Read existing registrations without creating or migrating manager state.
+    pub fn open_readonly(path: &Path) -> Result<Self> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .with_context(|| format!("cannot read existing state database {}", path.display()))?;
         Ok(Self {
             connection,
             state_root: path

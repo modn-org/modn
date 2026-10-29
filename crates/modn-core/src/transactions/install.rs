@@ -3,8 +3,9 @@ use super::journal::{
 };
 use crate::archive::inspect;
 use crate::discovery::validate_installation;
-use crate::planning::plan;
+use crate::planning::{plan, resolve, InstallPlan, PlanIssue};
 use crate::state::Store;
+use crate::CYBERPUNK_ID;
 use anyhow::{bail, Context, Result};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -13,6 +14,44 @@ use tempfile::Builder;
 
 const MAX_TOTAL: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_FILE: u64 = 4 * 1024 * 1024 * 1024;
+
+/// Preview only operations the current legacy ZIP transaction engine can execute.
+///
+/// The Luau mapping is untrusted. Until the installer consumes the same
+/// validated mapping in a later milestone, reject previews that disagree with
+/// the current Rust executor instead of showing a misleading dry run.
+pub fn preview_install_zip(game: &Path, archive: &Path) -> Result<InstallPlan> {
+    let inspection = inspect(archive)?;
+    let mut preview = resolve(CYBERPUNK_ID, &inspection, game)?;
+    let actual = plan(&inspection, &preview.game_installation);
+    let agrees = actual.operations.len() == preview.operations.len()
+        && actual
+            .operations
+            .iter()
+            .zip(&preview.operations)
+            .all(|(a, b)| {
+                a.source == b.source
+                    && a.destination == b.destination
+                    && a.bytes == b.bytes
+                    && a.kind == b.kind
+            });
+    if inspection.format != "zip"
+        || actual.status != "reviewable"
+        || actual
+            .operations
+            .iter()
+            .any(|file| file.kind != "legacy-archive")
+        || !agrees
+    {
+        preview.blockers.push(PlanIssue {
+            code: "NOT_INSTALLABLE".into(),
+            message: "This archive or proposed mapping is not supported by the current installer"
+                .into(),
+        });
+        preview.status = "blocked".into();
+    }
+    Ok(preview)
+}
 
 impl Store {
     /// Install a ZIP of legacy archives; never adopts or replaces existing files.

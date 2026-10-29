@@ -2,6 +2,7 @@
 use super::capabilities::{AllowedRoots, ReadProfile};
 use super::loader::{self, HOST_API_VERSION};
 use super::runtime;
+use crate::planning::{RequestedFile, RequestedPlan};
 use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport};
 
 use anyhow::{bail, Result};
@@ -214,5 +215,99 @@ pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
             });
         }
         Ok(messages)
+    })
+}
+
+// Check Luau string lengths before copying into Rust's memory (outside the VM limit).
+fn plan_field(
+    table: &Table,
+    field: &str,
+    limit: usize,
+    budget: &mut usize,
+) -> mlua::Result<String> {
+    let value: mlua::LuaString = table.get(field)?;
+    let bytes = value.as_bytes().len();
+    if bytes > limit {
+        return Err(mlua::Error::RuntimeError(format!(
+            "installation field {field} exceeds {limit} bytes"
+        )));
+    }
+    if bytes > *budget {
+        return Err(mlua::Error::RuntimeError(
+            "installation plan result exceeds 8 MiB byte budget".into(),
+        ));
+    }
+    *budget -= bytes;
+    Ok(value.to_str()?.to_string())
+}
+
+/// Decode a game module's versioned, metadata-only proposal. No host mutation is exposed.
+pub(crate) fn plan(
+    game_id: &str,
+    root: &Path,
+    inspection: &crate::archive::Inspection,
+) -> Result<RequestedPlan> {
+    const MAX_PROPOSALS: usize = 2_048;
+    let root = root.canonicalize()?;
+    if inspection.files.len() > MAX_PROPOSALS {
+        return Ok(RequestedPlan {
+            operations: Vec::new(),
+            blockers: vec![(
+                "TOO_MANY_FILES".into(),
+                format!("Read-only preview supports at most {MAX_PROPOSALS} files"),
+            )],
+        });
+    }
+    evaluate(game_id, &[root], |lua, policy| {
+        let input = lua.create_table()?;
+        for (index, file) in inspection.files.iter().enumerate() {
+            let entry = lua.create_table()?;
+            entry.set("source", file.entry.as_str())?;
+            entry.set("bytes", file.bytes)?;
+            entry.set_readonly(true);
+            input.set(index + 1, entry)?;
+        }
+        input.set_readonly(true);
+        let output: Table = policy.get::<Function>("plan")?.call(input)?;
+        let version: u32 = output.get("schema_version")?;
+        if version != 1 {
+            return Err(mlua::Error::RuntimeError(
+                "unsupported installation plan schema version".into(),
+            ));
+        }
+        let entries: Table = output.get("operations")?;
+        let issues: Table = output.get("blockers")?;
+        if entries.raw_len() > MAX_PROPOSALS || issues.raw_len() > MAX_PROPOSALS {
+            return Err(mlua::Error::RuntimeError(
+                "installation plan exceeds result limit".into(),
+            ));
+        }
+        let mut result_budget = 8 * 1024 * 1024;
+        let operations = entries
+            .sequence_values::<Table>()
+            .map(|value| {
+                let value = value?;
+                Ok(RequestedFile {
+                    source: plan_field(&value, "source", 4_096, &mut result_budget)?,
+                    destination: plan_field(&value, "destination", 1_024, &mut result_budget)?,
+                    kind: plan_field(&value, "kind", 64, &mut result_budget)?,
+                    package_root: plan_field(&value, "package_root", 256, &mut result_budget)?,
+                })
+            })
+            .collect::<mlua::Result<Vec<_>>>()?;
+        let blockers = issues
+            .sequence_values::<Table>()
+            .map(|value| {
+                let value = value?;
+                Ok((
+                    plan_field(&value, "code", 64, &mut result_budget)?,
+                    plan_field(&value, "message", 512, &mut result_budget)?,
+                ))
+            })
+            .collect::<mlua::Result<Vec<_>>>()?;
+        Ok(RequestedPlan {
+            operations,
+            blockers,
+        })
     })
 }

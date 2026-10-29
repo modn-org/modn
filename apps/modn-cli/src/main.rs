@@ -4,8 +4,8 @@ use modn_core::archive::inspect;
 use modn_core::discovery::{discover, validate_installation, Candidate};
 use modn_core::game_modules::check_module_with_roots;
 use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
-use modn_core::planning::plan;
 use modn_core::state::Store;
+use modn_core::transactions::preview_install_zip;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -26,13 +26,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Install a legacy .archive ZIP after explicit approval.
+    /// Preview or install a legacy .archive ZIP after explicit approval.
     Install {
         archive: PathBuf,
         #[arg(long)]
         path: Option<PathBuf>,
         #[arg(long, help = "Confirm writing files into the game")]
         yes: bool,
+        #[arg(
+            long,
+            conflicts_with = "yes",
+            help = "Preview operations without writing game files"
+        )]
+        dry_run: bool,
     },
     /// List manager-owned packages (unmanaged mods are never included).
     Installed {
@@ -54,12 +60,6 @@ enum Command {
     },
     /// Inspect ZIP, JAR, or 7z metadata without extracting files.
     Inspect { archive: PathBuf },
-    /// Preview where files would be installed; never writes to the game.
-    Plan {
-        archive: PathBuf,
-        #[arg(long)]
-        path: Option<PathBuf>,
-    },
     /// Validate a local Luau module without granting file or game-write access.
     Module {
         #[command(subcommand)]
@@ -174,14 +174,28 @@ fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let state_path = database_path(cli.state_dir.as_deref())?;
+    let explicit_preview = matches!(
+        &cli.command,
+        Command::Install {
+            dry_run: true,
+            path: Some(_),
+            ..
+        }
+    );
+    let read_only_preview = matches!(&cli.command, Command::Install { dry_run: true, .. });
     let mut store = if matches!(
         &cli.command,
         Command::Inspect { .. } | Command::Module { .. }
-    ) {
+    ) || explicit_preview
+    {
         None
     } else {
         validate_state_path(&state_path)?;
-        Some(Store::open(&state_path)?)
+        Some(if read_only_preview {
+            Store::open_readonly(&state_path)?
+        } else {
+            Store::open(&state_path)?
+        })
     };
     match cli.command {
         Command::Module {
@@ -201,28 +215,52 @@ fn run() -> Result<()> {
                 );
             }
         }
-        Command::Install { archive, path, yes } => {
-            if !yes {
-                bail!(
-                    "installation writes game files; rerun with --yes after reviewing 'modn plan'"
-                );
+        Command::Install {
+            archive,
+            path,
+            yes,
+            dry_run,
+        } => {
+            if !yes && !dry_run {
+                bail!("installation writes game files; choose --dry-run or explicitly approve with --yes");
             }
-            let game = selected_installation(
-                store.as_ref().expect("non-inspect command has store"),
-                path,
-            )?;
-            let package = store
-                .as_mut()
-                .expect("non-inspect command has store")
-                .install_zip(&game, &archive)?;
-            if cli.json {
-                println!("{}", serde_json::to_string_pretty(&package)?);
+            let game = if let Some(path) = path {
+                validate_installation(&path)?
             } else {
-                println!(
-                    "Installed {} ({} owned files)",
-                    package.id,
-                    package.files.len()
-                );
+                selected_installation(
+                    store
+                        .as_ref()
+                        .context("no registered game database for preview")?,
+                    None,
+                )?
+            };
+            if dry_run {
+                let report = preview_install_zip(&game, &archive)?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!("Dry run: {} (metadata only)", report.status);
+                    for file in report.operations {
+                        println!("{} => {}", file.source, file.destination);
+                    }
+                    for issue in report.blockers {
+                        println!("BLOCKER {}: {}", issue.code, issue.message);
+                    }
+                }
+            } else {
+                let package = store
+                    .as_mut()
+                    .expect("install command has store")
+                    .install_zip(&game, &archive)?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&package)?);
+                } else {
+                    println!(
+                        "Installed {} ({} owned files)",
+                        package.id,
+                        package.files.len()
+                    );
+                }
             }
         }
         Command::Installed { path } => {
@@ -293,29 +331,6 @@ fn run() -> Result<()> {
                 println!("SHA-256: {}", report.sha256);
                 for file in report.files {
                     println!("{} ({} bytes)", file.entry, file.bytes);
-                }
-            }
-        }
-        Command::Plan { archive, path } => {
-            let inspection = inspect(&archive)?;
-            let game = selected_installation(
-                store.as_ref().expect("non-inspect command has store"),
-                path,
-            )?;
-            let report = plan(&inspection, &game);
-            if cli.json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
-            } else {
-                println!(
-                    "Plan: {} (metadata only; {})",
-                    report.status,
-                    archive.display()
-                );
-                for file in report.operations {
-                    println!("{} => {}", file.source, file.destination);
-                }
-                for issue in report.blockers {
-                    println!("BLOCKER {}: {}", issue.code, issue.message);
                 }
             }
         }

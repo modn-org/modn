@@ -193,4 +193,91 @@ function policy.doctor(report)
     return findings
 end
 
+
+-- Schema-v1 source-to-destination proposals. The host validates every operation.
+function policy.plan(files)
+    local operations = {}
+    local blockers = {}
+    local redmods = {}
+    local function block(code, message)
+        table.insert(blockers, { code = code, message = message })
+    end
+    local function kind_of(parts, i)
+        local count = #parts - i + 1
+        local a = string.lower(parts[i] or "")
+        local b = string.lower(parts[i + 1] or "")
+        local c = string.lower(parts[i + 2] or "")
+        local d = string.lower(parts[i + 3] or "")
+        local e = string.lower(parts[i + 4] or "")
+        local filename = string.lower(parts[#parts] or "")
+        if count == 4 and a == "archive" and b == "pc" and c == "mod"
+            and string.sub(filename, -8) == ".archive" then
+            return "legacy-archive"
+        end
+        if count >= 3 and a == "mods" and b ~= "" then return "redmod" end
+        if count >= 3 and a == "r6" and b == "scripts" then return "redscript" end
+        if count >= 3 and a == "r6" and b == "tweaks" then return "tweak" end
+        if count >= 7 and a == "bin" and b == "x64" and c == "plugins"
+            and d == "cyber_engine_tweaks" and e == "mods"
+            and parts[i + 5] ~= "" then return "cet" end
+        if count >= 4 and a == "red4ext" and b == "plugins"
+            and c ~= "" then return "red4ext" end
+        return nil
+    end
+    local function is_documentation(path)
+        local name = string.lower(string.match(path, "[^/]+$") or "")
+        local stem = string.match(name, "^([^%.]+)") or name
+        if name == "license" or name == "copying"
+            or name == "readme" or name == "changelog"
+            or name == "description.txt" then return true end
+        local ext = string.match(name, "%.([^%.]+)$") or ""
+        return (ext == "txt" or ext == "md" or ext == "rst")
+            and (string.sub(stem, 1, 6) == "readme"
+                or string.sub(stem, 1, 7) == "license"
+                or string.sub(stem, 1, 9) == "changelog")
+    end
+    for _, file in ipairs(files) do
+        local parts = {}
+        for item in string.gmatch(file.source, "[^/]+") do
+            table.insert(parts, item)
+        end
+        local mapped = false
+        for i = 1, #parts do
+            local kind = kind_of(parts, i)
+            if kind ~= nil then
+                local wrapper = table.concat(parts, "/", 1, i - 1)
+                local target = table.concat(parts, "/", i)
+                table.insert(operations, {
+                    source = file.source, destination = target, kind = kind,
+                    package_root = wrapper,
+                })
+                if kind == "redmod" then
+                    local name = string.lower(parts[i + 1])
+                    if redmods[name] == nil then redmods[name] = false end
+                    if #parts - i + 1 == 3
+                        and string.lower(parts[i + 2]) == "info.json" then
+                        redmods[name] = true
+                    end
+                end
+                mapped = true
+                break
+            end
+        end
+        if not mapped and not is_documentation(file.source) then
+            block("UNRECOGNIZED_LAYOUT", "Unknown mod layout: " .. file.source)
+        end
+    end
+    local redmod_found = false
+    for name, has_info in pairs(redmods) do
+        redmod_found = true
+        if not has_info then
+            block("REDMOD_INFO_MISSING", "REDmod has no info.json: " .. name)
+        end
+    end
+    if redmod_found and not present("tools/redmod/bin/redMod.exe", "file") then
+        block("REDMOD_NOT_INSTALLED", "REDmod deployment tools are not installed")
+    end
+    return { schema_version = 1, operations = operations, blockers = blockers }
+end
+
 return policy

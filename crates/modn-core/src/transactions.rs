@@ -5,4 +5,5 @@ mod journal;
 mod tests;
 mod uninstall;
 
+pub use install::preview_install_zip;
 pub use journal::{ManagedPackage, OwnedFile};
