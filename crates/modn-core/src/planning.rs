@@ -134,6 +134,29 @@ fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str>
     }
 }
 
+fn insert_destination(targets: &mut BTreeSet<String>, destination: &str) -> Option<&'static str> {
+    let key = destination.to_lowercase();
+    let mut ancestor = key.as_str();
+    while let Some((parent, _)) = ancestor.rsplit_once('/') {
+        if targets.contains(parent) {
+            return Some("FILE_DIRECTORY_COLLISION");
+        }
+        ancestor = parent;
+    }
+    let prefix = format!("{key}/");
+    if targets
+        .range(prefix.clone()..)
+        .next()
+        .is_some_and(|v| v.starts_with(&prefix))
+    {
+        return Some("FILE_DIRECTORY_COLLISION");
+    }
+    if !targets.insert(key) {
+        return Some("DUPLICATE_DESTINATION");
+    }
+    None
+}
+
 fn blocker(issues: &mut Vec<PlanIssue>, code: &str, message: impl Into<String>) {
     issues.push(PlanIssue {
         code: code.into(),
@@ -197,34 +220,11 @@ pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
             );
             continue;
         }
-        let key = destination.to_lowercase();
-        let mut prefix = key.as_str();
-        let mut ancestor = false;
-        while let Some((before, _)) = prefix.rsplit_once('/') {
-            if destinations.contains(before) {
-                ancestor = true;
-                break;
-            }
-            prefix = before;
-        }
-        let descendant_prefix = format!("{key}/");
-        let descendant = destinations
-            .range(descendant_prefix.clone()..)
-            .next()
-            .is_some_and(|existing| existing.starts_with(&descendant_prefix));
-        if ancestor || descendant {
+        if let Some(code) = insert_destination(&mut destinations, &destination) {
             blocker(
                 &mut blockers,
-                "FILE_DIRECTORY_COLLISION",
-                format!("File and directory targets overlap: {destination}"),
-            );
-            continue;
-        }
-        if !destinations.insert(key) {
-            blocker(
-                &mut blockers,
-                "DUPLICATE_DESTINATION",
-                format!("Two archive entries target {destination}"),
+                code,
+                format!("Duplicate or overlapping target: {destination}"),
             );
             continue;
         }
@@ -295,4 +295,206 @@ pub fn plan(inspection: &Inspection, game: &Path) -> InstallPlan {
         operations,
         blockers,
     }
+}
+
+// Untrusted, versioned Luau file mapping. It carries no installation authority.
+pub(crate) struct RequestedFile {
+    pub(crate) source: String,
+    pub(crate) destination: String,
+    pub(crate) kind: String,
+    pub(crate) package_root: String,
+}
+pub(crate) struct RequestedPlan {
+    pub(crate) operations: Vec<RequestedFile>,
+    pub(crate) blockers: Vec<(String, String)>,
+}
+fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
+    issues.push(PlanIssue {
+        code: code.into(),
+        message: value.into(),
+    });
+}
+/// Resolve untrusted module mappings into a read-only preview. This result
+/// never authorizes execution: installs require fresh validation and approval.
+pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::Result<InstallPlan> {
+    use anyhow::bail;
+    if !fs::symlink_metadata(game)?.file_type().is_dir() {
+        bail!("installation root must be a real directory, not a link");
+    }
+    let game = game.canonicalize()?;
+    let proposed = crate::game_modules::policy::plan(game_id, &game, inspection)?;
+    let mut blockers = Vec::new();
+    let mut sources = HashMap::new();
+    for entry in &inspection.files {
+        sources.insert(entry.entry.as_str(), entry.bytes);
+        if crate::archive::validated_name(&entry.entry).is_err() {
+            issue(
+                &mut blockers,
+                "UNSAFE_SOURCE",
+                format!("Unsafe archive entry: {}", entry.entry),
+            );
+        }
+        if prohibited_payload(&entry.entry) {
+            issue(
+                &mut blockers,
+                "EXECUTABLE_PAYLOAD",
+                format!("Executable payload: {}", entry.entry),
+            );
+        }
+    }
+    for (code, message) in proposed.blockers {
+        if code.len() > 64
+            || code.is_empty()
+            || message.len() > 512
+            || !code.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+        {
+            issue(
+                &mut blockers,
+                "INVALID_POLICY_ISSUE",
+                "Invalid module issue",
+            );
+        } else {
+            issue(&mut blockers, &code, message);
+        }
+    }
+    let mut operations = Vec::new();
+    let mut selected_sources = HashSet::new();
+    let mut destinations = BTreeSet::new();
+    let mut root_key: Option<String> = None;
+    let mut total = 0u64;
+    for request in proposed.operations {
+        if request.package_root.len() > 256
+            || (!request.package_root.is_empty()
+                && crate::archive::validated_name(&request.package_root).is_err())
+        {
+            issue(
+                &mut blockers,
+                "INVALID_PACKAGE_ROOT",
+                "Invalid source package root",
+            );
+            continue;
+        }
+        if let Some(root) = &root_key {
+            if root != &request.package_root {
+                issue(
+                    &mut blockers,
+                    "MULTIPLE_PACKAGE_ROOTS",
+                    "Multiple package variants",
+                );
+            }
+        } else {
+            root_key = Some(request.package_root.clone());
+        }
+        if !request.package_root.is_empty()
+            && !request
+                .source
+                .starts_with(&format!("{}/", request.package_root))
+        {
+            issue(
+                &mut blockers,
+                "INVALID_PACKAGE_ROOT",
+                "Source outside package root",
+            );
+            continue;
+        }
+        if request.destination.len() > 1024
+            || !crate::archive::validated_name(&request.destination)
+                .is_ok_and(|normalized| normalized == request.destination)
+            || !request.destination.contains('/')
+        {
+            issue(
+                &mut blockers,
+                "INVALID_DESTINATION",
+                format!("Unsafe target: {}", request.destination),
+            );
+            continue;
+        }
+        if prohibited_payload(&request.destination) {
+            issue(
+                &mut blockers,
+                "EXECUTABLE_PAYLOAD",
+                format!("Executable target: {}", request.destination),
+            );
+            continue;
+        }
+        if request.kind.is_empty()
+            || request.kind.len() > 64
+            || !request
+                .kind
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        {
+            issue(&mut blockers, "INVALID_KIND", "Invalid operation kind");
+            continue;
+        }
+        let Some(&bytes) = sources.get(request.source.as_str()) else {
+            issue(
+                &mut blockers,
+                "UNKNOWN_SOURCE",
+                format!("Unknown source: {}", request.source),
+            );
+            continue;
+        };
+        if !selected_sources.insert(request.source.clone()) {
+            issue(
+                &mut blockers,
+                "DUPLICATE_SOURCE",
+                format!("Repeated source: {}", request.source),
+            );
+            continue;
+        }
+        if bytes > 4 * 1024 * 1024 * 1024 {
+            issue(&mut blockers, "FILE_TOO_LARGE", "File exceeds 4 GiB");
+        }
+        total = total.saturating_add(bytes);
+        if total > 8 * 1024 * 1024 * 1024 {
+            issue(&mut blockers, "TOTAL_TOO_LARGE", "Total exceeds 8 GiB");
+        }
+        if let Some(code) = insert_destination(&mut destinations, &request.destination) {
+            issue(
+                &mut blockers,
+                code,
+                format!("Duplicate or overlapping target: {}", request.destination),
+            );
+            continue;
+        }
+        if let Some(code) = existing_destination_issue(&game, &request.destination) {
+            issue(
+                &mut blockers,
+                code,
+                format!("Occupied or unsafe target: {}", request.destination),
+            );
+        }
+        operations.push(PlannedFile {
+            source: request.source,
+            destination: request.destination,
+            bytes,
+            kind: request.kind,
+        });
+    }
+    if operations.is_empty() {
+        issue(&mut blockers, "NO_INSTALLABLE_FILES", "No files selected");
+    }
+    if crate::archive::inspect(&inspection.archive)
+        .map_or(true, |current| current.sha256 != inspection.sha256)
+    {
+        issue(
+            &mut blockers,
+            "SOURCE_CHANGED",
+            "Source archive changed during resolution",
+        );
+    }
+    Ok(InstallPlan {
+        archive_sha256: inspection.sha256.clone(),
+        game_installation: game,
+        status: if blockers.is_empty() {
+            "reviewable"
+        } else {
+            "blocked"
+        }
+        .into(),
+        metadata_only: true,
+        operations,
+        blockers,
+    })
 }

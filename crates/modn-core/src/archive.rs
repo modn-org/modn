@@ -39,7 +39,7 @@ pub struct Inspection {
     pub metadata_only: bool,
 }
 
-fn validated_name(name: &str) -> Result<String> {
+pub(crate) fn validated_name(name: &str) -> Result<String> {
     if name.is_empty() || name.contains('\\') || name.starts_with('/') || name.contains('\0') {
         bail!("unsafe archive entry: {name:?}");
     }

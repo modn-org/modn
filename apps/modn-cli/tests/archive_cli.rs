@@ -5,7 +5,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 #[test]
-fn inspect_and_plan_json_do_not_write_game_files() {
+fn inspect_and_dry_run_json_do_not_write_game_files() {
     let temp = tempdir().unwrap();
     let archive = temp.path().join("weather.zip");
     let mut zip = zip::ZipWriter::new(File::create(&archive).unwrap());
@@ -47,8 +47,9 @@ fn inspect_and_plan_json_do_not_write_game_files() {
             "--state-dir",
             state.to_str().unwrap(),
             "--json",
-            "plan",
+            "install",
             archive.to_str().unwrap(),
+            "--dry-run",
             "--path",
             game.to_str().unwrap(),
         ])
@@ -60,7 +61,7 @@ fn inspect_and_plan_json_do_not_write_game_files() {
         String::from_utf8_lossy(&plan.stderr)
     );
     let report: Value = serde_json::from_slice(&plan.stdout).unwrap();
-    assert_eq!(report["status"], "reviewable");
+    assert_eq!(report["status"], "reviewable", "{report}");
     assert_eq!(report["metadata_only"], true);
     assert_eq!(
         report["operations"][0]["destination"],
@@ -75,8 +76,9 @@ fn inspect_and_plan_json_do_not_write_game_files() {
             "--state-dir",
             state.to_str().unwrap(),
             "--json",
-            "plan",
+            "install",
             archive.to_str().unwrap(),
+            "--dry-run",
             "--path",
             game.to_str().unwrap(),
         ])

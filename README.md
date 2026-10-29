@@ -1,6 +1,6 @@
 # modn
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection/planning, and **explicit, ownership-tracked installation of legacy .archive ZIP packages**. The runtime-loaded Luau Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
+A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of legacy .archive ZIP packages**. The runtime-loaded Luau Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
 
 ## Development
 
@@ -13,7 +13,7 @@ cargo run --bin modn -- game list
 cargo run --bin modn -- scan --json
 cargo run --bin modn -- doctor --json
 cargo run --bin modn -- inspect "./downloaded-mod.zip" --json
-cargo run --bin modn -- plan "./downloaded-mod.zip" --path "/path/to/Cyberpunk 2077" --json
+cargo run --bin modn -- install "./downloaded-mod.zip" --dry-run --path "/path/to/Cyberpunk 2077" --json
 ```
 
 On Windows, omit `--path` to attempt discovery through Steam libraries, Epic Launcher manifests, and common game directories. Custom GOG/Epic/Steam installs may require an explicit path. Registration writes **only manager-owned state** outside the game directory; `scan` and `doctor` never modify game files.
@@ -73,7 +73,7 @@ return { game_id = "my-game", api_version = mods_host.api_version }
 
 All paths passed to Lua capabilities are relative to a short-lived **numeric root ID**, not absolute paths. Rust rejects absolute paths, traversal, invalid components, links/junctions and paths escaping the canonical authorized root. Lua receives only immutable metadata, hashes and validated archive entry descriptions, never host file handles, file contents, or writable APIs. Missing files, unsafe paths and exhausted resource budgets fail explicitly. Each invocation has at most 128 host calls, a 16 MiB aggregate file-byte allowance, an 8 MiB per-file limit, a 256-entry archive result limit and the existing Luau memory/interrupt budgets. Luau inspection supports **ZIP and JAR only**; 7z encoded headers can expand without a native parser allocation budget and are explicitly refused until safely bounded. The existing standalone CLI inspector is unchanged. All supported Luau archive inspection is metadata-only; no extraction or installation occurs.
 
-**Security limitations:** Permission to read a root must be granted by the operator; it authorizes metadata and hashing for files beneath it, not module trust. These path checks are not atomic against a *concurrent external attacker modifying the filesystem* between verification and opening; no general-purpose portable no-follow/openat handle confinement is claimed. The bounded native archive parser is also outside the Luau interrupt timer. Do not point an untrusted module at sensitive directories. Game-specific discovery runs only inside approved roots; plans, mutation, ownership and transaction APIs are not exposed to Luau. The existing `modn module check <directory>` behavior without `--allow-root` remains valid.
+**Security limitations:** Permission to read a root must be granted by the operator; it authorizes metadata and hashing for files beneath it, not module trust. These path checks are not atomic against a *concurrent external attacker modifying the filesystem* between verification and opening; no general-purpose portable no-follow/openat handle confinement is claimed. The bounded native archive parser is also outside the Luau interrupt timer. Do not point an untrusted module at sensitive directories. Game-specific discovery runs only inside approved roots; module-supplied file mappings are untrusted data, and mutation, ownership and transaction APIs are not exposed to Luau. The existing `modn module check <directory>` behavior without `--allow-root` remains valid.
 
 ## Runtime-loaded Cyberpunk game policy
 
@@ -110,18 +110,22 @@ boundary.
 
 The `framework_signals` array identifies candidate CET, RED4ext, redscript, and ArchiveXL directories or binaries with their relative paths. A presence signal **does not verify that a framework is installed, active, or compatible**. `scan` and `doctor` never write to the game or adopt files; the state database remains outside the game installation. A game directory redirect is not followed for ownership verification. No automatic repairs or deletion are performed.
 
-## Archive inspection and planning
+## Archive inspection and dry-run resolution
 
 `modn inspect <file>` reads ZIP, JAR, or 7z **headers and SHA-256 only**. It never extracts a file into the game. Archive entries with unsafe paths, duplicates, symbolic links detected in metadata, or encrypted ZIP entries are rejected. Unsupported formats (including RAR) are refused. Plan operations are **not** verified file contents, installation authorization, or game compatibility.
 
-`modn plan <file> --path <game>` maps recognized layouts (legacy archives, REDmod packages with `info.json`, redscript/tweaks, CET and RED4ext plugin directories) to game-relative destinations. An optional single outer package folder is trimmed. Unknown layouts, multiple incompatible variants, executable installers, occupied destinations, and missing REDmod tooling cause `status: "blocked"`. Other plans return `status: "reviewable"` (not "safe to install"). Each response identifies `metadata_only: true`; the install command separately revalidates and extracts ZIP legacy archives. **Even reviewable plans require revalidation, content integrity checking, version/compatibility checks, and explicit approval for installation.**
+`modn install <file> --dry-run --path <game> --json` resolves archive contents into proposed file operations without writing game files. The runtime-loaded Luau game policy provides a **schema-v1** proposal (`schema_version = 1`, `operations = { { source, destination, kind, package_root }, ... }`, `blockers = { { code, message }, ... }`). Rust independently validates source membership, game-root confinement, target paths, case-insensitive duplicates, file/directory overlap, occupied or linked destinations, prohibited executables, declared byte limits, and source-archive changes. The module cannot choose an arbitrary destination root or access write APIs. Replacing the Luau policy alone changes the preview without rebuilding Rust.
+
+An optional outer package folder is trimmed by the game policy. Unknown layouts, incompatible package variants, executable installers, occupied destinations, and missing REDmod tooling block the preview. `status: "reviewable"` means metadata was suitable for review, **not** that a format can currently be installed. Only legacy `.archive` ZIP files are executable by the current transaction engine; other formats and REDmod deployment are future milestones. `metadata_only: true` means archive contents have not been verified or staged. No preview is stored or accepted as an approval token.
+
+`modn install <file> --yes` remains the only install path, with separate source verification, ownership checks, transaction journaling and recovery; it currently retains its original Rust policy until the later transaction/installer migration. Without `--yes` or `--dry-run`, `install` refuses to run. The options are mutually exclusive. **A reviewable dry run never authorizes installation.**
 
 ## Transactional legacy archive installation (experimental)
 
-**Only** ZIP archives consisting of recognized `archive/pc/mod/*.archive` payloads (with optional outer wrapper/documentation) are currently installable. Inspect and plan first. **Do not uninstall existing framework mods or adopt manually installed files**; those remain unmanaged.
+**Only** ZIP archives consisting of recognized `archive/pc/mod/*.archive` payloads (with optional outer wrapper/documentation) are currently installable. Inspect and use `install --dry-run` first. **Do not uninstall existing framework mods or adopt manually installed files**; those remain unmanaged.
 
 ```powershell
-modn plan "C:\Downloads\HD Reworked.zip" --json
+modn install "C:\Downloads\HD Reworked.zip" --dry-run --json
 modn install "C:\Downloads\HD Reworked.zip" --yes --json
 modn installed --json
 modn uninstall <package-id> --yes --json

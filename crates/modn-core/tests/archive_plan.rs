@@ -374,3 +374,25 @@ fn extensionless_readme_and_changelog_do_not_block_valid_package() {
     assert_eq!(report.status, "reviewable", "{:?}", report.blockers);
     assert_eq!(report.operations.len(), 1);
 }
+
+#[test]
+fn stale_archive_inspection_cannot_make_module_preview_reviewable() {
+    let dir = tempdir().unwrap();
+    let game = dir.path().join("game");
+    setup_game(&game, false);
+    let archive = dir.path().join("changing.zip");
+    zip_fixture(&archive, &[("archive/pc/mod/example.archive", b"before")]);
+    let stale = inspect(&archive).unwrap();
+    zip_fixture(&archive, &[("archive/pc/mod/example.archive", b"after")]);
+    let result = modn_core::planning::resolve(modn_core::CYBERPUNK_ID, &stale, &game).unwrap();
+    assert_eq!(result.status, "blocked");
+    assert!(
+        result
+            .blockers
+            .iter()
+            .any(|issue| issue.code == "SOURCE_CHANGED"),
+        "{:?}",
+        result.blockers
+    );
+    assert!(!game.join("archive").exists());
+}

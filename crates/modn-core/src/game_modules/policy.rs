@@ -2,6 +2,7 @@
 use super::capabilities::{AllowedRoots, ReadProfile};
 use super::loader::{self, HOST_API_VERSION};
 use super::runtime;
+use crate::planning::{RequestedFile, RequestedPlan};
 use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport};
 
 use anyhow::{bail, Result};
@@ -214,5 +215,66 @@ pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
             });
         }
         Ok(messages)
+    })
+}
+
+/// Decode a game module's versioned, metadata-only proposal. No host mutation is exposed.
+pub(crate) fn plan(
+    game_id: &str,
+    root: &Path,
+    inspection: &crate::archive::Inspection,
+) -> Result<RequestedPlan> {
+    const MAX_PROPOSALS: usize = 20_000;
+    let root = root.canonicalize()?;
+    evaluate(game_id, &[root], |lua, policy| {
+        let input = lua.create_table()?;
+        for (index, file) in inspection.files.iter().enumerate() {
+            let entry = lua.create_table()?;
+            entry.set("source", file.entry.as_str())?;
+            entry.set("bytes", file.bytes)?;
+            entry.set_readonly(true);
+            input.set(index + 1, entry)?;
+        }
+        input.set_readonly(true);
+        let output: Table = policy.get::<Function>("plan")?.call(input)?;
+        let version: u32 = output.get("schema_version")?;
+        if version != 1 {
+            return Err(mlua::Error::RuntimeError(
+                "unsupported installation plan schema version".into(),
+            ));
+        }
+        let entries: Table = output.get("operations")?;
+        let issues: Table = output.get("blockers")?;
+        if entries.raw_len() > MAX_PROPOSALS || issues.raw_len() > MAX_PROPOSALS {
+            return Err(mlua::Error::RuntimeError(
+                "installation plan exceeds result limit".into(),
+            ));
+        }
+        let operations = entries
+            .sequence_values::<Table>()
+            .map(|value| {
+                let value = value?;
+                Ok(RequestedFile {
+                    source: value.get("source")?,
+                    destination: value.get("destination")?,
+                    kind: value.get("kind")?,
+                    package_root: value.get("package_root")?,
+                })
+            })
+            .collect::<mlua::Result<Vec<_>>>()?;
+        let blockers = issues
+            .sequence_values::<Table>()
+            .map(|value| {
+                let value = value?;
+                Ok((
+                    value.get::<String>("code")?,
+                    value.get::<String>("message")?,
+                ))
+            })
+            .collect::<mlua::Result<Vec<_>>>()?;
+        Ok(RequestedPlan {
+            operations,
+            blockers,
+        })
     })
 }
