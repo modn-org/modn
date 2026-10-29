@@ -55,6 +55,7 @@ fn module_with(temp: &Path, implementation: &str) -> PathBuf {
 #[expect(clippy::unwrap_used, reason = "Test process setup may fail fast")]
 fn run(game: &Path, archive: &Path, state: &Path, module: Option<&Path>) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_modn"));
+    cmd.args(["--game", "cyberpunk-2077"]);
     cmd.args(["--state-dir", state.to_str().unwrap(), "--json"]);
     cmd.args([
         "install",
@@ -229,6 +230,7 @@ fn changed_module_mapping_is_the_actual_install_mapping() {
     assert!(!game.join("r6").exists());
     assert!(!state.exists());
     let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -325,6 +327,7 @@ fn approved_install_rejects_untrusted_luau_mappings_without_game_writes() {
     ] {
         let module = module_with(temp.path(), &implementation);
         let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
             .args([
                 "--state-dir", state.to_str().unwrap(),
                 "install", archive.to_str().unwrap(), "--path", game.to_str().unwrap(),
@@ -344,6 +347,7 @@ fn approved_install_rejects_untrusted_luau_mappings_without_game_writes() {
 fn bundled_luau_policy_rejects_expanded_layouts_until_enabled() {
     let (_temp, game, archive, state) = fixture(&["r6/scripts/hello.reds"]);
     let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -364,6 +368,7 @@ fn luau_mapped_install_can_be_uninstalled_without_original_mapping() {
     let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
     let module = module_with(temp.path(), &single_operation("r6/scripts/new.reds"));
     let install = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -388,6 +393,7 @@ fn luau_mapped_install_can_be_uninstalled_without_original_mapping() {
         b"payload"
     );
     let remove = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
             state.to_str().unwrap(),

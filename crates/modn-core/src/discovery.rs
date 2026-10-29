@@ -1,6 +1,5 @@
 //! Generic filesystem discovery plumbing. The bundled game module owns game policy.
 use crate::game_modules::policy;
-use crate::CYBERPUNK_ID;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -18,11 +17,6 @@ pub struct Candidate {
     pub path: PathBuf,
     /// Discovery origin: Steam, Epic, common or manual.
     pub source: String,
-}
-
-/// Confirm that the selected path satisfies the bundled game's Lua marker policy.
-pub fn validate_installation(path: &Path) -> Result<PathBuf> {
-    validate_installation_for(CYBERPUNK_ID, path)
 }
 
 /// Validate an installation against a runtime-selected game's Luau policy.
@@ -75,21 +69,6 @@ fn steam_libraries(root: &Path) -> Vec<PathBuf> {
         }
     }
     libraries
-}
-
-/// Injectable platform locations for deterministic multi-installation fixture tests.
-#[must_use]
-pub fn discover_in(
-    steam_roots: &[PathBuf],
-    epic_manifest_dirs: &[PathBuf],
-    common_game_dirs: &[PathBuf],
-) -> Vec<Candidate> {
-    discover_in_for(
-        CYBERPUNK_ID,
-        steam_roots,
-        epic_manifest_dirs,
-        common_game_dirs,
-    )
 }
 
 /// Discover installations with a dynamically selected game's policy.
@@ -148,12 +127,6 @@ pub fn discover_in_for(
     candidates.retain(|candidate| seen.insert(candidate.path.clone()));
     candidates.sort_by(|a, b| a.path.cmp(&b.path));
     candidates
-}
-
-/// Best-effort platform search. Explicit --path remains supported.
-#[must_use]
-pub fn discover() -> Vec<Candidate> {
-    discover_for(CYBERPUNK_ID)
 }
 
 /// Search known platform locations using a runtime-selected game module.

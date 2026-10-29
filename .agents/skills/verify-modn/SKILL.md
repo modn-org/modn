@@ -1,50 +1,44 @@
 ---
 name: verify-modn
-description: Exercise Modn's CLI against disposable game fixtures and preserve independent evidence; use for game-module, installation, ownership, or recovery changes.
+description: Verify Modn's real CLI game selection, Luau ZIP installation, ownership and recovery using disposable game fixtures and retained evidence.
 ---
 
 # Verify Modn
 
-Run this repository-owned CLI verification after implementation changes. No real game installations, external accounts, browser, or test-only Rust hooks are required. The driver uses Python's standard library, invokes the actual `modn` executable, and keeps evidence outside the disposable game directory.
+Use for code changing game module loading, game selection, ZIP planning, install, inventory, diagnostics, uninstall or recovery. The driver runs the **real** `modn` binary with a fictional `test-game` Luau module and a second Cyberpunk fixture. It uses no privileged Rust test hooks and never accesses user games.
 
 ## Launch
 
-From the repository root:
+From the repository root run:
 
 ```powershell
 python .agents/skills/verify-modn/scripts/verify.py --build
 ```
 
-On Linux use `python3` instead of `python`. Requires Python 3.10+ and a working Rust/Cargo toolchain. To reuse an already built executable, omit `--build`; or pass `--binary <path-to-modn>`. The normal build is `cargo build -p modn-cli --locked`.
-
-The driver creates two isolated directories using the OS temporary directory: `modn-verify-fixture-*` for game roots, ZIPs and SQLite state, and `modn-verify-evidence-*` for permanent proof. No server is launched or process left running; each CLI invocation is short-lived.
+Use `python3` on Linux. Requires Python 3.10+, Rust and Cargo. Or omit `--build` for an already built `target/debug/modn[.exe]`, or pass `--binary <path>`. It uses OS-temporary `modn-verify-fixture-*` and `modn-verify-evidence-*` directories. Each CLI command terminates; no service remains running. Modules are copied to the disposable `modules/` root, selected via the production `MODN_GAME_MODULES_DIR` environment override.
 
 ## Doctor
 
-Before acting, the script checks that the executable and `tests/fixtures/test-game/{module.json,main.luau}` exist, calls `modn --help`, and validates the **ordinary** `test-game` module with:
-
-```text
-modn --json --state-dir <fixture>/state module check tests/fixtures/test-game --allow-root <fixture>/test-game
-```
-
-Success requires `game_id: "test-game"` and API version 1. The module is not privileged. The test-game marker is `bin/TestGame.exe`; its ZIP policy maps `package/plugins/*.plugin` to `addons/*.plugin`, intentionally unlike Cyberpunk.
-
-**Current limitation (before PR #12):** `modn game add test-game` and `modn install --path <test-game>` are not wired to runtime game selection. The driver proves these paths reject the fixture; it does **not** call a Rust internal API or substitute a Cyberpunk marker to claim test-game installation works. A separate disposable Cyberpunk-shaped fixture exercises the available real CLI installation path.
+The driver checks its binary and test-game module fixture, runs `modn --help`, then invokes `modn module check tests/fixtures/test-game --allow-root <fixture-game>` through the real CLI. It requires the returned game ID `test-game` and host API version 1. The fixture uses `bin/TestGame.exe` and `addons/*.plugin`, not Cyberpunk conventions.
 
 ## Drive
 
-Run the driver above. It exercises the flows in [features/README.md](features/README.md): module check, ZIP inspection and dry-run immutability, real `--yes` install, inventory, conflict rejection, modified-file uninstall protection, uninstall and idle recovery. Failures return nonzero.
+The driver performs [feature-mapped](features/README.md) CLI actions, including:
 
-The script checks physical file hashes/content and SQLite/state side effects independently of exit codes and JSON reports. It requires explicit `--yes` only on its own disposable installation. It never uses real user game paths or state directories. Re-run it after changing any mapped CLI flow.
+- Confirm an **unregistered game path without `--game`** fails without creating a database.
+- Preview test-game ZIP mapping with explicit `--game test-game`; verify no writes.
+- Register `test-game`, then install through its recorded identity without `--game`.
+- Independently verify written bytes, owned/unmanaged scan, conflict rejection, doctor drift, modified-file uninstall protection, safe uninstall and idle recovery.
+- Register a second `cyberpunk-2077` fixture, preview its distinct Luau mapping, and ensure ambiguous game selection fails.
+
+The `test-game` module uses ordinary runtime Luau policy and ZIP operations; its full CLI lifecycle is now verified. No game-specific Rust adapter or default ID is used.
 
 ## Evidence
 
-The script prints its `modn-verify-evidence-*` directory on success or failure. Each numbered `<step>.json` includes the exact CLI argv, exit code, stdout and stderr. `summary.json` records verified results and unsupported routes. `build.json` records optional build output. No secrets are used; evidence lives in the OS temporary directory, **not** in a repository note/worklog.
-
-Read `summary.json` plus the command transcripts before reporting success. A clean build alone does not prove behavior. Keep results from failed runs as troubleshooting evidence.
+Each step produces a numbered JSON command transcript (arguments, exit, stdout, stderr) in the printed `modn-verify-evidence-*` directory. `summary.json` contains the independently checked results; optional `build.json` records compilation. Check the resulting game file bytes and inventory records, not just success exit codes.
 
 ## Cleanup
 
-The driver removes only the uniquely created `modn-verify-fixture-*` directory in a `finally` block. It does not remove `modn-verify-evidence-*`, any user installation, other test runs, or persistent processes. Evidence cleanup is a separate deliberate operator action.
+The driver deletes only the uniquely created disposable `modn-verify-fixture-*` directory, even on failure. It preserves evidence after cleanup. It never touches real installations, other test processes or other runs.
 
-This skill does not replace `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, or `cargo test --workspace --locked` when Rust changes require them.
+Crash-injected recovery is not covered by this CLI exercise. Keep existing Rust crash-recovery tests and project-mandated cargo fmt/clippy/tests as separate required checks. CI exercises this skill on Linux and Windows.

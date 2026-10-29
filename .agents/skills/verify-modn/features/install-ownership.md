@@ -1,20 +1,21 @@
-# Transactional install, inventory and ownership
+# Approved installation, inventory and uninstall
 
 ## Sub-features
 
-- I1: Explicit `--yes` installation and disk content.
-- I2: `installed` and `scan` distinguish owned and unmanaged files.
-- I3: Repeated install is blocked, preserving existing content.
-- I4: Modified-file uninstall refusal, restoration and safe uninstall.
+- I1: Register and install the fictional test-game mod via the normal CLI.
+- I2: Preserve a pre-existing unmanaged add-on.
+- I3: Reconcile owned and unmanaged files using test-game's Luau scanner.
+- I4: Reject conflicting installs and modified-file uninstalls.
+- I5: Diagnose drift through test-game's Luau doctor and uninstall safely.
 
 ## How to get to it (user POV)
 
-`modn install <zip> --yes --path <game>`, `modn installed --path <game>`, `modn scan --path <game>`, `modn doctor --path <game>`, `modn uninstall <package-id> --yes --path <game>`; use global `--json` to return machine-readable results.
+`modn game add test-game --path <game>`; `modn install <zip> --yes --path <game>`; `modn installed --path <game>`; `modn scan --path <game>`; `modn doctor --path <game>`; `modn uninstall <package-id> --yes --path <game>`. Registration provides the game ID for later commands.
 
 ## Driving it with Python subprocess
 
-The fixture starts with an unmanaged `archive/pc/mod/unmanaged.archive`. The driver installs a separate ZIP, checks actual bytes, reads its package ID from JSON, and verifies the independent `installed` and `scan` commands. A second install must fail without changing either file. After deliberately editing the owned file, `doctor` must report `OWNED_FILE_MODIFIED` and uninstall must fail without data loss. Restore the bytes, uninstall, and assert only the owned file disappears while the unmanaged file and ownership ledger remain consistent.
+The driver creates `addons/manual.plugin` before installation, then installs `addons/example.plugin` through the Luau-planned ZIP. It checks bytes on disk, owned package IDs, scan `kind: test-plugin`, and unmanaged detection. A duplicate install fails; manually modified managed bytes trigger `OWNED_FILE_DRIFT` and an uninstall refusal. After restoring bytes, uninstall removes only the owned file and the package disappears from the ledger.
 
 ## Gotchas
 
-This is real CLI behavior on an isolated **Cyberpunk-compatible** fixture, not proof of the test-game installation path. Do not run `--yes` against an actual game. Disk content and inventory must both be checked; a successful exit alone is insufficient.
+Always isolate game and database paths. `--yes` is required for writes, and one recorded game can be selected without a redundant `--game`; multiple registered games without a path or ID are ambiguous. No database state is placed inside the fixture game.

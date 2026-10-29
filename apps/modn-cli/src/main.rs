@@ -1,25 +1,27 @@
+mod selection;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use modn_core::archive::inspect;
-use modn_core::discovery::{discover, validate_installation, Candidate};
+use modn_core::discovery::validate_installation_for;
 use modn_core::game_modules::check_module_with_roots;
-use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
+use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::planning::preview_install_zip;
 use modn_core::state::Store;
-use modn_core::CYBERPUNK_ID;
+use selection::{choose_candidate, selected_installation};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(
-    name = "modn",
-    about = "Cyberpunk mod inspection and guarded management"
-)]
+#[command(name = "modn", about = "Game mod inspection and guarded management")]
 struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
     #[arg(long, global = true, value_name = "DIR")]
     state_dir: Option<PathBuf>,
+
+    /// Select a runtime-loaded game policy by ID.
+    #[arg(long = "game", global = true, value_name = "ID")]
+    game_id: Option<String>,
 
     #[command(subcommand)]
     command: Command,
@@ -95,7 +97,7 @@ enum ModuleCommand {
 
 #[derive(Subcommand)]
 enum GameCommand {
-    /// Register a Cyberpunk installation by detection or explicit path.
+    /// Register an installation using its game's Luau module.
     Add {
         game: String,
         #[arg(long)]
@@ -119,7 +121,12 @@ fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".local/state/modn/state.sqlite"))
 }
 
-fn validate_state_path(state_path: &Path) -> Result<()> {
+fn validate_state_path(
+    state_path: &Path,
+    selected_game: Option<&str>,
+    selected_path: Option<&Path>,
+) -> Result<()> {
+    let selected_root = selected_path.map(Path::canonicalize).transpose()?;
     let parent = state_path.parent().context("invalid state path")?;
     let mut directory = if parent.is_absolute() {
         parent.to_path_buf()
@@ -129,12 +136,14 @@ fn validate_state_path(state_path: &Path) -> Result<()> {
     loop {
         if let Ok(existing) = directory.canonicalize() {
             if existing.ancestors().any(|ancestor| {
-                // The state database must not enter a game, even if a mutable
-                // Luau policy rejects the game or fails to load. Conservatively
-                // reserve this existing executable layout independently.
-                ancestor.join("bin/x64").is_dir() || validate_installation(ancestor).is_ok()
+                // Check the explicit module, never a baked-in default marker.
+                selected_root
+                    .as_ref()
+                    .is_some_and(|root| existing.starts_with(root))
+                    || selected_game
+                        .is_some_and(|game| validate_installation_for(game, ancestor).is_ok())
             }) {
-                bail!("state directory must be outside the Cyberpunk 2077 installation");
+                bail!("state directory must be outside a game installation");
             }
             return Ok(());
         }
@@ -145,35 +154,34 @@ fn validate_state_path(state_path: &Path) -> Result<()> {
     }
 }
 
-fn choose_candidate(path: Option<PathBuf>) -> Result<Candidate> {
-    if let Some(path) = path {
-        return Ok(Candidate {
-            path: validate_installation(&path)?,
-            source: "manual".into(),
-        });
-    }
-    let candidates = discover();
-    match candidates.as_slice() {
-        [candidate] => Ok(candidate.clone()),
-        [] => bail!("Cyberpunk 2077 not found; specify --path to its installation directory"),
-        _ => bail!("multiple installations found; specify --path to select one"),
-    }
-}
-
-fn selected_installation(store: &Store, path: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(path) = path {
-        return validate_installation(&path);
-    }
-    let entries = store.list()?;
-    match entries.as_slice() {
-        [entry] => validate_installation(&entry.path),
-        [] => bail!("no game registered; run 'modn game add cyberpunk --path <directory>'"),
-        _ => bail!("multiple games registered; specify --path to select an installation"),
-    }
-}
-
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    let requested = cli.game_id.as_deref();
+    if let Command::Game {
+        command: GameCommand::Add { game, .. },
+    } = &cli.command
+    {
+        if requested.is_some_and(|id| id != game) {
+            bail!("--game must match the game ID passed to game add");
+        }
+    }
+    let selected_path = match &cli.command {
+        Command::Game {
+            command: GameCommand::Add { path, .. },
+        }
+        | Command::Install { path, .. }
+        | Command::Installed { path }
+        | Command::Uninstall { path, .. }
+        | Command::Scan { path }
+        | Command::Doctor { path } => path.as_deref(),
+        _ => None,
+    };
+    let state_game = match &cli.command {
+        Command::Game {
+            command: GameCommand::Add { game, .. },
+        } => Some(game.as_str()),
+        _ => requested,
+    };
     let state_path = database_path(cli.state_dir.as_deref())?;
     let explicit_preview = matches!(
         &cli.command,
@@ -191,7 +199,7 @@ fn run() -> Result<()> {
     {
         None
     } else {
-        validate_state_path(&state_path)?;
+        validate_state_path(&state_path, state_game, selected_path)?;
         Some(if read_only_preview {
             Store::open_readonly(&state_path)?
         } else {
@@ -225,17 +233,8 @@ fn run() -> Result<()> {
             if !yes && !dry_run {
                 bail!("installation writes game files; choose --dry-run or explicitly approve with --yes");
             }
-            let game = if let Some(path) = path {
-                validate_installation(&path)?
-            } else {
-                selected_installation(
-                    store
-                        .as_ref()
-                        .context("no registered game database for preview")?,
-                    None,
-                )?
-            };
-            let report = preview_install_zip(CYBERPUNK_ID, &game, &archive)?;
+            let (game_id, game) = selected_installation(store.as_ref(), path, requested)?;
+            let report = preview_install_zip(&game_id, &game, &archive)?;
             if dry_run {
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -265,10 +264,7 @@ fn run() -> Result<()> {
             }
         }
         Command::Installed { path } => {
-            let game = selected_installation(
-                store.as_ref().expect("non-inspect command has store"),
-                path,
-            )?;
+            let (_, game) = selected_installation(store.as_ref(), path, requested)?;
             let packages = store
                 .as_ref()
                 .expect("non-inspect command has store")
@@ -291,10 +287,7 @@ fn run() -> Result<()> {
             if !yes {
                 bail!("uninstall removes game files; rerun with --yes");
             }
-            let game = selected_installation(
-                store.as_ref().expect("non-inspect command has store"),
-                path,
-            )?;
+            let (_, game) = selected_installation(store.as_ref(), path, requested)?;
             store
                 .as_mut()
                 .expect("non-inspect command has store")
@@ -338,14 +331,12 @@ fn run() -> Result<()> {
         Command::Game {
             command: GameCommand::Add { game, path },
         } => {
-            if !["cyberpunk", "cyberpunk-2077"].contains(&game.as_str()) {
-                bail!("unsupported game '{game}'; only cyberpunk-2077 is available in v0");
-            }
-            let candidate = choose_candidate(path)?;
+            let id = game.as_str();
+            let candidate = choose_candidate(id, path)?;
             let entry = store
                 .as_ref()
                 .expect("non-inspect command has store")
-                .add_cyberpunk(&candidate.path, &candidate.source)?;
+                .add_game(id, &candidate.path, &candidate.source)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&entry)?);
             } else {
@@ -375,12 +366,10 @@ fn run() -> Result<()> {
             }
         }
         Command::Scan { path } => {
-            let path = selected_installation(
+            let (game_id, path) = selected_installation(store.as_ref(), path, requested)?;
+            let report = scan_with_ownership_for(
                 store.as_ref().expect("non-inspect command has store"),
-                path,
-            )?;
-            let report = scan_with_ownership(
-                store.as_ref().expect("non-inspect command has store"),
+                &game_id,
                 &path,
             )?;
             if report.incomplete {
@@ -389,7 +378,7 @@ fn run() -> Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                println!("Cyberpunk 2077: {}", report.installation.display());
+                println!("{}: {}", game_id, report.installation.display());
                 println!("REDmod executable present: {}", report.redmod_available);
                 for entry in report.mods {
                     println!(
@@ -422,18 +411,16 @@ fn run() -> Result<()> {
             }
         }
         Command::Doctor { path } => {
-            let path = selected_installation(
+            let (game_id, path) = selected_installation(store.as_ref(), path, requested)?;
+            let report = doctor_with_ownership_for(
                 store.as_ref().expect("non-inspect command has store"),
-                path,
-            )?;
-            let report = doctor_with_ownership(
-                store.as_ref().expect("non-inspect command has store"),
+                &game_id,
                 &path,
             )?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                println!("Cyberpunk 2077: {}", report.scan.installation.display());
+                println!("{}: {}", game_id, report.scan.installation.display());
                 println!(
                     "REDmod executable present: {}",
                     report.scan.redmod_available

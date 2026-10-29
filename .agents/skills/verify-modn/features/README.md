@@ -1,12 +1,12 @@
-# Modn CLI feature map
+# Modn verification feature map
 
-The verification driver is `../scripts/verify.py`; run it from the repository root using `python .agents/skills/verify-modn/scripts/verify.py --build` (or `python3` on Linux). Requires Cargo, Python 3.10+, and no live game installation. All ZIP archives, game roots and state are disposable. The printed `modn-verify-evidence-*` directory contains numbered command transcripts and `summary.json`; it remains after cleanup.
+Run `python .agents/skills/verify-modn/scripts/verify.py --build` from the repository root (on Linux, `python3`). Python 3.10+ and Rust/Cargo are required; no real game. The normal executable is built and driven through subprocess.
 
-| Feature | Current verification |
-| --- | --- |
-| [Game module](module.md) | `test-game` Luau module check and explicit unsupported game registration/install |
-| [Archive preview](archive-preview.md) | ZIP inspection and read-only Cyberpunk-shaped dry run |
-| [Install and ownership](install-ownership.md) | Actual approved install, duplicate conflict, inventory, integrity and uninstall |
-| [Recovery](recovery.md) | Idle `recover --yes` on isolated state (injected crash pending) |
+The driver creates disposable game roots, a module directory, ZIPs and SQLite state in `modn-verify-fixture-*`. It retains independent JSON CLI command transcripts and summary in `modn-verify-evidence-*` after removing the fixture. A failed command terminates the run and preserves evidence.
 
-The test-game module intentionally uses `bin/TestGame.exe`, `package/plugins/*.plugin`, and `addons/*.plugin`. The current production CLI still hardcodes Cyberpunk for game registration, scan, install and uninstall. **No test-game installation claim is made.** Add and verify that journey in PR #12 without bypasses or hidden game-specific Rust adapters. Record unsupported/unverified routes distinctly from successful exercises.
+- [Game selection](module.md): test-game module check, explicit selection and registration, no implicit game, multiple registrations.
+- [Archive and dry run](archive-preview.md): ZIP metadata and fake-game Luau mapping without writes.
+- [Install and ownership](install-ownership.md): approved real install, owned/unmanaged scan, conflicts, drift and uninstall.
+- [Recovery](recovery.md): idle recovery only; injected crash recovery remains covered by Rust tests.
+
+The fake game deliberately differs from Cyberpunk: `bin/TestGame.exe`, source `Demo/package/plugins/example.plugin`, destination `addons/example.plugin`. Both modules load through the same runtime without special-case Rust branches.

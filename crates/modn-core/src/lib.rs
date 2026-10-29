@@ -19,6 +19,3 @@ pub mod scan;
 /// Persist game registrations and manager-owned file manifests.
 pub mod state;
 pub mod transactions;
-
-/// Stable identifier used for Cyberpunk 2077 registrations.
-pub const CYBERPUNK_ID: &str = "cyberpunk-2077";

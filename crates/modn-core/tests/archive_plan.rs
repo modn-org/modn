@@ -34,7 +34,7 @@ fn plan(
     inspection: &modn_core::archive::Inspection,
     game: &Path,
 ) -> modn_core::planning::InstallPlan {
-    resolve(modn_core::CYBERPUNK_ID, inspection, game).unwrap()
+    resolve("cyberpunk-2077", inspection, game).unwrap()
 }
 
 #[test]
@@ -403,7 +403,7 @@ fn stale_archive_inspection_cannot_make_module_preview_reviewable() {
     zip_fixture(&archive, &[("archive/pc/mod/example.archive", b"before")]);
     let stale = inspect(&archive).unwrap();
     zip_fixture(&archive, &[("archive/pc/mod/example.archive", b"after")]);
-    let result = modn_core::planning::resolve(modn_core::CYBERPUNK_ID, &stale, &game).unwrap();
+    let result = modn_core::planning::resolve("cyberpunk-2077", &stale, &game).unwrap();
     assert_eq!(result.status, "blocked");
     assert!(
         result

@@ -1,5 +1,5 @@
 //! Integration checks for inventory behavior.
-use modn_core::inventory::{doctor_with_ownership, scan_with_ownership};
+use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::state::Store;
 use std::fs::{self, File};
 use std::io::Write;
@@ -47,7 +47,7 @@ fn install_zip(
     archive: &Path,
 ) -> modn_core::transactions::ManagedPackage {
     let proposal =
-        modn_core::planning::preview_install_zip(modn_core::CYBERPUNK_ID, game, archive).unwrap();
+        modn_core::planning::preview_install_zip("cyberpunk-2077", game, archive).unwrap();
     store
         .install_operations_zip(game, archive, &proposal)
         .unwrap()
@@ -70,7 +70,7 @@ fn discovers_unmanaged_frameworks_and_owned_legacy_archives() {
     )
     .unwrap();
 
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(report.owned_files.len(), 1);
     assert_eq!(owned(&report, "archive/pc/mod/managed.archive"), "intact");
     let managed = report
@@ -109,7 +109,7 @@ fn discovers_unmanaged_frameworks_and_owned_legacy_archives() {
         .framework_signals
         .iter()
         .any(|f| f.name == "CET" && f.kind == "directory"));
-    let doctor = doctor_with_ownership(&store, &game).unwrap();
+    let doctor = doctor_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert!(doctor
         .diagnostics
         .iter()
@@ -130,13 +130,13 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
     install_zip(&mut store, &game, &archive);
     let file = game.join("archive/pc/mod/managed.archive");
     fs::write(&file, b"changed!").unwrap(); // same byte length tests actual SHA-256, not only size.
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(owned(&report, "archive/pc/mod/managed.archive"), "modified");
     assert!(report
         .mods
         .iter()
         .any(|m| m.managed && m.integrity.as_deref() == Some("modified")));
-    assert!(doctor_with_ownership(&store, &game)
+    assert!(doctor_with_ownership_for(&store, "cyberpunk-2077", &game)
         .unwrap()
         .diagnostics
         .iter()
@@ -144,9 +144,9 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
     assert_eq!(fs::read(&file).unwrap(), b"changed!");
 
     fs::remove_file(&file).unwrap();
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(owned(&report, "archive/pc/mod/managed.archive"), "missing");
-    assert!(doctor_with_ownership(&store, &game)
+    assert!(doctor_with_ownership_for(&store, "cyberpunk-2077", &game)
         .unwrap()
         .diagnostics
         .iter()
@@ -156,7 +156,7 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
     fs::write(&file, b"expected").unwrap();
     assert_eq!(
         owned(
-            &scan_with_ownership(&store, &game).unwrap(),
+            &scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap(),
             "archive/pc/mod/managed.archive"
         ),
         "intact"
@@ -172,7 +172,7 @@ fn keeps_inventory_separate_across_game_installations() {
     fs::write(another.join("bin/x64/Cyberpunk2077.exe"), b"game").unwrap();
     fs::create_dir_all(another.join("archive/pc/mod")).unwrap();
     fs::write(another.join("archive/pc/mod/managed.archive"), b"expected").unwrap();
-    let result = scan_with_ownership(&store, &another).unwrap();
+    let result = scan_with_ownership_for(&store, "cyberpunk-2077", &another).unwrap();
     assert!(result.owned_files.is_empty());
     assert_eq!(result.mods.len(), 1);
     assert!(!result.mods[0].managed);
@@ -201,10 +201,10 @@ fn redirects_away_from_game_are_never_marked_intact() {
     }
     #[cfg(unix)]
     std::os::unix::fs::symlink(&outside, &folder).unwrap();
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(owned(&report, "archive/pc/mod/managed.archive"), "unsafe");
     assert!(report.mods.iter().all(|m| !m.managed));
-    assert!(doctor_with_ownership(&store, &game)
+    assert!(doctor_with_ownership_for(&store, "cyberpunk-2077", &game)
         .unwrap()
         .diagnostics
         .iter()
@@ -226,12 +226,12 @@ fn locked_managed_file_is_unreadable_not_unmanaged() {
         .share_mode(0)
         .open(&target)
         .unwrap();
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(
         owned(&report, "archive/pc/mod/managed.archive"),
         "unreadable"
     );
-    assert!(doctor_with_ownership(&store, &game)
+    assert!(doctor_with_ownership_for(&store, "cyberpunk-2077", &game)
         .unwrap()
         .diagnostics
         .iter()
@@ -239,7 +239,7 @@ fn locked_managed_file_is_unreadable_not_unmanaged() {
     drop(lock);
     assert_eq!(
         owned(
-            &scan_with_ownership(&store, &game).unwrap(),
+            &scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap(),
             "archive/pc/mod/managed.archive"
         ),
         "intact"
@@ -264,7 +264,7 @@ fn unicode_casefold_collision_does_not_adopt_unmanaged_file() {
         return;
     }
     fs::write(&lookalike, b"manual content").unwrap();
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     let recorded = report
         .mods
         .iter()
@@ -279,7 +279,7 @@ fn unicode_casefold_collision_does_not_adopt_unmanaged_file() {
         .unwrap();
     assert!(!unowned.managed);
     assert!(unowned.package_id.is_none());
-    assert!(doctor_with_ownership(&store, &game)
+    assert!(doctor_with_ownership_for(&store, "cyberpunk-2077", &game)
         .unwrap()
         .diagnostics
         .iter()
@@ -300,7 +300,7 @@ fn ordinary_case_sensitive_file_names_remain_distinct() {
     writer.finish().unwrap();
     install_zip(&mut store, &game, &zip_path);
     fs::write(game.join("archive/pc/mod/K.archive"), b"unmanaged").unwrap();
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert!(report
         .mods
         .iter()
@@ -329,7 +329,7 @@ fn windows_non_ascii_case_only_rename_stays_managed() {
     let original = game.join("archive/pc/mod/\u{00C9}.archive");
     let renamed = game.join("archive/pc/mod/\u{00E9}.archive");
     fs::rename(&original, &renamed).unwrap();
-    let detected = scan_with_ownership(&store, &game).unwrap();
+    let detected = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(detected.owned_files[0].status, "intact");
     let entry = detected
         .mods
@@ -338,7 +338,7 @@ fn windows_non_ascii_case_only_rename_stays_managed() {
         .unwrap();
     assert!(entry.managed);
     assert_eq!(entry.package_id.as_deref(), Some(package.id.as_str()));
-    assert!(!doctor_with_ownership(&store, &game)
+    assert!(!doctor_with_ownership_for(&store, "cyberpunk-2077", &game)
         .unwrap()
         .diagnostics
         .iter()
@@ -362,7 +362,7 @@ fn different_hardlink_alias_does_not_gain_ownership() {
         return;
     }
     fs::hard_link(&original, &alias).unwrap();
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(report.mods.len(), 2);
     assert!(report
         .mods
@@ -393,7 +393,7 @@ fn windows_greek_sigma_contextual_case_rename_stays_managed() {
     let renamed = game.join("archive/pc/mod/\u{03BF}\u{03C3}1.archive");
     fs::rename(&original, &renamed).unwrap();
     assert!(same_file::is_same_file(&original, &renamed).unwrap());
-    let report = scan_with_ownership(&store, &game).unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(report.owned_files[0].status, "intact");
     let detected = report
         .mods
@@ -402,7 +402,7 @@ fn windows_greek_sigma_contextual_case_rename_stays_managed() {
         .unwrap();
     assert!(detected.managed);
     assert_eq!(detected.package_id.as_deref(), Some(package.id.as_str()));
-    assert!(!doctor_with_ownership(&store, &game)
+    assert!(!doctor_with_ownership_for(&store, "cyberpunk-2077", &game)
         .unwrap()
         .diagnostics
         .iter()

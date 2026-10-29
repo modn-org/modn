@@ -20,6 +20,7 @@ fn command_reports_module_identity_without_opening_state_database() {
     .expect("entrypoint");
 
     let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args(["--json", "--state-dir"])
         .arg(&state)
         .arg("module")
@@ -47,6 +48,7 @@ fn command_reports_module_identity_without_opening_state_database() {
     )
     .expect("replace module with printing script");
     let printing = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args(["--json", "--state-dir"])
         .arg(&state)
         .arg("module")
@@ -64,6 +66,7 @@ fn command_reports_module_identity_without_opening_state_database() {
     )
     .expect("replace module");
     let failed = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir"])
         .arg(&state)
         .arg("module")
@@ -109,6 +112,7 @@ fn scoped_cli_roots_work_without_creating_state_or_writing_to_game() {
 
     let command = || {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_modn"));
+        cmd.args(["--game", "cyberpunk-2077"]);
         cmd.args(["--json", "--state-dir"])
             .arg(&state)
             .args(["module", "check"])
