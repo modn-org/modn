@@ -195,6 +195,47 @@ def verify(driver):
     require(any(x["id"] == package_id for x in
                 driver.json("test-game-still-installed", ["installed", "--path", game])),
             "installing another game disturbed test-game ownership")
+
+    # Synthetic runtime file presence is a hint, not game-version compatibility.
+    for relative in ("engine/tools/scc.exe",
+                     "red4ext/plugins/ArchiveXL/ArchiveXL.dll",
+                     "red4ext/plugins/TweakXL/TweakXL.dll"):
+        marker = cyberpunk / relative
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_bytes(b"synthetic-framework-marker")
+    xl_zip = root / "redscript-archivexl.zip"
+    xl_members = {
+        "Wrapped/r6/scripts/Fixture/main.reds": b"class Fixture {}",
+        "Wrapped/archive/pc/mod/Fixture.archive.xl": b"resource: {}",
+        "Wrapped/r6/config/redsUserHints/Fixture.toml": b"[hints]",
+        "Wrapped/r6/tweaks/Fixture.yaml": b"example: true",
+        "Wrapped/README.md": b"test documentation",
+    }
+    write_zip(xl_zip, xl_members)
+    cyber_before = snapshot(cyberpunk)
+    xl_plan = driver.json("redscript-archivexl-preview",
+                          ["--game", "cyberpunk-2077", "install", xl_zip,
+                           "--dry-run", "--path", cyberpunk])
+    require(xl_plan["status"] == "reviewable" and len(xl_plan["operations"]) == 4,
+            "redscript/ArchiveXL Luau ZIP proposal not reviewable")
+    require(snapshot(cyberpunk) == cyber_before, "new preview changed game")
+    xl_package = driver.json("redscript-archivexl-install",
+                             ["--game", "cyberpunk-2077", "install", xl_zip,
+                              "--yes", "--path", cyberpunk])
+    xl_scan = driver.json("redscript-archivexl-scan",
+                          ["--game", "cyberpunk-2077", "scan", "--path", cyberpunk])
+    for kind in ("redscript", "archive-xl", "redscript-hint", "tweak"):
+        require(any(x["kind"] == kind and x["managed"] and x["integrity"] == "intact"
+                    for x in xl_scan["mods"]), "missing owned " + kind)
+    xl_doctor = driver.json("redscript-archivexl-doctor",
+                            ["--game", "cyberpunk-2077", "doctor", "--path", cyberpunk])
+    require(not any(x["code"] in ("REDSCRIPT_NOT_INSTALLED",
+                                   "ARCHIVEXL_NOT_INSTALLED", "TWEAKXL_NOT_INSTALLED")
+                    for x in xl_doctor["diagnostics"]),
+            "synthetic framework markers were not detected")
+    driver.json("redscript-archivexl-uninstall",
+                ["uninstall", xl_package["id"], "--yes", "--path", cyberpunk])
+    require(snapshot(cyberpunk) == cyber_before, "new uninstall changed manual or legacy files")
     driver.json("ambiguous-game-rejected", ["scan"], success=False)
 
     owned.write_bytes(b"operator-modification")

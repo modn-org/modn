@@ -88,26 +88,39 @@ function policy.scan(limit)
 
     local function collect_files(folder, extensions, kind, required_root)
         local framework = kind == "cet-mod" or kind == "red4ext-plugin"
+            or kind == "redscript" or kind == "redscript-hint" or kind == "tweak"
         local stack = { folder }
+        local empty_peeks = 0
         while #stack > 0 do
             local current = table.remove(stack)
             if framework and framework_remaining <= 0 then
-                incomplete = true
-                return
-            end
-            local max_items = framework and framework_remaining or nil
-            local response = listing(current, current ~= folder or required_root, max_items)
-            if response ~= nil then
-                if response.incomplete then incomplete = true end
-                for _, entry in ipairs(response.items) do
-                    if not consume(framework) then return end
-                    local relative = current .. "/" .. entry.name
-                    if entry.kind == "directory" then
-                        table.insert(stack, relative)
-                    elseif entry.kind == "file" then
-                        local ext = string.match(entry.name, "%.([^%.]+)$")
-                        if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
-                            push(relative, kind)
+                -- Bounded peeks: uncertainty must be reported as incomplete.
+                empty_peeks += 1
+                if empty_peeks > 32 then
+                    incomplete = true
+                    return
+                end
+                local peek = listing(current, current ~= folder or required_root, 1)
+                if peek ~= nil and (peek.incomplete or #peek.items > 0) then
+                    incomplete = true
+                    return
+                end
+            else
+                local max_items = framework and framework_remaining or nil
+                local response = listing(current, current ~= folder or required_root, max_items)
+                if response ~= nil then
+                    if response.incomplete then incomplete = true end
+                    for _, entry in ipairs(response.items) do
+                        if not consume(framework) then return end
+                        local relative = current .. "/" .. entry.name
+                        if entry.kind == "directory" then
+                            table.insert(stack, relative)
+                        elseif entry.kind == "file" then
+                            local ext = string.match(entry.name, "%.([^%.]+)$")
+                            if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
+                                push(relative, kind == "legacy-archive" and string.lower(ext) == "xl"
+                                and "archive-xl" or kind)
+                            end
                         end
                     end
                 end
@@ -116,8 +129,14 @@ function policy.scan(limit)
     end
 
     local function collect_directories(folder, kind, scan_files)
-        local response = listing(folder, nil, scan_files and framework_remaining or nil)
+        local exhausted = scan_files and framework_remaining <= 0
+        local max_items = scan_files and math.max(framework_remaining, 1) or nil
+        local response = listing(folder, nil, max_items)
         if response == nil then return end
+        if exhausted then
+            if response.incomplete or #response.items > 0 then incomplete = true end
+            return
+        end
         if response.incomplete then incomplete = true end
         for _, entry in ipairs(response.items) do
             if not consume(scan_files) then return end
@@ -138,8 +157,9 @@ function policy.scan(limit)
         end
     end
 
-    collect_files("archive/pc/mod", { archive = true }, "legacy-archive")
+    collect_files("archive/pc/mod", { archive = true, xl = true }, "legacy-archive")
     collect_files("r6/scripts", { reds = true }, "redscript")
+    collect_files("r6/config/redsUserHints", { toml = true }, "redscript-hint")
     collect_files("r6/tweaks", { yaml = true, yml = true }, "tweak")
     collect_directories("mods", "redmod-directory", false)
     collect_directories("red4ext/plugins", "red4ext-plugin", true)
@@ -154,6 +174,8 @@ function policy.scan(limit)
         { "redscript", "r6/scripts", "directory" },
         { "ArchiveXL", "red4ext/plugins/ArchiveXL/ArchiveXL.dll", "file" },
         { "ArchiveXL", "red4ext/plugins/ArchiveXL", "directory" },
+        { "redscript compiler", "engine/tools/scc.exe", "file" },
+        { "TweakXL", "red4ext/plugins/TweakXL/TweakXL.dll", "file" },
     }
     for _, entry in ipairs(candidates) do
         if present(entry[2], entry[3]) then
@@ -187,9 +209,35 @@ function policy.doctor(report)
     end
     local unmanaged = false
     local redmod_content = false
+    local needs_redscript, needs_archivexl, needs_tweakxl = false, false, false
     for _, item in ipairs(report.mods) do
+        if item.kind == "redscript" or item.kind == "redscript-hint" then
+            needs_redscript = true
+        elseif item.kind == "archive-xl" then
+            needs_archivexl = true
+        elseif item.kind == "tweak" then
+            needs_tweakxl = true
+        end
         if not item.managed then unmanaged = true end
         if item.kind == "redmod-directory" then redmod_content = true end
+    end
+    local function has_signal(relative)
+        for _, signal in ipairs(report.framework_signals) do
+            if signal.relative_path == relative then return true end
+        end
+        return false
+    end
+    if needs_redscript and not has_signal("engine/tools/scc.exe") then
+        add("REDSCRIPT_NOT_INSTALLED", "warning",
+            "REDscript compiler not detected; script loading is not verified.")
+    end
+    if needs_archivexl and not has_signal("red4ext/plugins/ArchiveXL/ArchiveXL.dll") then
+        add("ARCHIVEXL_NOT_INSTALLED", "warning",
+            "ArchiveXL plugin not detected; XL content loading is not verified.")
+    end
+    if needs_tweakxl and not has_signal("red4ext/plugins/TweakXL/TweakXL.dll") then
+        add("TWEAKXL_NOT_INSTALLED", "warning",
+            "TweakXL plugin not detected; tweak loading is not verified.")
     end
     if not report.redmod_available and redmod_content then
         add("REDMOD_CONTENT_WITHOUT_TOOLS", "warning",
@@ -229,13 +277,16 @@ function policy.plan(files)
         local d = string.lower(parts[i + 3] or "")
         local e = string.lower(parts[i + 4] or "")
         local filename = string.lower(parts[#parts] or "")
-        if count == 4 and a == "archive" and b == "pc" and c == "mod"
-            and string.sub(filename, -8) == ".archive" then
-            return "legacy-archive"
+        if count == 4 and a == "archive" and b == "pc" and c == "mod" then
+            if string.sub(filename, -8) == ".archive" then return "legacy-archive" end
+            return "archive-xl"
         end
         if count >= 3 and a == "mods" and b ~= "" then return "redmod" end
         if count >= 3 and a == "r6" and b == "scripts" then return "redscript" end
         if count >= 3 and a == "r6" and b == "tweaks" then return "tweak" end
+        if count == 4 and a == "r6" and b == "config" and c == "redsuserhints" then
+            return "redscript-hint"
+        end
         if count >= 7 and a == "bin" and b == "x64" and c == "plugins"
             and d == "cyber_engine_tweaks" and e == "mods"
             and parts[i + 5] ~= "" then return "cet" end
@@ -258,7 +309,19 @@ function policy.plan(files)
     local canonical_framework_prefixes = {
         cet = { "bin", "x64", "plugins", "cyber_engine_tweaks", "mods" },
         red4ext = { "red4ext", "plugins" },
+        redscript = { "r6", "scripts" },
+        tweak = { "r6", "tweaks" },
+        ["redscript-hint"] = { "r6", "config", "redsUserHints" },
+        ["legacy-archive"] = { "archive", "pc", "mod" },
+        ["archive-xl"] = { "archive", "pc", "mod" },
     }
+    local allowed_extensions = {
+        redscript = { reds = true },
+        tweak = { yaml = true, yml = true },
+        ["redscript-hint"] = { toml = true },
+        ["archive-xl"] = { xl = true },
+    }
+    local needs_redscript, needs_archivexl, needs_tweakxl = false, false, false
     for _, file in ipairs(files) do
         local parts = {}
         for item in string.gmatch(file.source, "[^/]+") do
@@ -268,6 +331,10 @@ function policy.plan(files)
         for i = 1, #parts do
             local kind = kind_of(parts, i)
             if kind ~= nil then
+                if is_documentation(file.source) then
+                    mapped = true
+                    break
+                end
                 local expected = canonical_framework_prefixes[kind]
                 if expected ~= nil then
                     for offset, component in ipairs(expected) do
@@ -284,11 +351,20 @@ function policy.plan(files)
                     source = file.source, destination = target, kind = kind,
                     package_root = wrapper,
                 })
-                -- Only legacy archives, CET mods and RED4ext plugins are
-                -- supported. redscript, tweaks and REDmod have later milestones.
-                if kind ~= "legacy-archive" and kind ~= "cet" and kind ~= "red4ext" then
-                    block("NOT_INSTALLABLE",
-                        "ZIP installation supports legacy archives, CET mods and RED4ext plugins only")
+                local allowed = allowed_extensions[kind]
+                local extension = string.match(string.lower(parts[#parts]), "%.([^%.]+)$") or ""
+                if allowed ~= nil and not allowed[extension] then
+                    block("UNSUPPORTED_CONTENT", "Unsupported file in " .. kind .. ": " .. file.source)
+                end
+                if kind == "redmod" then
+                    block("NOT_INSTALLABLE", "REDmod deployment is not supported")
+                end
+                if kind == "redscript" or kind == "redscript-hint" then
+                    needs_redscript = true
+                elseif kind == "archive-xl" then
+                    needs_archivexl = true
+                elseif kind == "tweak" then
+                    needs_tweakxl = true
                 end
                 if kind == "redmod" then
                     local name = string.lower(parts[i + 1])
@@ -305,6 +381,15 @@ function policy.plan(files)
         if not mapped and not is_documentation(file.source) then
             block("UNRECOGNIZED_LAYOUT", "Unknown mod layout: " .. file.source)
         end
+    end
+    if needs_redscript and not present("engine/tools/scc.exe", "file") then
+        block("REDSCRIPT_NOT_INSTALLED", "REDscript compiler was not detected (engine/tools/scc.exe)")
+    end
+    if needs_archivexl and not present("red4ext/plugins/ArchiveXL/ArchiveXL.dll", "file") then
+        block("ARCHIVEXL_NOT_INSTALLED", "ArchiveXL plugin was not detected")
+    end
+    if needs_tweakxl and not present("red4ext/plugins/TweakXL/TweakXL.dll", "file") then
+        block("TWEAKXL_NOT_INSTALLED", "TweakXL plugin was not detected")
     end
     local redmod_found = false
     for name, has_info in pairs(redmods) do

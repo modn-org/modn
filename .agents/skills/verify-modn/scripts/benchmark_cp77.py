@@ -50,6 +50,15 @@ def run(archive_dir, binary, max_archive_mib):
         executable = game / "bin/x64/Cyberpunk2077.exe"
         executable.parent.mkdir(parents=True)
         executable.write_bytes(b"disposable-marker")
+        # Presence-only synthetic fixtures, never real game/framework installation.
+        markers = [executable]
+        for relative in ("engine/tools/scc.exe",
+                         "red4ext/plugins/ArchiveXL/ArchiveXL.dll",
+                         "red4ext/plugins/TweakXL/TweakXL.dll"):
+            file = game / relative
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(b"synthetic-framework-marker")
+            markers.append(file)
         state = root / "manager-state"
         for archive in sorted(archive_dir.glob("*"), key=lambda path: path.name.lower()):
             if not archive.is_file() or archive.suffix.lower() not in (".zip", ".rar", ".7z"):
@@ -72,7 +81,20 @@ def run(archive_dir, binary, max_archive_mib):
                 item["file_count"] = len(names)
                 item["cet_files"] = sum(CET in name for name in normalized)
                 item["red4ext_files"] = sum(RED4EXT in name for name in normalized)
-                if item["cet_files"] == 0 and item["red4ext_files"] == 0:
+                item["redscript_files"] = sum(
+                    "r6/scripts/" in name and name.endswith(".reds") for name in normalized)
+                item["archivexl_files"] = sum(
+                    "archive/pc/mod/" in name and name.endswith(".xl") for name in normalized)
+                item["hint_files"] = sum(
+                    "r6/config/redsuserhints/" in name and name.endswith(".toml")
+                    for name in normalized)
+                item["tweak_files"] = sum(
+                    "r6/tweaks/" in name and name.endswith((".yaml", ".yml"))
+                    for name in normalized)
+                if not any(item[key] for key in (
+                    "cet_files", "red4ext_files", "redscript_files",
+                    "archivexl_files", "hint_files", "tweak_files"
+                )):
                     item["result"] = "skipped-other-layout"
                     continue
                 command = [
@@ -95,7 +117,7 @@ def run(archive_dir, binary, max_archive_mib):
             except (OSError, ValueError, zipfile.BadZipFile, subprocess.TimeoutExpired) as error:
                 item["result"] = "error"
                 item["error"] = str(error)[:300]
-            if state.exists() or sorted(path for path in game.rglob("*") if path.is_file()) != [executable]:
+            if state.exists() or sorted(path for path in game.rglob("*") if path.is_file()) != sorted(markers):
                 raise AssertionError("dry-run changed fixture or initialized state")
     counts = dict(collections.Counter(item["result"] for item in reports))
     print(json.dumps({"archive_count": len(reports), "outcomes": counts,

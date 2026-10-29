@@ -294,3 +294,49 @@ fn cet_and_red4ext_multifile_injected_failure_rolls_back_and_recovers() {
     assert!(!game.join(cet).exists());
     assert!(!game.join(red).exists());
 }
+
+#[test]
+fn redscript_archivexl_mixed_failure_preserves_manual_files_and_recovers() {
+    let (dir, mut store, game) = fixture();
+    let compiler = "engine/tools/scc.exe";
+    let xl_plugin = "red4ext/plugins/ArchiveXL/ArchiveXL.dll";
+    for dependency in [compiler, xl_plugin] {
+        let location = game.join(dependency);
+        fs::create_dir_all(location.parent().expect("framework parent")).expect("parent");
+        fs::write(location, b"manual framework").expect("framework");
+    }
+    let script = "r6/scripts/Fixture/main.reds";
+    let xl = "archive/pc/mod/Fixture.archive.xl";
+    let legacy = "archive/pc/mod/Fixture.archive";
+    let archive = archive(
+        dir.path(),
+        &[(script, b"script"), (xl, b"xl"), (legacy, b"archive")],
+    );
+    let proposal = crate::planning::preview_install_zip("cyberpunk-2077", &game, &archive)
+        .expect("Luau mixed redscript and ArchiveXL plan");
+    assert_eq!(proposal.status, "reviewable");
+    assert_eq!(proposal.operations.len(), 3);
+    assert!(store
+        .install_operations_inner(&game, &archive, &proposal, Some(1))
+        .is_err());
+    for name in [script, xl, legacy] {
+        assert!(!game.join(name).exists(), "rolled-back file {name}");
+    }
+    for dependency in [compiler, xl_plugin] {
+        assert_eq!(
+            fs::read(game.join(dependency)).expect("manual dependency"),
+            b"manual framework"
+        );
+    }
+    assert!(store.pending().expect("journal state").is_empty());
+    assert!(store.installed(&game).expect("ownership").is_empty());
+    assert_eq!(store.recover().expect("idle recovery"), 0);
+    let managed = store
+        .install_operations_zip(&game, &archive, &proposal)
+        .expect("install");
+    assert_eq!(managed.files.len(), 3);
+    store.uninstall(&game, &managed.id).expect("uninstall");
+    for name in [script, xl, legacy] {
+        assert!(!game.join(name).exists());
+    }
+}
