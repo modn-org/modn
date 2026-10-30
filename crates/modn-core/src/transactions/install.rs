@@ -132,6 +132,7 @@ impl Store {
                         path.display()
                     )
                 })?;
+                super::directory::create_witness(&path, root, &id)?;
             }
             for f in &files {
                 let dest = target_path(&game, &f.destination, /* create_parents= */ true)?;

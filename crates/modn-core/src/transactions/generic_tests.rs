@@ -483,3 +483,83 @@ fn pending_directory_removal_is_restored_and_committed_removal_is_cleaned() {
     assert!(!game.join("data/mods").exists());
     assert!(store.installed(&game).unwrap().is_empty());
 }
+
+#[test]
+fn injected_exclusive_install_failure_removes_witness_and_nested_folder() {
+    let (_temp, mut store, game, archive) = fixture();
+    fs::create_dir(game.join("data")).unwrap();
+    let mut requested = plan(&game, &archive);
+    for op in &mut requested.operations {
+        op.destination = format!("data/mods/deep/{}", op.source.rsplit('/').next().unwrap());
+        op.owned_directory = Some("data/mods".into());
+    }
+    assert!(store
+        .install_operations_inner(&game, &archive, &requested, Some(1))
+        .is_err());
+    assert!(!game.join("data/mods").exists());
+    assert_eq!(store.recover().unwrap(), 0);
+    assert!(store.pending().unwrap().is_empty());
+    let owned = store
+        .install_operations_zip(&game, &archive, &requested)
+        .unwrap();
+    assert_eq!(owned.directories, ["data/mods"]);
+    store.uninstall(&game, &owned.id).unwrap();
+}
+
+#[test]
+fn substituted_quarantine_directory_blocks_committed_recovery() {
+    let (_temp, mut store, game, archive) = fixture();
+    fs::create_dir(game.join("data")).unwrap();
+    let mut requested = plan(&game, &archive);
+    for op in &mut requested.operations {
+        op.owned_directory = Some("data/mods".into());
+    }
+    let package = store
+        .install_operations_zip(&game, &archive, &requested)
+        .unwrap();
+    let id = "txn-swap-dir";
+    store
+        .insert_journal(
+            id,
+            "uninstall",
+            &game,
+            &package.id,
+            None,
+            &[],
+            &package.directories,
+        )
+        .unwrap();
+    super::directory::quarantine(&game, "data/mods", id, 0).unwrap();
+    let staged = super::directory::quarantine_path(&game, "data/mods", id, 0).unwrap();
+    let saved = game.join("data/saved-original");
+    fs::rename(&staged, &saved).unwrap();
+    fs::create_dir(&staged).unwrap();
+    fs::write(staged.join("unmanaged.txt"), b"not modn's directory").unwrap();
+    store.commit_uninstall(id, &package.id).unwrap();
+    assert!(store.recover().is_err());
+    assert_eq!(
+        fs::read(staged.join("unmanaged.txt")).unwrap(),
+        b"not modn's directory"
+    );
+    assert_eq!(store.pending().unwrap().len(), 1);
+    fs::remove_dir_all(&staged).unwrap();
+    fs::rename(&saved, &staged).unwrap();
+    assert_eq!(store.recover().unwrap(), 1);
+    assert!(!staged.exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn mixed_case_alias_cannot_escape_exclusive_directory_validation() {
+    let (_temp, mut store, game, archive) = fixture();
+    fs::create_dir(game.join("data")).unwrap();
+    let mut proposal = plan(&game, &archive);
+    proposal.operations[0].destination = "data/Mods/a.bin".into();
+    proposal.operations[0].owned_directory = Some("data/Mods".into());
+    proposal.operations[1].destination = "data/mods/b.bin".into();
+    assert!(store
+        .install_operations_zip(&game, &archive, &proposal)
+        .is_err());
+    assert!(!game.join("data/Mods").exists());
+    assert!(store.pending().unwrap().is_empty());
+}

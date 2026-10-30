@@ -215,8 +215,19 @@ pub fn scan_with_ownership_for(
         }
         let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
         let candidate = directory_roots.iter().find(|(root, _, status)| {
-            *status == "present"
-                && ownership_key(&relative).starts_with(&format!("{}/", ownership_key(root)))
+            if *status != "present"
+                || !ownership_key(&relative).starts_with(&format!("{}/", ownership_key(root)))
+            {
+                return false;
+            }
+            // Folded names are candidates, not proof: NTFS may distinguish
+            // Unicode lookalikes even when Rust's lowercase mapping does not.
+            let prefix = relative
+                .split('/')
+                .take(root.split('/').count())
+                .collect::<Vec<_>>()
+                .join("/");
+            same_file::is_same_file(game.join(root), game.join(prefix)).unwrap_or(false)
         });
         if let Some((_, package_id, _)) = candidate {
             if checked_path(&game, &relative, false).0 == PathState::Present {

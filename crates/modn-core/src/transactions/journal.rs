@@ -420,9 +420,9 @@ impl Store {
                     journal.status == "committed",
                 )?;
             }
+        } else if journal.action == "install" && journal.status == "pending" {
+            super::directory::rollback_empty(&game, &journal.directories)?;
         }
-        // An install claim may not have been created before interruption. Do
-        // not remove an empty directory unless its provenance is proven.
         self.finish_journal(&journal.id)
     }
 

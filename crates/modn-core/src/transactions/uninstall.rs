@@ -59,6 +59,7 @@ impl Store {
             {
                 bail!("unsafe owned directory: {}", path.display());
             }
+            super::directory::verify_directory(&path, root)?;
         }
         let staging = Builder::new().prefix("txn-").tempdir_in(&self.state_root)?;
         let id = staging
