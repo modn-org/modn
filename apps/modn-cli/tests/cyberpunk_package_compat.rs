@@ -335,3 +335,152 @@ fn scanner_reports_input_xml_and_missing_loader_warning() {
         .iter()
         .any(|d| d["code"] == "INPUT_LOADER_NOT_INSTALLED"));
 }
+
+#[test]
+fn nested_loader_dll_name_cannot_satisfy_input_xml_dependency() {
+    let (temp, root, state) = game();
+    let source = temp.path().join("spoof.zip");
+    archive(
+        &source,
+        &[
+            ("r6/input/Test.xml", b"<bindings/>"),
+            (
+                "red4ext/plugins/other/red4ext/plugins/input_loader/input_loader.dll",
+                b"wrong location",
+            ),
+        ],
+    );
+    let preview = plan(&state, &root, &source);
+    assert_eq!(preview["status"], "blocked", "{preview}");
+    assert!(
+        has_blocker(&preview, "INPUT_LOADER_NOT_INSTALLED"),
+        "{preview}"
+    );
+    assert!(preview["skipped_generated_files"]
+        .as_array()
+        .expect("skipped")
+        .is_empty());
+}
+
+#[test]
+fn wrapped_input_loader_skips_only_matching_generated_runtime_outputs() {
+    let (temp, root, state) = game();
+    let source = temp.path().join("wrapped-input-loader.zip");
+    archive(
+        &source,
+        &[
+            (
+                "InputLoader/red4ext/plugins/input_loader/input_loader.dll",
+                b"dll",
+            ),
+            (
+                "InputLoader/red4ext/plugins/input_loader/inputUserMappings.xml",
+                b"<bindings/>",
+            ),
+            (
+                "InputLoader/engine/config/platform/pc/input_loader.ini",
+                b"generated ini",
+            ),
+            (
+                "InputLoader/r6/cache/inputContexts.xml",
+                b"generated contexts",
+            ),
+            (
+                "InputLoader/r6/cache/inputUserMappings.xml",
+                b"generated mappings",
+            ),
+        ],
+    );
+    let preview = plan(&state, &root, &source);
+    assert_eq!(preview["status"], "reviewable", "{preview}");
+    assert_eq!(
+        preview["operations"].as_array().expect("operations").len(),
+        2
+    );
+    let skipped = preview["skipped_generated_files"]
+        .as_array()
+        .expect("skipped");
+    assert_eq!(skipped.len(), 3, "{preview}");
+    for suffix in [
+        "engine/config/platform/pc/input_loader.ini",
+        "r6/cache/inputContexts.xml",
+        "r6/cache/inputUserMappings.xml",
+    ] {
+        let expected = format!("InputLoader/{suffix}");
+        assert!(
+            skipped.iter().any(|name| name == &expected),
+            "missing {expected}: {preview}"
+        );
+    }
+    let installed = json(
+        &state,
+        &[
+            "install",
+            source.to_str().expect("zip"),
+            "--yes",
+            "--path",
+            root.to_str().expect("game"),
+        ],
+    );
+    assert_eq!(installed["files"].as_array().expect("owned").len(), 2);
+    for suffix in [
+        "engine/config/platform/pc/input_loader.ini",
+        "r6/cache/inputContexts.xml",
+        "r6/cache/inputUserMappings.xml",
+    ] {
+        assert!(
+            !root.join(suffix).exists(),
+            "generated path unexpectedly owned: {suffix}"
+        );
+    }
+    json(
+        &state,
+        &[
+            "uninstall",
+            installed["id"].as_str().expect("id"),
+            "--yes",
+            "--path",
+            root.to_str().expect("game"),
+        ],
+    );
+}
+
+#[test]
+fn scanner_and_adoption_ignore_nested_input_xml_but_offer_direct_files() {
+    let (_temp, root, state) = game();
+    let direct = root.join("r6/input/Direct.xml");
+    let nested = root.join("r6/input/subdir/Unused.xml");
+    fs::create_dir_all(nested.parent().expect("nested parent")).expect("folder");
+    fs::write(&direct, b"direct").expect("direct");
+    fs::write(&nested, b"nested").expect("nested");
+    let scanned = json(&state, &["scan", "--path", root.to_str().expect("game")]);
+    let mods = scanned["mods"].as_array().expect("mods");
+    assert!(
+        mods.iter().any(
+            |mod_file| mod_file["relative_path"] == "r6/input/Direct.xml"
+                && mod_file["kind"] == "input-xml"
+        ),
+        "{scanned}"
+    );
+    assert!(
+        !mods
+            .iter()
+            .any(|mod_file| mod_file["relative_path"] == "r6/input/subdir/Unused.xml"),
+        "{scanned}"
+    );
+    let preview = json(
+        &state,
+        &["adopt", "--dry-run", "--path", root.to_str().expect("game")],
+    );
+    let packages = preview["packages"].as_array().expect("packages");
+    assert!(packages
+        .iter()
+        .any(|item| item["selector"] == "r6/input/Direct.xml"));
+    assert!(
+        !packages
+            .iter()
+            .any(|item| item["selector"] == "r6/input/subdir/Unused.xml"),
+        "{preview}"
+    );
+    assert_eq!(fs::read(nested).expect("nested unchanged"), b"nested");
+}

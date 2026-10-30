@@ -127,7 +127,7 @@ function policy.scan(limit)
                         if not consume(framework) then return end
                         local relative = current .. "/" .. entry.name
                         if entry.kind == "directory" then
-                            table.insert(stack, relative)
+                            if kind ~= "input-xml" then table.insert(stack, relative) end
                         elseif entry.kind == "file" then
                             local ext = string.match(entry.name, "%.([^%.]+)$")
                             if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
@@ -231,8 +231,7 @@ function policy.doctor(report)
         add("SCAN_INCOMPLETE", "warning", "Inventory is incomplete; some content was not inspected.")
     end
     if not report.redmod_available then
-        add("REDMOD_NOT_FOUND", "info",
-            "REDmod tools were not detected. REDmod deployment is unavailable.")
+        add("REDMOD_NOT_FOUND", "info", "REDmod tools were not detected. REDmod deployment is unavailable.")
     end
     local unmanaged = false
     local redmod_content = false
@@ -259,26 +258,11 @@ function policy.doctor(report)
     if needs_input_loader and not has_signal("red4ext/plugins/input_loader/input_loader.dll") then
         add("INPUT_LOADER_NOT_INSTALLED", "warning", "Input Loader is required for r6/input XML.")
     end
-    if needs_redscript and not has_signal("engine/tools/scc.exe") then
-        add("REDSCRIPT_NOT_INSTALLED", "warning",
-            "REDscript compiler not detected; script loading is not verified.")
-    end
-    if needs_archivexl and not has_signal("red4ext/plugins/ArchiveXL/ArchiveXL.dll") then
-        add("ARCHIVEXL_NOT_INSTALLED", "warning",
-            "ArchiveXL plugin not detected; XL content loading is not verified.")
-    end
-    if needs_tweakxl and not has_signal("red4ext/plugins/TweakXL/TweakXL.dll") then
-        add("TWEAKXL_NOT_INSTALLED", "warning",
-            "TweakXL plugin not detected; tweak loading is not verified.")
-    end
-    if not report.redmod_available and redmod_content then
-        add("REDMOD_CONTENT_WITHOUT_TOOLS", "warning",
-            "REDmod-style directories exist, but redMod.exe was not found.")
-    end
-    if unmanaged then
-        add("UNMANAGED_CONTENT", "warning",
-            "Some detected mods are not owned by this manager; no changes will be made.")
-    end
+    if needs_redscript and not has_signal("engine/tools/scc.exe") then add("REDSCRIPT_NOT_INSTALLED", "warning", "REDscript compiler not detected; script loading is not verified.") end
+    if needs_archivexl and not has_signal("red4ext/plugins/ArchiveXL/ArchiveXL.dll") then add("ARCHIVEXL_NOT_INSTALLED", "warning", "ArchiveXL plugin not detected; XL content loading is not verified.") end
+    if needs_tweakxl and not has_signal("red4ext/plugins/TweakXL/TweakXL.dll") then add("TWEAKXL_NOT_INSTALLED", "warning", "TweakXL plugin not detected; tweak loading is not verified.") end
+    if not report.redmod_available and redmod_content then add("REDMOD_CONTENT_WITHOUT_TOOLS", "warning", "REDmod-style directories exist, but redMod.exe was not found.") end
+    if unmanaged then add("UNMANAGED_CONTENT", "warning", "Some detected mods are not owned by this manager; no changes will be made.") end
     for _, status in ipairs({"missing", "modified", "unsafe", "unreadable"}) do
         local count = 0
         for _, file in ipairs(report.owned_files) do
@@ -296,12 +280,6 @@ function policy.plan(files)
     local blockers = {}
     local ignored_generated = {}
     local redmods = {}
-    local has_input_loader = false
-    for _, file in ipairs(files) do
-        if string.match(file.source, "red4ext/plugins/input_loader/input_loader%.dll$") then
-            has_input_loader = true
-        end
-    end
     local generated = { ["engine/config/platform/pc/input_loader.ini"] = true, ["r6/cache/inputContexts.xml"] = true, ["r6/cache/inputUserMappings.xml"] = true }
     local function block(code, message)
         table.insert(blockers, { code = code, message = message })
@@ -361,6 +339,21 @@ function policy.plan(files)
         ["redscript-hint"] = { toml = true },
         ["archive-xl"] = { xl = true },
     }
+    local loader_roots = {}
+    for _, file in ipairs(files) do
+        local parts = {}
+        for part in string.gmatch(file.source, "[^/]+") do table.insert(parts, part) end
+        for i = 1, #parts do
+            local kind = kind_of(parts, i)
+            if kind ~= nil then
+                if kind == "red4ext" and string.lower(table.concat(parts, "/", i))
+                    == "red4ext/plugins/input_loader/input_loader.dll" then
+                    loader_roots[table.concat(parts, "/", 1, i - 1)] = true
+                end
+                break
+            end
+        end
+    end
     local needs_redscript, needs_archivexl, needs_tweakxl = false, false, false
     local needs_input_loader = false
     for _, file in ipairs(files) do
@@ -369,9 +362,14 @@ function policy.plan(files)
             table.insert(parts, item)
         end
         local mapped = false
-        if has_input_loader and generated[file.source] then
-            table.insert(ignored_generated, file.source)
-            mapped = true
+        for wrapper in pairs(loader_roots) do
+            local prefix = wrapper == "" and "" or wrapper .. "/"
+            if string.sub(file.source, 1, #prefix) == prefix
+                and generated[string.sub(file.source, #prefix + 1)] then
+                table.insert(ignored_generated, file.source)
+                mapped = true
+                break
+            end
         end
         if not mapped then for i = 1, #parts do
             local kind = kind_of(parts, i)
@@ -428,7 +426,7 @@ function policy.plan(files)
             block("UNRECOGNIZED_LAYOUT", "Unknown mod layout: " .. file.source)
         end
     end
-    if needs_input_loader and not has_input_loader
+    if needs_input_loader and next(loader_roots) == nil
         and not present("red4ext/plugins/input_loader/input_loader.dll", "file") then
         block("INPUT_LOADER_NOT_INSTALLED", "Input Loader plugin is required for r6/input XML")
     end
@@ -470,6 +468,7 @@ function policy.adoption(mods)
             or item.kind == "redscript" or item.kind == "redscript-hint"
             or item.kind == "tweak" or item.kind == "input-xml" then
             selector = path
+            if item.kind == "input-xml" and not string.match(path, "^r6/input/[^/]+%.xml$") then selector = nil end
         end
         -- User-generated configs, logs, caches and backups are ambiguous.
         local lower = string.lower(path)
