@@ -320,7 +320,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
                 &path,
             )?;
             if report.incomplete {
-                eprintln!("warning: modn scan incomplete (entry limit reached)");
+                eprintln!("warning: modn scan incomplete (see doctor diagnostics)");
             }
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);

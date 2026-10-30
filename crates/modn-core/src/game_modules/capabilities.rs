@@ -329,30 +329,57 @@ fn directory_service(
                 let root = selected_root(&read_roots, id).map_err(mlua::Error::external)?;
                 let mut names = Vec::new();
                 let mut incomplete = false;
+                let mut truncated = false;
+                let mut unreadable = false;
+                let mut unsafe_names = Vec::new();
                 for entry in fs::read_dir(path).map_err(mlua::Error::external)? {
                     // Cap the native enumeration before allocating Lua tables.
-                    if names.len() >= max_items {
+                    if names.len() + unsafe_names.len() >= max_items {
                         incomplete = true;
+                        truncated = true;
                         break;
                     }
                     let next = read_budget.directory_entries.get().saturating_add(1);
                     if next > MAX_TOTAL_DIRECTORY_ENTRIES {
                         incomplete = true;
+                        truncated = true;
                         break;
                     }
                     read_budget.directory_entries.set(next);
                     let entry = entry.map_err(mlua::Error::external)?;
                     let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                         incomplete = true;
+                        unreadable = true;
                         continue;
                     };
                     let relative_entry = format!("{relative}/{name}");
                     if relative_components(&relative_entry).is_err() {
                         incomplete = true;
+                        unreadable = true;
                         continue;
                     }
                     let Ok((_, metadata)) = safe_target(root, &relative_entry) else {
                         incomplete = true;
+                        match fs::symlink_metadata(root.join(&relative_entry)) {
+                            Ok(meta)
+                                if meta.file_type().is_symlink()
+                                    || (!meta.is_file() && !meta.is_dir()) =>
+                            {
+                                // Windows exposes link-directory attributes without following the link.
+                                // On Unix the link kind is unknown without dereferencing it.
+                                #[cfg(windows)]
+                                let file_symlink = {
+                                    use std::os::windows::fs::MetadataExt;
+                                    const DIRECTORY_ATTRIBUTE: u32 = 0x10;
+                                    meta.file_type().is_symlink()
+                                        && meta.file_attributes() & DIRECTORY_ATTRIBUTE == 0
+                                };
+                                #[cfg(not(windows))]
+                                let file_symlink = false;
+                                unsafe_names.push((name, file_symlink));
+                            }
+                            _ => unreadable = true,
+                        }
                         continue;
                     };
                     names.push((
@@ -377,6 +404,18 @@ fn directory_service(
                 let response = lua.create_table()?;
                 response.set("items", items)?;
                 response.set("incomplete", incomplete)?;
+                response.set("truncated", truncated)?;
+                response.set("unreadable", unreadable)?;
+                let unsafe_items = lua.create_table()?;
+                for (index, (name, file_symlink)) in unsafe_names.iter().enumerate() {
+                    let item = lua.create_table()?;
+                    item.set("name", name.as_str())?;
+                    item.set("file_symlink", *file_symlink)?;
+                    item.set_readonly(true);
+                    unsafe_items.set(index + 1, item)?;
+                }
+                unsafe_items.set_readonly(true);
+                response.set("unsafe_names", unsafe_items)?;
                 response.set_readonly(true);
                 Ok(response)
             },

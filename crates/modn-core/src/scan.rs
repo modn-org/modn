@@ -27,8 +27,10 @@ pub struct DetectedMod {
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct ScanReport {
-    /// Whether an entry limit truncated the scan.
+    /// Whether some candidate mod content could not be inventoried.
     pub incomplete: bool,
+    /// Bounded reasons for skipped, unsafe, or truncated directory entries.
+    pub scan_issues: Vec<String>,
     /// Identifier of the scanned game.
     pub game_id: String,
     /// Scanned game installation path.
@@ -102,6 +104,7 @@ pub fn scan_for(game_id: &str, installation: &Path) -> ScanReport {
 fn scan_bounded_for(game_id: &str, installation: &Path, limit: usize) -> ScanReport {
     policy::scan(game_id, installation, limit).unwrap_or_else(|_| ScanReport {
         incomplete: true,
+        scan_issues: vec!["SCAN_UNREADABLE_ENTRY".into()],
         game_id: game_id.into(),
         installation: installation.to_owned(),
         redmod_available: false,

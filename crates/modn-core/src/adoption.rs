@@ -228,8 +228,8 @@ pub fn preview_adoption_for(
 ) -> Result<AdoptionPreview> {
     let root = crate::discovery::validate_installation_for(game_id, game)?;
     let report = crate::game_modules::policy::scan(game_id, &root, 20_000)?;
-    if report.incomplete {
-        bail!("adoption refused: scan is incomplete or contains unreadable entries");
+    if report.incomplete || !report.scan_issues.is_empty() {
+        bail!("adoption refused: scan is incomplete or contains skipped entries");
     }
     let groups = crate::game_modules::policy::adoption_groups(game_id, &root, &report.mods)?;
     let mut packages = validate_groups(&root, &report.mods, groups)?;

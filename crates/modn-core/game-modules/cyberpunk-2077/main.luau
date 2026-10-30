@@ -71,6 +71,30 @@ function policy.scan(limit)
     local remaining = limit
     local framework_remaining = 256
     local incomplete = false
+    local issues = {}
+    local function mark_limit()
+        incomplete = true
+        issues.SCAN_INCOMPLETE = true
+    end
+    local function note_listing(response, folder)
+        if not response.incomplete then return end
+        for _, entry in ipairs(response.unsafe_names or {}) do
+            local name = entry.name
+            if folder == "red4ext/plugins/ArchiveXL" and name == "ArchiveXL.log"
+                and entry.file_symlink and present("red4ext/plugins/ArchiveXL/ArchiveXL.dll", "file") then
+                -- Generated log is not mod content; never follow its link.
+                issues.SCAN_IGNORED_GENERATED_LOG = true
+            else
+                incomplete = true
+                issues.SCAN_UNSAFE_ENTRY = true
+            end
+        end
+        if response.truncated then mark_limit() end
+        if response.unreadable or response.truncated == nil then
+            incomplete = true
+            issues.SCAN_UNREADABLE_ENTRY = true
+        end
+    end
 
     local function push(relative, kind)
         table.insert(mods, { relative_path = relative, kind = kind })
@@ -78,7 +102,7 @@ function policy.scan(limit)
 
     local function consume(framework)
         if remaining <= 0 or (framework and framework_remaining <= 0) then
-            incomplete = true
+            mark_limit()
             return false
         end
         remaining -= 1
@@ -97,19 +121,20 @@ function policy.scan(limit)
                 -- Bounded peeks: uncertainty must be reported as incomplete.
                 empty_peeks += 1
                 if empty_peeks > 32 then
-                    incomplete = true
+                    mark_limit()
                     return
                 end
                 local peek = listing(current, current ~= folder or required_root, 1)
                 if peek ~= nil and (peek.incomplete or #peek.items > 0) then
-                    incomplete = true
+                    note_listing(peek, current)
+                    mark_limit()
                     return
                 end
             else
                 local max_items = framework and framework_remaining or nil
                 local response = listing(current, current ~= folder or required_root, max_items)
                 if response ~= nil then
-                    if response.incomplete then incomplete = true end
+                    note_listing(response, current)
                     for _, entry in ipairs(response.items) do
                         if not consume(framework) then return end
                         local relative = current .. "/" .. entry.name
@@ -134,10 +159,13 @@ function policy.scan(limit)
         local response = listing(folder, nil, max_items)
         if response == nil then return end
         if exhausted then
-            if response.incomplete or #response.items > 0 then incomplete = true end
+            if response.incomplete or #response.items > 0 then
+                note_listing(response, folder)
+                mark_limit()
+            end
             return
         end
-        if response.incomplete then incomplete = true end
+        note_listing(response, folder)
         for _, entry in ipairs(response.items) do
             if not consume(scan_files) then return end
             if entry.kind == "directory" then
@@ -188,8 +216,12 @@ function policy.scan(limit)
         if a.name == b.name then return a.relative_path < b.relative_path end
         return a.name < b.name
     end)
+    local scan_issues = {}
+    for code in pairs(issues) do table.insert(scan_issues, code) end
+    table.sort(scan_issues)
     return {
         mods = mods, framework_signals = signals, incomplete = incomplete,
+        scan_issues = scan_issues,
         redmod_available = present("tools/redmod/bin/redMod.exe", "file")
     }
 end
@@ -199,9 +231,19 @@ function policy.doctor(report)
     local function add(code, severity, message)
         table.insert(findings, {code = code, severity = severity, message = message})
     end
-    if report.incomplete then
-        add("SCAN_INCOMPLETE", "warning",
-            "Inventory is incomplete because the scan entry limit was reached.")
+    for _, code in ipairs(report.scan_issues or {}) do
+        if code == "SCAN_INCOMPLETE" then
+            add(code, "warning", "Inventory truncated by the scan entry limit.")
+        elseif code == "SCAN_UNSAFE_ENTRY" then
+            add(code, "warning", "Unsafe or linked directory entries were skipped.")
+        elseif code == "SCAN_UNREADABLE_ENTRY" then
+            add(code, "warning", "Unreadable directory entries were skipped.")
+        elseif code == "SCAN_IGNORED_GENERATED_LOG" then
+            add(code, "info", "Generated ArchiveXL.log link was ignored; adoption is blocked.")
+        end
+    end
+    if report.incomplete and #(report.scan_issues or {}) == 0 then
+        add("SCAN_INCOMPLETE", "warning", "Inventory is incomplete; some content was not inspected.")
     end
     if not report.redmod_available then
         add("REDMOD_NOT_FOUND", "info",

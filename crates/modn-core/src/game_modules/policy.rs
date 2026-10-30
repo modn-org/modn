@@ -134,8 +134,27 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
             .cmp(&b.name)
             .then(a.relative_path.cmp(&b.relative_path))
     });
+    let scan_issues = match table.get::<Option<Table>>("scan_issues")? {
+        Some(issues) if issues.raw_len() <= 4 => issues
+            .sequence_values::<String>()
+            .collect::<mlua::Result<Vec<_>>>()?,
+        Some(_) => return Err(mlua::Error::RuntimeError("too many scan issues".into())),
+        None => Vec::new(),
+    };
+    if scan_issues.iter().any(|code| {
+        !matches!(
+            code.as_str(),
+            "SCAN_INCOMPLETE"
+                | "SCAN_UNSAFE_ENTRY"
+                | "SCAN_UNREADABLE_ENTRY"
+                | "SCAN_IGNORED_GENERATED_LOG"
+        )
+    }) {
+        return Err(mlua::Error::RuntimeError("unknown scan issue".into()));
+    }
     Ok(ScanReport {
         incomplete: table.get("incomplete")?,
+        scan_issues,
         game_id: game_id.into(),
         installation: root.to_owned(),
         redmod_available: table.get("redmod_available")?,
@@ -165,6 +184,11 @@ pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
     evaluate(&report.game_id, &[], |lua, policy| {
         let input = lua.create_table()?;
         input.set("incomplete", report.incomplete)?;
+        let issues = lua.create_table()?;
+        for (index, code) in report.scan_issues.iter().enumerate() {
+            issues.set(index + 1, code.as_str())?;
+        }
+        input.set("scan_issues", issues)?;
         input.set("redmod_available", report.redmod_available)?;
         let mods = lua.create_table()?;
         for (index, item) in report.mods.iter().enumerate() {
