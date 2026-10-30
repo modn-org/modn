@@ -291,6 +291,70 @@ fn stale_nested_registration_still_blocks_adoption() {
     assert_eq!(fs::read(&manual).unwrap(), b"unmanaged");
 }
 
+#[cfg(any(unix, windows))]
+#[test]
+fn changed_ancestor_alias_cannot_hide_stale_nested_registration() {
+    let temp = tempdir().unwrap();
+    let game = temp.path().join("active");
+    let formerly = temp.path().join("formerly");
+    let nested = formerly.join("nested");
+    let state = temp.path().join("state");
+    let manual = game.join("archive/pc/mod/Manual.archive");
+    for root in [&game, &nested] {
+        fs::create_dir_all(root.join("bin/x64")).unwrap();
+        fs::write(root.join("bin/x64/Cyberpunk2077.exe"), b"game").unwrap();
+    }
+    fs::create_dir_all(manual.parent().unwrap()).unwrap();
+    fs::write(&manual, b"unmanaged").unwrap();
+    checked(cli(
+        &state,
+        &[
+            "game",
+            "add",
+            "cyberpunk-2077",
+            "--path",
+            nested.to_str().unwrap(),
+        ],
+    ));
+    fs::remove_dir_all(&nested).unwrap();
+    fs::remove_dir(&formerly).unwrap();
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&game, &formerly).unwrap();
+    #[cfg(windows)]
+    {
+        let result = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&formerly)
+            .arg(&game)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    assert!(!game.join("nested").exists());
+    let attempt = cli(
+        &state,
+        &[
+            "adopt",
+            "archive/pc/mod/Manual.archive",
+            "--yes",
+            "--path",
+            game.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        !attempt.status.success(),
+        "stale linked ancestor must still block overlapping adoption"
+    );
+    assert!(String::from_utf8_lossy(&attempt.stderr).contains("overlaps"));
+    assert_eq!(fs::read(&manual).unwrap(), b"unmanaged");
+}
+
 #[test]
 fn supports_redscript_hints_but_refuses_plugin_generated_config() {
     let temp = tempdir().unwrap();
