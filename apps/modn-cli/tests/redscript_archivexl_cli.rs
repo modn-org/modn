@@ -110,11 +110,18 @@ fn roundtrip(entries: &[(&str, &[u8])], dependencies: &[&str]) {
     assert_eq!(owned.len(), entries.len());
     for &(name, bytes) in entries {
         assert_eq!(fs::read(game.join(name)).expect("managed file"), bytes);
+        let directory_owned = installed["directories"]
+            .as_array()
+            .expect("directory claims")
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|root| name.starts_with(&format!("{root}/")));
+        let expected_status = if directory_owned { "present" } else { "intact" };
         assert!(
             owned
                 .iter()
-                .any(|f| f["relative_path"] == name && f["status"] == "intact"),
-            "missing intact owned file: {name}; {scanned}"
+                .any(|f| { f["relative_path"] == name && f["status"] == expected_status }),
+            "missing {expected_status} owned file: {name}; {scanned}"
         );
         assert!(
             mods.iter()
@@ -398,4 +405,90 @@ fn doctor_warns_on_missing_runtime_markers_without_adopting_manual_content() {
         );
     }
     assert!(report["owned_files"].as_array().expect("owned").is_empty());
+}
+
+#[test]
+fn directory_ownership_removes_runtime_contents_but_shared_fallback_protects_files() {
+    let (temp, game) = fixture();
+    let state = temp.path().join("state");
+    let archive = temp.path().join("directory.zip");
+    framework(&game, "engine/tools/scc.exe");
+    fs::create_dir_all(game.join("r6/scripts")).expect("shared parent");
+    let script = "r6/scripts/NewMod/main.reds";
+    zip(&archive, &[(script, b"class Main {}")]);
+    let proposed = preview(&state, &game, &archive);
+    assert_eq!(
+        proposed["operations"][0]["owned_directory"],
+        "r6/scripts/NewMod"
+    );
+    let installed = ok(
+        &state,
+        &[
+            "install",
+            archive.to_str().expect("ZIP"),
+            "--yes",
+            "--path",
+            game.to_str().expect("game"),
+        ],
+    );
+    assert_eq!(
+        installed["directories"],
+        serde_json::json!(["r6/scripts/NewMod"])
+    );
+    fs::write(game.join(script), b"runtime changed code").expect("change");
+    fs::write(game.join("r6/scripts/NewMod/runtime.db"), b"runtime output").expect("output");
+    let scanned = ok(&state, &["scan", "--path", game.to_str().expect("game")]);
+    assert!(scanned["owned_files"]
+        .as_array()
+        .expect("owned files")
+        .iter()
+        .any(|file| file["relative_path"] == script && file["status"] == "present"));
+    ok(
+        &state,
+        &[
+            "uninstall",
+            installed["id"].as_str().expect("id"),
+            "--yes",
+            "--path",
+            game.to_str().expect("game"),
+        ],
+    );
+    assert!(!game.join("r6/scripts/NewMod").exists());
+    assert!(game.join("r6/scripts").is_dir());
+
+    fs::create_dir(game.join("r6/scripts/Shared")).expect("existing folder");
+    let manual = game.join("r6/scripts/Shared/manual.log");
+    fs::write(&manual, b"manual").expect("manual file");
+    let shared = "r6/scripts/Shared/mod.reds";
+    zip(&archive, &[(shared, b"class Shared {}")]);
+    let proposed = preview(&state, &game, &archive);
+    assert_eq!(proposed["status"], "reviewable", "{proposed}");
+    assert!(proposed["operations"][0].get("owned_directory").is_none());
+    let installed = ok(
+        &state,
+        &[
+            "install",
+            archive.to_str().expect("ZIP"),
+            "--yes",
+            "--path",
+            game.to_str().expect("game"),
+        ],
+    );
+    assert_eq!(installed["directories"], serde_json::json!([]));
+    fs::write(game.join(shared), b"runtime changed code").expect("change");
+    let args = [
+        "uninstall",
+        installed["id"].as_str().expect("id"),
+        "--yes",
+        "--path",
+        game.to_str().expect("game"),
+    ];
+    assert!(
+        !cli(&state, &args).status.success(),
+        "changed shared file must block removal"
+    );
+    fs::write(game.join(shared), b"class Shared {}").expect("restore");
+    ok(&state, &args);
+    assert_eq!(fs::read(manual).expect("unmanaged file"), b"manual");
+    assert!(game.join("r6/scripts/Shared").is_dir());
 }

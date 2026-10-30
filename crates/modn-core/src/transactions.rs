@@ -1,4 +1,5 @@
 //! Exclusive journaled transactions with rollback and recovery guarantees.
+mod directory;
 #[cfg(test)]
 mod generic_tests;
 mod install;

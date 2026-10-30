@@ -118,17 +118,33 @@ pub fn scan_with_ownership_for(
     let mut report = crate::game_modules::policy::scan(game_id, &game, 20_000)?;
     let mut matched: HashMap<String, Vec<usize>> = HashMap::new();
 
+    let mut directory_roots = Vec::new();
     for package in installed {
+        for root in &package.directories {
+            let (state, _) = checked_path(&game, root, true);
+            let status = match state {
+                PathState::Present => "present",
+                PathState::Missing => "missing",
+                PathState::Unsafe => "unsafe",
+                PathState::Unreadable => "unreadable",
+            };
+            directory_roots.push((root.clone(), package.id.clone(), status));
+        }
         for file in package.files {
-            let status = verify_owned(&game, &file.destination, file.bytes, &file.sha256);
-            let check = OwnedFileCheck {
+            let root_status = directory_roots.iter().find(|(root, id, _)| {
+                id == &package.id && file.destination.starts_with(&format!("{root}/"))
+            });
+            let status = match root_status {
+                Some((_, _, status)) => (*status).to_owned(),
+                None => verify_owned(&game, &file.destination, file.bytes, &file.sha256),
+            };
+            report.owned_files.push(OwnedFileCheck {
                 package_id: package.id.clone(),
                 relative_path: file.destination,
                 status,
                 expected_sha256: file.sha256,
                 expected_bytes: file.bytes,
-            };
-            report.owned_files.push(check);
+            });
         }
     }
     report.owned_files.sort_by(|a, b| {
@@ -191,6 +207,23 @@ pub fn scan_with_ownership_for(
             detected.managed = true;
             detected.package_id = Some(owned.package_id.clone());
             detected.integrity = Some(owned.status.clone());
+        }
+    }
+    for detected in &mut report.mods {
+        if detected.managed {
+            continue;
+        }
+        let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
+        let candidate = directory_roots.iter().find(|(root, _, status)| {
+            *status == "present"
+                && ownership_key(&relative).starts_with(&format!("{}/", ownership_key(root)))
+        });
+        if let Some((_, package_id, _)) = candidate {
+            if checked_path(&game, &relative, false).0 == PathState::Present {
+                detected.managed = true;
+                detected.package_id = Some(package_id.clone());
+                detected.integrity = Some("present".into());
+            }
         }
     }
     Ok(report)

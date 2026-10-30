@@ -56,6 +56,17 @@ impl Store {
                 bytes INTEGER NOT NULL,
                 PRIMARY KEY(game_path, path_key)
             );
+            CREATE TABLE IF NOT EXISTS managed_directories (
+                game_path TEXT NOT NULL, path_key TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                package_id TEXT NOT NULL REFERENCES managed_packages(id),
+                PRIMARY KEY(game_path, path_key)
+            );
+            CREATE TABLE IF NOT EXISTS pending_directories (
+                transaction_id TEXT NOT NULL REFERENCES pending_transactions(id),
+                ord INTEGER NOT NULL, relative_path TEXT NOT NULL,
+                PRIMARY KEY(transaction_id, ord)
+            );
             CREATE TABLE IF NOT EXISTS pending_transactions (
                 id TEXT PRIMARY KEY,
                 action TEXT NOT NULL,

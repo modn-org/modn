@@ -1,3 +1,4 @@
+use super::directory::{covers, quarantine, quarantine_path};
 use super::journal::{digest, lock_store, target_path, temp_path, JournalFile};
 use super::validation::validate_transaction_root;
 use crate::state::Store;
@@ -20,6 +21,7 @@ impl Store {
         let files: Vec<_> = package
             .files
             .iter()
+            .filter(|f| !covers(&package.directories, &f.destination))
             .enumerate()
             .map(|(ordinal, f)| JournalFile {
                 ordinal,
@@ -46,6 +48,18 @@ impl Store {
                 );
             }
         }
+        // Refuse absent, linked or replaced directories before recording a
+        // persistent transaction; recovery must never need to guess ownership.
+        for (index, root) in package.directories.iter().enumerate() {
+            let path = target_path(&game, root, false)?;
+            let metadata = fs::symlink_metadata(&path)?;
+            if !metadata.is_dir()
+                || metadata.file_type().is_symlink()
+                || fs::symlink_metadata(quarantine_path(&game, root, "preflight", index)?).is_ok()
+            {
+                bail!("unsafe owned directory: {}", path.display());
+            }
+        }
         let staging = Builder::new().prefix("txn-").tempdir_in(&self.state_root)?;
         let id = staging
             .path()
@@ -54,8 +68,19 @@ impl Store {
             .to_string_lossy()
             .to_string();
         let _ = staging.keep();
-        self.insert_journal(&id, "uninstall", &game, package_id, None, &files)?;
+        self.insert_journal(
+            &id,
+            "uninstall",
+            &game,
+            package_id,
+            None,
+            &files,
+            &package.directories,
+        )?;
         let attempt = (|| -> Result<()> {
+            for (index, root) in package.directories.iter().enumerate() {
+                quarantine(&game, root, &id, index)?;
+            }
             for f in &files {
                 if package.origin == "manual" {
                     let (_, bytes, sha) = crate::adoption::checked_file(&game, &f.destination)?;

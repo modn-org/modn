@@ -378,6 +378,15 @@ pub(crate) fn plan(
                     destination: plan_field(&value, "destination", 1_024, &mut result_budget)?,
                     kind: plan_field(&value, "kind", 64, &mut result_budget)?,
                     package_root: plan_field(&value, "package_root", 256, &mut result_budget)?,
+                    owned_directory: match value.get::<Option<String>>("owned_directory")? {
+                        Some(root) if root.len() <= 1024 => Some(root),
+                        Some(_) => {
+                            return Err(mlua::Error::RuntimeError(
+                                "directory claim exceeds 1024 bytes".into(),
+                            ))
+                        }
+                        None => None,
+                    },
                 })
             })
             .collect::<mlua::Result<Vec<_>>>()?;

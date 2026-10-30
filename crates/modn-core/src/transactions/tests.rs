@@ -137,6 +137,7 @@ fn recovering_crashed_install_removes_only_proven_hardlinks() {
             id,
             Some("archive"),
             std::slice::from_ref(&f),
+            &[],
         )
         .unwrap();
     let dest = target_path(&game, &f.destination, /* create_parents= */ true).unwrap();
@@ -157,7 +158,15 @@ fn recovering_crashed_uninstall_restores_original_file() {
     let dest = target_path(&game, &f.destination, /* create_parents= */ true).unwrap();
     fs::write(&dest, b"owned").unwrap();
     store
-        .insert_journal(id, "uninstall", &game, id, None, std::slice::from_ref(&f))
+        .insert_journal(
+            id,
+            "uninstall",
+            &game,
+            id,
+            None,
+            std::slice::from_ref(&f),
+            &[],
+        )
         .unwrap();
     let temp = temp_path(&dest, id, 0).unwrap();
     fs::hard_link(&dest, &temp).unwrap();
@@ -173,7 +182,15 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
     let f = prepared_file("archive/pc/mod/crashed.archive", b"owned");
     let id = "txn-test-tamper";
     store
-        .insert_journal(id, "install", &game, id, None, std::slice::from_ref(&f))
+        .insert_journal(
+            id,
+            "install",
+            &game,
+            id,
+            None,
+            std::slice::from_ref(&f),
+            &[],
+        )
         .unwrap();
     let dest = target_path(&game, &f.destination, /* create_parents= */ true).unwrap();
     let temp = temp_path(&dest, id, 0).unwrap();
@@ -212,7 +229,15 @@ fn locked_staging_cleanup_keeps_journal_for_retry() {
     let f = prepared_file("archive/pc/mod/never-created.archive", b"not installed");
     let id = "txn-locked-staging";
     store
-        .insert_journal(id, "install", &game, id, None, std::slice::from_ref(&f))
+        .insert_journal(
+            id,
+            "install",
+            &game,
+            id,
+            None,
+            std::slice::from_ref(&f),
+            &[],
+        )
         .unwrap();
     let stage = store.state_root.join(id);
     fs::create_dir_all(&stage).unwrap();
@@ -245,6 +270,7 @@ fn recovery_never_deletes_preexisting_empty_directories() {
             "txn-empty-dir",
             None,
             std::slice::from_ref(&file),
+            &[],
         )
         .unwrap();
     assert_eq!(store.recover().unwrap(), 1);

@@ -1,8 +1,12 @@
 //! Game-agnostic, ownership-aware ZIP operation executor.
+use super::directory::exclusive_roots;
 use super::journal::{
     digest, lock_store, target_path, temp_path, JournalFile, ManagedPackage, OwnedFile,
 };
-use super::validation::{validate_execution_plan, validate_ownership, validate_transaction_root};
+use super::validation::{
+    validate_directory_reservations, validate_execution_plan, validate_ownership,
+    validate_transaction_root,
+};
 use crate::archive::inspect;
 use crate::planning::InstallPlan;
 use crate::state::Store;
@@ -42,6 +46,8 @@ impl Store {
         let inspection = inspect(archive)?;
         validate_execution_plan(&inspection, &game, proposal)?;
         validate_ownership(self, &game, proposal)?;
+        let directories = exclusive_roots(&game, proposal)?;
+        validate_directory_reservations(self, &game, &directories)?;
         let staging = Builder::new().prefix("txn-").tempdir_in(&self.state_root)?;
         let id = staging
             .path()
@@ -105,7 +111,7 @@ impl Store {
                 return Err(err);
             }
         };
-        if let Err(err) = self.stage_ready(&id, &files) {
+        if let Err(err) = self.stage_ready(&id, &files, &directories) {
             drop(staging);
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
@@ -116,6 +122,17 @@ impl Store {
         }
         let stage_path = staging.keep();
         let attempt = (|| -> Result<()> {
+            // Atomically create each exclusive ownership boundary; a concurrent
+            // creator must never be silently adopted by this transaction.
+            for root in &directories {
+                let path = target_path(&game, root, false)?;
+                fs::create_dir(&path).with_context(|| {
+                    format!(
+                        "exclusive directory already exists or cannot be created: {}",
+                        path.display()
+                    )
+                })?;
+            }
             for f in &files {
                 let dest = target_path(&game, &f.destination, /* create_parents= */ true)?;
                 if fs::symlink_metadata(&dest).is_ok() {
@@ -145,7 +162,7 @@ impl Store {
                     bail!("injected interruption after {} files", f.ordinal + 1);
                 }
             }
-            self.commit_install(&id, &game, &inspection.sha256, &files)
+            self.commit_install(&id, &game, &inspection.sha256, &files, &directories)
         })();
         if let Err(err) = attempt {
             let recover = self.recover_locked();
@@ -162,6 +179,7 @@ impl Store {
             game_installation: game,
             archive_sha256: Some(inspection.sha256),
             origin: "archive".into(),
+            directories,
             files: files
                 .into_iter()
                 .map(|f| OwnedFile {

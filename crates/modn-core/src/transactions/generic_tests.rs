@@ -39,6 +39,7 @@ fn plan(game: &Path, archive: &Path) -> InstallPlan {
                 source: entry.entry,
                 bytes: entry.bytes,
                 kind: "file-copy".into(),
+                owned_directory: None,
             })
             .collect(),
         blockers: Vec::new(),
@@ -180,7 +181,15 @@ fn missing_managed_targets_remain_reserved_and_block_reinstallation() {
 fn pending_journal_blocks_new_generic_transaction_until_recovery() {
     let (_dir, mut store, game, archive) = fixture();
     store
-        .insert_journal("pending-test", "install", &game, "pending-test", None, &[])
+        .insert_journal(
+            "pending-test",
+            "install",
+            &game,
+            "pending-test",
+            None,
+            &[],
+            &[],
+        )
         .unwrap();
     assert!(store
         .install_operations_zip(&game, &archive, &plan(&game, &archive))
@@ -340,4 +349,137 @@ fn existing_unicode_case_variant_directory_remains_installable() {
     store.uninstall(&game, &owned.id).unwrap();
     assert!(!actual.join("a.bin").exists());
     assert!(!actual.join("b.bin").exists());
+}
+
+#[test]
+fn exclusive_directory_owns_runtime_contents_without_file_hash_checks() {
+    let (_tmp, mut store, game, archive) = fixture();
+    fs::create_dir(game.join("data")).unwrap();
+    let mut requested = plan(&game, &archive);
+    for op in &mut requested.operations {
+        op.owned_directory = Some("data/mods".into());
+    }
+    let owned = store
+        .install_operations_zip(&game, &archive, &requested)
+        .unwrap();
+    assert_eq!(owned.directories, ["data/mods"]);
+    assert_eq!(
+        store.installed(&game).unwrap()[0].directories,
+        ["data/mods"]
+    );
+    fs::write(game.join("data/mods/a.bin"), b"changed at runtime").unwrap();
+    fs::write(game.join("data/mods/runtime.log"), b"new user log").unwrap();
+    store.uninstall(&game, &owned.id).unwrap();
+    assert!(!game.join("data/mods").exists());
+    assert!(game.join("data").is_dir());
+    assert!(store.installed(&game).unwrap().is_empty());
+    assert_eq!(store.recover().unwrap(), 0);
+}
+
+#[test]
+fn mixed_directory_and_shared_file_preserves_modified_shared_file() {
+    let (_tmp, mut store, game, archive) = fixture();
+    fs::create_dir(game.join("data")).unwrap();
+    let mut requested = plan(&game, &archive);
+    requested.operations[0].owned_directory = Some("data/mods".into());
+    requested.operations[1].destination = "data/shared.xml".into();
+    let owned = store
+        .install_operations_zip(&game, &archive, &requested)
+        .unwrap();
+    assert_eq!(owned.directories, ["data/mods"]);
+    fs::write(game.join("data/mods/created.db"), b"runtime").unwrap();
+    fs::write(game.join("data/shared.xml"), b"user changed this").unwrap();
+    assert!(store.uninstall(&game, &owned.id).is_err());
+    assert_eq!(
+        fs::read(game.join("data/shared.xml")).unwrap(),
+        b"user changed this"
+    );
+    assert!(game.join("data/mods/created.db").is_file());
+    fs::write(game.join("data/shared.xml"), b"two").unwrap();
+    store.uninstall(&game, &owned.id).unwrap();
+    assert!(!game.join("data/mods").exists());
+    assert!(!game.join("data/shared.xml").exists());
+    assert!(game.join("data").exists());
+}
+
+#[test]
+fn refuses_claims_over_preexisting_or_reserved_content() {
+    let (_tmp, mut store, game, archive) = fixture();
+    fs::create_dir_all(game.join("data/mods")).unwrap();
+    fs::write(game.join("data/mods/manual.log"), b"manual").unwrap();
+    let mut requested = plan(&game, &archive);
+    for op in &mut requested.operations {
+        op.owned_directory = Some("data/mods".into());
+    }
+    assert!(store
+        .install_operations_zip(&game, &archive, &requested)
+        .is_err());
+    assert_eq!(
+        fs::read(game.join("data/mods/manual.log")).unwrap(),
+        b"manual"
+    );
+    assert!(store.installed(&game).unwrap().is_empty());
+    fs::remove_dir_all(game.join("data/mods")).unwrap();
+    let owned = store
+        .install_operations_zip(&game, &archive, &requested)
+        .unwrap();
+    // Even a new distinct filename cannot enter a directory claimed by another package.
+    let mut second = plan(&game, &archive);
+    second.operations[0].destination = "data/mods/new.bin".into();
+    second.operations.remove(1);
+    assert!(store
+        .install_operations_zip(&game, &archive, &second)
+        .is_err());
+    assert_eq!(store.installed(&game).unwrap()[0].id, owned.id);
+}
+
+#[test]
+fn pending_directory_removal_is_restored_and_committed_removal_is_cleaned() {
+    let (_tmp, mut store, game, archive) = fixture();
+    fs::create_dir(game.join("data")).unwrap();
+    let mut requested = plan(&game, &archive);
+    for op in &mut requested.operations {
+        op.owned_directory = Some("data/mods".into());
+    }
+    let owned = store
+        .install_operations_zip(&game, &archive, &requested)
+        .unwrap();
+    fs::write(game.join("data/mods/generated.log"), b"runtime").unwrap();
+    let id = "txn-dir-interrupted";
+    store
+        .insert_journal(
+            id,
+            "uninstall",
+            &game,
+            &owned.id,
+            None,
+            &[],
+            &owned.directories,
+        )
+        .unwrap();
+    super::directory::quarantine(&game, "data/mods", id, 0).unwrap();
+    assert!(!game.join("data/mods").exists());
+    assert_eq!(store.recover().unwrap(), 1);
+    assert_eq!(
+        fs::read(game.join("data/mods/generated.log")).unwrap(),
+        b"runtime"
+    );
+    assert_eq!(store.installed(&game).unwrap().len(), 1);
+    let id = "txn-dir-committed";
+    store
+        .insert_journal(
+            id,
+            "uninstall",
+            &game,
+            &owned.id,
+            None,
+            &[],
+            &owned.directories,
+        )
+        .unwrap();
+    super::directory::quarantine(&game, "data/mods", id, 0).unwrap();
+    store.commit_uninstall(id, &owned.id).unwrap();
+    assert_eq!(store.recover().unwrap(), 1);
+    assert!(!game.join("data/mods").exists());
+    assert!(store.installed(&game).unwrap().is_empty());
 }
