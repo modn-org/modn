@@ -53,15 +53,32 @@ impl ModuleStore {
         self.root.join("modules.sqlite")
     }
 
+    fn reject_lost_selection(&self) -> Result<()> {
+        let versions = self.root.join("versions");
+        check_path(&versions)?;
+        match fs::read_dir(&versions) {
+            Ok(mut entries) => {
+                if entries.next().transpose()?.is_some() {
+                    bail!("module selection database is missing or uninitialized while published versions remain; restore modules.sqlite from backup or move aside the entire module store");
+                }
+                Ok(())
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     fn readonly(&self) -> Result<Option<Connection>> {
         let path = self.database();
         check_path(&path)?;
         if !path.try_exists()? {
+            self.reject_lost_selection()?;
             return Ok(None);
         }
         let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         db.busy_timeout(Duration::from_secs(5))?;
         if uninitialized(&db)? {
+            self.reject_lost_selection()?;
             return Ok(None);
         }
         schema_version(&db)?;
@@ -91,6 +108,7 @@ impl ModuleStore {
             if !uninitialized(&db)? {
                 bail!("unrecognized module store database");
             }
+            self.reject_lost_selection()?;
             db.execute_batch("BEGIN IMMEDIATE;
                 CREATE TABLE packages (game_id TEXT NOT NULL, version TEXT NOT NULL,
                     api_version INTEGER NOT NULL, entrypoint TEXT NOT NULL, sha256 TEXT PRIMARY KEY,

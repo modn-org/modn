@@ -145,6 +145,47 @@ fn initial_database_interruption_can_be_retried() {
 }
 
 #[test]
+fn lost_selection_database_with_published_versions_never_falls_back() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = ModuleStore::new(&temp.path().join("state"));
+    let a = zip(temp.path(), "A");
+    store.install(&a).unwrap();
+    store.enable("test-game", "A").unwrap();
+    let original = fs::read(store.database()).unwrap();
+
+    for empty_file in [false, true] {
+        fs::remove_file(store.database()).unwrap();
+        if empty_file {
+            fs::write(store.database(), []).unwrap();
+        }
+
+        assert!(
+            store.active("test-game").is_err(),
+            "lost selection cannot fall back"
+        );
+        assert!(
+            store.status("test-game").is_err(),
+            "status must show corruption"
+        );
+        assert!(store.list().is_err(), "list must show corruption");
+        assert!(
+            store.install(&a).is_err(),
+            "install cannot silently rebuild lost selection"
+        );
+        assert!(
+            store.writer().is_err(),
+            "writer must not initialize over published versions"
+        );
+
+        fs::write(store.database(), &original).unwrap();
+        assert_eq!(
+            store.active("test-game").unwrap().unwrap().info.version,
+            "A"
+        );
+    }
+}
+
+#[test]
 fn process_exit_child() {
     let Some(root) = std::env::var_os("MODN_TEST_PACKAGE_CRASH_ROOT") else {
         return;
