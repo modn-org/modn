@@ -2,7 +2,6 @@
 -- All I/O is mediated by Rust's read-only, root-scoped host services.
 local fs = mods_host.fs
 local dir = mods_host.directory
-
 local policy = {
     game_id = "cyberpunk-2077",
     api_version = mods_host.api_version,
@@ -14,22 +13,18 @@ local policy = {
         "Epic Games/Cyberpunk 2077",
     },
 }
-
 local function metadata(relative)
     local ok, value = pcall(fs.metadata, 1, relative)
     if ok then return value end
     return nil
 end
-
 local function present(relative, kind)
     local item = metadata(relative)
     return item ~= nil and item.kind == kind
 end
-
 function policy.validate()
     return present(policy.marker, "file")
 end
-
 local function quoted_value(text, key)
     for line in string.gmatch(text, "[^\r\n]+") do
         local words = {}
@@ -42,7 +37,6 @@ local function quoted_value(text, key)
     end
     return nil
 end
-
 function policy.steam_name()
     local ok, contents = pcall(dir.read_text, 1, "steamapps/appmanifest_1091500.acf")
     local name = ok and quoted_value(contents, "installdir") or nil
@@ -52,11 +46,9 @@ function policy.steam_name()
     end
     return name
 end
-
 function policy.is_epic(display_name)
     return display_name == "Cyberpunk 2077"
 end
-
 local function listing(folder, required, max_items)
     local ok, response = pcall(dir.list, 1, folder, max_items)
     if ok then return response end
@@ -64,7 +56,6 @@ local function listing(folder, required, max_items)
     if required then return { items = {}, incomplete = true } end
     return nil
 end
-
 function policy.scan(limit)
     local mods = {}
     local signals = {}
@@ -95,11 +86,9 @@ function policy.scan(limit)
             issues.SCAN_UNREADABLE_ENTRY = true
         end
     end
-
     local function push(relative, kind)
         table.insert(mods, { relative_path = relative, kind = kind })
     end
-
     local function consume(framework)
         if remaining <= 0 or (framework and framework_remaining <= 0) then
             mark_limit()
@@ -109,10 +98,9 @@ function policy.scan(limit)
         if framework then framework_remaining -= 1 end
         return true
     end
-
     local function collect_files(folder, extensions, kind, required_root)
         local framework = kind == "cet-mod" or kind == "red4ext-plugin"
-            or kind == "redscript" or kind == "redscript-hint" or kind == "tweak"
+            or kind == "redscript" or kind == "redscript-hint" or kind == "tweak" or kind == "input-xml"
         local stack = { folder }
         local empty_peeks = 0
         while #stack > 0 do
@@ -139,7 +127,7 @@ function policy.scan(limit)
                         if not consume(framework) then return end
                         local relative = current .. "/" .. entry.name
                         if entry.kind == "directory" then
-                            table.insert(stack, relative)
+                            if kind ~= "input-xml" then table.insert(stack, relative) end
                         elseif entry.kind == "file" then
                             local ext = string.match(entry.name, "%.([^%.]+)$")
                             if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
@@ -152,7 +140,6 @@ function policy.scan(limit)
             end
         end
     end
-
     local function collect_directories(folder, kind, scan_files)
         local exhausted = scan_files and framework_remaining <= 0
         local max_items = scan_files and math.max(framework_remaining, 1) or nil
@@ -184,16 +171,15 @@ function policy.scan(limit)
             end
         end
     end
-
     collect_files("archive/pc/mod", { archive = true, xl = true }, "legacy-archive")
     collect_files("r6/scripts", { reds = true }, "redscript")
     collect_files("r6/config/redsUserHints", { toml = true }, "redscript-hint")
     collect_files("r6/tweaks", { yaml = true, yml = true }, "tweak")
+    collect_files("r6/input", { xml = true }, "input-xml")
     collect_directories("mods", "redmod-directory", false)
     collect_directories("red4ext/plugins", "red4ext-plugin", true)
     collect_directories("bin/x64/plugins/cyber_engine_tweaks/mods", "cet-mod", true)
     table.sort(mods, function(a,b) return a.relative_path < b.relative_path end)
-
     local candidates = {
         { "CET", "bin/x64/plugins/cyber_engine_tweaks.asi", "file" },
         { "CET", "bin/x64/plugins/cyber_engine_tweaks", "directory" },
@@ -203,7 +189,7 @@ function policy.scan(limit)
         { "ArchiveXL", "red4ext/plugins/ArchiveXL/ArchiveXL.dll", "file" },
         { "ArchiveXL", "red4ext/plugins/ArchiveXL", "directory" },
         { "redscript compiler", "engine/tools/scc.exe", "file" },
-        { "TweakXL", "red4ext/plugins/TweakXL/TweakXL.dll", "file" },
+        { "TweakXL", "red4ext/plugins/TweakXL/TweakXL.dll", "file" }, { "Input Loader", "red4ext/plugins/input_loader/input_loader.dll", "file" },
     }
     for _, entry in ipairs(candidates) do
         if present(entry[2], entry[3]) then
@@ -225,7 +211,6 @@ function policy.scan(limit)
         redmod_available = present("tools/redmod/bin/redMod.exe", "file")
     }
 end
-
 function policy.doctor(report)
     local findings = {}
     local function add(code, severity, message)
@@ -246,13 +231,14 @@ function policy.doctor(report)
         add("SCAN_INCOMPLETE", "warning", "Inventory is incomplete; some content was not inspected.")
     end
     if not report.redmod_available then
-        add("REDMOD_NOT_FOUND", "info",
-            "REDmod tools were not detected. REDmod deployment is unavailable.")
+        add("REDMOD_NOT_FOUND", "info", "REDmod tools were not detected. REDmod deployment is unavailable.")
     end
     local unmanaged = false
     local redmod_content = false
     local needs_redscript, needs_archivexl, needs_tweakxl = false, false, false
+    local needs_input_loader = false
     for _, item in ipairs(report.mods) do
+        if item.kind == "input-xml" then needs_input_loader = true end
         if item.kind == "redscript" or item.kind == "redscript-hint" then
             needs_redscript = true
         elseif item.kind == "archive-xl" then
@@ -269,26 +255,14 @@ function policy.doctor(report)
         end
         return false
     end
-    if needs_redscript and not has_signal("engine/tools/scc.exe") then
-        add("REDSCRIPT_NOT_INSTALLED", "warning",
-            "REDscript compiler not detected; script loading is not verified.")
+    if needs_input_loader and not has_signal("red4ext/plugins/input_loader/input_loader.dll") then
+        add("INPUT_LOADER_NOT_INSTALLED", "warning", "Input Loader is required for r6/input XML.")
     end
-    if needs_archivexl and not has_signal("red4ext/plugins/ArchiveXL/ArchiveXL.dll") then
-        add("ARCHIVEXL_NOT_INSTALLED", "warning",
-            "ArchiveXL plugin not detected; XL content loading is not verified.")
-    end
-    if needs_tweakxl and not has_signal("red4ext/plugins/TweakXL/TweakXL.dll") then
-        add("TWEAKXL_NOT_INSTALLED", "warning",
-            "TweakXL plugin not detected; tweak loading is not verified.")
-    end
-    if not report.redmod_available and redmod_content then
-        add("REDMOD_CONTENT_WITHOUT_TOOLS", "warning",
-            "REDmod-style directories exist, but redMod.exe was not found.")
-    end
-    if unmanaged then
-        add("UNMANAGED_CONTENT", "warning",
-            "Some detected mods are not owned by this manager; no changes will be made.")
-    end
+    if needs_redscript and not has_signal("engine/tools/scc.exe") then add("REDSCRIPT_NOT_INSTALLED", "warning", "REDscript compiler not detected; script loading is not verified.") end
+    if needs_archivexl and not has_signal("red4ext/plugins/ArchiveXL/ArchiveXL.dll") then add("ARCHIVEXL_NOT_INSTALLED", "warning", "ArchiveXL plugin not detected; XL content loading is not verified.") end
+    if needs_tweakxl and not has_signal("red4ext/plugins/TweakXL/TweakXL.dll") then add("TWEAKXL_NOT_INSTALLED", "warning", "TweakXL plugin not detected; tweak loading is not verified.") end
+    if not report.redmod_available and redmod_content then add("REDMOD_CONTENT_WITHOUT_TOOLS", "warning", "REDmod-style directories exist, but redMod.exe was not found.") end
+    if unmanaged then add("UNMANAGED_CONTENT", "warning", "Some detected mods are not owned by this manager; no changes will be made.") end
     for _, status in ipairs({"missing", "modified", "unsafe", "unreadable"}) do
         local count = 0
         for _, file in ipairs(report.owned_files) do
@@ -301,13 +275,12 @@ function policy.doctor(report)
     end
     return findings
 end
-
-
--- Schema-v1 source-to-destination proposals. The host validates every operation.
 function policy.plan(files)
     local operations = {}
     local blockers = {}
+    local ignored_generated = {}
     local redmods = {}
+    local generated = { ["engine/config/platform/pc/input_loader.ini"] = true, ["r6/cache/inputContexts.xml"] = true, ["r6/cache/inputUserMappings.xml"] = true }
     local function block(code, message)
         table.insert(blockers, { code = code, message = message })
     end
@@ -326,6 +299,7 @@ function policy.plan(files)
         if count >= 3 and a == "mods" and b ~= "" then return "redmod" end
         if count >= 3 and a == "r6" and b == "scripts" then return "redscript" end
         if count >= 3 and a == "r6" and b == "tweaks" then return "tweak" end
+        if count == 3 and a == "r6" and b == "input" then return "input-xml" end
         if count == 4 and a == "r6" and b == "config" and c == "redsuserhints" then
             return "redscript-hint"
         end
@@ -354,23 +328,50 @@ function policy.plan(files)
         redscript = { "r6", "scripts" },
         tweak = { "r6", "tweaks" },
         ["redscript-hint"] = { "r6", "config", "redsUserHints" },
+        ["input-xml"] = { "r6", "input" },
         ["legacy-archive"] = { "archive", "pc", "mod" },
         ["archive-xl"] = { "archive", "pc", "mod" },
     }
     local allowed_extensions = {
         redscript = { reds = true },
+        ["input-xml"] = { xml = true },
         tweak = { yaml = true, yml = true },
         ["redscript-hint"] = { toml = true },
         ["archive-xl"] = { xl = true },
     }
+    local loader_roots = {}
+    for _, file in ipairs(files) do
+        local parts = {}
+        for part in string.gmatch(file.source, "[^/]+") do table.insert(parts, part) end
+        for i = 1, #parts do
+            local kind = kind_of(parts, i)
+            if kind ~= nil then
+                if kind == "red4ext" and string.lower(table.concat(parts, "/", i))
+                    == "red4ext/plugins/input_loader/input_loader.dll" then
+                    loader_roots[table.concat(parts, "/", 1, i - 1)] = true
+                end
+                break
+            end
+        end
+    end
     local needs_redscript, needs_archivexl, needs_tweakxl = false, false, false
+    local needs_input_loader = false
     for _, file in ipairs(files) do
         local parts = {}
         for item in string.gmatch(file.source, "[^/]+") do
             table.insert(parts, item)
         end
         local mapped = false
-        for i = 1, #parts do
+        for wrapper in pairs(loader_roots) do
+            local prefix = wrapper == "" and "" or wrapper .. "/"
+            if string.sub(file.source, 1, #prefix) == prefix
+                and generated[string.sub(file.source, #prefix + 1)] then
+                table.insert(ignored_generated, file.source)
+                mapped = true
+                break
+            end
+        end
+        if not mapped then for i = 1, #parts do
             local kind = kind_of(parts, i)
             if kind ~= nil then
                 if is_documentation(file.source) then
@@ -401,6 +402,7 @@ function policy.plan(files)
                 if kind == "redmod" then
                     block("NOT_INSTALLABLE", "REDmod deployment is not supported")
                 end
+                if kind == "input-xml" then needs_input_loader = true end
                 if kind == "redscript" or kind == "redscript-hint" then
                     needs_redscript = true
                 elseif kind == "archive-xl" then
@@ -419,10 +421,14 @@ function policy.plan(files)
                 mapped = true
                 break
             end
-        end
+        end end
         if not mapped and not is_documentation(file.source) then
             block("UNRECOGNIZED_LAYOUT", "Unknown mod layout: " .. file.source)
         end
+    end
+    if needs_input_loader and next(loader_roots) == nil
+        and not present("red4ext/plugins/input_loader/input_loader.dll", "file") then
+        block("INPUT_LOADER_NOT_INSTALLED", "Input Loader plugin is required for r6/input XML")
     end
     if needs_redscript and not present("engine/tools/scc.exe", "file") then
         block("REDSCRIPT_NOT_INSTALLED", "REDscript compiler was not detected (engine/tools/scc.exe)")
@@ -443,9 +449,9 @@ function policy.plan(files)
     if redmod_found and not present("tools/redmod/bin/redMod.exe", "file") then
         block("REDMOD_NOT_INSTALLED", "REDmod deployment tools are not installed")
     end
-    return { schema_version = 1, operations = operations, blockers = blockers }
+    return { schema_version = 1, operations = operations, blockers = blockers,
+        skipped_generated_files = ignored_generated }
 end
-
 -- Adopt only specific recognized files or a single plugin subtree.
 function policy.adoption(mods)
     local groups = {}
@@ -460,8 +466,9 @@ function policy.adoption(mods)
             selector = string.match(path, "^(red4ext/plugins/[^/]+)/")
         elseif item.kind == "legacy-archive" or item.kind == "archive-xl"
             or item.kind == "redscript" or item.kind == "redscript-hint"
-            or item.kind == "tweak" then
+            or item.kind == "tweak" or item.kind == "input-xml" then
             selector = path
+            if item.kind == "input-xml" and not string.match(path, "^r6/input/[^/]+%.xml$") then selector = nil end
         end
         -- User-generated configs, logs, caches and backups are ambiguous.
         local lower = string.lower(path)
@@ -489,5 +496,4 @@ function policy.adoption(mods)
     end
     return { schema_version = 1, groups = output }
 end
-
 return policy

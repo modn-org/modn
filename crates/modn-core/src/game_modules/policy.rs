@@ -337,6 +337,7 @@ pub(crate) fn plan(
     if inspection.files.len() > MAX_PROPOSALS {
         return Ok(RequestedPlan {
             operations: Vec::new(),
+            skipped_generated_files: Vec::new(),
             blockers: vec![(
                 "TOO_MANY_FILES".into(),
                 format!("Read-only preview supports at most {MAX_PROPOSALS} files"),
@@ -390,9 +391,33 @@ pub(crate) fn plan(
                 ))
             })
             .collect::<mlua::Result<Vec<_>>>()?;
+        let skipped_generated_files = match output
+            .get::<Option<Table>>("skipped_generated_files")?
+        {
+            Some(items) if items.raw_len() <= MAX_PROPOSALS => items
+                .sequence_values::<mlua::LuaString>()
+                .map(|item| {
+                    let value = item?;
+                    if value.as_bytes().len() > 4_096 || value.as_bytes().len() > result_budget {
+                        return Err(mlua::Error::RuntimeError(
+                            "generated path exceeds plan budget".into(),
+                        ));
+                    }
+                    result_budget -= value.as_bytes().len();
+                    Ok(value.to_str()?.to_string())
+                })
+                .collect::<mlua::Result<Vec<_>>>()?,
+            Some(_) => {
+                return Err(mlua::Error::RuntimeError(
+                    "too many generated output paths".into(),
+                ))
+            }
+            None => Vec::new(),
+        };
         Ok(RequestedPlan {
             operations,
             blockers,
+            skipped_generated_files,
         })
     })
 }

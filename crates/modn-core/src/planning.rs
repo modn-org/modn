@@ -45,6 +45,8 @@ pub struct InstallPlan {
     pub operations: Vec<PlannedFile>,
     /// Issues requiring resolution before installation.
     pub blockers: Vec<PlanIssue>,
+    /// Generated outputs intentionally omitted from installation and future ownership.
+    pub skipped_generated_files: Vec<String>,
 }
 
 pub(crate) fn prohibited_payload(path: &str) -> bool {
@@ -153,6 +155,7 @@ pub(crate) struct RequestedFile {
 pub(crate) struct RequestedPlan {
     pub(crate) operations: Vec<RequestedFile>,
     pub(crate) blockers: Vec<(String, String)>,
+    pub(crate) skipped_generated_files: Vec<String>,
 }
 fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
     issues.push(PlanIssue {
@@ -201,6 +204,19 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
             );
         } else {
             issue(&mut blockers, &code, message);
+        }
+    }
+    let mut skipped_generated_files = Vec::new();
+    let mut skipped = HashSet::new();
+    for source in proposed.skipped_generated_files {
+        if !sources.contains_key(source.as_str()) || !skipped.insert(source.clone()) {
+            issue(
+                &mut blockers,
+                "INVALID_SKIPPED_SOURCE",
+                "Invalid generated output omission",
+            );
+        } else {
+            skipped_generated_files.push(source);
         }
     }
     let mut operations = Vec::new();
@@ -281,6 +297,14 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
             );
             continue;
         };
+        if skipped.contains(&request.source) {
+            issue(
+                &mut blockers,
+                "INVALID_SKIPPED_SOURCE",
+                "Source both selected and omitted",
+            );
+            continue;
+        }
         if !selected_sources.insert(request.source.clone()) {
             issue(
                 &mut blockers,
@@ -342,6 +366,7 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
         metadata_only: true,
         operations,
         blockers,
+        skipped_generated_files,
     })
 }
 

@@ -7,6 +7,7 @@ use crate::archive::inspect;
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -51,9 +52,22 @@ impl Store {
         self.begin_staging(&id, &game, &inspection.sha256)?;
         let staged = (|| -> Result<Vec<JournalFile>> {
             let mut zip = zip::ZipArchive::new(File::open(archive)?)?;
+            let original_names: HashMap<_, _> = inspection
+                .files
+                .iter()
+                .map(|file| {
+                    (
+                        file.entry.as_str(),
+                        file.original_entry.as_deref().unwrap_or(&file.entry),
+                    )
+                })
+                .collect();
             let mut files = Vec::new();
             for (n, op) in proposal.operations.iter().enumerate() {
-                let mut input = zip.by_name(&op.source)?;
+                let archive_name = original_names
+                    .get(op.source.as_str())
+                    .context("source is not present in inspected ZIP")?;
+                let mut input = zip.by_name(archive_name)?;
                 if input.is_dir() || input.size() != op.bytes {
                     bail!("archive metadata changed for {}", op.source);
                 }

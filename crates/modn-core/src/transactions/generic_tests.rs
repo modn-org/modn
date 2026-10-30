@@ -42,6 +42,7 @@ fn plan(game: &Path, archive: &Path) -> InstallPlan {
             })
             .collect(),
         blockers: Vec::new(),
+        skipped_generated_files: Vec::new(),
     }
 }
 #[test]
