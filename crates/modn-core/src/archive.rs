@@ -17,6 +17,9 @@ const MAX_ARCHIVE: u64 = 16 * 1024 * 1024 * 1024;
 pub struct ArchiveFile {
     /// Normalized archive-relative entry path.
     pub entry: String,
+    /// Original entry spelling, when ZIP separators required normalization.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_entry: Option<String>,
     /// Declared uncompressed size in bytes.
     pub bytes: u64,
 }
@@ -85,7 +88,10 @@ fn append_file(
     size: u64,
     total: &mut u64,
 ) -> Result<()> {
-    let name = validated_name(name)?;
+    let normalized = name.replace('\\', "/");
+    let normalized = validated_name(&normalized)?;
+    let original_entry = (normalized != name).then(|| name.to_owned());
+    let name = normalized;
     let key = name.to_lowercase();
     if !seen.insert(key) {
         bail!("duplicate or case-colliding archive entry: {name}");
@@ -96,6 +102,7 @@ fn append_file(
     }
     files.push(ArchiveFile {
         entry: name,
+        original_entry,
         bytes: size,
     });
     Ok(())
@@ -201,7 +208,7 @@ pub fn inspect(path: &Path) -> Result<Inspection> {
             let entry = reader
                 .by_index_raw(i)
                 .context("cannot read ZIP entry metadata")?;
-            validated_name(entry.name())?;
+            validated_name(&entry.name().replace('\\', "/"))?;
             if entry.encrypted()
                 || entry
                     .unix_mode()
