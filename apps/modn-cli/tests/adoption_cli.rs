@@ -217,6 +217,81 @@ fn refuses_registered_nested_game_root_before_adopting_any_files() {
 }
 
 #[test]
+fn stale_unrelated_registration_does_not_block_adoption() {
+    let temp = tempdir().unwrap();
+    let game = temp.path().join("active");
+    let offline = temp.path().join("offline");
+    let state = temp.path().join("state");
+    let manual = game.join("archive/pc/mod/Manual.archive");
+    for root in [&game, &offline] {
+        fs::create_dir_all(root.join("bin/x64")).unwrap();
+        fs::write(root.join("bin/x64/Cyberpunk2077.exe"), b"game").unwrap();
+    }
+    fs::create_dir_all(manual.parent().unwrap()).unwrap();
+    fs::write(&manual, b"unmanaged").unwrap();
+
+    checked(cli(
+        &state,
+        &[
+            "game",
+            "add",
+            "cyberpunk-2077",
+            "--path",
+            offline.to_str().unwrap(),
+        ],
+    ));
+    fs::remove_dir_all(&offline).unwrap();
+
+    let root = game.to_str().unwrap();
+    let selector = "archive/pc/mod/Manual.archive";
+    let preview = checked(cli(&state, &["adopt", "--dry-run", "--path", root]));
+    assert_eq!(preview["packages"][0]["selector"], selector);
+    let adopted = checked(cli(&state, &["adopt", selector, "--yes", "--path", root]));
+    assert_eq!(adopted["origin"], "manual");
+    assert_eq!(fs::read(&manual).unwrap(), b"unmanaged");
+}
+
+#[test]
+fn stale_nested_registration_still_blocks_adoption() {
+    let temp = tempdir().unwrap();
+    let game = temp.path().join("game");
+    let nested = game.join("nested");
+    let state = temp.path().join("state");
+    let manual = game.join("archive/pc/mod/Manual.archive");
+    for root in [&game, &nested] {
+        fs::create_dir_all(root.join("bin/x64")).unwrap();
+        fs::write(root.join("bin/x64/Cyberpunk2077.exe"), b"game").unwrap();
+    }
+    fs::create_dir_all(manual.parent().unwrap()).unwrap();
+    fs::write(&manual, b"unmanaged").unwrap();
+    checked(cli(
+        &state,
+        &[
+            "game",
+            "add",
+            "cyberpunk-2077",
+            "--path",
+            nested.to_str().unwrap(),
+        ],
+    ));
+    fs::remove_dir_all(&nested).unwrap();
+
+    let attempt = cli(
+        &state,
+        &[
+            "adopt",
+            "archive/pc/mod/Manual.archive",
+            "--yes",
+            "--path",
+            game.to_str().unwrap(),
+        ],
+    );
+    assert!(!attempt.status.success());
+    assert!(String::from_utf8_lossy(&attempt.stderr).contains("overlaps"));
+    assert_eq!(fs::read(&manual).unwrap(), b"unmanaged");
+}
+
+#[test]
 fn supports_redscript_hints_but_refuses_plugin_generated_config() {
     let temp = tempdir().unwrap();
     let game = temp.path().join("game");

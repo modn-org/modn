@@ -160,7 +160,14 @@ pub(crate) fn validate_registered_adoption_roots(
     game: &Path,
 ) -> Result<()> {
     for registration in store.list()? {
-        let other = registration.path.canonicalize()?;
+        // Registrations store canonical roots at creation time. If one goes
+        // offline, retain its recorded path for overlap protection without
+        // blocking adoption into an unrelated, available installation.
+        let other = match registration.path.canonicalize() {
+            Ok(path) => path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => registration.path,
+            Err(error) => return Err(error.into()),
+        };
         if (other == game && registration.game_id != game_id)
             || (other != game && (other.starts_with(game) || game.starts_with(&other)))
         {
