@@ -408,3 +408,88 @@ fn windows_greek_sigma_contextual_case_rename_stays_managed() {
         .iter()
         .any(|d| d.code == "UNMANAGED_CONTENT"));
 }
+
+#[cfg(windows)]
+#[test]
+fn unicode_lookalike_directory_never_inherits_exclusive_claim() {
+    let (root, mut store, game, _archive) = fixture();
+    fs::create_dir_all(game.join("red4ext/plugins")).unwrap();
+    let zip_path = root.path().join("directory-unicode.zip");
+    let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    writer
+        .start_file("red4ext/plugins/k/k.dll", SimpleFileOptions::default())
+        .unwrap();
+    writer.write_all(b"owned plugin").unwrap();
+    writer.finish().unwrap();
+    let package = install_zip(&mut store, &game, &zip_path);
+    assert_eq!(package.directories, ["red4ext/plugins/k"]);
+    let lookalike_dir = game.join("red4ext/plugins/\u{212A}");
+    if lookalike_dir.exists() {
+        // NTFS volumes may actually alias these names; do not modify the original.
+        return;
+    }
+    fs::create_dir(&lookalike_dir).unwrap();
+    fs::write(lookalike_dir.join("manual.dll"), b"manual").unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
+    let original = report
+        .mods
+        .iter()
+        .find(|mod_file| mod_file.relative_path == Path::new("red4ext/plugins/k/k.dll"))
+        .unwrap();
+    assert!(original.managed);
+    let unrelated = report
+        .mods
+        .iter()
+        .find(|mod_file| mod_file.relative_path == Path::new("red4ext/plugins/\u{212A}/manual.dll"))
+        .unwrap();
+    assert!(!unrelated.managed, "{report:?}");
+    assert!(unrelated.package_id.is_none());
+    store.uninstall(&game, &package.id).unwrap();
+    assert_eq!(
+        fs::read(lookalike_dir.join("manual.dll")).unwrap(),
+        b"manual"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn final_sigma_directory_rename_retains_managed_scan_attribution() {
+    let (root, mut store, game, _archive) = fixture();
+    fs::create_dir_all(game.join("red4ext/plugins")).unwrap();
+    let zip_path = root.path().join("sigma-folder.zip");
+    let source = "red4ext/plugins/\u{039F}\u{03A3}/plugin.dll";
+    let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    writer
+        .start_file(source, SimpleFileOptions::default())
+        .unwrap();
+    writer.write_all(b"plugin").unwrap();
+    writer.finish().unwrap();
+    let installed = install_zip(&mut store, &game, &zip_path);
+    assert_eq!(installed.directories, ["red4ext/plugins/\u{039F}\u{03A3}"]);
+
+    let original = game.join("red4ext/plugins/\u{039F}\u{03A3}");
+    let intermediate = game.join("red4ext/plugins/sigma-tmp");
+    let renamed = game.join("red4ext/plugins/\u{03BF}\u{03C2}");
+    fs::rename(&original, &intermediate).unwrap();
+    fs::rename(&intermediate, &renamed).unwrap();
+    if !original.exists() {
+        return;
+    } // filesystem explicitly case-sensitive
+    fs::write(renamed.join("generated.dll"), b"runtime").unwrap();
+    let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
+    for file in ["plugin.dll", "generated.dll"] {
+        let relative = PathBuf::from("red4ext/plugins/\u{03BF}\u{03C2}").join(file);
+        let scanned = report
+            .mods
+            .iter()
+            .find(|item| item.relative_path == relative)
+            .unwrap();
+        assert!(
+            scanned.managed,
+            "{relative:?} must remain managed: {report:?}"
+        );
+        assert_eq!(scanned.package_id.as_deref(), Some(installed.id.as_str()));
+    }
+    store.uninstall(&game, &installed.id).unwrap();
+    assert!(!renamed.exists());
+}

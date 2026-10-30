@@ -56,6 +56,18 @@ impl Store {
                 bytes INTEGER NOT NULL,
                 PRIMARY KEY(game_path, path_key)
             );
+            CREATE TABLE IF NOT EXISTS managed_directories (
+                game_path TEXT NOT NULL, path_key TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                package_id TEXT NOT NULL REFERENCES managed_packages(id),
+                identity TEXT,
+                PRIMARY KEY(game_path, path_key)
+            );
+            CREATE TABLE IF NOT EXISTS pending_directories (
+                transaction_id TEXT NOT NULL REFERENCES pending_transactions(id),
+                ord INTEGER NOT NULL, relative_path TEXT NOT NULL, identity TEXT,
+                PRIMARY KEY(transaction_id, ord)
+            );
             CREATE TABLE IF NOT EXISTS pending_transactions (
                 id TEXT PRIMARY KEY,
                 action TEXT NOT NULL,
@@ -132,6 +144,17 @@ impl Store {
         })();
         connection.pragma_update(None, "foreign_keys", foreign_keys)?;
         migration?;
+        for table in ["managed_directories", "pending_directories"] {
+            let has_identity: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name='identity')",
+                [table],
+                |row| row.get(0),
+            )?;
+            if !has_identity {
+                connection
+                    .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN identity TEXT"))?;
+            }
+        }
         Ok(Self {
             connection,
             state_root: path

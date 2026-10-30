@@ -332,6 +332,7 @@ impl Store {
             archive_sha256: None,
             origin: "manual".into(),
             files: selected.files,
+            directories: Vec::new(),
         })
     }
 }

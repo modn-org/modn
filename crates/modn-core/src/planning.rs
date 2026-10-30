@@ -17,6 +17,9 @@ pub struct PlannedFile {
     pub bytes: u64,
     /// Recognized mod layout category.
     pub kind: String,
+    /// Exclusive, newly created subdirectory owned as a unit, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owned_directory: Option<String>,
 }
 
 /// Blocker that prevents a proposed installation.
@@ -151,6 +154,7 @@ pub(crate) struct RequestedFile {
     pub(crate) destination: String,
     pub(crate) kind: String,
     pub(crate) package_root: String,
+    pub(crate) owned_directory: Option<String>,
 }
 pub(crate) struct RequestedPlan {
     pub(crate) operations: Vec<RequestedFile>,
@@ -340,6 +344,7 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
             destination: request.destination,
             bytes,
             kind: request.kind,
+            owned_directory: request.owned_directory,
         });
     }
     if operations.is_empty() {

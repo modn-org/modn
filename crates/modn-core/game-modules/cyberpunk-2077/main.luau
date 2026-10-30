@@ -71,8 +71,7 @@ function policy.scan(limit)
         if not response.incomplete then return end
         for _, entry in ipairs(response.unsafe_names or {}) do
             local name = entry.name
-            if folder == "red4ext/plugins/ArchiveXL" and name == "ArchiveXL.log"
-                and entry.file_symlink and present("red4ext/plugins/ArchiveXL/ArchiveXL.dll", "file") then
+            if entry.file_symlink and string.match(folder, "^red4ext/plugins/[^/]+$") and string.match(string.lower(name), "%.log$") then
                 -- Generated log is not mod content; never follow its link.
                 issues.SCAN_IGNORED_GENERATED_LOG = true
             else
@@ -224,7 +223,7 @@ function policy.doctor(report)
         elseif code == "SCAN_UNREADABLE_ENTRY" then
             add(code, "warning", "Unreadable directory entries were skipped.")
         elseif code == "SCAN_IGNORED_GENERATED_LOG" then
-            add(code, "info", "Generated ArchiveXL.log link was ignored; adoption is blocked.")
+            add(code, "info", "Generated RED4ext plugin log link was ignored; adoption is blocked.")
         end
     end
     if report.incomplete and #(report.scan_issues or {}) == 0 then
@@ -390,26 +389,27 @@ function policy.plan(files)
                 end
                 local wrapper = table.concat(parts, "/", 1, i - 1)
                 local target = table.concat(parts, "/", i)
+                local depth = kind == "red4ext" and 2 or kind == "cet" and 5 or (kind == "redscript" and #parts - i + 1 >= 4 and 2)
+                local exclusive
+                if depth then
+                    local root = table.concat(parts, "/", i, i + depth)
+                    local parent = string.match(root, "^(.*)/[^/]+$")
+                    if parent and present(parent, "directory") and not present(root, "directory") then exclusive = root end
+                end
                 table.insert(operations, {
                     source = file.source, destination = target, kind = kind,
-                    package_root = wrapper,
+                    package_root = wrapper, owned_directory = exclusive,
                 })
                 local allowed = allowed_extensions[kind]
                 local extension = string.match(string.lower(parts[#parts]), "%.([^%.]+)$") or ""
                 if allowed ~= nil and not allowed[extension] then
                     block("UNSUPPORTED_CONTENT", "Unsupported file in " .. kind .. ": " .. file.source)
                 end
-                if kind == "redmod" then
-                    block("NOT_INSTALLABLE", "REDmod deployment is not supported")
-                end
+                if kind == "redmod" then block("NOT_INSTALLABLE", "REDmod deployment is not supported") end
                 if kind == "input-xml" then needs_input_loader = true end
-                if kind == "redscript" or kind == "redscript-hint" then
-                    needs_redscript = true
-                elseif kind == "archive-xl" then
-                    needs_archivexl = true
-                elseif kind == "tweak" then
-                    needs_tweakxl = true
-                end
+                if kind == "redscript" or kind == "redscript-hint" then needs_redscript = true
+                elseif kind == "archive-xl" then needs_archivexl = true
+                elseif kind == "tweak" then needs_tweakxl = true end
                 if kind == "redmod" then
                     local name = string.lower(parts[i + 1])
                     if redmods[name] == nil then redmods[name] = false end

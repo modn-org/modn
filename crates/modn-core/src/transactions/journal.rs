@@ -1,4 +1,3 @@
-//! Transaction journal persistence, locking, rollback and recovery.
 use super::validation::validate_transaction_root;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
@@ -9,7 +8,6 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-
 /// Installed package and its manager-owned file manifest.
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
@@ -24,6 +22,8 @@ pub struct ManagedPackage {
     pub origin: String,
     /// Exact owned files (including explicitly adopted manual files).
     pub files: Vec<OwnedFile>,
+    /// Exclusive game-relative directory roots, owned in their entirety.
+    pub directories: Vec<String>,
 }
 
 /// Manifest record for a file owned by a managed package.
@@ -46,12 +46,18 @@ pub(super) struct JournalFile {
     pub(super) bytes: u64,
 }
 
+pub(super) struct JournalDirectory {
+    root: String,
+    identity: Option<String>,
+}
+
 pub(super) struct Journal {
     id: String,
     action: String,
     status: String,
     game: PathBuf,
     files: Vec<JournalFile>,
+    directories: Vec<JournalDirectory>,
 }
 
 pub(super) fn digest(path: &Path) -> Result<String> {
@@ -72,7 +78,6 @@ pub(crate) fn lock_store(store: &Store) -> Result<File> {
         .context("cannot acquire exclusive transaction lock")?;
     Ok(lock)
 }
-
 pub(super) fn target_path(game: &Path, relative: &str, create_parents: bool) -> Result<PathBuf> {
     let canonical = game.canonicalize()?;
     let mut current = canonical.clone();
@@ -117,44 +122,6 @@ pub(super) fn temp_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> {
 }
 
 impl Store {
-    /// List packages installed by this manager for the selected game.
-    pub fn installed(&self, game: &Path) -> Result<Vec<ManagedPackage>> {
-        let game = validate_transaction_root(game)?;
-        let name = game.to_string_lossy().into_owned();
-        // Read-only previews must support PR14 ledgers without migrating them.
-        let has_origin: bool = self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('managed_packages')
-             WHERE name='origin')",
-            [],
-            |row| row.get(0),
-        )?;
-        let statement = if has_origin {
-            "SELECT id, archive_sha256, origin FROM managed_packages
-             WHERE game_path=?1 ORDER BY created_at, id"
-        } else {
-            "SELECT id, archive_sha256, 'archive' AS origin FROM managed_packages
-             WHERE game_path=?1 ORDER BY created_at, id"
-        };
-        let mut query = self.connection.prepare(statement)?;
-        let packages = query
-            .query_map([&name], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        packages.into_iter().map(|(id, archive_sha256, origin)| {
-            let mut statement = self.connection.prepare(
-                "SELECT relative_path, sha256, bytes FROM managed_files WHERE package_id=?1 ORDER BY relative_path")?;
-            let files = statement.query_map([&id], |row| Ok(OwnedFile {
-                destination: row.get(0)?, sha256: row.get(1)?, bytes: row.get::<_,i64>(2)? as u64
-            }))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(ManagedPackage { id, game_installation: game.clone(), archive_sha256, origin, files })
-        }).collect()
-    }
-
     pub(crate) fn ensure_no_pending(&self) -> Result<()> {
         let count: i64 =
             self.connection
@@ -167,6 +134,10 @@ impl Store {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "journal keeps file and directory witnesses separately"
+    )]
     pub(super) fn insert_journal(
         &mut self,
         id: &str,
@@ -175,6 +146,7 @@ impl Store {
         package_id: &str,
         archive_hash: Option<&str>,
         files: &[JournalFile],
+        directories: &[String],
     ) -> Result<()> {
         self.ensure_no_pending()?;
         let tx = self.connection.transaction()?;
@@ -202,6 +174,20 @@ impl Store {
                 ],
             )?;
         }
+        for (ordinal, root) in directories.iter().enumerate() {
+            let identity: Option<String> = if action == "uninstall" {
+                Some(tx.query_row(
+                    "SELECT identity FROM managed_directories WHERE package_id=?1 AND relative_path=?2",
+                    params![package_id, root],
+                    |row| row.get::<_, Option<String>>(0),
+                )?.context("owned directory identity missing")?)
+            } else {
+                None
+            };
+            tx.execute(
+                "INSERT INTO pending_directories(transaction_id,ord,relative_path,identity) VALUES (?1,?2,?3,?4)",
+                params![id, ordinal as i64, root, identity])?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -215,8 +201,12 @@ impl Store {
         )?;
         Ok(())
     }
-
-    pub(super) fn stage_ready(&mut self, id: &str, files: &[JournalFile]) -> Result<()> {
+    pub(super) fn stage_ready(
+        &mut self,
+        id: &str,
+        files: &[JournalFile],
+        directories: &[String],
+    ) -> Result<()> {
         let tx = self.connection.transaction()?;
         for f in files {
             tx.execute(
@@ -231,11 +221,33 @@ impl Store {
                 ],
             )?;
         }
+        for (index, root) in directories.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO pending_directories(transaction_id,ord,relative_path) VALUES (?1,?2,?3)",
+                params![id, index as i64, root])?;
+        }
         tx.execute(
             "UPDATE pending_transactions SET status='pending' WHERE id=?1 AND status='staging'",
             [id],
         )?;
         tx.commit()?;
+        Ok(())
+    }
+
+    pub(super) fn record_directory_identity(
+        &mut self,
+        journal_id: &str,
+        root: &str,
+        identity: &str,
+    ) -> Result<()> {
+        let updated = self.connection.execute(
+            "UPDATE pending_directories SET identity=?3
+             WHERE transaction_id=?1 AND relative_path=?2 AND identity IS NULL",
+            params![journal_id, root, identity],
+        )?;
+        if updated != 1 {
+            bail!("cannot persist exclusive directory identity: {root}");
+        }
         Ok(())
     }
 
@@ -270,13 +282,12 @@ impl Store {
                         })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
-                Ok(Journal {
-                    id,
-                    action,
-                    status,
-                    game: PathBuf::from(game),
-                    files,
-                })
+                let mut q = self.connection.prepare(
+                     "SELECT relative_path,identity FROM pending_directories WHERE transaction_id=?1 ORDER BY ord")?;
+                let directories = q.query_map([&id], |row| {
+                    Ok(JournalDirectory { root: row.get(0)?, identity: row.get(1)? })
+                })?.collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(Journal { id, action, status, game: PathBuf::from(game), files, directories })
             })
             .collect()
     }
@@ -292,6 +303,10 @@ impl Store {
             })?;
         }
         let tx = self.connection.transaction()?;
+        tx.execute(
+            "DELETE FROM pending_directories WHERE transaction_id=?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
@@ -379,6 +394,31 @@ impl Store {
                 _ => bail!("unknown transaction state for {}", journal.id),
             }
         }
+        if journal.action == "uninstall" {
+            for (ordinal, claim) in journal.directories.iter().enumerate() {
+                super::directory::recover_directory(
+                    &game,
+                    &claim.root,
+                    &journal.id,
+                    ordinal,
+                    claim
+                        .identity
+                        .as_deref()
+                        .context("missing uninstall directory identity")?,
+                    journal.status == "committed",
+                )?;
+            }
+        } else if journal.action == "install" && journal.status == "pending" {
+            for (ordinal, claim) in journal.directories.iter().enumerate().rev() {
+                super::directory::recover_install(
+                    &game,
+                    &claim.root,
+                    &journal.id,
+                    ordinal,
+                    claim.identity.as_deref(),
+                )?;
+            }
+        }
         self.finish_journal(&journal.id)
     }
 
@@ -402,6 +442,7 @@ impl Store {
         game: &Path,
         hash: &str,
         files: &[JournalFile],
+        directories: &[String],
     ) -> Result<()> {
         let tx = self.connection.transaction()?;
         tx.execute(
@@ -414,6 +455,18 @@ impl Store {
                 params![game.to_string_lossy().as_ref(), f.destination.to_lowercase(),
                     f.destination, id, f.sha256, f.bytes as i64])?;
         }
+        for root in directories {
+            let identity: String = tx.query_row(
+                "SELECT identity FROM pending_directories WHERE transaction_id=?1 AND relative_path=?2",
+                params![id, root],
+                |row| row.get::<_, Option<String>>(0),
+            )?.context("exclusive directory identity must be persisted before commit")?;
+            tx.execute(
+                "INSERT INTO managed_directories(game_path,path_key,relative_path,package_id,identity)
+                 VALUES (?1,?2,?3,?4,?5)",
+                params![game.to_string_lossy().as_ref(), root.to_lowercase(), root, id, identity],
+            )?;
+        }
         tx.execute(
             "UPDATE pending_transactions SET status='committed' WHERE id=?1",
             [id],
@@ -424,6 +477,10 @@ impl Store {
 
     pub(super) fn commit_uninstall(&mut self, journal_id: &str, package_id: &str) -> Result<()> {
         let tx = self.connection.transaction()?;
+        tx.execute(
+            "DELETE FROM managed_directories WHERE package_id=?1",
+            [package_id],
+        )?;
         tx.execute(
             "DELETE FROM managed_files WHERE package_id=?1",
             [package_id],
