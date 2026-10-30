@@ -671,3 +671,25 @@ fn greek_sigma_alias_cannot_mix_directory_and_file_ownership() {
     assert!(!game.join("data/\u{039F}\u{03A3}").exists());
     assert!(store.pending().unwrap().is_empty());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_birth_identity_rejects_reused_inode_generation() {
+    let (_temp, _store, game, _archive) = fixture();
+    let owned = game.join("owned");
+    fs::create_dir(&owned).unwrap();
+    let current = super::directory::identity(&owned).unwrap();
+    let mut identity_parts: Vec<_> = current.split(':').map(str::to_owned).collect();
+    assert_eq!(
+        identity_parts.len(),
+        6,
+        "native directory identity must include birth time"
+    );
+    // Model an inode reuse: retain the device and inode but change its birth
+    // timestamp. Rechecking the replacement must fail even with the old inode.
+    let previous_birth = identity_parts[4].parse::<i64>().unwrap() - 1;
+    identity_parts[4] = previous_birth.to_string();
+    let reused = identity_parts.join(":");
+    assert!(super::directory::verify_directory(&owned, &reused).is_err());
+    assert!(super::directory::verify_directory(&owned, &current).is_ok());
+}

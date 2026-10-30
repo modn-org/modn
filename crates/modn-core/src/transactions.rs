@@ -1,5 +1,6 @@
 //! Exclusive journaled transactions with rollback and recovery guarantees.
 mod directory;
+pub(crate) use directory::case_key as directory_candidate_key;
 mod directory_ledger;
 #[cfg(test)]
 mod generic_tests;

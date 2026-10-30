@@ -221,7 +221,10 @@ pub fn scan_with_ownership_for(
         let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
         let candidate = directory_roots.iter().find(|(root, _, status)| {
             if *status != "present"
-                || !ownership_key(&relative).starts_with(&format!("{}/", ownership_key(root)))
+                || !crate::transactions::directory_candidate_key(&relative).starts_with(&format!(
+                    "{}/",
+                    crate::transactions::directory_candidate_key(root)
+                ))
             {
                 return false;
             }

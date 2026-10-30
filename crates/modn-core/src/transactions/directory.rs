@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 /// Uppercasing each scalar avoids Rust's contextual lowercasing (Greek final
 /// sigma) when comparing *missing* Windows paths. This is a conservative
 /// collision guard, not proof of identity of an existing directory.
-pub(super) fn case_key(path: &str) -> String {
+pub(crate) fn case_key(path: &str) -> String {
     if cfg!(windows) {
         path.chars().flat_map(char::to_uppercase).collect()
     } else {
@@ -93,19 +93,43 @@ pub(super) fn identity(path: &Path) -> Result<String> {
     ))
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub(super) fn identity(path: &Path) -> Result<String> {
+    use rustix::fs::{AtFlags, StatxFlags};
     use std::os::unix::fs::MetadataExt;
+
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_dir() || meta.file_type().is_symlink() {
         bail!("unsafe directory identity: {}", path.display());
     }
-    Ok(format!("unix:{}:{}", meta.dev(), meta.ino()))
+    let stat = rustix::fs::statx(
+        rustix::fs::CWD,
+        path,
+        AtFlags::SYMLINK_NOFOLLOW,
+        StatxFlags::BASIC_STATS | StatxFlags::BTIME,
+    )
+    .map_err(io::Error::from)?;
+    if (stat.stx_mask & StatxFlags::BTIME.bits()) == 0 || stat.stx_ino != meta.ino() {
+        bail!(
+            "filesystem cannot prove directory birth identity: {}",
+            path.display()
+        );
+    }
+    // Device and inode alone can be reused after deletion. An actual birth
+    // timestamp makes the reallocated directory a different identity.
+    Ok(format!(
+        "linux:{}:{}:{}:{}:{}",
+        stat.stx_dev_major,
+        stat.stx_dev_minor,
+        stat.stx_ino,
+        stat.stx_btime.tv_sec,
+        stat.stx_btime.tv_nsec,
+    ))
 }
 
-#[cfg(not(any(windows, unix)))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub(super) fn identity(_path: &Path) -> Result<String> {
-    bail!("directory ownership needs native filesystem identity support")
+    bail!("exclusive directory ownership requires reliable native birth identity")
 }
 
 pub(super) fn verify_directory(path: &Path, expected: &str) -> Result<()> {
