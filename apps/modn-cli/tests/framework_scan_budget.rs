@@ -227,7 +227,7 @@ fn link_file(target: &std::path::Path, link: &std::path::Path) -> std::io::Resul
 
 #[cfg(windows)]
 #[test]
-fn generated_archivexl_log_link_does_not_hide_inventory_but_blocks_adoption() {
+fn generated_archivexl_log_link_does_not_hide_inventory() {
     let temp = tempdir().expect("fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
@@ -302,15 +302,6 @@ fn generated_archivexl_log_link_does_not_hide_inventory_but_blocks_adoption() {
         .iter()
         .any(|item| item["code"] == "SCAN_INCOMPLETE"));
 
-    let adoption = Command::new(env!("CARGO_BIN_EXE_modn"))
-        .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
-        .arg(&state)
-        .args(["adopt", "--dry-run", "--path"])
-        .arg(&game)
-        .output()
-        .expect("adopt preview");
-    assert!(!adoption.status.success(), "unsafe log must block adoption");
-    assert!(String::from_utf8_lossy(&adoption.stderr).contains("adoption refused"));
     assert!(plugin.join("ArchiveXL.dll").is_file());
     assert!(fs::symlink_metadata(plugin.join("ArchiveXL.log"))
         .expect("log metadata")

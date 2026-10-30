@@ -85,8 +85,8 @@ impl Store {
                 PRIMARY KEY(transaction_id, ord)
             );",
         )?;
-        // SQLite transactions make metadata-only adoption atomic: no game-file journal
-        // is needed because this migration and adoption only change manager state.
+        // Preserve older package records, including the legacy manual origin, so
+        // previously managed packages remain safely uninstallable.
         // SQLite's table-rebuild migration must not cascade-delete managed_files.
         // Foreign keys can only be toggled outside a transaction; restore them on
         // both success and failure. The immediate transaction serializes schema

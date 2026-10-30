@@ -1,5 +1,4 @@
 use super::Store;
-use crate::adoption::preview_adoption_for;
 use rusqlite::{params, Connection};
 use std::fs;
 use std::path::Path;
@@ -41,7 +40,7 @@ fn legacy_ledger(db: &Path, game: &Path) {
 }
 
 #[test]
-fn legacy_readonly_adoption_preview_does_not_migrate_or_modify_database() {
+fn legacy_readonly_state_access_does_not_migrate_or_modify_database() {
     let temp = tempdir().unwrap();
     let game = temp.path().join("game");
     let db = temp.path().join("state.sqlite");
@@ -60,12 +59,6 @@ fn legacy_readonly_adoption_preview_does_not_migrate_or_modify_database() {
     assert_eq!(
         installed[0].archive_sha256.as_deref(),
         Some("original-digest")
-    );
-    let preview = preview_adoption_for(Some(&store), "cyberpunk-2077", &game).unwrap();
-    assert_eq!(preview.packages.len(), 1);
-    assert_eq!(
-        preview.packages[0].selector,
-        "archive/pc/mod/Manual.archive"
     );
     drop(store);
     assert_eq!(
@@ -154,4 +147,45 @@ fn nullable_migration_preserves_existing_manual_origin() {
         )
         .unwrap();
     assert_eq!(origin, "manual");
+}
+
+#[test]
+fn legacy_manual_record_can_only_uninstall_unchanged_files() {
+    use sha2::{Digest, Sha256};
+
+    let temp = tempdir().unwrap();
+    let game = temp.path().join("game");
+    let file = game.join("archive/pc/mod/Legacy.archive");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file, b"original").unwrap();
+    let game = game.canonicalize().unwrap();
+    let mut store = Store::open(&temp.path().join("state/state.sqlite")).unwrap();
+    let digest = format!("{:x}", Sha256::digest(b"original"));
+    let game_path = game.to_string_lossy();
+    store
+        .connection
+        .execute(
+            "INSERT INTO managed_packages(id,game_path,archive_sha256,origin)
+             VALUES ('legacy-manual',?1,NULL,'manual')",
+            params![game_path.as_ref()],
+        )
+        .unwrap();
+    store
+        .connection
+        .execute(
+            "INSERT INTO managed_files(game_path,path_key,relative_path,package_id,sha256,bytes)
+             VALUES (?1,'archive/pc/mod/legacy.archive','archive/pc/mod/Legacy.archive',
+                     'legacy-manual',?2,8)",
+            params![game_path.as_ref(), digest],
+        )
+        .unwrap();
+    fs::write(&file, b"modified").unwrap();
+    assert!(store.uninstall(&game, "legacy-manual").is_err());
+    assert_eq!(fs::read(&file).unwrap(), b"modified");
+    assert_eq!(store.installed(&game).unwrap().len(), 1);
+    assert_eq!(store.recover().unwrap(), 0);
+    fs::write(&file, b"original").unwrap();
+    store.uninstall(&game, "legacy-manual").unwrap();
+    assert!(!file.exists());
+    assert!(store.installed(&game).unwrap().is_empty());
 }

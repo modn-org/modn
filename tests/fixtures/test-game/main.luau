@@ -129,28 +129,4 @@ function policy.plan(files)
     return { schema_version = 1, operations = operations, blockers = blockers }
 end
 
--- Group a nested add-on as a package; top-level files are individual packages.
-function policy.adoption(mods)
-    local groups = {}
-    local order = {}
-    for _, item in ipairs(mods) do
-        if item.kind == "test-plugin" then
-            local selector = string.match(item.relative_path, "^(addons/[^/]+)/")
-                or item.relative_path
-            if groups[selector] == nil then
-                groups[selector] = { selector = selector, kind = item.kind, files = {} }
-                table.insert(order, selector)
-            end
-            table.insert(groups[selector].files, item.relative_path)
-        end
-    end
-    table.sort(order)
-    local output = {}
-    for _, selector in ipairs(order) do
-        table.sort(groups[selector].files)
-        table.insert(output, groups[selector])
-    end
-    return { schema_version = 1, groups = output }
-end
-
 return policy

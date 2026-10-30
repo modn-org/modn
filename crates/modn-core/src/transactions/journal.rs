@@ -18,9 +18,9 @@ pub struct ManagedPackage {
     pub game_installation: PathBuf,
     /// Digest of the source archive.
     pub archive_sha256: Option<String>,
-    /// How this package entered management: archive or manual.
+    /// How this package entered management: archive or legacy manual.
     pub origin: String,
-    /// Exact owned files (including explicitly adopted manual files).
+    /// Exact owned files (including legacy manually owned files).
     pub files: Vec<OwnedFile>,
     /// Exclusive game-relative directory roots, owned in their entirety.
     pub directories: Vec<String>,

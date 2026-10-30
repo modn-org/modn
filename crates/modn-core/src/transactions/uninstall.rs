@@ -32,10 +32,10 @@ impl Store {
             .collect();
         for f in &files {
             if package.origin == "manual" {
-                let (_, bytes, sha) = crate::adoption::checked_file(&game, &f.destination)?;
+                let (_, bytes, sha) = super::legacy::checked_legacy_file(&game, &f.destination)?;
                 if bytes != f.bytes || sha != f.sha256 {
                     bail!(
-                        "adopted file changed; refusing uninstall: {}",
+                        "legacy managed file changed; refusing uninstall: {}",
                         f.destination
                     );
                 }
@@ -86,9 +86,13 @@ impl Store {
             }
             for f in &files {
                 if package.origin == "manual" {
-                    let (_, bytes, sha) = crate::adoption::checked_file(&game, &f.destination)?;
+                    let (_, bytes, sha) =
+                        super::legacy::checked_legacy_file(&game, &f.destination)?;
                     if bytes != f.bytes || sha != f.sha256 {
-                        bail!("adopted file changed during uninstall: {}", f.destination);
+                        bail!(
+                            "legacy managed file changed during uninstall: {}",
+                            f.destination
+                        );
                     }
                 }
                 let target = target_path(&game, &f.destination, /* create_parents= */ false)?;
