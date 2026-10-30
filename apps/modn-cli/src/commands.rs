@@ -102,6 +102,45 @@ pub(super) enum ModuleCommand {
         #[arg(long = "allow-root", value_name = "DIR")]
         allow_roots: Vec<PathBuf>,
     },
+    /// Validate an unsigned local module ZIP without creating state.
+    Inspect { archive: PathBuf },
+    /// Install an unsigned local ZIP; activation requires a separate enable.
+    Install {
+        archive: PathBuf,
+        #[arg(long, conflicts_with = "yes")]
+        dry_run: bool,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Install and select a new version of an already enabled user module.
+    Update {
+        archive: PathBuf,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Explicitly select an installed version (including over a bundled module).
+    Enable {
+        game: String,
+        version: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Disable user selection, retaining installed and rollback versions.
+    Disable {
+        game: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Swap the selected and previous installed versions.
+    Rollback {
+        game: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// List and integrity-check installed user versions without creating state.
+    List,
+    /// Show user selection, rollback target and effective module source.
+    Status { game: String },
 }
 
 #[derive(Subcommand)]
