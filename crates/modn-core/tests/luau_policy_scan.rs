@@ -51,4 +51,11 @@ fn discovered_unreadable_red4ext_plugin_marks_scan_incomplete() {
         report.get::<bool>("incomplete").expect("incomplete"),
         "observed but unreadable plugin directories cannot be silently skipped"
     );
+    let issues: Table = report.get("scan_issues").expect("scan issues");
+    let issues: Vec<String> = issues
+        .sequence_values()
+        .collect::<mlua::Result<_>>()
+        .expect("issues");
+    assert!(issues.iter().any(|code| code == "SCAN_UNREADABLE_ENTRY"));
+    assert!(!issues.iter().any(|code| code == "SCAN_INCOMPLETE"));
 }

@@ -240,6 +240,14 @@ replacement, and the Luau VM is not a formal security boundary.
 
 The `framework_signals` array identifies candidate CET, RED4ext, redscript/compiler, ArchiveXL and TweakXL directories or binaries with their relative paths. Doctor emits `REDSCRIPT_NOT_INSTALLED`, `ARCHIVEXL_NOT_INSTALLED`, or `TWEAKXL_NOT_INSTALLED` when corresponding content is present but a known framework marker is absent. A presence signal **does not verify that a framework is installed, active, or compatible**. `scan` and `doctor` never write to the game or adopt files; the state database remains outside the game installation. A game directory redirect is not followed for ownership verification. No automatic repairs or deletion are performed.
 
+Scan JSON now includes `scan_issues`, distinguishing entry-limit truncation
+(`SCAN_INCOMPLETE`) from unsafe/linked (`SCAN_UNSAFE_ENTRY`) and unreadable
+(`SCAN_UNREADABLE_ENTRY`) entries. A symlink named `ArchiveXL.log` inside
+`red4ext/plugins/ArchiveXL/` is recognized as generated log output and
+reported informationally as `SCAN_IGNORED_GENERATED_LOG` rather than missing
+mod content. The link is never followed, and **adoption remains blocked** if
+any entries were skipped, including recognized generated logs.
+
 ## Archive inspection and dry-run resolution
 
 `modn inspect <file>` reads ZIP, JAR, or 7z **headers and SHA-256 only**. It never extracts a file into the game. Archive entries with unsafe paths, duplicates, symbolic links detected in metadata, or encrypted ZIP entries are rejected. Unsupported formats (including RAR) are refused. Plan operations are **not** verified file contents, installation authorization, or game compatibility.
