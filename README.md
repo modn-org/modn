@@ -22,6 +22,33 @@ Use `--state-dir <directory>` for an isolated state database. Multiple registere
 
 Current detection recognizes legacy `.archive` files, ArchiveXL `.xl` metadata, redscript `.reds` files, redscript hint `.toml`, tweak `.yaml`/`.yml` files, REDmod directories, CET mods and RED4ext plugins. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
 
+## Recommended first-time setup (MVP)
+
+**Start from a clean, verified game installation.** Use the game client or
+platform to verify the game files, and remove manually installed mods using
+their original removal instructions before starting with Modn. Keep a backup
+of personal saves and settings; Modn does not clean or repair an existing game.
+
+Register the game with `modn game add <game-id> --path "<game>"`, inspect
+supported ZIP packages with `install --dry-run`, and install with explicit
+`--yes` after reviewing the plan. There is no default game. Keep subsequent
+mod installs and uninstalls under Modn's ownership tracking.
+
+If an installation already contains manually installed mods, treat
+[explicit adoption](#explicit-adoption-of-manually-installed-mods-experimental)
+as an **advanced, optional migration** rather than normal setup. A scan
+does not grant ownership. Adoption transfers deletion authority for exactly
+the approved files; do not adopt content you cannot confidently identify.
+Unsupported or ambiguous files remain unmanaged, and conflicting existing
+files are not silently overwritten.
+
+The MVP prioritizes conservative ownership checks and refusing ambiguous
+filesystem layouts, not support for arbitrary symlink/junction setups or
+guaranteed protection against another process changing paths concurrently.
+Avoid redirected game/mod directories where practical; use dedicated game
+installations and do not run another mod manager against the same files
+at the same time.
+
 ## Local Luau game modules (experimental, read-only)
 
 `modn module check <directory> --json` validates a local module without creating manager state or touching a game installation. The selected directory must contain `module.json` and one flat `.luau` entrypoint. [A runnable example](examples/game-modules/sample-game/) is included:
@@ -184,7 +211,8 @@ Transactions are **recoverable** rather than one single filesystem-wide atomic v
 
 ## Explicit adoption of manually installed mods (experimental)
 
-Adoption is an opt-in **ownership transfer**, not a reinstall. Game-specific Luau
+Adoption is an **advanced, optional** opt-in **ownership transfer**, not a reinstall.
+For a new setup, prefer the clean-install workflow above. Game-specific Luau
 policy proposes bounded, explicit groups of existing files; Rust rejects incomplete
 scans, links/aliases/hard links, unknown or ambiguous groups, executables,
 ownership conflicts, changed file content, and unsafe destinations. Groups include
