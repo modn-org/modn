@@ -1,12 +1,13 @@
 mod adopt;
 mod commands;
+mod modules;
 mod selection;
 mod state_access;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use commands::{Cli, Command, GameCommand, ModuleCommand};
+use commands::{Cli, Command, GameCommand};
 use modn_core::archive::inspect;
-use modn_core::game_modules::check_module_with_roots;
+use modn_core::game_modules::with_module_store;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::planning::preview_install_zip;
 use modn_core::state::Store;
@@ -16,6 +17,17 @@ use std::path::PathBuf;
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    let state_path = database_path(cli.state_dir.as_deref())?;
+    let state_root = state_path
+        .parent()
+        .context("invalid manager state directory")?;
+    with_module_store(state_root, || run_cli(cli, state_path.clone()))
+}
+
+fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
+    if let Command::Module { command } = cli.command {
+        return modules::run(command, &state_path, cli.game_id.as_deref(), cli.json);
+    }
     let requested = cli.game_id.as_deref();
     if let Command::Game {
         command: GameCommand::Add { game, .. },
@@ -37,7 +49,6 @@ fn run() -> Result<()> {
         | Command::Doctor { path } => path.as_deref(),
         _ => None,
     };
-    let state_path = database_path(cli.state_dir.as_deref())?;
 
     // Before opening writable state, establish the selected game identity and
     // root using only the existing read-only registration database.
@@ -139,23 +150,7 @@ fn run() -> Result<()> {
         })
     };
     match cli.command {
-        Command::Module {
-            command:
-                ModuleCommand::Check {
-                    directory,
-                    allow_roots,
-                },
-        } => {
-            let module = check_module_with_roots(&directory, &allow_roots)?;
-            if cli.json {
-                println!("{}", serde_json::to_string_pretty(&module)?);
-            } else {
-                println!(
-                    "Game module {} v{} (host API {})",
-                    module.game_id, module.version, module.api_version
-                );
-            }
-        }
+        Command::Module { .. } => unreachable!("module commands return before manager access"),
         Command::Install {
             archive,
             path,

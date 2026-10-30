@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from module_packages import verify_packages
 
 REPO = Path(__file__).resolve().parents[4]
 FIXTURE = REPO / "tests" / "fixtures" / "test-game"
@@ -36,12 +37,16 @@ class Driver:
         self.root = root
         self.index = 0
 
-    def run(self, label, args, *, success=True):
+    def run(self, label, args, *, success=True, use_override=True):
         self.index += 1
         command = [str(self.binary), *map(str, args)]
+        environment = dict(os.environ)
+        environment.pop("MODN_GAME_MODULES_DIR", None)
+        if use_override:
+            environment["MODN_GAME_MODULES_DIR"] = str(self.root / "modules")
         completed = subprocess.run(
             command, cwd=REPO,
-            env={**os.environ, "MODN_GAME_MODULES_DIR": str(self.root / "modules")},
+            env=environment,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
         record = {
             "label": label, "command": command, "exit_code": completed.returncode,
@@ -86,6 +91,7 @@ def verify(driver):
     write_zip(cyber_zip, {"archive/pc/mod/managed.archive": PAYLOAD})
     before = snapshot(game)
     manual_mtime = unmanaged.stat().st_mtime_ns
+    verify_packages(driver, game, FIXTURE)
     preview = driver.json("adoption-unregistered-preview",
                           ["--game", "test-game", "adopt", "--dry-run", "--path", game])
     require([p["selector"] for p in preview["packages"]] ==

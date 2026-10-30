@@ -1,6 +1,7 @@
 //! Generic adapter for runtime-loaded, game-specific Luau policies.
 use super::capabilities::{AllowedRoots, ReadProfile};
-use super::loader::{self, HOST_API_VERSION};
+use super::loader::HOST_API_VERSION;
+use super::resolver::read_policy;
 use super::runtime;
 use crate::planning::{RequestedFile, RequestedPlan};
 use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport};
@@ -10,32 +11,6 @@ use mlua::{Function, Lua, Table};
 use std::path::{Component, Path, PathBuf};
 
 const MAX_ITEMS: usize = 20_000;
-
-fn module_directory(game_id: &str) -> Result<PathBuf> {
-    if game_id.len() < 2
-        || game_id.len() > 64
-        || !game_id
-            .bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
-    {
-        bail!("invalid game module identifier");
-    }
-    if let Some(base) = std::env::var_os("MODN_GAME_MODULES_DIR") {
-        return Ok(PathBuf::from(base).join(game_id));
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let directory = parent.join("game-modules").join(game_id);
-            if directory.is_dir() {
-                return Ok(directory);
-            }
-        }
-    }
-    // Development fixture fallback: packaging must ship game modules beside the executable.
-    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("game-modules")
-        .join(game_id))
-}
 
 fn evaluate<T>(
     game_id: &str,
@@ -51,8 +26,7 @@ fn evaluate_with_profile<T>(
     profile: ReadProfile,
     action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
-    let directory = module_directory(game_id)?;
-    let (manifest, source) = loader::read_verified_module(&directory)?;
+    let (manifest, source, _) = read_policy(game_id)?;
     if manifest.game_id != game_id {
         bail!("game module identity does not match requested game");
     }
@@ -65,7 +39,11 @@ fn evaluate_with_profile<T>(
         |lua, policy| {
             let id: String = policy.get("game_id")?;
             let version: u32 = policy.get("api_version")?;
-            if id != game_id || version != HOST_API_VERSION {
+            let module_version: Option<String> = policy.get("version")?;
+            if id != game_id
+                || version != HOST_API_VERSION
+                || module_version.is_some_and(|version| version != manifest.version)
+            {
                 return Err(mlua::Error::RuntimeError(
                     "game module identity or host API mismatch".into(),
                 ));

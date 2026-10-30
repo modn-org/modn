@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 /// First host API revision. Future incompatible changes require a new revision.
 pub const HOST_API_VERSION: u32 = 1;
-const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
-const MAX_SCRIPT_BYTES: u64 = 256 * 1024;
+pub(super) const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
+pub(super) const MAX_SCRIPT_BYTES: u64 = 256 * 1024;
 
 /// Validated identity of one external game integration; no installation privileges implied.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -27,14 +27,16 @@ pub struct GameModuleInfo {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ModuleManifest {
-    game_id: String,
-    version: String,
-    api_version: u32,
-    entrypoint: String,
+pub(super) struct ModuleManifest {
+    pub(super) game_id: String,
+    pub(super) version: String,
+    pub(super) api_version: u32,
+    pub(super) entrypoint: String,
+    #[serde(default)]
+    pub(super) package_format: Option<u32>,
 }
 
-fn bounded_file(path: &Path, root: &Path, limit: u64) -> Result<Vec<u8>> {
+pub(super) fn bounded_file(path: &Path, root: &Path, limit: u64) -> Result<Vec<u8>> {
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("cannot inspect module file {}", path.display()))?;
     if !metadata.file_type().is_file() || metadata.len() > limit {
@@ -58,7 +60,7 @@ fn bounded_file(path: &Path, root: &Path, limit: u64) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn valid_game_id(value: &str) -> bool {
+pub(super) fn valid_game_id(value: &str) -> bool {
     value.len() >= 2
         && value.len() <= 64
         && !value.starts_with('-')
@@ -68,7 +70,7 @@ fn valid_game_id(value: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-fn valid_entrypoint(value: &str) -> bool {
+pub(super) fn valid_entrypoint(value: &str) -> bool {
     value.len() <= 96
         && value.ends_with(".luau")
         && value != ".luau"
@@ -76,9 +78,13 @@ fn valid_entrypoint(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
         && value != ".."
+        && crate::archive::validated_name(value).is_ok()
 }
 
-fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
+pub(super) fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
+    if manifest.package_format.is_some_and(|version| version != 1) {
+        bail!("unsupported module package_format; expected 1");
+    }
     if manifest.api_version != HOST_API_VERSION {
         bail!(
             "incompatible host API: module requires {}, host supports {}",
@@ -117,7 +123,11 @@ fn execute_module(script: &[u8], manifest: &ModuleManifest, roots: AllowedRoots)
         |_, output: Table| {
             let declared_api: u32 = output.get("api_version")?;
             let declared_game: String = output.get("game_id")?;
-            if declared_api != manifest.api_version || declared_game != manifest.game_id {
+            let declared_version: Option<String> = output.get("version")?;
+            if declared_api != manifest.api_version
+                || declared_game != manifest.game_id
+                || declared_version.is_some_and(|version| version != manifest.version)
+            {
                 return Err(mlua::Error::RuntimeError(
                     "Luau module identity or host API disagrees with manifest".into(),
                 ));
@@ -154,10 +164,31 @@ pub fn check_module_with_roots(
         version: info.version.clone(),
         api_version: info.api_version,
         entrypoint: info.entrypoint.clone(),
+        package_format: None,
     };
     execute_module(script.as_bytes(), &manifest, roots)
         .with_context(|| format!("module {} failed validation", manifest.game_id))?;
     Ok(info.into())
+}
+
+/// Validate exactly the bytes later stored or executed, without filesystem staging.
+pub(super) fn check_bytes(manifest: &[u8], script: &[u8]) -> Result<VerifiedModule> {
+    if manifest.len() as u64 > MAX_MANIFEST_BYTES || script.len() as u64 > MAX_SCRIPT_BYTES {
+        bail!("module manifest or script exceeds byte limit");
+    }
+    let manifest: ModuleManifest =
+        serde_json::from_slice(manifest).context("invalid module.json manifest")?;
+    validate_manifest(&manifest)?;
+    if manifest.package_format != Some(1) {
+        bail!("distributed module requires package_format 1");
+    }
+    execute_module(script, &manifest, AllowedRoots::validate(&[])?)?;
+    Ok(VerifiedModule {
+        game_id: manifest.game_id,
+        version: manifest.version,
+        api_version: manifest.api_version,
+        entrypoint: manifest.entrypoint,
+    })
 }
 
 #[derive(Debug)]
