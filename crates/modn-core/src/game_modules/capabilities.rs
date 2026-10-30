@@ -365,7 +365,18 @@ fn directory_service(
                                 if meta.file_type().is_symlink()
                                     || (!meta.is_file() && !meta.is_dir()) =>
                             {
-                                unsafe_names.push(name)
+                                // Windows exposes link-directory attributes without following the link.
+                                // On Unix the link kind is unknown without dereferencing it.
+                                #[cfg(windows)]
+                                let file_symlink = {
+                                    use std::os::windows::fs::MetadataExt;
+                                    const DIRECTORY_ATTRIBUTE: u32 = 0x10;
+                                    meta.file_type().is_symlink()
+                                        && meta.file_attributes() & DIRECTORY_ATTRIBUTE == 0
+                                };
+                                #[cfg(not(windows))]
+                                let file_symlink = false;
+                                unsafe_names.push((name, file_symlink));
                             }
                             _ => unreadable = true,
                         }
@@ -396,8 +407,12 @@ fn directory_service(
                 response.set("truncated", truncated)?;
                 response.set("unreadable", unreadable)?;
                 let unsafe_items = lua.create_table()?;
-                for (index, name) in unsafe_names.iter().enumerate() {
-                    unsafe_items.set(index + 1, name.as_str())?;
+                for (index, (name, file_symlink)) in unsafe_names.iter().enumerate() {
+                    let item = lua.create_table()?;
+                    item.set("name", name.as_str())?;
+                    item.set("file_symlink", *file_symlink)?;
+                    item.set_readonly(true);
+                    unsafe_items.set(index + 1, item)?;
                 }
                 unsafe_items.set_readonly(true);
                 response.set("unsafe_names", unsafe_items)?;

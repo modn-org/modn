@@ -225,7 +225,7 @@ fn link_file(target: &std::path::Path, link: &std::path::Path) -> std::io::Resul
     }
 }
 
-#[cfg(any(unix, windows))]
+#[cfg(windows)]
 #[test]
 fn generated_archivexl_log_link_does_not_hide_inventory_but_blocks_adoption() {
     let temp = tempdir().expect("fixture");
@@ -366,4 +366,107 @@ fn unknown_plugin_link_reports_unsafe_entry_not_limit() {
         .expect("issues")
         .iter()
         .any(|item| item == "SCAN_INCOMPLETE"));
+}
+
+#[cfg(any(unix, windows))]
+fn link_directory(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link)
+    }
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::symlink_dir(target, link)
+    }
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn archivexl_log_directory_link_stays_unsafe() {
+    let temp = tempdir().expect("fixture");
+    let game = temp.path().join("game");
+    let plugin = game.join("red4ext/plugins/ArchiveXL");
+    fs::create_dir_all(&plugin).expect("plugin");
+    fs::write(plugin.join("ArchiveXL.dll"), b"plugin").expect("dll");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().expect("marker parent")).expect("game");
+    fs::write(marker, b"game").expect("marker");
+    let outside = temp.path().join("logs");
+    fs::create_dir_all(&outside).expect("logs");
+    fs::write(outside.join("unexpected.reds"), b"not part of mod").expect("outside file");
+    if let Err(error) = link_directory(&outside, &plugin.join("ArchiveXL.log")) {
+        if cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied {
+            eprintln!("Windows test lacks directory-symlink permission: {error}");
+            return;
+        }
+        panic!("link fixture: {error}");
+    }
+    let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
+        .arg(temp.path().join("state"))
+        .args(["scan", "--path"])
+        .arg(&game)
+        .output()
+        .expect("scan");
+    assert!(
+        scan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scan.stderr)
+    );
+    let report: Value = serde_json::from_slice(&scan.stdout).expect("JSON");
+    assert_eq!(
+        report["incomplete"], true,
+        "directory links must not be dismissed"
+    );
+    let issues = report["scan_issues"].as_array().expect("issues");
+    assert!(issues.iter().any(|code| code == "SCAN_UNSAFE_ENTRY"));
+    assert!(!issues
+        .iter()
+        .any(|code| code == "SCAN_IGNORED_GENERATED_LOG"));
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn exhausted_budget_preserves_unsafe_link_issue() {
+    let temp = tempdir().expect("fixture");
+    let game = temp.path().join("game");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().expect("marker parent")).expect("game");
+    fs::write(marker, b"game").expect("marker");
+    let scripts = game.join("r6/scripts");
+    fs::create_dir_all(&scripts).expect("scripts");
+    for index in 0..256 {
+        fs::write(scripts.join(format!("mod-{index:03}.reds")), b"reds").expect("reds");
+    }
+    let plugins = game.join("red4ext/plugins");
+    fs::create_dir_all(&plugins).expect("plugins");
+    let outside = temp.path().join("outside");
+    fs::write(&outside, b"untrusted").expect("outside");
+    if let Err(error) = link_file(&outside, &plugins.join("Unknown")) {
+        if cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied {
+            eprintln!("Windows test lacks symlink permission: {error}");
+            return;
+        }
+        panic!("link fixture: {error}");
+    }
+    let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
+        .arg(temp.path().join("state"))
+        .args(["scan", "--path"])
+        .arg(&game)
+        .output()
+        .expect("scan");
+    assert!(
+        scan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scan.stderr)
+    );
+    let report: Value = serde_json::from_slice(&scan.stdout).expect("JSON");
+    assert_eq!(report["incomplete"], true);
+    let issues = report["scan_issues"].as_array().expect("issues");
+    assert!(issues.iter().any(|code| code == "SCAN_INCOMPLETE"));
+    assert!(
+        issues.iter().any(|code| code == "SCAN_UNSAFE_ENTRY"),
+        "budget exhaustion must not hide known linked entries: {issues:?}"
+    );
 }

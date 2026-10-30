@@ -78,8 +78,10 @@ function policy.scan(limit)
     end
     local function note_listing(response, folder)
         if not response.incomplete then return end
-        for _, name in ipairs(response.unsafe_names or {}) do
-            if folder == "red4ext/plugins/ArchiveXL" and name == "ArchiveXL.log" then
+        for _, entry in ipairs(response.unsafe_names or {}) do
+            local name = entry.name
+            if folder == "red4ext/plugins/ArchiveXL" and name == "ArchiveXL.log"
+                and entry.file_symlink and present("red4ext/plugins/ArchiveXL/ArchiveXL.dll", "file") then
                 -- Generated log is not mod content; never follow its link.
                 issues.SCAN_IGNORED_GENERATED_LOG = true
             else
@@ -124,6 +126,7 @@ function policy.scan(limit)
                 end
                 local peek = listing(current, current ~= folder or required_root, 1)
                 if peek ~= nil and (peek.incomplete or #peek.items > 0) then
+                    note_listing(peek, current)
                     mark_limit()
                     return
                 end
@@ -156,7 +159,10 @@ function policy.scan(limit)
         local response = listing(folder, nil, max_items)
         if response == nil then return end
         if exhausted then
-            if response.incomplete or #response.items > 0 then mark_limit() end
+            if response.incomplete or #response.items > 0 then
+                note_listing(response, folder)
+                mark_limit()
+            end
             return
         end
         note_listing(response, folder)

@@ -242,11 +242,12 @@ The `framework_signals` array identifies candidate CET, RED4ext, redscript/compi
 
 Scan JSON now includes `scan_issues`, distinguishing entry-limit truncation
 (`SCAN_INCOMPLETE`) from unsafe/linked (`SCAN_UNSAFE_ENTRY`) and unreadable
-(`SCAN_UNREADABLE_ENTRY`) entries. A symlink named `ArchiveXL.log` inside
-`red4ext/plugins/ArchiveXL/` is recognized as generated log output and
-reported informationally as `SCAN_IGNORED_GENERATED_LOG` rather than missing
-mod content. The link is never followed, and **adoption remains blocked** if
-any entries were skipped, including recognized generated logs.
+(`SCAN_UNREADABLE_ENTRY`) entries. On Windows, a verified file symlink named `ArchiveXL.log` inside
+`red4ext/plugins/ArchiveXL/` is recognized as generated log output when the
+ArchiveXL DLL is present, and reported informationally as `SCAN_IGNORED_GENERATED_LOG` rather than missing
+mod content. Directory symlinks and special objects stay unsafe; Unix
+conservatively reports an unknown link type. The link is never followed, and
+**adoption remains blocked** if any entries were skipped, including generated logs.
 
 ## Archive inspection and dry-run resolution
 
