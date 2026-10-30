@@ -17,7 +17,7 @@ fn legacy_ledger(db: &Path, game: &Path) {
         );
         CREATE TABLE managed_files (
             game_path TEXT NOT NULL, path_key TEXT NOT NULL,
-            relative_path TEXT NOT NULL, package_id TEXT NOT NULL,
+            relative_path TEXT NOT NULL, package_id TEXT NOT NULL REFERENCES managed_packages(id),
             sha256 TEXT NOT NULL, bytes INTEGER NOT NULL,
             PRIMARY KEY (game_path, path_key)
         );",
@@ -27,6 +27,14 @@ fn legacy_ledger(db: &Path, game: &Path) {
         .execute(
             "INSERT INTO managed_packages (id, game_path, archive_sha256)
          VALUES ('legacy', ?1, 'original-digest')",
+            params![game.to_string_lossy().as_ref()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO managed_files (game_path,path_key,relative_path,package_id,sha256,bytes)
+         VALUES (?1,'archive/pc/mod/Legacy.archive','archive/pc/mod/Legacy.archive',
+                 'legacy','old-digest',3)",
             params![game.to_string_lossy().as_ref()],
         )
         .unwrap();
@@ -47,6 +55,7 @@ fn legacy_readonly_adoption_preview_does_not_migrate_or_modify_database() {
     let store = Store::open_readonly(&db).unwrap();
     let installed = store.installed(&game).unwrap();
     assert_eq!(installed.len(), 1);
+    assert_eq!(installed[0].files.len(), 1);
     assert_eq!(installed[0].origin, "archive");
     assert_eq!(
         installed[0].archive_sha256.as_deref(),

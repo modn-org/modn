@@ -75,45 +75,63 @@ impl Store {
         )?;
         // SQLite transactions make metadata-only adoption atomic: no game-file journal
         // is needed because this migration and adoption only change manager state.
-        // Hold SQLite's write reservation before checking the schema. A second
-        // opener must recheck after the first migration commits, not reuse stale metadata.
-        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (nullable, has_origin): (bool, bool) = {
-            let mut stmt = tx.prepare("PRAGMA table_info(managed_packages)")?;
-            let columns = stmt
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            (
-                columns
-                    .iter()
-                    .any(|(name, nonnull)| name == "archive_sha256" && *nonnull == 0),
-                columns.iter().any(|(name, _)| name == "origin"),
-            )
-        };
-        if !nullable || !has_origin {
-            tx.execute_batch(
-                "CREATE TABLE managed_packages_new (
+        // SQLite's table-rebuild migration must not cascade-delete managed_files.
+        // Foreign keys can only be toggled outside a transaction; restore them on
+        // both success and failure. The immediate transaction serializes schema
+        // inspection with migration, so concurrent openers cannot act on stale metadata.
+        let foreign_keys: i64 =
+            connection.pragma_query_value(None, "foreign_keys", |row| row.get(0))?;
+        connection.pragma_update(None, "foreign_keys", "OFF")?;
+        let migration = (|| -> Result<()> {
+            let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let (nullable, has_origin): (bool, bool) = {
+                let mut stmt = tx.prepare("PRAGMA table_info(managed_packages)")?;
+                let columns = stmt
+                    .query_map([], |row| {
+                        Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                (
+                    columns
+                        .iter()
+                        .any(|(name, nonnull)| name == "archive_sha256" && *nonnull == 0),
+                    columns.iter().any(|(name, _)| name == "origin"),
+                )
+            };
+            if !nullable || !has_origin {
+                tx.execute_batch(
+                    "CREATE TABLE managed_packages_new (
                 id TEXT PRIMARY KEY, game_path TEXT NOT NULL,
                 archive_sha256 TEXT, origin TEXT NOT NULL DEFAULT 'archive',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );",
-            )?;
-            let copy = if has_origin {
-                "INSERT INTO managed_packages_new (id,game_path,archive_sha256,origin,created_at)
+                )?;
+                let copy = if has_origin {
+                    "INSERT INTO managed_packages_new (id,game_path,archive_sha256,origin,created_at)
                  SELECT id,game_path,archive_sha256,origin,created_at FROM managed_packages"
-            } else {
-                "INSERT INTO managed_packages_new (id,game_path,archive_sha256,created_at)
+                } else {
+                    "INSERT INTO managed_packages_new (id,game_path,archive_sha256,created_at)
                  SELECT id,game_path,archive_sha256,created_at FROM managed_packages"
-            };
-            tx.execute(copy, [])?;
-            tx.execute_batch(
-                "DROP TABLE managed_packages;
+                };
+                tx.execute(copy, [])?;
+                tx.execute_batch(
+                    "DROP TABLE managed_packages;
                 ALTER TABLE managed_packages_new RENAME TO managed_packages;",
-            )?;
-        }
-        tx.commit()?;
+                )?;
+                let violated: bool = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if violated {
+                    anyhow::bail!("managed package migration violates foreign key integrity");
+                }
+            }
+            tx.commit()?;
+            Ok(())
+        })();
+        connection.pragma_update(None, "foreign_keys", foreign_keys)?;
+        migration?;
         Ok(Self {
             connection,
             state_root: path
