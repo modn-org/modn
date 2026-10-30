@@ -121,8 +121,21 @@ impl Store {
     pub fn installed(&self, game: &Path) -> Result<Vec<ManagedPackage>> {
         let game = validate_transaction_root(game)?;
         let name = game.to_string_lossy().into_owned();
-        let mut query = self.connection.prepare(
-            "SELECT id, archive_sha256, origin FROM managed_packages WHERE game_path=?1 ORDER BY created_at, id")?;
+        // Read-only previews must support PR14 ledgers without migrating them.
+        let has_origin: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('managed_packages')
+             WHERE name='origin')",
+            [],
+            |row| row.get(0),
+        )?;
+        let statement = if has_origin {
+            "SELECT id, archive_sha256, origin FROM managed_packages
+             WHERE game_path=?1 ORDER BY created_at, id"
+        } else {
+            "SELECT id, archive_sha256, 'archive' AS origin FROM managed_packages
+             WHERE game_path=?1 ORDER BY created_at, id"
+        };
+        let mut query = self.connection.prepare(statement)?;
         let packages = query
             .query_map([&name], |row| {
                 Ok((

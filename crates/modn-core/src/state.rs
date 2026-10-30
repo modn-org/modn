@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,7 +29,7 @@ impl Store {
             fs::create_dir_all(parent)
                 .with_context(|| format!("cannot create state directory {}", parent.display()))?;
         }
-        let connection = Connection::open(path)
+        let mut connection = Connection::open(path)
             .with_context(|| format!("cannot open state database {}", path.display()))?;
         connection.execute_batch(
             "CREATE TABLE IF NOT EXISTS game_installations (
@@ -75,8 +75,11 @@ impl Store {
         )?;
         // SQLite transactions make metadata-only adoption atomic: no game-file journal
         // is needed because this migration and adoption only change manager state.
+        // Hold SQLite's write reservation before checking the schema. A second
+        // opener must recheck after the first migration commits, not reuse stale metadata.
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (nullable, has_origin): (bool, bool) = {
-            let mut stmt = connection.prepare("PRAGMA table_info(managed_packages)")?;
+            let mut stmt = tx.prepare("PRAGMA table_info(managed_packages)")?;
             let columns = stmt
                 .query_map([], |row| {
                     Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?))
@@ -90,7 +93,6 @@ impl Store {
             )
         };
         if !nullable || !has_origin {
-            let tx = connection.unchecked_transaction()?;
             tx.execute_batch(
                 "CREATE TABLE managed_packages_new (
                 id TEXT PRIMARY KEY, game_path TEXT NOT NULL,
@@ -98,17 +100,20 @@ impl Store {
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );",
             )?;
-            tx.execute(
+            let copy = if has_origin {
+                "INSERT INTO managed_packages_new (id,game_path,archive_sha256,origin,created_at)
+                 SELECT id,game_path,archive_sha256,origin,created_at FROM managed_packages"
+            } else {
                 "INSERT INTO managed_packages_new (id,game_path,archive_sha256,created_at)
-                SELECT id,game_path,archive_sha256,created_at FROM managed_packages",
-                [],
-            )?;
+                 SELECT id,game_path,archive_sha256,created_at FROM managed_packages"
+            };
+            tx.execute(copy, [])?;
             tx.execute_batch(
                 "DROP TABLE managed_packages;
                 ALTER TABLE managed_packages_new RENAME TO managed_packages;",
             )?;
-            tx.commit()?;
         }
+        tx.commit()?;
         Ok(Self {
             connection,
             state_root: path
@@ -165,3 +170,6 @@ impl Store {
         Ok(installations)
     }
 }
+
+#[cfg(test)]
+mod tests;

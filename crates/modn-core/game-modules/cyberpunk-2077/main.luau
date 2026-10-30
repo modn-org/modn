@@ -423,7 +423,8 @@ function policy.adoption(mods)
         end
         -- User-generated configs, logs, caches and backups are ambiguous.
         local lower = string.lower(path)
-        local unsafe = string.find(lower, "/config/", 1, true)
+        local unsafe = (item.kind ~= "redscript-hint"
+            and string.find(lower, "/config/", 1, true))
             or string.find(lower, "/logs/", 1, true)
             or string.match(lower, "%.log$")
             or string.match(lower, "%.bak$")

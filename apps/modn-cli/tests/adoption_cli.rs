@@ -215,3 +215,45 @@ fn refuses_registered_nested_game_root_before_adopting_any_files() {
     assert!(String::from_utf8_lossy(&attempt.stderr).contains("overlaps"));
     assert_eq!(fs::read(&manual).unwrap(), b"manual");
 }
+
+#[test]
+fn supports_redscript_hints_but_refuses_plugin_generated_config() {
+    let temp = tempdir().unwrap();
+    let game = temp.path().join("game");
+    let state = temp.path().join("state");
+    let hint = game.join("r6/config/redsUserHints/Compatible.toml");
+    let plugin = game.join("red4ext/plugins/Custom");
+    fs::create_dir_all(game.join("bin/x64")).unwrap();
+    fs::create_dir_all(hint.parent().unwrap()).unwrap();
+    fs::create_dir_all(plugin.join("config")).unwrap();
+    fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").unwrap();
+    fs::write(&hint, b"hint contents").unwrap();
+    fs::write(plugin.join("entry.dll"), b"plugin").unwrap();
+    fs::write(plugin.join("config/user.toml"), b"generated config").unwrap();
+    let root = game.to_str().unwrap();
+    let selector = "r6/config/redsUserHints/Compatible.toml";
+    let preview = checked(cli(&state, &["adopt", "--dry-run", "--path", root]));
+    let packages = preview["packages"].as_array().unwrap();
+    assert_eq!(packages.len(), 1);
+    assert_eq!(packages[0]["selector"], selector);
+    assert_eq!(packages[0]["kind"], "redscript-hint");
+    assert!(!state.exists(), "dry run must not initialize manager state");
+    let adopted = checked(cli(&state, &["adopt", selector, "--yes", "--path", root]));
+    assert_eq!(adopted["files"][0]["destination"], selector);
+    assert_eq!(fs::read(&hint).unwrap(), b"hint contents");
+    checked(cli(
+        &state,
+        &[
+            "uninstall",
+            adopted["id"].as_str().unwrap(),
+            "--yes",
+            "--path",
+            root,
+        ],
+    ));
+    assert!(!hint.exists());
+    assert_eq!(
+        fs::read(plugin.join("config/user.toml")).unwrap(),
+        b"generated config"
+    );
+}
