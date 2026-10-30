@@ -550,6 +550,7 @@ dependencies = [
  "anyhow",
  "clap",
  "modn-core",
+ "same-file",
  "serde_json",
  "tempfile",
  "zip",

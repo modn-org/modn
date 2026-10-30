@@ -404,4 +404,48 @@ function policy.plan(files)
     return { schema_version = 1, operations = operations, blockers = blockers }
 end
 
+-- Adopt only specific recognized files or a single plugin subtree.
+function policy.adoption(mods)
+    local groups = {}
+    local rejected = {}
+    local order = {}
+    for _, item in ipairs(mods) do
+        local path = item.relative_path
+        local selector
+        if item.kind == "cet-mod" then
+            selector = string.match(path, "^(bin/x64/plugins/cyber_engine_tweaks/mods/[^/]+)/")
+        elseif item.kind == "red4ext-plugin" then
+            selector = string.match(path, "^(red4ext/plugins/[^/]+)/")
+        elseif item.kind == "legacy-archive" or item.kind == "archive-xl"
+            or item.kind == "redscript" or item.kind == "redscript-hint"
+            or item.kind == "tweak" then
+            selector = path
+        end
+        -- User-generated configs, logs, caches and backups are ambiguous.
+        local lower = string.lower(path)
+        local unsafe = (item.kind ~= "redscript-hint"
+            and string.find(lower, "/config/", 1, true))
+            or string.find(lower, "/logs/", 1, true)
+            or string.match(lower, "%.log$")
+            or string.match(lower, "%.bak$")
+            or string.match(lower, "%.tmp$")
+            or string.match(lower, "%.json$")
+        if selector ~= nil and unsafe then rejected[selector] = true end
+        if selector ~= nil and not unsafe then
+            if groups[selector] == nil then
+                groups[selector] = { selector = selector, kind = item.kind, files = {} }
+                table.insert(order, selector)
+            end
+            table.insert(groups[selector].files, path)
+        end
+    end
+    table.sort(order)
+    local output = {}
+    for _, selector in ipairs(order) do
+        table.sort(groups[selector].files)
+        if not rejected[selector] then table.insert(output, groups[selector]) end
+    end
+    return { schema_version = 1, groups = output }
+end
+
 return policy

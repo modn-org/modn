@@ -85,6 +85,16 @@ def verify(driver):
     cyber_zip = root / "legacy.zip"
     write_zip(cyber_zip, {"archive/pc/mod/managed.archive": PAYLOAD})
     before = snapshot(game)
+    manual_mtime = unmanaged.stat().st_mtime_ns
+    preview = driver.json("adoption-unregistered-preview",
+                          ["--game", "test-game", "adopt", "--dry-run", "--path", game])
+    require([p["selector"] for p in preview["packages"]] ==
+            ["addons/manual.plugin"], "test-game adoption selector incorrect")
+    require(preview["packages"][0]["files"][0]["bytes"] == len(UNMANAGED)
+            and "DELETE" in preview["consequence"],
+            "adoption preview lacks exact size or deletion warning")
+    require(snapshot(game) == before and not (root / "state").exists(),
+            "adoption preview touched state or game files")
 
     driver.run("doctor-help", ["--help"])
     info = driver.json("module-check", ["module", "check", FIXTURE, "--allow-root", game])
@@ -251,6 +261,27 @@ def verify(driver):
     require(unmanaged.read_bytes() == UNMANAGED, "uninstall modified unmanaged file")
     require(driver.json("installed-empty", ["installed", "--path", game]) == [],
             "ownership ledger not cleared")
+    driver.json("adoption-requires-yes",
+                ["adopt", "addons/manual.plugin", "--path", game], success=False)
+    adopted = driver.json("adopt-manual",
+                          ["adopt", "addons/manual.plugin", "--yes", "--path", game])
+    require(adopted["origin"] == "manual" and adopted["archive_sha256"] is None
+            and len(adopted["files"]) == 1, "adoption did not create truthful ownership")
+    require(unmanaged.read_bytes() == UNMANAGED
+            and unmanaged.stat().st_mtime_ns == manual_mtime,
+            "adoption changed manual file")
+    adopted_scan = driver.json("adopted-scan", ["scan", "--path", game])
+    require(any(m["relative_path"] == "addons/manual.plugin" and m["managed"]
+                for m in adopted_scan["mods"]), "manual file not marked managed")
+    driver.json("duplicate-adoption-denied",
+                ["adopt", "addons/manual.plugin", "--yes", "--path", game], success=False)
+    unmanaged.write_bytes(b"manual-modified")
+    driver.json("adopted-drift-protected",
+                ["uninstall", adopted["id"], "--yes", "--path", game], success=False)
+    unmanaged.write_bytes(UNMANAGED)
+    driver.json("uninstall-adopted",
+                ["uninstall", adopted["id"], "--yes", "--path", game])
+    require(not unmanaged.exists(), "explicitly adopted file survived uninstall")
 
     require(cyber_file.read_bytes() == PAYLOAD,
             "uninstalling first game changed second game")

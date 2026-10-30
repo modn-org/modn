@@ -225,6 +225,82 @@ pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
     })
 }
 
+/// Untrusted, bounded Luau grouping of scanned existing files.
+pub(crate) struct AdoptionGroup {
+    pub(crate) selector: String,
+    pub(crate) kind: String,
+    pub(crate) files: Vec<String>,
+}
+
+/// Propose complete group boundaries. Game-specific grouping never acquires state access.
+pub(crate) fn adoption_groups(
+    game_id: &str,
+    root: &Path,
+    detected: &[DetectedMod],
+) -> Result<Vec<AdoptionGroup>> {
+    const LIMIT: usize = 2_048;
+    if detected.len() > LIMIT {
+        bail!("too many files for adoption planning");
+    }
+    evaluate(game_id, &[root.to_path_buf()], |lua, policy| {
+        let input = lua.create_table()?;
+        for (index, item) in detected.iter().enumerate() {
+            let entry = lua.create_table()?;
+            entry.set(
+                "relative_path",
+                item.relative_path.to_string_lossy().as_ref(),
+            )?;
+            entry.set("kind", item.kind.as_str())?;
+            entry.set_readonly(true);
+            input.set(index + 1, entry)?;
+        }
+        input.set_readonly(true);
+        let output: Table = policy.get::<Function>("adoption")?.call(input)?;
+        if output.get::<u32>("schema_version")? != 1 {
+            return Err(mlua::Error::RuntimeError(
+                "unsupported adoption plan schema version".into(),
+            ));
+        }
+        let groups: Table = output.get("groups")?;
+        if groups.raw_len() > LIMIT {
+            return Err(mlua::Error::RuntimeError(
+                "adoption group limit exceeded".into(),
+            ));
+        }
+        let mut budget = 8 * 1024 * 1024;
+        groups
+            .sequence_values::<Table>()
+            .map(|entry| {
+                let entry = entry?;
+                let files: Table = entry.get("files")?;
+                if files.raw_len() > LIMIT {
+                    return Err(mlua::Error::RuntimeError(
+                        "adoption file limit exceeded".into(),
+                    ));
+                }
+                let files = files
+                    .sequence_values::<mlua::LuaString>()
+                    .map(|value| {
+                        let value = value?;
+                        if value.as_bytes().len() > 256 || value.as_bytes().len() > budget {
+                            return Err(mlua::Error::RuntimeError(
+                                "adoption result too large".into(),
+                            ));
+                        }
+                        budget -= value.as_bytes().len();
+                        Ok(value.to_str()?.to_owned())
+                    })
+                    .collect::<mlua::Result<Vec<_>>>()?;
+                Ok(AdoptionGroup {
+                    selector: plan_field(&entry, "selector", 256, &mut budget)?,
+                    kind: plan_field(&entry, "kind", 64, &mut budget)?,
+                    files,
+                })
+            })
+            .collect()
+    })
+}
+
 // Check Luau string lengths before copying into Rust's memory (outside the VM limit).
 fn plan_field(
     table: &Table,
