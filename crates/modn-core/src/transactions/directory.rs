@@ -1,24 +1,30 @@
-//! Exclusive directory claims and reversible same-volume quarantine.
+//! Game-agnostic exclusive directory identities and recoverable same-volume moves.
 use super::journal::target_path;
 use crate::planning::InstallPlan;
 use anyhow::{bail, Context, Result};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
-const OWNER_MARKER: &str = ".modn-ownership";
-
-fn case_key(path: &str) -> String {
+/// Uppercasing each scalar avoids Rust's contextual lowercasing (Greek final
+/// sigma) when comparing *missing* Windows paths. This is a conservative
+/// collision guard, not proof of identity of an existing directory.
+pub(super) fn case_key(path: &str) -> String {
     if cfg!(windows) {
-        path.to_lowercase()
+        path.chars().flat_map(char::to_uppercase).collect()
     } else {
         path.to_owned()
     }
 }
 
-/// An exclusive claim cannot overlap file-owned paths or an aliased claim.
+pub(super) fn covers(roots: &[String], relative: &str) -> bool {
+    let key = case_key(relative);
+    roots
+        .iter()
+        .any(|root| key.starts_with(&format!("{}/", case_key(root))))
+}
+
 pub(super) fn exclusive_roots(game: &Path, plan: &InstallPlan) -> Result<Vec<String>> {
     let mut roots = BTreeSet::new();
     for op in &plan.operations {
@@ -68,76 +74,50 @@ pub(super) fn exclusive_roots(game: &Path, plan: &InstallPlan) -> Result<Vec<Str
     Ok(roots.into_iter().collect())
 }
 
-/// A sidecar in the shared parent is hard-linked to a marker in the mod folder.
-/// Both names must refer to the original file object even across renames.
-fn witness_path(directory: &Path, root: &str) -> Result<PathBuf> {
-    let digest = format!("{:x}", Sha256::digest(root.as_bytes()));
-    Ok(directory
-        .parent()
-        .context("directory has no parent")?
-        .join(format!(".modn-dir-{}.witness", &digest[..24])))
-}
-
-fn witness_prefix(root: &str) -> String {
-    format!("modn-owned-directory-v1\n{root}\n")
-}
-
-fn verify_sidecar(path: &Path, root: &str) -> Result<()> {
+/// Persist the directory object's native identity, never a file planted inside
+/// it. The identity survives rename and partial recursive deletion.
+#[cfg(windows)]
+pub(super) fn identity(path: &Path) -> Result<String> {
+    use std::os::windows::fs::MetadataExt;
     let meta = fs::symlink_metadata(path)?;
-    if !meta.is_file() || meta.file_type().is_symlink() {
-        bail!("unsafe ownership witness: {}", path.display());
-    }
-    let bytes = fs::read(path)?;
-    if !bytes.starts_with(witness_prefix(root).as_bytes()) || bytes.len() > 4096 {
-        bail!("ownership witness changed: {}", path.display());
-    }
-    Ok(())
-}
-
-pub(super) fn create_witness(directory: &Path, root: &str, id: &str) -> Result<()> {
-    let sidecar = witness_path(directory, root)?;
-    let mut witness = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&sidecar)?;
-    witness.write_all(format!("{}{}\n", witness_prefix(root), id).as_bytes())?;
-    witness.sync_all()?;
-    fs::hard_link(&sidecar, directory.join(OWNER_MARKER))
-        .with_context(|| format!("cannot mark exclusive directory {}", directory.display()))?;
-    verify_directory(directory, root)
-}
-
-pub(super) fn verify_directory(directory: &Path, root: &str) -> Result<()> {
-    let meta = fs::symlink_metadata(directory)?;
     if !meta.is_dir() || meta.file_type().is_symlink() {
-        bail!("unsafe owned directory: {}", directory.display());
+        bail!("unsafe directory identity: {}", path.display());
     }
-    let sidecar = witness_path(directory, root)?;
-    verify_sidecar(&sidecar, root)?;
-    let marker = directory.join(OWNER_MARKER);
-    let file_meta = fs::symlink_metadata(&marker)?;
-    if !file_meta.is_file()
-        || file_meta.file_type().is_symlink()
-        || !same_file::is_same_file(&sidecar, &marker)?
-    {
-        bail!("owned directory identity changed: {}", directory.display());
+    let handle = winapi_util::Handle::from_path_any(path)?;
+    let info = winapi_util::file::information(&handle)?;
+    Ok(format!(
+        "win:{}:{}:{}",
+        info.volume_serial_number(),
+        info.file_index(),
+        meta.creation_time()
+    ))
+}
+
+#[cfg(unix)]
+pub(super) fn identity(path: &Path) -> Result<String> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_dir() || meta.file_type().is_symlink() {
+        bail!("unsafe directory identity: {}", path.display());
+    }
+    Ok(format!("unix:{}:{}", meta.dev(), meta.ino()))
+}
+
+#[cfg(not(any(windows, unix)))]
+pub(super) fn identity(_path: &Path) -> Result<String> {
+    bail!("directory ownership needs native filesystem identity support")
+}
+
+pub(super) fn verify_directory(path: &Path, expected: &str) -> Result<()> {
+    if expected.is_empty() || identity(path)? != expected {
+        bail!("owned directory identity changed: {}", path.display());
     }
     Ok(())
 }
 
-fn remove_sidecar(directory: &Path, root: &str) -> Result<()> {
-    let sidecar = witness_path(directory, root)?;
-    match fs::symlink_metadata(&sidecar) {
-        Ok(_) => {
-            verify_sidecar(&sidecar, root)?;
-            fs::remove_file(sidecar)?;
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
+/// The same-volume temporary folder is empty until its identity has been
+/// persisted. A crash before recording identity therefore cannot leave an
+/// unverified live mod installation.
 pub(super) fn quarantine_path(
     game: &Path,
     root: &str,
@@ -151,117 +131,184 @@ pub(super) fn quarantine_path(
         .join(format!(".modn-txn-{id}-dir-{ordinal}.tmp")))
 }
 
-pub(super) fn quarantine(game: &Path, root: &str, id: &str, ordinal: usize) -> Result<()> {
-    let path = target_path(game, root, false)?;
-    verify_directory(&path, root)?;
-    let stage = quarantine_path(game, root, id, ordinal)?;
-    if fs::symlink_metadata(&stage).is_ok() {
-        bail!(
-            "directory quarantine destination occupied: {}",
-            stage.display()
-        );
+/// A same-volume move must never replace a concurrently created directory.
+fn rename_unoccupied(from: &Path, to: &Path) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        rustix::fs::renameat_with(
+            rustix::fs::CWD,
+            from,
+            rustix::fs::CWD,
+            to,
+            rustix::fs::RenameFlags::NOREPLACE,
+        )
+        .map_err(io::Error::from)?;
     }
-    fs::rename(&path, &stage).with_context(|| format!("cannot quarantine {}", path.display()))
-}
-
-/// Never restore or delete a substituted quarantine folder.
-pub(super) fn recover_directory(
-    game: &Path,
-    root: &str,
-    id: &str,
-    ordinal: usize,
-    committed: bool,
-) -> Result<()> {
-    let path = target_path(game, root, false)?;
-    let stage = quarantine_path(game, root, id, ordinal)?;
-    let exists = |p: &Path| -> Result<bool> {
-        match fs::symlink_metadata(p) {
-            Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => Ok(true),
-            Ok(_) => bail!("unsafe directory in recovery: {}", p.display()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-            Err(error) => Err(error.into()),
-        }
-    };
-    let saved = exists(&stage)?;
-    let active = exists(&path)?;
-    if committed {
-        if active {
-            bail!(
-                "directory reappeared during committed recovery: {}",
-                path.display()
-            );
-        }
-        if saved {
-            verify_directory(&stage, root)?;
-            fs::remove_dir_all(&stage)?;
-        }
-        remove_sidecar(&path, root)?;
-    } else if saved {
-        verify_directory(&stage, root)?;
-        if active {
-            bail!("directory reappeared during recovery: {}", path.display());
-        }
-        fs::rename(&stage, &path)?;
-    } else if !active {
-        bail!("no safe recovery witness for {}", path.display());
-    } else {
-        verify_directory(&path, root)?;
+    #[cfg(windows)]
+    {
+        // MoveFileEx cannot replace an existing directory with another directory.
+        fs::rename(from, to)?;
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        bail!("exclusive folder moves require a no-replace rename on this platform");
     }
     Ok(())
 }
 
-pub(crate) fn covers(roots: &[String], relative: &str) -> bool {
-    let key = case_key(relative);
-    roots
-        .iter()
-        .any(|root| key.starts_with(&format!("{}/", case_key(root))))
+pub(super) fn prepare_install(game: &Path, root: &str, id: &str, n: usize) -> Result<String> {
+    let active = target_path(game, root, false)?;
+    let staged = quarantine_path(game, root, id, n)?;
+    if fs::symlink_metadata(&active).is_ok() {
+        bail!("exclusive directory already exists: {}", active.display());
+    }
+    fs::create_dir(&staged)?;
+    identity(&staged)
 }
 
-/// Prune only empty nested folders after all verified file witnesses are removed.
-fn prune_empty_nested(path: &Path) -> Result<()> {
-    for child in fs::read_dir(path)? {
-        let child = child?;
-        let meta = child.file_type()?;
-        if !meta.is_dir() || meta.is_symlink() {
+pub(super) fn activate_install(
+    game: &Path,
+    root: &str,
+    id: &str,
+    n: usize,
+    expected: &str,
+) -> Result<()> {
+    let active = target_path(game, root, false)?;
+    let staged = quarantine_path(game, root, id, n)?;
+    verify_directory(&staged, expected)?;
+    if fs::symlink_metadata(&active).is_ok() {
+        bail!("exclusive directory already exists: {}", active.display());
+    }
+    rename_unoccupied(&staged, &active)
+        .with_context(|| format!("cannot activate owned directory {}", active.display()))
+}
+
+pub(super) fn quarantine(
+    game: &Path,
+    root: &str,
+    id: &str,
+    n: usize,
+    expected: &str,
+) -> Result<()> {
+    let active = target_path(game, root, false)?;
+    verify_directory(&active, expected)?;
+    let staged = quarantine_path(game, root, id, n)?;
+    if fs::symlink_metadata(&staged).is_ok() {
+        bail!(
+            "directory quarantine destination occupied: {}",
+            staged.display()
+        );
+    }
+    rename_unoccupied(&active, &staged)?;
+    Ok(())
+}
+
+fn present_directory(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => Ok(true),
+        Ok(_) => bail!("unsafe directory in recovery: {}", path.display()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Committed deletion is retryable: the directory ID persists even when its
+/// contents were partially removed, and a substituted directory is refused.
+pub(super) fn recover_directory(
+    game: &Path,
+    root: &str,
+    id: &str,
+    n: usize,
+    expected: &str,
+    committed: bool,
+) -> Result<()> {
+    let active = target_path(game, root, false)?;
+    let staged = quarantine_path(game, root, id, n)?;
+    let saved = present_directory(&staged)?;
+    let live = present_directory(&active)?;
+    if committed {
+        if live {
             bail!(
-                "unknown content blocks rollback: {}",
+                "owned directory reappeared after commit: {}",
+                active.display()
+            );
+        }
+        if saved {
+            verify_directory(&staged, expected)?;
+            fs::remove_dir_all(&staged)?;
+        }
+    } else if saved {
+        verify_directory(&staged, expected)?;
+        if live {
+            bail!(
+                "owned directory reappeared during recovery: {}",
+                active.display()
+            );
+        }
+        rename_unoccupied(&staged, &active)?;
+    } else if live {
+        verify_directory(&active, expected)?;
+    } else {
+        bail!(
+            "missing owned directory recovery witness: {}",
+            active.display()
+        );
+    }
+    Ok(())
+}
+
+/// Only empty nested directories may be removed during an uncommitted install.
+/// Unknown files/links preserve the journal and require manual resolution.
+fn prune_empty(path: &Path) -> Result<()> {
+    for entry in fs::read_dir(path)? {
+        let child = entry?;
+        let kind = child.file_type()?;
+        if !kind.is_dir() || kind.is_symlink() {
+            bail!(
+                "unknown content blocks directory rollback: {}",
                 child.path().display()
             );
         }
-        prune_empty_nested(&child.path())?;
+        prune_empty(&child.path())?;
     }
     fs::remove_dir(path)?;
     Ok(())
 }
 
-pub(super) fn rollback_empty(game: &Path, roots: &[String]) -> Result<()> {
-    for root in roots.iter().rev() {
-        let path = target_path(game, root, false)?;
-        match fs::symlink_metadata(&path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                remove_sidecar(&path, root)?;
-                continue;
-            }
-            Err(error) => return Err(error.into()),
-            Ok(_) => verify_directory(&path, root)?,
+pub(super) fn recover_install(
+    game: &Path,
+    root: &str,
+    id: &str,
+    n: usize,
+    expected: Option<&str>,
+) -> Result<()> {
+    let active = target_path(game, root, false)?;
+    let staged = quarantine_path(game, root, id, n)?;
+    let saved = present_directory(&staged)?;
+    let live = present_directory(&active)?;
+    if saved && live {
+        bail!("both live and staged owned directories exist: {root}");
+    }
+    if let Some(expected) = expected {
+        if saved {
+            verify_directory(&staged, expected)?;
+            prune_empty(&staged)?;
         }
-        for child in fs::read_dir(&path)? {
-            let child = child?;
-            if child.file_name() == OWNER_MARKER {
-                continue;
-            }
-            let meta = child.file_type()?;
-            if !meta.is_dir() || meta.is_symlink() {
-                bail!(
-                    "unknown content blocks rollback: {}",
-                    child.path().display()
-                );
-            }
-            prune_empty_nested(&child.path())?;
+        if live {
+            verify_directory(&active, expected)?;
+            prune_empty(&active)?;
         }
-        fs::remove_file(path.join(OWNER_MARKER))?;
-        fs::remove_dir(&path)?;
-        remove_sidecar(&path, root)?;
+    } else {
+        if live {
+            bail!("unproven active directory during recovery: {root}");
+        }
+        if saved {
+            // There are no game payload writes before recording identity.
+            // Do not recurse into an unproven directory.
+            fs::remove_dir(&staged).with_context(|| {
+                format!("unproven staging directory not empty: {}", staged.display())
+            })?;
+        }
     }
     Ok(())
 }

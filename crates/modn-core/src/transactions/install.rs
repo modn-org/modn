@@ -124,15 +124,10 @@ impl Store {
         let attempt = (|| -> Result<()> {
             // Atomically create each exclusive ownership boundary; a concurrent
             // creator must never be silently adopted by this transaction.
-            for root in &directories {
-                let path = target_path(&game, root, false)?;
-                fs::create_dir(&path).with_context(|| {
-                    format!(
-                        "exclusive directory already exists or cannot be created: {}",
-                        path.display()
-                    )
-                })?;
-                super::directory::create_witness(&path, root, &id)?;
+            for (ordinal, root) in directories.iter().enumerate() {
+                let identity = super::directory::prepare_install(&game, root, &id, ordinal)?;
+                self.record_directory_identity(&id, root, &identity)?;
+                super::directory::activate_install(&game, root, &id, ordinal, &identity)?;
             }
             for f in &files {
                 let dest = target_path(&game, &f.destination, /* create_parents= */ true)?;

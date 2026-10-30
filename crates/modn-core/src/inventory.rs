@@ -121,9 +121,14 @@ pub fn scan_with_ownership_for(
     let mut directory_roots = Vec::new();
     for package in installed {
         for root in &package.directories {
-            let (state, _) = checked_path(&game, root, true);
+            let (state, path) = checked_path(&game, root, true);
             let status = match state {
-                PathState::Present => "present",
+                PathState::Present
+                    if store.verified_managed_directory(&package.id, root, &path) =>
+                {
+                    "present"
+                }
+                PathState::Present => "unsafe",
                 PathState::Missing => "missing",
                 PathState::Unsafe => "unsafe",
                 PathState::Unreadable => "unreadable",

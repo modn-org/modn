@@ -146,18 +146,18 @@ pub(crate) fn validate_ownership_paths<'a>(
     let mut reserved: BTreeSet<String> = owned.into_iter().collect();
     let mut q = store
         .connection
-        .prepare("SELECT path_key FROM managed_directories WHERE game_path=?1")?;
+        .prepare("SELECT relative_path FROM managed_directories WHERE game_path=?1")?;
     let directories = q
         .query_map(params![game.to_string_lossy().as_ref()], |row| {
             row.get::<_, String>(0)
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for destination in paths {
-        let folded = destination.to_lowercase();
-        if directories
-            .iter()
-            .any(|root| folded == *root || folded.starts_with(&format!("{root}/")))
-        {
+        let folded = super::directory::case_key(destination);
+        if directories.iter().any(|root| {
+            let key = super::directory::case_key(root);
+            folded == key || folded.starts_with(&format!("{key}/"))
+        }) {
             bail!("destination is inside an exclusively owned directory: {destination}");
         }
         if let Some(code) = insert_destination(&mut reserved, destination) {
@@ -224,7 +224,7 @@ pub(super) fn validate_directory_reservations(
 ) -> Result<()> {
     let mut files = store
         .connection
-        .prepare("SELECT path_key FROM managed_files WHERE game_path=?1")?;
+        .prepare("SELECT relative_path FROM managed_files WHERE game_path=?1")?;
     let occupied = files
         .query_map(params![game.to_string_lossy().as_ref()], |row| {
             row.get::<_, String>(0)
@@ -232,16 +232,17 @@ pub(super) fn validate_directory_reservations(
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut query = store
         .connection
-        .prepare("SELECT path_key FROM managed_directories WHERE game_path=?1")?;
+        .prepare("SELECT relative_path FROM managed_directories WHERE game_path=?1")?;
     let owned_dirs = query
         .query_map(params![game.to_string_lossy().as_ref()], |row| {
             row.get::<_, String>(0)
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for directory in directories {
-        let key = directory.to_lowercase();
+        let key = super::directory::case_key(directory);
         if occupied.iter().chain(owned_dirs.iter()).any(|owned| {
-            owned == &key
+            let owned = super::directory::case_key(owned);
+            owned == key
                 || owned.starts_with(&format!("{key}/"))
                 || key.starts_with(&format!("{owned}/"))
         }) {

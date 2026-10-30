@@ -59,7 +59,8 @@ impl Store {
             {
                 bail!("unsafe owned directory: {}", path.display());
             }
-            super::directory::verify_directory(&path, root)?;
+            let identity = self.managed_directory_identity(package_id, root)?;
+            super::directory::verify_directory(&path, &identity)?;
         }
         let staging = Builder::new().prefix("txn-").tempdir_in(&self.state_root)?;
         let id = staging
@@ -80,7 +81,8 @@ impl Store {
         )?;
         let attempt = (|| -> Result<()> {
             for (index, root) in package.directories.iter().enumerate() {
-                quarantine(&game, root, &id, index)?;
+                let identity = self.managed_directory_identity(package_id, root)?;
+                quarantine(&game, root, &id, index, &identity)?;
             }
             for f in &files {
                 if package.origin == "manual" {
