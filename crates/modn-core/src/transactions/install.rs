@@ -173,8 +173,7 @@ impl Store {
         Ok(ManagedPackage {
             id,
             game_installation: game,
-            archive_sha256: Some(inspection.sha256),
-            origin: "archive".into(),
+            archive_sha256: inspection.sha256,
             directories,
             files: files
                 .into_iter()

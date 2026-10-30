@@ -6,7 +6,6 @@ mod directory_ledger;
 mod generic_tests;
 mod install;
 mod journal;
-mod legacy;
 #[cfg(test)]
 mod tests;
 mod uninstall;

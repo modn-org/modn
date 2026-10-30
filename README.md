@@ -309,16 +309,12 @@ The transaction executor is game-agnostic: Rust callers may submit an explicitly
 
 Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), package updates, file adoption, migration, or automatic recovery. Always try it on a disposable game fixture before testing against a real game.
 
-## Previously managed manual packages
+## Clean manager state
 
-Older Modn releases could record existing manual files as separate packages.
-The adopt command and Luau ownership-inference API are no longer supported.
-Existing records are retained for compatibility: installed still lists them
-and confirmed uninstall --yes still checks exact file paths and hashes before
-removing them. This does not permit creating new manual ownership records.
-For a fresh setup, uninstall legacy packages, then install their complete
-original ZIPs through Modn so each ZIP has a single package identity.
-
+Modn does not migrate older ownership databases. Installations must use a
+fresh manager state database with ZIP-backed package records. If an earlier
+version of Modn was used, move its state database aside before starting;
+do not delete game files or personal saves to reset manager state.
 
 ## Scope
 
