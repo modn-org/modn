@@ -55,8 +55,8 @@ On `main` at the time of writing:
 introduced local bucket registration, metadata lookup, and an embedded
 `main` snapshot of CET, RED4ext and redscript. The implemented package
 layout is `games/<game-id>/<package-id>.json`. This is not yet a separate
-official bucket Git repository, game-module distribution, persisted community
-trust, or dependency-aware installation. Reconcile the schema with the target
+official bucket Git repository, bucket-managed module activation, persisted
+community trust, or dependency-aware installation. Reconcile the schema with the target
 below **before declaring it stable**.
 
 The historical October 30 roadmap handoff led to the existing Rust/Luau

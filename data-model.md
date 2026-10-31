@@ -190,10 +190,9 @@ still has a separate module store; bucket-managed modules are **not yet implemen
 **Merged PR #23** introduced a metadata-only bucket registry and a bundled snapshot
 of three Cyberpunk prerequisite packages. Its initial package manifest uses
 `schema_version`, `id`, `game`, `name`, `version`, `archive_format`,
-`sha256`, `source`, and optional `dependencies`/`homepage`. It does not
-yet provide `GameModuleRelease` in buckets, persisted community trust,
-multi-source downloads, versioned dependency solving or a remote official
-repository. Do not treat the proposed model above as its implemented schema.
+`sha256`, `source`, and optional `dependencies`/`homepage`. The unified bucket metadata contract now discovers versioned `GameModuleRelease` records with verified Lua source hashes, but does not
+execute or activate them. Persisted community trust, multi-source downloads,
+versioned dependency solving and a remote official repository remain future work. Do not treat the proposed model above as its implemented schema.
 
 ## Invariants for future migrations
 

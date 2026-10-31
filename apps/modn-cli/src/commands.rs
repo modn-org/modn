@@ -157,4 +157,8 @@ pub(super) enum BucketCommand {
     Search,
     /// Inspect one exact bucket/game/package reference.
     Show { package: String },
+    /// List versioned Lua game-module metadata without executing it.
+    Modules,
+    /// Inspect one exact bucket/game/module-version reference.
+    ModuleShow { module: String },
 }

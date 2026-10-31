@@ -531,6 +531,7 @@ dependencies = [
  "same-file",
  "serde_json",
  "sevenz-rust2",
+ "sha2",
  "tempfile",
  "zip",
 ]
