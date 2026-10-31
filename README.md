@@ -335,8 +335,8 @@ game-version support, or dependent-mod safety on framework uninstall.
 
 The following is a **file-layout installation** compatibility list, not a
 claim that Modn validates game-version compatibility or mod dependencies.
-Original local distributions were installed and uninstalled together in an
-isolated game fixture, except where noted:
+All eleven original local distributions were installed and uninstalled together
+in an isolated game fixture:
 
 | Package | Recognized installation layout | Archive exercise |
 | --- | --- | --- |
@@ -344,7 +344,7 @@ isolated game fixture, except where noted:
 | Browser Extension | `r6/scripts/BrowserExtension/*.reds` | Original solid 7z |
 | Codeware | RED4ext plugin | Original ZIP |
 | Cyber Engine Tweaks | CET framework bootstrap and assets | Original ZIP |
-| Equipment-EX | ArchiveXL metadata, redscript and TweakXL layouts | Synthetic layout only; original distribution not verified |
+| Equipment-EX | ArchiveXL metadata, redscript and redscript hint | Original ZIP (five payload files; LICENSE skipped) |
 | Mod Settings | RED4ext plugin | Original ZIP |
 | No Intro Videos | redscript source | Original ZIP |
 | RED4ext | Framework bootstrap | Original ZIP |
