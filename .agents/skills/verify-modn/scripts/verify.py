@@ -174,7 +174,7 @@ def verify(driver):
     require(owned.read_bytes() == b"fixture-plugin", "approved install failed")
     require(unmanaged.read_bytes() == UNMANAGED, "unmanaged file changed")
     require(any(x["id"] == package_id
-                for x in driver.json("installed", ["installed", "--path", game])),
+                for x in driver.json("installed", ["list", "--path", game])),
             "owned package missing")
     scan = driver.json("scan-test-game", ["scan", "--path", game])
     require(scan["game_id"] == "test-game", "wrong scan policy")
@@ -201,10 +201,10 @@ def verify(driver):
     cyber_file = cyberpunk / "archive/pc/mod/managed.archive"
     require(cyber_file.read_bytes() == PAYLOAD, "second game install failed")
     require(any(x["id"] == cyber_package["id"] for x in
-                driver.json("cyberpunk-installed", ["installed", "--path", cyberpunk])),
+                driver.json("cyberpunk-installed", ["list", "--path", cyberpunk])),
             "second game's ownership record missing")
     require(any(x["id"] == package_id for x in
-                driver.json("test-game-still-installed", ["installed", "--path", game])),
+                driver.json("test-game-still-installed", ["list", "--path", game])),
             "installing another game disturbed test-game ownership")
 
     # Synthetic runtime file presence is a hint, not game-version compatibility.
@@ -260,7 +260,7 @@ def verify(driver):
     driver.json("uninstall-test-game", ["uninstall", package_id, "--yes", "--path", game])
     require(not owned.exists(), "uninstall did not remove owned file")
     require(unmanaged.read_bytes() == UNMANAGED, "uninstall modified unmanaged file")
-    require(driver.json("installed-empty", ["installed", "--path", game]) == [],
+    require(driver.json("installed-empty", ["list", "--path", game]) == [],
             "ownership ledger not cleared")
     scan = driver.json("unmanaged-remains-unowned", ["scan", "--path", game])
     require(any(m["relative_path"] == "addons/manual.plugin" and not m["managed"]
@@ -271,7 +271,7 @@ def verify(driver):
     driver.json("uninstall-cyberpunk",
                 ["uninstall", cyber_package["id"], "--yes", "--path", cyberpunk])
     require(not cyber_file.exists(), "second game's owned file not removed")
-    require(driver.json("cyberpunk-installed-empty", ["installed", "--path", cyberpunk]) == [],
+    require(driver.json("cyberpunk-installed-empty", ["list", "--path", cyberpunk]) == [],
             "second game's ownership record remains")
     require(driver.json("recover-idle", ["recover", "--yes"])["recovered"] == 0,
             "unexpected recovery pending")

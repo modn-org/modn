@@ -16,6 +16,15 @@ fn run(state: &Path, args: &[&str]) -> Output {
         .expect("test fixture invariant")
 }
 
+fn catalog_search(state: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(state)
+        .args(["--json", "search"])
+        .output()
+        .expect("search")
+}
+
 fn seed(root: &Path, body: &str) {
     let directory = root.join("games/test-game");
     fs::create_dir_all(&directory).expect("test fixture invariant");
@@ -76,7 +85,7 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
         ],
     );
     assert!(add.status.success(), "{}", output(&add));
-    let search = run(&state, &["search"]);
+    let search = catalog_search(&state);
     assert!(search.status.success(), "{}", output(&search));
     let entries: serde_json::Value =
         serde_json::from_slice(&search.stdout).expect("test fixture invariant");
@@ -101,7 +110,7 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
     let removed = run(&state, &["remove", "community"]);
     assert!(removed.status.success(), "{}", output(&removed));
     assert!(bucket.join("bucket.json").exists());
-    let search = run(&state, &["search"]);
+    let search = catalog_search(&state);
     assert!(search.status.success(), "{}", output(&search));
     let after: serde_json::Value =
         serde_json::from_slice(&search.stdout).expect("test fixture invariant");
@@ -162,7 +171,7 @@ fn registered_bucket_corruption_never_silently_falls_back() {
     .success());
     fs::write(bucket.join("games/test-game/example.json"), b"{bad")
         .expect("test fixture invariant");
-    let failed = run(&state, &["search"]);
+    let failed = catalog_search(&state);
     assert!(!failed.status.success());
     assert!(output(&failed).contains("invalid bucket JSON"));
     assert!(!state.join("state.sqlite").exists());
@@ -205,7 +214,7 @@ fn leftover_temp_files_outside_registry_do_not_block_reads() {
     .success());
     let leftover = state.join("buckets").join(".orphaned-staging");
     fs::write(&leftover, b"incomplete registration").expect("orphan");
-    let found = run(&state, &["search"]);
+    let found = catalog_search(&state);
     assert!(found.status.success(), "{}", output(&found));
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&found.stdout)

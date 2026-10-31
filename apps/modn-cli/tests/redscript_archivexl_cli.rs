@@ -99,10 +99,7 @@ fn roundtrip(entries: &[(&str, &[u8])], dependencies: &[&str]) {
         installed["files"].as_array().expect("files").len(),
         entries.len()
     );
-    let listed = ok(
-        &state,
-        &["installed", "--path", game.to_str().expect("game")],
-    );
+    let listed = ok(&state, &["list", "--path", game.to_str().expect("game")]);
     assert_eq!(listed.as_array().expect("installed packages").len(), 1);
     let scanned = ok(&state, &["scan", "--path", game.to_str().expect("game")]);
     let mods = scanned["mods"].as_array().expect("mods");

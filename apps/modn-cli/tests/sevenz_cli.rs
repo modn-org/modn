@@ -142,7 +142,7 @@ fn browser_extension_7z_installs_uninstalls_and_preserves_unmanaged_files() {
         fs::read(&unmanaged).expect("unmanaged file preserved"),
         b"user data"
     );
-    assert!(success(&state, &["installed", "--path", root])
+    assert!(success(&state, &["list", "--path", root])
         .as_array()
         .expect("ledger")
         .is_empty());
@@ -199,7 +199,7 @@ fn sevenz_rejects_unsafe_payloads_and_existing_files() {
     .status
     .success());
     assert_eq!(fs::read(&target).expect("user file"), b"manual content");
-    assert!(success(&state, &["installed", "--path", root])
+    assert!(success(&state, &["list", "--path", root])
         .as_array()
         .expect("ledger")
         .is_empty());
@@ -302,7 +302,7 @@ fn damaged_7z_stream_does_not_publish_game_files() {
         !game.join(path).exists(),
         "corrupted 7z stream published content"
     );
-    assert!(success(&state, &["installed", "--path", root])
+    assert!(success(&state, &["list", "--path", root])
         .as_array()
         .expect("ledger")
         .is_empty());

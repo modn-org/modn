@@ -10,7 +10,7 @@
 
 ## How to get to it (user POV)
 
-`modn game add test-game --path <game>`; `modn install <zip> --yes --path <game>`; `modn installed --path <game>`; `modn scan --path <game>`; `modn doctor --path <game>`; `modn uninstall <package-id> --yes --path <game>`. Registration provides the game ID for later commands.
+`modn game add test-game --path <game>`; `modn install <zip> --yes --path <game>`; `modn list --path <game>`; `modn scan --path <game>`; `modn doctor --path <game>`; `modn uninstall <package-id> --yes --path <game>`. Registration provides the game ID for later commands.
 
 ## Driving it with Python subprocess
 

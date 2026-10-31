@@ -12,4 +12,5 @@ mod tests;
 mod uninstall;
 mod validation;
 
+pub(crate) use journal::lock_store;
 pub use journal::{ManagedPackage, OwnedFile};

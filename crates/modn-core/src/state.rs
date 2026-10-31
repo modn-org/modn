@@ -3,7 +3,7 @@ use fs2::FileExt;
 use rusqlite::{params, Connection, OpenFlags, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Persisted registration for a single game installation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -150,6 +150,58 @@ impl Store {
         })
     }
 
+    /// Unregister one installation without deleting any game files or ownership evidence.
+    ///
+    /// Refuses missing or ambiguous identities and any managed or pending work.
+    pub fn remove_game(&mut self, game_id: &str, path: Option<&Path>) -> Result<GameInstallation> {
+        // Use the exact lock held across archive inspection and staging by
+        // installs/uninstalls. SQLite row checks alone miss in-flight writes
+        // before they insert their pending journal.
+        let _guard = crate::transactions::lock_store(self)?;
+        let registered = self.list()?;
+        let chosen = path.map(canonicalize_removal_path).transpose()?;
+        let matches: Vec<_> = registered
+            .into_iter()
+            .filter(|entry| {
+                entry.game_id == game_id && chosen.as_ref().is_none_or(|path| &entry.path == path)
+            })
+            .collect();
+        let entry = match matches.as_slice() {
+            [entry] => entry.clone(),
+            [] => bail!("no registered installation for {game_id}"),
+            _ => bail!("multiple installations registered for {game_id}; specify --path"),
+        };
+        let path_text = entry
+            .path
+            .to_str()
+            .context("registered game path must be UTF-8")?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let managed: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM managed_packages WHERE game_path=?1)",
+            [path_text],
+            |row| row.get(0),
+        )?;
+        let pending: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pending_transactions WHERE game_path=?1)",
+            [path_text],
+            |row| row.get(0),
+        )?;
+        if managed || pending {
+            bail!("cannot unregister game with managed packages or pending transactions; uninstall or recover first");
+        }
+        if tx.execute(
+            "DELETE FROM game_installations WHERE game_id=?1 AND path=?2",
+            params![entry.game_id, path_text],
+        )? != 1
+        {
+            bail!("game registration changed; retry");
+        }
+        tx.commit()?;
+        Ok(entry)
+    }
+
     /// List persisted game registrations, ordered by game and path.
     pub fn list(&self) -> Result<Vec<GameInstallation>> {
         let mut statement = self.connection.prepare(
@@ -165,6 +217,45 @@ impl Store {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(installations)
+    }
+}
+
+// Canonicalize the nearest existing parent when an uninstalled game folder
+// no longer exists. Windows canonical paths may use a verbatim-drive prefix,
+// while callers normally supply C:\\... . No missing path is created.
+fn canonicalize_removal_path(path: &Path) -> Result<PathBuf> {
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        bail!("game removal path must not contain parent-directory components");
+    }
+    let mut current = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut missing = Vec::new();
+    loop {
+        match current.canonicalize() {
+            Ok(mut canonical) => {
+                for component in missing.into_iter().rev() {
+                    canonical.push(component);
+                }
+                return Ok(canonical);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = current
+                    .file_name()
+                    .context("invalid missing game directory")?;
+                missing.push(name.to_os_string());
+                current = current
+                    .parent()
+                    .context("cannot resolve game directory")?
+                    .to_path_buf();
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
 }
 

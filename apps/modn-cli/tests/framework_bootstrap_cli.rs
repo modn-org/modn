@@ -107,7 +107,7 @@ fn roundtrip(files: &[(&str, &[u8])], kind: &str, wrapper: &str) {
             "{path}"
         );
     }
-    let installed = json(&state, &["installed", "--path", game_path]);
+    let installed = json(&state, &["list", "--path", game_path]);
     assert_eq!(installed.as_array().expect("packages").len(), 1);
     assert_eq!(installed[0]["id"], id);
     assert!(installed[0].get("origin").is_none());
@@ -123,7 +123,7 @@ fn roundtrip(files: &[(&str, &[u8])], kind: &str, wrapper: &str) {
         fs::read(&generated).expect("retained generated content"),
         b"generated"
     );
-    assert!(json(&state, &["installed", "--path", game_path])
+    assert!(json(&state, &["list", "--path", game_path])
         .as_array()
         .expect("empty ledger")
         .is_empty());
@@ -232,7 +232,7 @@ fn partial_mixed_and_unapproved_executables_fail_without_side_effects() {
                 .success()
         );
         assert!(
-            json(&state, &["installed", "--path", root])
+            json(&state, &["list", "--path", root])
                 .as_array()
                 .expect("packages")
                 .is_empty(),
