@@ -1,7 +1,8 @@
 use anyhow::{bail, Context, Result};
+use fs2::FileExt;
 use rusqlite::{params, Connection, OpenFlags, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 /// Persisted registration for a single game installation.
@@ -29,6 +30,13 @@ impl Store {
             fs::create_dir_all(parent)
                 .with_context(|| format!("cannot create state directory {}", parent.display()))?;
         }
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path.with_file_name(".schema.lock"))?;
+        FileExt::lock_exclusive(&lock)?;
         let mut connection = Connection::open(path)
             .with_context(|| format!("cannot open state database {}", path.display()))?;
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -110,6 +118,9 @@ impl Store {
 
     /// Read existing registrations without creating or migrating manager state.
     pub fn open_readonly(path: &Path) -> Result<Self> {
+        let lock = File::open(path.with_file_name(".schema.lock"))
+            .context("unsupported manager state schema; start with a fresh state directory")?;
+        FileExt::lock_shared(&lock)?;
         let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .with_context(|| format!("cannot read existing state database {}", path.display()))?;
         validate_package_schema(&connection)?;

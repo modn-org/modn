@@ -159,6 +159,50 @@ fn concurrent_fresh_opens_finish_one_complete_schema() {
 }
 
 #[test]
+fn readonly_open_waits_for_in_progress_state_initialization() {
+    use fs2::FileExt;
+    use std::fs::OpenOptions;
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::time::Duration;
+
+    let temp = tempdir().unwrap();
+    let db = temp.path().join("state.sqlite");
+    drop(Store::open(&db).unwrap());
+
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(db.with_file_name(".schema.lock"))
+        .unwrap();
+    FileExt::lock_exclusive(&lock).unwrap();
+    let conn = Connection::open(&db).unwrap();
+    conn.pragma_update(None, "user_version", 0).unwrap();
+
+    let barrier = Arc::new(Barrier::new(2));
+    let (sender, receiver) = mpsc::channel();
+    let handle = std::thread::spawn({
+        let barrier = Arc::clone(&barrier);
+        let db = db.clone();
+        move || {
+            barrier.wait();
+            sender.send(Store::open_readonly(&db).map(|_| ())).unwrap();
+        }
+    });
+    barrier.wait();
+    assert!(
+        receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+        "read-only open bypassed the in-progress schema lock"
+    );
+    conn.pragma_update(None, "user_version", 1).unwrap();
+    FileExt::unlock(&lock).unwrap();
+    receiver
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap()
+        .unwrap();
+    handle.join().unwrap();
+}
+
+#[test]
 fn pre_adoption_archive_schema_is_rejected_even_with_identical_columns() {
     let temp = tempdir().unwrap();
     let db = temp.path().join("state.sqlite");
