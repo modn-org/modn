@@ -426,11 +426,11 @@ pub fn preview_install_zip_with_permissions(
 ) -> anyhow::Result<InstallPlan> {
     let inspection = crate::archive::inspect(archive)?;
     let mut proposal = resolve_with_permissions(game_id, &inspection, game, approved)?;
-    if inspection.format != "zip" {
+    if inspection.format != "zip" && inspection.format != "7z" {
         proposal.status = "blocked".into();
         proposal.blockers.push(PlanIssue {
             code: "NOT_INSTALLABLE".into(),
-            message: "Only ZIP archives can be installed".into(),
+            message: "Only ZIP and 7z archives can be installed".into(),
         });
     }
     Ok(proposal)

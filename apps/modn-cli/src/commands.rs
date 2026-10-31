@@ -20,7 +20,7 @@ pub(super) struct Cli {
 
 #[derive(Subcommand)]
 pub(super) enum Command {
-    /// Preview or install a ZIP with the selected Luau policy after approval.
+    /// Preview or install a ZIP or 7z mod with the selected Luau policy after approval.
     Install {
         archive: PathBuf,
         #[arg(long)]

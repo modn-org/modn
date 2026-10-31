@@ -32,8 +32,8 @@ pub(super) fn validate_execution_plan(
     proposal: &InstallPlan,
     approved: &[String],
 ) -> Result<()> {
-    if inspection.format != "zip" {
-        bail!("transaction executor currently supports ZIP file operations only");
+    if inspection.format != "zip" && inspection.format != "7z" {
+        bail!("transaction executor supports only ZIP and 7z operations");
     }
     if proposal.status != "reviewable" || !proposal.blockers.is_empty() || !proposal.metadata_only {
         bail!("blocked or invalid installation proposal cannot be executed");
