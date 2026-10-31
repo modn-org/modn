@@ -31,6 +31,15 @@ pub fn validate_installation_for(game_id: &str, path: &Path) -> Result<PathBuf> 
     Ok(canonical)
 }
 
+/// Recognize a candidate without turning Lua policy failures into "not a game".
+///
+/// Use for manager-state write boundaries: a missing or broken selected policy
+/// must fail closed, while a valid policy may return false for other directories.
+pub fn recognizes_installation_for(game_id: &str, path: &Path) -> Result<bool> {
+    let canonical = path.canonicalize()?;
+    Ok(policy::validate(game_id, &canonical)?.0)
+}
+
 fn valid_install_folder(name: &str) -> bool {
     let path = Path::new(name);
     !name.is_empty()
