@@ -7,39 +7,34 @@ for preferred terms and [roadmap.md](roadmap.md) for milestone order.
 
 ## Domain boundaries
 
-Three kinds of state must remain distinct:
+Modn separates **first-party executable game support**, **catalog metadata**,
+and **managed installation state**.
 
-- **Catalog**: available game modules and mod releases, published by buckets.
-- **Selection and trust**: community buckets the user trusts, and the active
-  module release chosen for each game.
-- **Managed state**: specific game installations, committed package ownership
-  and interrupted transactions.
+First-party Lua 5.4 modules are reviewed with Modn, sourced at
+`crates/modn-core/game-modules/<game-id>/` and released with the application.
+They are not bucket entries or independently installable artifacts. The
+development-only `--module-src` flag selects a local source for one command;
+it does not change any persistent selection or stored installation record.
 
-A catalog entry is not evidence that a mod is installed. An archive hash
-proves matching bytes, not benign behavior. Trusting executable module code
-does not by itself grant an ownership claim on existing game files.
-
-Rust manages generic install transactions, ownership and persistence.
-Trusted Lua modules provide game-specific behavior. Normal managed installs
-continue through the Rust transaction engine even when modules are powerful.
+Buckets contain only mod-package manifests and source metadata. A bucket
+record is not evidence of installed content; an archive hash proves exact
+bytes, not harmlessness. Catalog updates cannot modify game files.
+Rust owns managed transactions, file and directory ownership, rollback,
+recovery and path validation; Lua supplies game-specific policy and proposals.
 
 ## Relationships
 
 ```text
-Bucket -> BucketSnapshot -> GameModuleRelease -> Game
-                         -> ModRelease -> Game
-                                       -> ArtifactSource
-                                       -> Dependency -> ModRelease
-BucketTrust -> Bucket
-ActiveModule -> GameModuleRelease
-
-Game -> GameInstallation -> ManagedPackage -> OwnershipClaim
-                         -> PendingTransaction
+FirstPartyGameModule -> Game -> GameInstallation
+Bucket -> BucketSnapshot -> ModRelease -> Game
+                                     -> ArtifactSource
+                                     -> Dependency -> ModRelease
+GameInstallation -> ManagedPackage -> OwnershipClaim
+                 -> PendingTransaction
 ```
 
-A game identity can have multiple installations. The active module is selected
-per game; managed packages and ownership claims belong to **one concrete game
-installation**. Mod IDs need a bucket qualifier to avoid ambiguity.
+A game can have multiple installations, each with independent ownership and
+transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 
 ## Bucket catalog entities (target)
 
@@ -47,64 +42,29 @@ installation**. Mod IDs need a bucket qualifier to avoid ambiguity.
 
 | Field | Meaning |
 | --- | --- |
-| `bucket_id` | Local name, for example `main` or `community`. |
-| `source` | Built-in snapshot, local directory or Git repository. |
-| `source_identity` | Stable identity of the repository or directory. |
-| `revision` | Version/commit of the selected catalog snapshot. |
-| `title` | Human-readable bucket name. |
-| `is_official` | True only for Modn's curated `main` bucket. |
+| `bucket_id` | Registered catalog name, for example `main`. |
+| `source` | Built-in snapshot, local directory or future Git source. |
+| `revision` | Selected catalog snapshot/revision. |
+| `title` | Human-readable catalog name. |
 
-The official bucket is trusted by default. A third-party bucket cannot become
-official by using the same name. Updating catalog contents **does not**
-silently install mods or activate new module versions.
-
-### Bucket trust
-
-| Field | Meaning |
-| --- | --- |
-| `source_identity` | Community bucket source being acknowledged. |
-| `trusted` | Whether its executable modules may be activated. |
-| `acknowledged_at` | Time of the user's explicit acceptance. |
-
-Adding a community bucket shows a clear one-time warning: it may supply Lua
-modules with broad local capabilities. Trust applies to the bucket maintainer,
-not to each individual host capability. A changed source identity must not
-inherit trust just because it reuses the same bucket name.
-
-Bucket trust does not imply approval of managed installation writes.
+The official `main` bucket is bundled for offline use. Community buckets
+are catalog data, not sources of Lua executable code. Registering a bucket
+never authorizes modification of a game installation.
 
 ### Game and game installation
 
-**Game** has a stable `game_id` such as `cyberpunk-2077`. A **GameInstallation**
-has `game_id`, canonical `path`, and registration/discovery `source`.
-Game detection and path interpretation belong in the game module.
+**Game** has a stable `game_id` such as `cyberpunk-2077`.
+A **GameInstallation** has `game_id`, canonical `path`, and registration
+or discovery `source`. Its validation and layout are supplied by Modn's
+first-party Lua policy. Do not confuse an identity with a physical installation.
 
-Do not confuse a game identity with a physical install location. Two
-installations of the same game must have independent managed state.
+### First-party game module
 
-### Game module release
-
-| Field | Meaning |
-| --- | --- |
-| `bucket_id`, `revision` | Originating bucket snapshot. |
-| `game_id` | Game handled by the module. |
-| `module_version` | Version of the game integration. |
-| `api_version` | Required Modn host contract. |
-| `entrypoint` | Lua script, intended `main.lua`. |
-| `content_sha256` | Digest of the module release content. |
-
-A module release is **executable game integration code**, not a mod archive.
-Within one bucket snapshot, each game has one current module release stored
-at `modules/<game-id>/`, with its version declared in `module.json`.
-Bucket/game identifies the published module; the bucket revision and content
-digest distinguish its exact release. Historical versions and rollback
-copies belong to the module lifecycle, not the bucket tree. Both official
-and community buckets can publish releases. Only acknowledged community
-buckets can supply active third-party modules.
-
-**ActiveModule** identifies a selected release per `game_id`, plus a previous
-selection for rollback. Installing or updating catalog metadata does not
-change this selection without an explicit action.
+Each supported game has one bundled `module.json` and Lua entrypoint.
+The manifest declares `game_id`, `version`, `api_version` and
+`entrypoint`. Modn releases carry changes to supported game policies.
+A caller can explicitly provide a temporary alternative source for tests;
+a missing or mismatched override fails without falling back.
 
 ### Mod release (package manifest)
 
@@ -140,7 +100,7 @@ publisher authenticity guarantee.
 
 ### Installation plan
 
-A transient proposal containing the chosen game installation, active module,
+A transient proposal containing the chosen game installation, first-party module,
 exact bucket snapshot and releases, verified archive digests, dependencies,
 destination operations, conflicts and explicit approvals required.
 
@@ -179,33 +139,33 @@ actually used Modn's managed-install path.
 
 ## Current implementation mapping (2026-10-31)
 
-This revision uses **Lua 5.4** via `mlua`, after migrating from Luau. It
-still has a separate module store; bucket-managed modules are **not yet implemented**.
+The host runs Lua 5.4 through `mlua`. First-party Cyberpunk source is
+`crates/modn-core/game-modules/cyberpunk-2077/`. The synthetic module
+fixture exercises game-agnostic support.
 
 | Domain concept | Current data |
 | --- | --- |
 | Game installation | `state.sqlite / game_installations(game_id, path, source)` |
 | Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at)` |
-| File ownership | `state.sqlite / managed_files(game_path, path_key, relative_path, package_id, sha256, bytes)` |
-| Directory ownership | `state.sqlite / managed_directories(game_path, path_key, relative_path, package_id, identity)` |
+| File ownership | `state.sqlite / managed_files(...)` |
+| Directory ownership | `state.sqlite / managed_directories(...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
-| Module releases | `game-modules/modules.sqlite / packages(game_id, version, api_version, entrypoint, sha256, manifest_sha256, script_sha256)` |
-| Module selection | `game-modules/modules.sqlite / selections(game_id, active, previous, enabled)` |
+| Game module | Bundled first-party `game-modules/<game-id>/module.json` + Lua |
+| Development override | In-memory per-invocation `--module-src` / `--src` |
+| Bucket packages | Embedded `main` snapshot and explicitly registered local directories |
 
-**Merged PR #23** introduced a metadata-only bucket registry and a bundled snapshot
-of three Cyberpunk prerequisite packages. Its initial package manifest uses
-`schema_version`, `id`, `game`, `name`, `version`, `archive_format`,
-`sha256`, `source`, and optional `dependencies`/`homepage`. The unified bucket metadata contract now discovers versioned `GameModuleRelease` records with verified Lua source hashes, but does not
-execute or activate them. Persisted community trust, multi-source downloads,
-versioned dependency solving and a remote official repository remain future work. Do not treat the proposed model above as its implemented schema.
+The existing bucket v1 contract validates packages at
+`games/<game-id>/<package-id>.json`. It does not publish, execute or
+select Lua modules. Remote catalog sync, dependency resolution and
+artifact acquisition remain unimplemented.
 
-## Invariants for future migrations
+## Invariants for future changes
 
-1. Preserve ownership and pending-transaction evidence during schema changes.
-2. A catalog update cannot silently install, uninstall or update anything.
-3. An activated module has a selected version and identifiable bucket source.
-4. Community modules require an explicit bucket trust decision.
-5. A package manifest or module result cannot claim existing files as owned.
-6. Failed installation and recovery must preserve unmanaged game content.
-7. Never move game-specific policy into a per-game Rust core adapter.
-8. Keep user data and manager-state files outside game installations.
+1. Preserve game ownership and pending-transaction evidence.
+2. A catalog update cannot silently install, uninstall or update mods.
+3. Game-specific Lua policy remains first-party application source.
+4. Development override paths never persist or silently fall back.
+5. Package manifests and Lua proposals cannot claim pre-existing files.
+6. Failed installation and recovery preserve unmanaged game content.
+7. Never add a per-game Rust core adapter.
+8. Keep manager state outside game installations.

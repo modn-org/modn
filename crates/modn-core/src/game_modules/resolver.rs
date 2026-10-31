@@ -1,27 +1,27 @@
-//! Explicit override, selected user version, bundled policy, development fallback.
+//! Per-command development overrides and bundled first-party Lua policies.
 use super::loader::{self, VerifiedModule};
-use super::store::ModuleStore;
 use anyhow::{bail, Result};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 thread_local! {
-    static STATE_ROOT: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    static MODULE_SOURCE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
 
-/// Scope synchronous policy operations to a manager state directory without creating it.
-/// Nested calls restore the previous scope, including during unwinding. This does not
-/// authorize game roots or propagate configuration to other threads.
-pub fn with_module_store<T>(state_dir: &Path, action: impl FnOnce() -> T) -> T {
+/// Temporarily select one local source directory for policy operations.
+///
+/// Nested calls restore the previous directory, including during unwinding.
+/// No override is persisted to manager state or propagated to other threads.
+pub fn with_module_source<T>(source: Option<&Path>, action: impl FnOnce() -> T) -> T {
     struct Restore(Option<PathBuf>);
     impl Drop for Restore {
         fn drop(&mut self) {
-            STATE_ROOT.with(|root| {
-                root.replace(self.0.take());
+            MODULE_SOURCE.with(|slot| {
+                slot.replace(self.0.take());
             });
         }
     }
-    let previous = STATE_ROOT.with(|root| root.replace(Some(state_dir.to_path_buf())));
+    let previous = MODULE_SOURCE.with(|slot| slot.replace(source.map(Path::to_path_buf)));
     let _restore = Restore(previous);
     action()
 }
@@ -41,40 +41,21 @@ fn bundled_directory(game: &str) -> PathBuf {
         .join(game)
 }
 
-pub(super) fn read_policy(game: &str) -> Result<(VerifiedModule, String, &'static str)> {
+pub(super) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     if !loader::valid_game_id(game) {
         bail!("invalid game module identifier");
     }
-    let (manifest, source, origin) = if let Some(base) = std::env::var_os("MODN_GAME_MODULES_DIR") {
-        let (info, source) = loader::read_verified_module(&PathBuf::from(base).join(game))?;
-        (info, source, "override")
-    } else if let Some(package) = STATE_ROOT
-        .with(|root| {
-            root.borrow()
-                .as_deref()
-                .map(|root| ModuleStore::new(root).active(game))
-                .transpose()
-        })?
-        .flatten()
-    {
-        let info = VerifiedModule {
-            game_id: package.info.game_id,
-            version: package.info.version,
-            api_version: package.info.api_version,
-            entrypoint: package.info.entrypoint,
-        };
-        (info, String::from_utf8(package.script)?, "user-installed")
+    let source = MODULE_SOURCE.with(|slot| slot.borrow().clone());
+    let directory = if let Some(directory) = source {
+        directory
+    } else if let Some(base) = std::env::var_os("MODN_GAME_MODULES_DIR") {
+        PathBuf::from(base).join(game)
     } else {
-        let (info, source) = loader::read_verified_module(&bundled_directory(game))?;
-        (info, source, "bundled")
+        bundled_directory(game)
     };
+    let (manifest, source) = loader::read_verified_module(&directory)?;
     if manifest.game_id != game {
         bail!("game module identity does not match requested game");
     }
-    Ok((manifest, source, origin))
-}
-
-/// Report the effective resolution source, verifying selected stored bytes on each read.
-pub fn module_origin(game: &str) -> Result<&'static str> {
-    Ok(read_policy(game)?.2)
+    Ok((manifest, source))
 }

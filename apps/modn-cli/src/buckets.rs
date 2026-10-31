@@ -61,8 +61,6 @@ pub(super) fn run(
         }
         BucketCommand::List => serde_json::to_value(store.list()?)?,
         BucketCommand::Search => serde_json::to_value(store.packages(game)?)?,
-        BucketCommand::Modules => serde_json::to_value(store.modules(game)?)?,
-        BucketCommand::ModuleShow { module } => serde_json::to_value(store.show_module(&module)?)?,
         BucketCommand::Show { package } => serde_json::to_value(store.show(&package)?)?,
     };
     if json_output {

@@ -1,6 +1,6 @@
 //! Validate manager-state location without assuming any default game.
 use anyhow::{bail, Context, Result};
-use modn_core::discovery::validate_installation_for;
+use modn_core::discovery::recognizes_installation_for;
 use std::path::{Component, Path, PathBuf};
 
 pub(super) fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
@@ -45,18 +45,21 @@ pub(super) fn validate_state_path(
     };
     loop {
         if let Ok(existing) = directory.canonicalize() {
-            if existing.ancestors().any(|ancestor| {
-                // Check the explicit module, never a baked-in default marker.
-                selected_root
-                    .as_ref()
-                    .is_some_and(|root| existing.starts_with(root))
-                    || registered_roots
-                        .iter()
-                        .any(|root| existing.starts_with(root))
-                    || selected_game
-                        .is_some_and(|game| validate_installation_for(game, ancestor).is_ok())
-            }) {
+            if selected_root
+                .as_ref()
+                .is_some_and(|root| existing.starts_with(root))
+                || registered_roots
+                    .iter()
+                    .any(|root| existing.starts_with(root))
+            {
                 bail!("state directory must be outside a game installation");
+            }
+            if let Some(game) = selected_game {
+                for ancestor in existing.ancestors() {
+                    if recognizes_installation_for(game, ancestor)? {
+                        bail!("state directory must be outside a game installation");
+                    }
+                }
             }
             return Ok(());
         }

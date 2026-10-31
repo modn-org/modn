@@ -1,1 +1,1 @@
-buckets/main/modules/**/*.lua text eol=lf
+crates/modn-core/game-modules/**/*.lua text eol=lf

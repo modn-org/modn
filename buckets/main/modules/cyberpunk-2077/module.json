@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "game_id": "cyberpunk-2077",
-  "version": "0.1.0",
-  "api_version": 1,
-  "entrypoint": "main.lua",
-  "content_sha256": "411a62768948db1f5e6ddf918dfd17359043cf9b67b8117de0ea9cdcced3ee10"
-}

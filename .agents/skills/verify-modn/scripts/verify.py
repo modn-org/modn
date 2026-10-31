@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-from module_packages import verify_packages
 
 REPO = Path(__file__).resolve().parents[4]
 FIXTURE = REPO / "tests" / "fixtures" / "test-game"
@@ -91,7 +90,6 @@ def verify(driver):
     write_zip(cyber_zip, {"archive/pc/mod/managed.archive": PAYLOAD})
     before = snapshot(game)
     manual_mtime = unmanaged.stat().st_mtime_ns
-    verify_packages(driver, game, FIXTURE)
     driver.run("adoption-command-unavailable",
                ["adopt", "--dry-run", "--path", game], success=False)
     require(snapshot(game) == before and not (root / "state").exists(),

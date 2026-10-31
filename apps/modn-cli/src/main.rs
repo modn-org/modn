@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use commands::{Cli, Command, GameCommand};
 use modn_core::archive::inspect;
-use modn_core::game_modules::with_module_store;
+use modn_core::game_modules::with_module_source;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::planning::preview_install_zip_with_permissions;
 use modn_core::state::Store;
@@ -18,10 +18,8 @@ use std::path::PathBuf;
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let state_path = database_path(cli.state_dir.as_deref())?;
-    let state_root = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    with_module_store(state_root, || run_cli(cli, state_path.clone()))
+    let module_source = cli.module_source.clone();
+    with_module_source(module_source.as_deref(), || run_cli(cli, state_path))
 }
 
 fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
@@ -29,7 +27,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
         return buckets::run(command, &state_path, cli.json, cli.game_id.as_deref());
     }
     if let Command::Module { command } = cli.command {
-        return modules::run(command, &state_path, cli.game_id.as_deref(), cli.json);
+        return modules::run(command, cli.json);
     }
     let requested = cli.game_id.as_deref();
     if let Command::Game {

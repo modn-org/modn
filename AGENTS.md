@@ -21,9 +21,9 @@ they differ from the code, inspect the current revision and active PRs; do not
 present planned behavior as implemented. Use glossary terms consistently in
 code, documentation, CLI and reviews.
 
-The target design has game-specific modules distributed through the official
-trusted bucket, with community buckets explicitly trusted by the user. Standard
-Lua 5.4 is the game-module runtime in this revision; earlier releases used Luau.
+Game-specific Lua modules are first-party source shipped with Modn, not
+distributed by buckets. Buckets catalog mod packages only. Standard Lua 5.4
+is the game-module runtime; earlier releases used Luau.
 A trusted module may be powerful, but Rust-owned managed transactions,
 ownership and recoverability are separate correctness guarantees. No
 roadmap item authorizes modifying a user's real game or merging a PR.

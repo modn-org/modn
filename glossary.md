@@ -9,27 +9,23 @@ Rust core and future Lua integrations.
 ### Buckets and trust
 
 **Bucket**:
-A versioned catalog containing game module releases and mod package manifests
+A versioned catalog containing mod package manifests
 under a named source.
 _Avoid_: Mod repository, provider, registry (when referring to a bucket)
 
 **Official bucket**:
-The Modn-maintained `main` bucket, trusted by default and curated by Modn
-maintainers.
+The Modn-maintained `main` package catalog, bundled offline and curated by
+Modn maintainers.
 _Avoid_: Built-in module, automatically safe mods
 
 **Community bucket**:
-A bucket maintained by a third party that a user explicitly chooses to trust.
+A mod-package catalog maintained by a third party and explicitly registered
+by the user.
 _Avoid_: Untrusted bucket (after trust is granted), unofficial plugin
 
 **Bucket registration**:
 The local record that makes a named bucket available for resolution.
 _Avoid_: Bucket installation, mod installation
-
-**Bucket trust**:
-The user's explicit decision to allow modules supplied by a community bucket
-to run with the capabilities available to trusted game modules.
-_Avoid_: Per-capability permission, package approval
 
 **Bucket snapshot**:
 A specific set of bucket definitions and manifests at a known revision.
@@ -50,13 +46,13 @@ A versioned Lua integration that defines game-specific discovery,
 installation policy, diagnostics and tool behavior.
 _Avoid_: Mod, plugin, adapter, Rust game handler
 
-**Module release**:
-A particular version of a game module published by a bucket.
-_Avoid_: Mod release, active module
+**First-party game module**:
+A Lua 5.4 integration owned by Modn and shipped alongside the application.
+_Avoid_: Bucket module, independently installed game plugin
 
-**Active module**:
-The explicitly selected module release used for one game identity.
-_Avoid_: Installed module (which can be inactive), bundled fallback
+**Development module override**:
+A temporary caller-selected Lua module source for one command, never persisted.
+_Avoid_: Installed module, active third-party module
 
 ### Packages and acquisition
 

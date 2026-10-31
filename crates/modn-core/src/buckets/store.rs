@@ -1,5 +1,4 @@
 use super::manifest::{valid_id, PackageManifest};
-use super::module::{read_release, validate_release, BucketModule, ModuleReleaseManifest};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -9,7 +8,6 @@ use std::path::{Component, Path, PathBuf};
 
 const MAX_JSON: u64 = 32 * 1024;
 const MAX_PACKAGES: usize = 1024;
-const MAX_MODULES: usize = 1024;
 
 #[expect(
     missing_docs,
@@ -84,7 +82,7 @@ fn read_packages(root: &Path) -> Result<Vec<PackageManifest>> {
     let canonical = root.canonicalize()?;
     let games = root.join("games");
     if !games.exists() {
-        // A bucket may publish only game modules.
+        // An empty bucket is valid until package manifests are published.
         match fs::symlink_metadata(&games) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(error.into()),
@@ -122,38 +120,6 @@ fn read_packages(root: &Path) -> Result<Vec<PackageManifest>> {
     }
     packages.sort_by(|a, b| (&a.game, &a.id).cmp(&(&b.game, &b.id)));
     Ok(packages)
-}
-
-fn read_modules(root: &Path) -> Result<Vec<ModuleReleaseManifest>> {
-    let canonical = root.canonicalize()?;
-    let modules = root.join("modules");
-    match fs::symlink_metadata(&modules) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-        Ok(_) => {}
-    }
-    real_directory(&modules, &canonical)?;
-    let mut releases = Vec::new();
-    for game in fs::read_dir(&modules)? {
-        let game = game?;
-        let id = game.file_name().to_string_lossy().into_owned();
-        if !valid_id(&id) {
-            bail!("invalid module game directory");
-        }
-        real_directory(&game.path(), &canonical)?;
-        if releases.len() >= MAX_MODULES {
-            bail!("bucket module release limit exceeded");
-        }
-        releases.push(read_release(&game.path(), &id)?);
-    }
-    releases.sort_by(|a, b| a.game_id.cmp(&b.game_id));
-    Ok(releases)
-}
-
-fn official_modules() -> Result<Vec<ModuleReleaseManifest>> {
-    let manifest = include_bytes!("../../../../buckets/main/modules/cyberpunk-2077/module.json");
-    let script = include_bytes!("../../../../buckets/main/modules/cyberpunk-2077/main.lua");
-    Ok(vec![validate_release(manifest, script, "cyberpunk-2077")?])
 }
 
 fn official() -> Result<Vec<PackageManifest>> {
@@ -233,11 +199,7 @@ impl BucketStore {
         Ok(registered)
     }
 
-    fn load(
-        &self,
-        name: &str,
-        path: &Path,
-    ) -> Result<(BucketInfo, Vec<PackageManifest>, Vec<ModuleReleaseManifest>)> {
+    fn load(&self, name: &str, path: &Path) -> Result<(BucketInfo, Vec<PackageManifest>)> {
         if fs::symlink_metadata(path)?.file_type().is_symlink() {
             bail!("linked bucket root refused");
         }
@@ -250,8 +212,13 @@ impl BucketStore {
         {
             bail!("bucket name or schema mismatch: {name}");
         }
+        // Buckets contain mod manifests, never executable game modules.
+        match fs::symlink_metadata(path.join("modules")) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+            Ok(_) => bail!("bucket module directories are unsupported"),
+        }
         let packages = read_packages(path)?;
-        let modules = read_modules(path)?;
         Ok((
             BucketInfo {
                 name: name.into(),
@@ -259,7 +226,6 @@ impl BucketStore {
                 path: Some(path.to_path_buf()),
             },
             packages,
-            modules,
         ))
     }
 
@@ -269,7 +235,7 @@ impl BucketStore {
             bail!("invalid or reserved bucket name");
         }
         let path = path.canonicalize()?;
-        let (info, _, _) = self.load(name, &path)?;
+        let (info, _) = self.load(name, &path)?;
         if self.registrations()?.contains_key(name) {
             bail!("bucket already registered");
         }
@@ -317,7 +283,6 @@ impl BucketStore {
     /// Game IDs represented by built-in package metadata, not hardcoded Rust policy.
     pub fn official_games(&self) -> Result<Vec<String>> {
         let mut ids: Vec<String> = official()?.into_iter().map(|p| p.game).collect();
-        ids.extend(official_modules()?.into_iter().map(|m| m.game_id));
         ids.sort();
         ids.dedup();
         Ok(ids)
@@ -336,7 +301,7 @@ impl BucketStore {
             });
         }
         for (id, path) in self.registrations()? {
-            let (_, content, _) = self.load(&id, &path)?;
+            let (_, content) = self.load(&id, &path)?;
             for package in content {
                 packages.push(BucketPackage {
                     bucket: id.clone(),
@@ -353,45 +318,6 @@ impl BucketStore {
             ))
         });
         Ok(packages)
-    }
-
-    /// Enumerate immutable module metadata in all buckets without executing Lua.
-    pub fn modules(&self, game: Option<&str>) -> Result<Vec<BucketModule>> {
-        if game.is_some_and(|id| !valid_id(id)) {
-            bail!("invalid game ID");
-        }
-        let mut releases: Vec<BucketModule> = official_modules()?
-            .into_iter()
-            .map(|module| BucketModule {
-                bucket: "main".into(),
-                module,
-            })
-            .collect();
-        for (id, path) in self.registrations()? {
-            let (_, _, modules) = self.load(&id, &path)?;
-            for module in modules {
-                releases.push(BucketModule {
-                    bucket: id.clone(),
-                    module,
-                });
-            }
-        }
-        releases.retain(|entry| game.is_none_or(|id| entry.module.game_id == id));
-        releases
-            .sort_by(|a, b| (&a.bucket, &a.module.game_id).cmp(&(&b.bucket, &b.module.game_id)));
-        Ok(releases)
-    }
-
-    /// Resolve a bucket/game module reference without executing it.
-    pub fn show_module(&self, reference: &str) -> Result<BucketModule> {
-        let parts: Vec<&str> = reference.split('/').collect();
-        if parts.len() != 2 || parts.iter().any(|part| !valid_id(part)) {
-            bail!("expected bucket/game");
-        }
-        self.modules(Some(parts[1]))?
-            .into_iter()
-            .find(|m| m.bucket == parts[0] && m.module.game_id == parts[1])
-            .with_context(|| format!("bucket module not found: {reference}"))
     }
 
     /// Resolve a complete bucket/game/mod reference without ambiguity.
