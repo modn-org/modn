@@ -94,8 +94,13 @@ installations of the same game must have independent managed state.
 | `content_sha256` | Digest of the module release content. |
 
 A module release is **executable game integration code**, not a mod archive.
-Both official and community buckets can publish module releases. Only
-acknowledged community buckets can supply active third-party modules.
+Within one bucket snapshot, each game has one current module release stored
+at `modules/<game-id>/`, with its version declared in `module.json`.
+Bucket/game identifies the published module; the bucket revision and content
+digest distinguish its exact release. Historical versions and rollback
+copies belong to the module lifecycle, not the bucket tree. Both official
+and community buckets can publish releases. Only acknowledged community
+buckets can supply active third-party modules.
 
 **ActiveModule** identifies a selected release per `game_id`, plus a previous
 selection for rollback. Installing or updating catalog metadata does not
@@ -190,10 +195,9 @@ still has a separate module store; bucket-managed modules are **not yet implemen
 **Merged PR #23** introduced a metadata-only bucket registry and a bundled snapshot
 of three Cyberpunk prerequisite packages. Its initial package manifest uses
 `schema_version`, `id`, `game`, `name`, `version`, `archive_format`,
-`sha256`, `source`, and optional `dependencies`/`homepage`. It does not
-yet provide `GameModuleRelease` in buckets, persisted community trust,
-multi-source downloads, versioned dependency solving or a remote official
-repository. Do not treat the proposed model above as its implemented schema.
+`sha256`, `source`, and optional `dependencies`/`homepage`. The unified bucket metadata contract now discovers versioned `GameModuleRelease` records with verified Lua source hashes, but does not
+execute or activate them. Persisted community trust, multi-source downloads,
+versioned dependency solving and a remote official repository remain future work. Do not treat the proposed model above as its implemented schema.
 
 ## Invariants for future migrations
 

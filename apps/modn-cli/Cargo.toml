@@ -18,6 +18,7 @@ modn-core = { path = "../../crates/modn-core" }
 serde_json = "1"
 
 [dev-dependencies]
+sha2 = "0.10"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
 same-file = "1"
 tempfile = "3"

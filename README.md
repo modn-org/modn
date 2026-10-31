@@ -384,7 +384,7 @@ Windows first. Minecraft, additional transaction types, game-specific Lua integr
 All first-party code is MIT licensed.
 
 
-## Local buckets (foundation)
+## Local buckets (metadata contract v1)
 
 Modn includes a read-only `main` bucket snapshot with three verified Cyberpunk
 prerequisite archives (CET 1.38.1, RED4ext 1.31.0, redscript 0.5.32).
@@ -399,6 +399,8 @@ modn bucket search --game cyberpunk-2077 --json
 modn bucket show main/cyberpunk-2077/red4ext --json
 modn bucket add community C:\path\to\bucket
 modn bucket show community/test-game/example --json
+modn bucket modules --json
+modn bucket module-show main/cyberpunk-2077 --json
 modn bucket remove community
 ```
 
@@ -408,8 +410,12 @@ has schema_version, id, game, name, version, archive_format (`zip`/`7z`),
 sha256, source (`manual` with filename, or `https` with URL),
 optional dependencies (same-game IDs) and homepage. Unknown fields and
 unsupported schemas are rejected. See `buckets/main` for examples.
-Registrations point to explicitly selected directories, and manifests
-are revalidated on every read. Buckets never execute code.
+Registrations point to explicitly selected directories. Package manifests
+and versioned Lua module records are revalidated (including content hashes)
+on every read. The canonical layout and validation limits are described in
+[bucket contract v1](buckets/README.md). The official snapshot now includes
+Cyberpunk Lua source metadata, but module selection and execution still use
+the existing separate module store. Browsing buckets never executes Lua.
 
 This feature is **metadata-only**: no fetching, dependency resolution,
 installing from manifests, or game-file writes. Installations still use

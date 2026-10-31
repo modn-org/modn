@@ -61,6 +61,8 @@ pub(super) fn run(
         }
         BucketCommand::List => serde_json::to_value(store.list()?)?,
         BucketCommand::Search => serde_json::to_value(store.packages(game)?)?,
+        BucketCommand::Modules => serde_json::to_value(store.modules(game)?)?,
+        BucketCommand::ModuleShow { module } => serde_json::to_value(store.show_module(&module)?)?,
         BucketCommand::Show { package } => serde_json::to_value(store.show(&package)?)?,
     };
     if json_output {
@@ -88,11 +90,18 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
                     .get("bucket")
                     .and_then(Value::as_str)
                     .unwrap_or_else(|| entry.get("name").and_then(Value::as_str).unwrap_or(""));
-                match (entry.get("game"), entry.get("id"), entry.get("version")) {
+                let game = entry.get("game").or_else(|| entry.get("game_id"));
+                let id = entry.get("id");
+                match (game, id, entry.get("version")) {
                     (Some(game), Some(id), Some(version)) => format!(
                         "{prefix}/{}/{}, version {}",
                         game.as_str().unwrap_or(""),
                         id.as_str().unwrap_or(""),
+                        version.as_str().unwrap_or("")
+                    ),
+                    (Some(game), None, Some(version)) => format!(
+                        "{prefix}/{}, version {}",
+                        game.as_str().unwrap_or(""),
                         version.as_str().unwrap_or("")
                     ),
                     _ => format!(
