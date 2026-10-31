@@ -344,3 +344,89 @@ fn local_archive_preview_without_game_registration_has_no_state_writes() {
     assert!(!fixture.state.join("state.sqlite").exists());
     assert!(!fixture.game.join("addons").exists());
 }
+
+#[test]
+fn emitted_game_candidate_is_resolvable_without_interactive_input() {
+    let fixture = Fixture::new();
+    fixture.bucket("collision", "test-game", "test-game", &"0".repeat(64), &[]);
+    let chosen = fixture.run_paths(
+        &["--json", "add", "game:test-game", "--path"],
+        &[&fixture.game],
+    );
+    assert!(chosen.status.success(), "{}", error(&chosen));
+    let game: Value = serde_json::from_slice(&chosen.stdout).expect("JSON");
+    assert_eq!(game["game_id"], "test-game");
+}
+
+#[test]
+fn deleted_managed_dependency_cannot_authorize_dependent_install() {
+    let fixture = Fixture::new();
+    let (base_archive, base_hash) = fixture.archive();
+    fixture.bucket("deps", "test-game", "base", &base_hash, &[]);
+    let dependent_archive = fixture.temp.path().join("dependent.zip");
+    let file = fs::File::create(&dependent_archive).expect("archive");
+    let mut zip = zip::ZipWriter::new(file);
+    use std::io::Write;
+    zip.start_file(
+        "Demo/package/plugins/dependent.plugin",
+        SimpleFileOptions::default(),
+    )
+    .expect("entry");
+    zip.write_all(b"dependent-content").expect("payload");
+    zip.finish().expect("finish");
+    let dependent_hash = format!(
+        "{:x}",
+        Sha256::digest(fs::read(&dependent_archive).expect("bytes"))
+    );
+    let manifest = json!({
+        "schema_version":1, "id":"dependent", "game":"test-game",
+        "name":"Dependent", "version":"1.0", "archive_format":"zip",
+        "sha256":dependent_hash, "source":{"kind":"manual","filename":"dependent.zip"},
+        "dependencies":["base"]
+    });
+    fs::write(
+        fixture
+            .temp
+            .path()
+            .join("deps/games/test-game/dependent.json"),
+        serde_json::to_vec(&manifest).expect("JSON"),
+    )
+    .expect("manifest");
+    fixture.register();
+
+    let base = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .args(["add", "base", "--yes", "--file"])
+        .arg(&base_archive)
+        .output()
+        .expect("install base");
+    assert!(base.status.success(), "{}", error(&base));
+    let owned_file = fixture.game.join("addons/example.plugin");
+    assert!(owned_file.is_file());
+    fs::remove_file(&owned_file).expect("simulate drift");
+
+    let dependent = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .args(["add", "dependent", "--yes", "--file"])
+        .arg(&dependent_archive)
+        .output()
+        .expect("install dependent");
+    assert!(
+        !dependent.status.success(),
+        "drifted prerequisite must block"
+    );
+    assert!(
+        error(&dependent).contains("dependency not installed or intact"),
+        "{}",
+        error(&dependent)
+    );
+    assert!(!fixture.game.join("addons/dependent.plugin").exists());
+    assert_eq!(
+        fs::read(fixture.game.join("bin/TestGame.exe")).expect("marker"),
+        b"game-exe"
+    );
+}

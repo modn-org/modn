@@ -152,7 +152,7 @@ modn add cyberpunk-2077/cet --file "/path/to/CET.zip" --dry-run
 
 Short mod IDs resolve only when unique across registered buckets and supported
 games. `game/mod` and `bucket/game/mod` narrow the match. If a game and mod
-share an ID, neither silently wins. Interactive terminals offer a numbered
+share an ID, neither silently wins; use `game:<game-id>` to select the game explicitly. Interactive terminals offer a numbered
 choice; `--json` and noninteractive invocations reject ambiguity. JSON stderr
 includes an `ambiguous_target` error and fully qualified `candidates`.
 `--game <game-id>` filters candidates.
@@ -161,8 +161,8 @@ For mods, `--file` must identify an existing **ZIP or 7z** archive matching
 the catalog's exact format and SHA-256. Without `--file`, the CLI explains
 where to obtain it. `--dry-run` previews the Lua install plan without writes;
 `--yes` is required to execute through the existing Rust transaction engine.
-Dependencies must already be installed with matching catalog SHA-256 digests
-in the same bucket; unresolved dependencies block installation. This does not
+Dependencies must have matching catalog SHA-256 digests and intact managed
+content in the same bucket; unresolved dependencies block installation. This does not
 download archives, approve executable tools, or install dependencies.
 `--src` remains a one-command game-module development override, not a
 mod archive option.

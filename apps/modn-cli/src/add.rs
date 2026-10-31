@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use modn_core::archive::inspect;
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore, PackageSource};
 use modn_core::game_modules::available_games;
+use modn_core::inventory::scan_with_ownership_for;
 use modn_core::planning::preview_install_zip_with_permissions;
 use modn_core::state::Store;
 use std::fmt;
@@ -67,6 +68,18 @@ fn resolve(
 ) -> Result<Target> {
     if query.is_empty() || query.split('/').any(|part| part.is_empty()) {
         bail!("invalid add target; expected game, mod, game/mod or bucket/game/mod");
+    }
+    // The game: prefix is also used in ambiguity candidates, so every
+    // suggested choice can be passed back to a noninteractive invocation.
+    if let Some(game) = query.strip_prefix("game:") {
+        if !game.is_empty()
+            && !game.contains('/')
+            && game_filter.is_none_or(|filter| filter == game)
+            && available_games(module_source)?.iter().any(|id| id == game)
+        {
+            return Ok(Target::Game(game.into()));
+        }
+        bail!("unknown supported game: {game}");
     }
     let parts: Vec<&str> = query.split('/').collect();
     if parts.len() > 3 {
@@ -179,6 +192,11 @@ fn dependency_check(
         .map(|db| db.installed(game))
         .transpose()?
         .unwrap_or_default();
+    // A ledger entry is not proof that the prerequisite is still present.
+    // Reuse the exact ownership/alias checks used for the normal inventory.
+    let checked = store
+        .map(|db| scan_with_ownership_for(db, &selected.package.game, game))
+        .transpose()?;
     for id in &selected.package.dependencies {
         let dependency = catalog_packages
             .iter()
@@ -189,16 +207,25 @@ fn dependency_check(
                     selected.bucket, selected.package.game, id
                 )
             })?;
-        if !owned
-            .iter()
-            .any(|installed| installed.archive_sha256 == dependency.package.sha256)
-        {
+        let is_intact = owned.iter().any(|package| {
+            if package.archive_sha256 != dependency.package.sha256 {
+                return false;
+            }
+            let Some(report) = checked.as_ref() else {
+                return false;
+            };
+            let mut checks = report
+                .owned_files
+                .iter()
+                .filter(|entry| entry.package_id == package.id);
+            let first = checks.next();
+            first.is_some_and(|entry| matches!(entry.status.as_str(), "intact" | "present"))
+                && checks.all(|entry| matches!(entry.status.as_str(), "intact" | "present"))
+        });
+        if !is_intact {
             bail!(
-                "dependency not installed: {}/{}/{}; resolve dependencies before adding {}",
-                selected.bucket,
-                selected.package.game,
-                id,
-                selected.package.id
+                "dependency not installed or intact: {}/{}/{}; restore its managed content before adding {}",
+                selected.bucket, selected.package.game, id, selected.package.id
             );
         }
     }
