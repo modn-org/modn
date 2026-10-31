@@ -1,4 +1,4 @@
-//! Game-agnostic, ownership-aware ZIP operation executor.
+//! Game-agnostic, ownership-aware ZIP/7z operation executor.
 use super::directory::exclusive_roots;
 use super::journal::{
     digest, lock_store, target_path, temp_path, JournalFile, ManagedPackage, OwnedFile,
@@ -20,7 +20,7 @@ use tempfile::Builder;
 impl Store {
     /// Execute a caller-approved proposal, independently checked against the current archive
     /// and filesystem. This is a write API, not exposed to untrusted Luau modules.
-    /// For now, only ZIP file-copy operations are supported.
+    /// ZIP and 7z file-copy operations share the same journal and recovery.
     pub fn install_operations_zip(
         &mut self,
         game: &Path,
@@ -80,6 +80,14 @@ impl Store {
             .to_string();
         self.begin_staging(&id, &game, &inspection.sha256)?;
         let staged = (|| -> Result<Vec<JournalFile>> {
+            if inspection.format == "7z" {
+                let files =
+                    super::staging::stage_7z(archive, &inspection, proposal, staging.path())?;
+                if inspect(archive)?.sha256 != inspection.sha256 {
+                    bail!("archive changed between inspection and extraction");
+                }
+                return Ok(files);
+            }
             let mut zip = zip::ZipArchive::new(File::open(archive)?)?;
             let original_names: HashMap<_, _> = inspection
                 .files
