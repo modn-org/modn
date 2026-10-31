@@ -2,11 +2,53 @@
 use super::journal::{digest, JournalFile};
 use crate::archive::Inspection;
 use crate::planning::InstallPlan;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
+
+/// The locked sevenz decoder walks each solid block using its stream count,
+/// but parsed 7z headers can interleave streamless directories/empty files.
+/// Group the data-bearing entries in compressed-stream order so that decoder
+/// iteration cannot silently omit members after a streamless entry.
+fn decoder_order(mut archive: sevenz_rust2::Archive) -> Result<sevenz_rust2::Archive> {
+    let mut groups = vec![Vec::new(); archive.blocks.len()];
+    let mut streamless = Vec::new();
+    let original_map = std::mem::take(&mut archive.stream_map.file_block_index);
+    if archive.files.len() != original_map.len() {
+        return Err(anyhow!("invalid 7z stream map length"));
+    }
+    for (entry, block) in std::mem::take(&mut archive.files)
+        .into_iter()
+        .zip(original_map)
+    {
+        if entry.has_stream {
+            let group = block
+                .and_then(|id| groups.get_mut(id))
+                .context("7z data stream has no valid compression block")?;
+            group.push(entry);
+        } else {
+            streamless.push(entry);
+        }
+    }
+    let mut map = Vec::new();
+    let mut first = Vec::with_capacity(groups.len());
+    for (block, group) in groups.into_iter().enumerate() {
+        first.push(archive.files.len());
+        for entry in group {
+            archive.files.push(entry);
+            map.push(Some(block));
+        }
+    }
+    for entry in streamless {
+        archive.files.push(entry);
+        map.push(None);
+    }
+    archive.stream_map.file_block_index = map;
+    archive.stream_map.block_first_file_index = first;
+    Ok(archive)
+}
 
 /// Decode solid and non-solid 7z archives once, without buffering file payloads
 /// in memory or extracting any unselected entries to the filesystem.
@@ -35,7 +77,14 @@ pub(super) fn stage_7z(
     let mut staged: Vec<Option<JournalFile>> = std::iter::repeat_with(|| None)
         .take(plan.operations.len())
         .collect();
-    let mut reader = sevenz_rust2::ArchiveReader::open(archive, sevenz_rust2::Password::empty())?;
+    let metadata = sevenz_rust2::ArchiveReader::open(archive, sevenz_rust2::Password::empty())?
+        .archive()
+        .clone();
+    let mut reader = sevenz_rust2::ArchiveReader::from_archive(
+        decoder_order(metadata)?,
+        File::open(archive)?,
+        sevenz_rust2::Password::empty(),
+    );
     reader.for_each_entries(|entry, input| {
         if entry.is_directory {
             return Ok(true);
@@ -96,4 +145,76 @@ pub(super) fn stage_7z(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decoder_order;
+    use sevenz_rust2::{ArchiveEntry, ArchiveReader, ArchiveWriter, Password, SourceReader};
+    use std::collections::HashMap;
+    use std::fs::File;
+    use std::io::Cursor;
+    use tempfile::tempdir;
+
+    #[test]
+    fn interleaved_streamless_directory_keeps_both_solid_members_decodable() {
+        let temp = tempdir().expect("fixture");
+        let path = temp.path().join("solid.7z");
+        let a = "r6/scripts/Example/A.reds";
+        let b = "r6/scripts/Example/B.reds";
+        let directory = "r6/scripts/Example/empty/";
+        let mut writer = ArchiveWriter::create(&path).expect("writer");
+        writer
+            .push_archive_entries(
+                vec![ArchiveEntry::new_file(a), ArchiveEntry::new_file(b)],
+                vec![
+                    SourceReader::new(Cursor::new(b"alpha".as_slice())),
+                    SourceReader::new(Cursor::new(b"bravo".as_slice())),
+                ],
+            )
+            .expect("solid block");
+        writer.finish().expect("complete archive");
+        let mut parsed = ArchiveReader::open(&path, Password::empty())
+            .expect("valid 7z header")
+            .archive()
+            .clone();
+        assert!(parsed.is_solid, "fixture must use solid compression");
+        // Model a valid header with a streamless directory between two data
+        // streams in the same solid block. The locked library's decoder would
+        // visit only A and the directory, silently missing B in this ordering.
+        parsed
+            .files
+            .insert(1, ArchiveEntry::new_directory(directory));
+        parsed.stream_map.file_block_index.insert(1, Some(0));
+        let fixed = decoder_order(parsed).expect("reorder stream map");
+        assert_eq!(
+            fixed
+                .files
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            vec![a, b, directory]
+        );
+        assert_eq!(
+            fixed.stream_map.file_block_index,
+            vec![Some(0), Some(0), None]
+        );
+        let mut decoder = ArchiveReader::from_archive(
+            fixed,
+            File::open(&path).expect("archive"),
+            Password::empty(),
+        );
+        let mut actual = HashMap::new();
+        decoder
+            .for_each_entries(|entry, input| {
+                let mut bytes = Vec::new();
+                input.read_to_end(&mut bytes)?;
+                actual.insert(entry.name.clone(), bytes);
+                Ok(true)
+            })
+            .expect("decode both solid streams");
+        assert_eq!(actual[a], b"alpha");
+        assert_eq!(actual[b], b"bravo");
+        assert_eq!(actual[directory], b"");
+    }
 }
