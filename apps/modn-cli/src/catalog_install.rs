@@ -4,7 +4,7 @@ use crate::state_access::validate_state_path;
 use anyhow::{bail, Context, Result};
 use modn_core::archive::inspect;
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore, PackageSource};
-use modn_core::inventory::scan_with_ownership_for;
+use modn_core::inventory::{original_package_payloads_intact, scan_with_ownership_for};
 use modn_core::planning::preview_install_zip_with_permissions;
 use modn_core::state::Store;
 use std::fmt;
@@ -171,6 +171,8 @@ fn dependency_check(
             let first = checks.next();
             first.is_some_and(|entry| matches!(entry.status.as_str(), "intact" | "present"))
                 && checks.all(|entry| matches!(entry.status.as_str(), "intact" | "present"))
+                // A folder's "present" status does not prove its original files.
+                && original_package_payloads_intact(game, package)
         });
         if !is_intact {
             bail!(

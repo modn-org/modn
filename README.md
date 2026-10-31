@@ -374,9 +374,9 @@ are revalidated on every read. Buckets contain mod-package metadata only;
 `modules/` directories are rejected. See [bucket contract v1](buckets/README.md).
 Game modules are first-party source shipped with Modn, outside buckets.
 
-This feature is **metadata-only**: no fetching, dependency resolution,
-installing from manifests, or game-file writes. Installations still use
-`modn install <archive> --dry-run` and `--yes`. A checksum proves bytes
-match a manifest, not publisher trust. Future milestones add verified
-downloads, deterministic dependency solving and a separately maintained
-official bucket feed.
+Bucket registration, listing, searching and manifest inspection are
+**metadata-only** and never modify game files. A catalog entry can be
+installed from a supplied, SHA-256-verified ZIP/7z with an explicit approval;
+standalone local archives use the same managed transaction engine. A checksum
+proves the bytes match a catalog record, not publisher trust. Automatic
+downloads and deterministic dependency solving are future milestones.

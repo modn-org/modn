@@ -48,13 +48,17 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
     } = &cli.command
     {
         let source = std::path::Path::new(target);
-        let is_archive = source.is_file()
-            || source
-                .extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|ext| {
-                    ["zip", "7z", "jar"].contains(&ext.to_ascii_lowercase().as_str())
-                });
+        // Bare catalog IDs win over same-named files in the working directory.
+        // A standalone archive is explicit through its extension or path syntax.
+        let archive_extension = source
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                ["zip", "7z", "jar"].contains(&extension.to_ascii_lowercase().as_str())
+            });
+        let explicit_path =
+            source.is_absolute() || target.starts_with('.') || target.contains('\\');
+        let is_archive = archive_extension || (file.is_none() && explicit_path && source.is_file());
         if !is_archive {
             if !allow_executable.is_empty() {
                 bail!("--allow-executable applies only to standalone archive installation");

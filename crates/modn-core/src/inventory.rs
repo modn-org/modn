@@ -97,6 +97,22 @@ fn verify_owned(root: &Path, relative: &str, expected_bytes: u64, expected_sha: 
     }
 }
 
+/// Check original package files, even beneath exclusive owned directories.
+///
+/// Directory-owned runtime output stays mutable; this function only proves
+/// that the original installed prerequisite bytes remain present.
+#[must_use]
+pub fn original_package_payloads_intact(
+    game: &Path,
+    package: &crate::transactions::ManagedPackage,
+) -> bool {
+    !package.files.is_empty()
+        && package
+            .files
+            .iter()
+            .all(|file| verify_owned(game, &file.destination, file.bytes, &file.sha256) == "intact")
+}
+
 // Non-contextual per-character case folding is only a Windows candidate search.
 // Different names can fold identically on NTFS; actual file identity still decides ownership.
 fn ownership_key(relative: &str) -> String {

@@ -254,9 +254,64 @@ fn removing_registration_refuses_pending_recovery_and_preserves_record() {
         .execute("DELETE FROM pending_transactions", [])
         .expect("clear pending");
     fs::remove_dir(&game).expect("simulate missing game");
+    // Persisted Windows paths are verbatim, but users type ordinary drive
+    // paths after deleting or moving the game.
+    #[cfg(windows)]
+    let removal_path = std::path::PathBuf::from(game.to_string_lossy().trim_start_matches(r"\\?\"));
+    #[cfg(not(windows))]
+    let removal_path = game.clone();
     let removed = store
-        .remove_game("test-game", Some(&game))
+        .remove_game("test-game", Some(&removal_path))
         .expect("unregister missing game");
     assert_eq!(removed.game_id, "test-game");
     assert!(store.list().expect("list").is_empty());
+}
+
+#[test]
+fn game_unregistration_waits_for_install_transaction_lock() {
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::time::Duration;
+
+    let temp = tempdir().expect("fixture");
+    let db = temp.path().join("state.sqlite");
+    let game = temp.path().join("game");
+    fs::create_dir(&game).expect("game root");
+    let path = game.canonicalize().expect("canonical");
+    let store = Store::open(&db).expect("state");
+    store
+        .connection
+        .execute(
+            "INSERT INTO game_installations(game_id,path,source) VALUES ('test-game',?1,'manual')",
+            [path.to_str().expect("path")],
+        )
+        .expect("registration");
+    let guard = crate::transactions::lock_store(&store).expect("install lock");
+    let barrier = Arc::new(Barrier::new(2));
+    let (sender, receiver) = mpsc::channel();
+    let worker = std::thread::spawn({
+        let barrier = Arc::clone(&barrier);
+        let db = db.clone();
+        move || {
+            let mut worker_state = Store::open(&db).expect("worker state");
+            barrier.wait();
+            sender
+                .send(worker_state.remove_game("test-game", None))
+                .expect("send result");
+        }
+    });
+    barrier.wait();
+    assert!(
+        receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+        "game removal did not wait for the transaction lock"
+    );
+    assert_eq!(store.list().expect("list").len(), 1);
+    drop(guard);
+    let removed = receiver
+        .recv_timeout(Duration::from_secs(3))
+        .expect("completion")
+        .expect("unregister");
+    assert_eq!(removed.game_id, "test-game");
+    worker.join().expect("worker");
+    assert!(store.list().expect("list").is_empty());
+    assert!(path.is_dir(), "unregister must never delete game root");
 }

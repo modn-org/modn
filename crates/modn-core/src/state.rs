@@ -3,7 +3,7 @@ use fs2::FileExt;
 use rusqlite::{params, Connection, OpenFlags, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Persisted registration for a single game installation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -154,16 +154,12 @@ impl Store {
     ///
     /// Refuses missing or ambiguous identities and any managed or pending work.
     pub fn remove_game(&mut self, game_id: &str, path: Option<&Path>) -> Result<GameInstallation> {
+        // Use the exact lock held across archive inspection and staging by
+        // installs/uninstalls. SQLite row checks alone miss in-flight writes
+        // before they insert their pending journal.
+        let _guard = crate::transactions::lock_store(self)?;
         let registered = self.list()?;
-        let chosen = path
-            .map(|path| {
-                if path.is_absolute() && !path.exists() {
-                    Ok(path.to_path_buf())
-                } else {
-                    path.canonicalize()
-                }
-            })
-            .transpose()?;
+        let chosen = path.map(canonicalize_removal_path).transpose()?;
         let matches: Vec<_> = registered
             .into_iter()
             .filter(|entry| {
@@ -221,6 +217,45 @@ impl Store {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(installations)
+    }
+}
+
+// Canonicalize the nearest existing parent when an uninstalled game folder
+// no longer exists. Windows canonical paths may use a verbatim-drive prefix,
+// while callers normally supply C:\\... . No missing path is created.
+fn canonicalize_removal_path(path: &Path) -> Result<PathBuf> {
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        bail!("game removal path must not contain parent-directory components");
+    }
+    let mut current = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut missing = Vec::new();
+    loop {
+        match current.canonicalize() {
+            Ok(mut canonical) => {
+                for component in missing.into_iter().rev() {
+                    canonical.push(component);
+                }
+                return Ok(canonical);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = current
+                    .file_name()
+                    .context("invalid missing game directory")?;
+                missing.push(name.to_os_string());
+                current = current
+                    .parent()
+                    .context("cannot resolve game directory")?
+                    .to_path_buf();
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
 }
 

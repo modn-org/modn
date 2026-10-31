@@ -518,3 +518,135 @@ fn game_remove_requires_path_with_duplicate_registrations() {
         b"second"
     );
 }
+
+#[test]
+fn a_bare_mod_id_cannot_be_shadowed_by_same_named_local_file() {
+    let fixture = Fixture::new();
+    fixture.register();
+    let (archive, digest) = fixture.archive();
+    fixture.bucket("community", "test-game", "example", &digest, &[]);
+    fs::write(fixture.temp.path().join("example"), b"not an archive")
+        .expect("create filename collision");
+    let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .current_dir(fixture.temp.path())
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .args(["--json", "install", "example", "--dry-run", "--file"])
+        .arg(&archive)
+        .output()
+        .expect("catalog preview");
+    assert!(preview.status.success(), "{}", error(&preview));
+    let report: Value = serde_json::from_slice(&preview.stdout).expect("json");
+    assert_eq!(report["package"], "community/test-game/example");
+    assert_eq!(report["plan"]["status"], "reviewable");
+    assert!(!fixture.game.join("addons/example.plugin").exists());
+}
+
+#[test]
+fn explicit_extensionless_path_reaches_raw_archive_validation() {
+    let fixture = Fixture::new();
+    fixture.register();
+    let (archive, _) = fixture.archive();
+    fs::copy(&archive, fixture.temp.path().join("local-archive")).expect("raw zip");
+    let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .current_dir(fixture.temp.path())
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .args(["--json", "install", "./local-archive", "--dry-run"])
+        .output()
+        .expect("archive preview");
+    assert!(!preview.status.success());
+    assert!(
+        error(&preview).contains("unsupported archive format"),
+        "{}",
+        error(&preview)
+    );
+    assert!(!fixture.game.join("addons/example.plugin").exists());
+}
+
+#[test]
+fn exclusive_directory_dependency_requires_original_payload_bytes() {
+    let fixture = Fixture::new();
+    let (archive, hash) = fixture.archive();
+    fixture.bucket("deps", "test-game", "base", &hash, &[]);
+    let dependent = json!({
+        "schema_version":1, "id":"dependent", "game":"test-game",
+        "name":"Dependent", "version":"1.0", "archive_format":"zip",
+        "sha256":hash, "source":{"kind":"manual", "filename":"fixture.zip"},
+        "dependencies":["base"]
+    });
+    fs::write(
+        fixture
+            .temp
+            .path()
+            .join("deps/games/test-game/dependent.json"),
+        serde_json::to_vec(&dependent).expect("JSON"),
+    )
+    .expect("dependent manifest");
+    fixture.register();
+
+    // Only this fixture's game policy assigns an exclusive per-mod directory.
+    let policy = fixture.modules.join("test-game/main.lua");
+    let original = fs::read_to_string(&policy).expect("Lua");
+    let exclusive = original
+        .replace(
+            "destination = \"addons/\" .. suffix,",
+            "destination = \"addons/base/\" .. suffix,",
+        )
+        .replace(
+            "package_root = wrapper,",
+            "package_root = wrapper, owned_directory = \"addons/base\",",
+        );
+    assert_ne!(original, exclusive);
+    fs::write(&policy, exclusive).expect("install policy");
+    fs::create_dir_all(fixture.game.join("addons")).expect("exclusive parent");
+    let base = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .args(["install", "base", "--yes", "--file"])
+        .arg(&archive)
+        .output()
+        .expect("install base");
+    assert!(base.status.success(), "{}", error(&base));
+    let payload = fixture.game.join("addons/base/example.plugin");
+    assert!(payload.is_file());
+    fs::write(&policy, original).expect("restore default mapping");
+
+    // A healthy exclusive directory may satisfy dependencies.
+    let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .args(["--json", "install", "dependent", "--dry-run", "--file"])
+        .arg(&archive)
+        .output()
+        .expect("preview");
+    assert!(preview.status.success(), "{}", error(&preview));
+    let plan: Value = serde_json::from_slice(&preview.stdout).expect("plan");
+    assert_eq!(plan["plan"]["status"], "reviewable");
+    assert!(!fixture.game.join("addons/example.plugin").exists());
+
+    // The owned folder's native identity is intact, but its original
+    // prerequisite file has disappeared. A ledger "present" is insufficient.
+    fs::remove_file(&payload).expect("drifted payload");
+    assert!(fixture.game.join("addons/base").is_dir());
+    let blocked = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .args(["install", "dependent", "--yes", "--file"])
+        .arg(&archive)
+        .output()
+        .expect("install dependent");
+    assert!(!blocked.status.success());
+    assert!(
+        error(&blocked).contains("dependency not installed or intact"),
+        "{}",
+        error(&blocked)
+    );
+    assert!(!fixture.game.join("addons/example.plugin").exists());
+    assert!(fixture.game.join("addons/base").is_dir());
+}
