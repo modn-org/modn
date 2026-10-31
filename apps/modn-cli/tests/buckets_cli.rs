@@ -190,3 +190,141 @@ fn linked_manifest_is_refused() {
     .status
     .success());
 }
+
+#[test]
+fn leftover_temp_files_outside_registry_do_not_block_reads() {
+    let temp = TempDir::new().expect("test fixture invariant");
+    let bucket = temp.path().join("source");
+    let state = temp.path().join("state");
+    seed(&bucket, &valid_manifest());
+    assert!(run(
+        &state,
+        &["add", "community", bucket.to_str().expect("path")]
+    )
+    .status
+    .success());
+    let leftover = state.join("buckets").join(".orphaned-staging");
+    fs::write(&leftover, b"incomplete registration").expect("orphan");
+    let found = run(&state, &["search"]);
+    assert!(found.status.success(), "{}", output(&found));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&found.stdout)
+            .expect("JSON")
+            .as_array()
+            .expect("array")
+            .len(),
+        4
+    );
+    assert!(run(&state, &["remove", "community"]).status.success());
+    assert!(
+        leftover.exists(),
+        "registry removal must not claim stray files"
+    );
+}
+
+#[test]
+fn linked_bucket_registry_parent_cannot_redirect_registration_writes() {
+    let temp = TempDir::new().expect("test fixture invariant");
+    let source = temp.path().join("source");
+    seed(&source, &valid_manifest());
+    let state = temp.path().join("state");
+    let outside = temp.path().join("external-target");
+    fs::create_dir_all(&state).expect("state");
+    fs::create_dir_all(&outside).expect("outside");
+    let link = state.join("buckets");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, &link).expect("link");
+    #[cfg(windows)]
+    {
+        let result = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .expect("create junction");
+        assert!(result.status.success(), "{}", output(&result));
+    }
+    let result = run(
+        &state,
+        &["add", "community", source.to_str().expect("path")],
+    );
+    assert!(
+        !result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    assert!(fs::read_dir(&outside).expect("outside").next().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn named_pipe_metadata_is_rejected_without_opening_it() {
+    let temp = TempDir::new().expect("test fixture invariant");
+    let bucket = temp.path().join("source");
+    seed(&bucket, &valid_manifest());
+    let path = bucket.join("games/test-game/example.json");
+    fs::remove_file(&path).expect("remove fixture");
+    let creation = Command::new("mkfifo").arg(&path).output().expect("mkfifo");
+    assert!(
+        creation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&creation.stderr)
+    );
+    let result = run(
+        &temp.path().join("state"),
+        &["add", "community", bucket.to_str().expect("path")],
+    );
+    assert!(!result.status.success());
+    assert!(output(&result).contains("regular file"));
+}
+
+#[test]
+fn bucket_registration_does_not_write_into_detected_game_root() {
+    let temp = TempDir::new().expect("test fixture invariant");
+    let bucket = temp.path().join("source");
+    seed(&bucket, &valid_manifest());
+    let game = temp.path().join("game");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().expect("marker parent")).expect("game");
+    fs::write(&marker, b"unmodified game marker").expect("marker");
+    // No explicit --game: the built-in bucket metadata supplies the game ID.
+    let result = run(&game, &["add", "community", bucket.to_str().expect("path")]);
+    assert!(
+        !result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    assert!(
+        output(&result).contains("outside a game installation"),
+        "{}",
+        output(&result)
+    );
+    assert!(!game.join("buckets").exists());
+    assert_eq!(
+        fs::read(&marker).expect("marker"),
+        b"unmodified game marker"
+    );
+}
+
+#[test]
+fn bucket_title_control_characters_are_rejected() {
+    let temp = TempDir::new().expect("test fixture invariant");
+    let bucket = temp.path().join("source");
+    seed(&bucket, &valid_manifest());
+    fs::write(
+        bucket.join("bucket.json"),
+        r#"{"schema_version":1,"name":"community","title":"Community\u001b[2J"}"#,
+    )
+    .expect("metadata");
+    let state = temp.path().join("state");
+    let result = run(
+        &state,
+        &["add", "community", bucket.to_str().expect("path")],
+    );
+    assert!(
+        !result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    assert!(!state.join("buckets").exists());
+}

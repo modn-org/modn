@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 const MAX_JSON: u64 = 32 * 1024;
 const MAX_PACKAGES: usize = 1024;
@@ -54,11 +54,8 @@ pub struct BucketStore {
 }
 
 fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
-    if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        bail!(
-            "bucket metadata must not be a filesystem link: {}",
-            path.display()
-        );
+    if !fs::symlink_metadata(path)?.file_type().is_file() {
+        bail!("bucket metadata must be a regular file: {}", path.display());
     }
     let mut bytes = Vec::new();
     File::open(path)?
@@ -140,7 +137,30 @@ impl BucketStore {
         }
     }
 
+    // Refuse redirected manager-state paths, not just linked registry children.
+    // The default state path is real; explicit linked state roots must be refused.
+    fn check_registry_root(&self) -> Result<()> {
+        if self.root.components().any(|c| c == Component::ParentDir) {
+            bail!("bucket registry path must not contain parent components");
+        }
+        for ancestor in self.root.ancestors() {
+            match fs::symlink_metadata(ancestor) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    bail!(
+                        "linked bucket registry ancestor refused: {}",
+                        ancestor.display()
+                    );
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     fn registrations(&self) -> Result<BTreeMap<String, PathBuf>> {
+        self.check_registry_root()?;
         let root = self.root.join("registrations");
         match fs::symlink_metadata(&root) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -180,6 +200,7 @@ impl BucketStore {
             || metadata.name != name
             || metadata.title.trim().is_empty()
             || metadata.title.len() > 128
+            || metadata.title.chars().any(char::is_control)
         {
             bail!("bucket name or schema mismatch: {name}");
         }
@@ -211,7 +232,7 @@ impl BucketStore {
             }
         }
         fs::create_dir_all(&dir)?;
-        let mut temp = tempfile::NamedTempFile::new_in(&dir)?;
+        let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
         serde_json::to_writer(&mut temp, &Registration { path })?;
         temp.as_file().sync_all()?;
         temp.persist_noclobber(dir.join(format!("{name}.json")))
@@ -243,6 +264,14 @@ impl BucketStore {
             all.push(self.load(&id, &path)?.0);
         }
         Ok(all)
+    }
+
+    /// Game IDs represented by built-in package metadata, not hardcoded Rust policy.
+    pub fn official_games(&self) -> Result<Vec<String>> {
+        let mut ids: Vec<String> = official()?.into_iter().map(|p| p.game).collect();
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
     }
 
     /// Enumerate all validated manifests, keeping bucket namespaces distinct.

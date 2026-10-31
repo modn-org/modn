@@ -1,6 +1,8 @@
 use crate::commands::BucketCommand;
+use crate::state_access::validate_state_path;
 use anyhow::{Context, Result};
 use modn_core::buckets::BucketStore;
+use modn_core::state::Store;
 use serde_json::Value;
 use std::path::Path;
 
@@ -14,6 +16,40 @@ pub(super) fn run(
         .parent()
         .context("invalid manager state directory")?;
     let store = BucketStore::new(root);
+    if matches!(
+        &command,
+        BucketCommand::Add { .. } | BucketCommand::Remove { .. }
+    ) {
+        // Keep catalog mutations outside known game roots, even when the
+        // operator supplies --state-dir without --game. Game identities come
+        // from data and registered state, not game-specific Rust adapters.
+        let existing = if state_path.is_file() {
+            Some(Store::open_readonly(state_path)?)
+        } else {
+            None
+        };
+        let registered = existing
+            .as_ref()
+            .map(Store::list)
+            .transpose()?
+            .unwrap_or_default();
+        let roots = registered
+            .into_iter()
+            .map(|game| game.path)
+            .collect::<Vec<_>>();
+        let mut games = store.official_games()?;
+        if let Some(game) = game {
+            games.push(game.to_owned());
+        }
+        games.sort();
+        games.dedup();
+        if games.is_empty() {
+            validate_state_path(state_path, None, None, &roots)?;
+        }
+        for game in games {
+            validate_state_path(state_path, Some(&game), None, &roots)?;
+        }
+    }
     let value: Value = match command {
         BucketCommand::Add { name, path } => serde_json::to_value(store.add(&name, &path)?)?,
         BucketCommand::Remove { name } => {
