@@ -174,15 +174,21 @@ archive to supply; automatic downloads are not implemented. Standalone
 the existing Lua planner and Rust ownership transaction. `--dry-run` previews
 without game writes; `--yes` is required for installation. Catalog
 dependencies must already be installed with matching digests and intact
-managed content. `--allow-executable` applies only to standalone archives.
+managed content; installation re-checks this while holding the transaction
+lock. Each catalog installation records its `bucket/game/mod` provenance and
+the managed packages that satisfied its dependencies, in the same SQLite
+commit as its ownership. `modn uninstall` refuses to remove a recorded
+dependency while a dependent managed package remains; uninstall the dependent
+first. Standalone archive installs and packages installed before this record
+existed carry no dependency links. `--allow-executable` applies only to
+standalone archives.
 
 `modn game remove <game-id>` only unregisters an installation and never
 deletes game files. It refuses to orphan managed mods or pending transactions;
 use `--path` if multiple installations have the same ID. `modn list`
 shows manager-owned packages, not unmanaged content. `modn uninstall`
 currently accepts the managed-package ID shown by `modn list`, not the
-bucket mod name; persisted catalog provenance and friendly-name uninstall
-remain future work.
+bucket mod name; friendly-name uninstall remains future work.
 
 The CLI has **no default game**. Use `modn game add <game-id> --path <directory>`
 to register an installation with its ordinary Lua module; use `--game <game-id>`
@@ -299,8 +305,9 @@ Installing redscript requires the operator to add
 confirmed installation. This is a trusted, explicit approval of one exact
 game-relative tool executable, independent of Lua operation labels.
 Without that specific approval, executables remain prohibited. Explicit tool-executable permission does not certify the executable as trustworthy.
-Modn does not execute framework binaries or certify runtime compatibility,
-game-version support, or dependent-mod safety on framework uninstall.
+Modn does not execute framework binaries or certify runtime compatibility
+or game-version support. Only catalog-installed dependents block a framework
+uninstall; standalone archives that need a framework are not tracked.
 
 ### Common Cyberpunk prerequisite package layouts
 

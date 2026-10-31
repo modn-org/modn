@@ -441,6 +441,7 @@ impl Store {
         hash: &str,
         files: &[JournalFile],
         directories: &[String],
+        catalog: Option<&super::catalog::CatalogRecord>,
     ) -> Result<()> {
         let tx = self.connection.transaction()?;
         tx.execute(
@@ -465,6 +466,9 @@ impl Store {
                 params![game.to_string_lossy().as_ref(), root.to_lowercase(), root, id, identity],
             )?;
         }
+        if let Some(catalog) = catalog {
+            super::catalog::record(&tx, id, catalog)?;
+        }
         tx.execute(
             "UPDATE pending_transactions SET status='committed' WHERE id=?1",
             [id],
@@ -483,6 +487,7 @@ impl Store {
             "DELETE FROM managed_files WHERE package_id=?1",
             [package_id],
         )?;
+        super::catalog::forget(&tx, package_id)?;
         tx.execute("DELETE FROM managed_packages WHERE id=?1", [package_id])?;
         tx.execute(
             "UPDATE pending_transactions SET status='committed' WHERE id=?1",
