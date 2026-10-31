@@ -1,0 +1,7 @@
+{
+  "schema_version": 1, "id": "redscript", "game": "cyberpunk-2077",
+  "name": "redscript", "version": "0.5.32",
+  "archive_format": "zip", "sha256": "882c57a80b07e453bc8a34cd8430f460aceed789581de8743638e19dcfb7936f",
+  "source": {"kind":"manual","filename":"redscript-v0.5.32-windows.zip"},
+  "dependencies": []
+}

@@ -1,0 +1,7 @@
+//! Versioned, read-only package metadata and local bucket registration.
+//! A manifest never authorizes writes to a game.
+mod manifest;
+mod store;
+
+pub use manifest::{ArchiveFormat, PackageManifest, PackageSource};
+pub use store::{BucketInfo, BucketPackage, BucketStore};

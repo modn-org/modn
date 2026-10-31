@@ -1,6 +1,6 @@
 # modn
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Luau Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, buckets, MCP, and desktop UI remain future milestones.
+A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Luau Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, bucket downloads/dependency resolution, MCP, and desktop UI remain future milestones.
 
 ## Development
 
@@ -373,3 +373,38 @@ do not delete game files or personal saves to reset manager state.
 Windows first. Minecraft, additional transaction types, game-specific Luau integrations and a package browser remain future milestones.
 
 All first-party code is MIT licensed.
+
+
+## Local buckets (foundation)
+
+Modn includes a read-only `main` bucket snapshot with three verified Cyberpunk
+prerequisite archives (CET 1.38.1, RED4ext 1.31.0, redscript 0.5.32).
+Their SHA-256 digests were checked against original downloaded archives.
+They are **manual** sources, not automatic download links; the snapshot
+does not assert compatibility with every game version. More catalog entries
+will be curated in a later milestone.
+
+```powershell
+modn bucket list --json
+modn bucket search --game cyberpunk-2077 --json
+modn bucket show main/cyberpunk-2077/red4ext --json
+modn bucket add community C:\path\to\bucket
+modn bucket show community/test-game/example --json
+modn bucket remove community
+```
+
+A local bucket contains `bucket.json` (schema_version: 1, name, title)
+and `games/<game-id>/<package-id>.json` files. Each package record
+has schema_version, id, game, name, version, archive_format (`zip`/`7z`),
+sha256, source (`manual` with filename, or `https` with URL),
+optional dependencies (same-game IDs) and homepage. Unknown fields and
+unsupported schemas are rejected. See `buckets/main` for examples.
+Registrations point to explicitly selected directories, and manifests
+are revalidated on every read. Buckets never execute code.
+
+This feature is **metadata-only**: no fetching, dependency resolution,
+installing from manifests, or game-file writes. Installations still use
+`modn install <archive> --dry-run` and `--yes`. A checksum proves bytes
+match a manifest, not publisher trust. Future milestones add verified
+downloads, deterministic dependency solving and a separately maintained
+official bucket feed.
