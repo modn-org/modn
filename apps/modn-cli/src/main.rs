@@ -1,3 +1,4 @@
+mod add;
 mod buckets;
 mod commands;
 mod modules;
@@ -28,6 +29,26 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
     }
     if let Command::Module { command } = cli.command {
         return modules::run(command, cli.json);
+    }
+    if let Command::Add {
+        target,
+        path,
+        file,
+        yes,
+        dry_run,
+    } = &cli.command
+    {
+        return add::run(
+            target,
+            path.as_deref(),
+            file.as_deref(),
+            *yes,
+            *dry_run,
+            &state_path,
+            cli.game_id.as_deref(),
+            cli.module_source.as_deref(),
+            cli.json,
+        );
     }
     let requested = cli.game_id.as_deref();
     if let Command::Game {
@@ -142,6 +163,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
         })
     };
     match cli.command {
+        Command::Add { .. } => unreachable!("add commands return before manager access"),
         Command::Module { .. } => unreachable!("module commands return before manager access"),
         Command::Bucket { .. } => unreachable!("bucket commands return before manager access"),
         Command::Install {
@@ -379,6 +401,12 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
 
 fn main() {
     if let Err(error) = run() {
+        if let Some(ambiguous) = error.downcast_ref::<add::AmbiguousTarget>() {
+            if ambiguous.json {
+                eprintln!("{}", ambiguous.as_json());
+                std::process::exit(1);
+            }
+        }
         eprintln!("error: {error:#}");
         std::process::exit(1);
     }

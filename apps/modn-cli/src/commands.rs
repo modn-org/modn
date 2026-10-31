@@ -24,6 +24,18 @@ pub(super) struct Cli {
 
 #[derive(Subcommand)]
 pub(super) enum Command {
+    /// Register a supported game or install a cataloged mod from a verified local archive.
+    Add {
+        target: String,
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[arg(long = "file", value_name = "ARCHIVE")]
+        file: Option<PathBuf>,
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long, conflicts_with = "yes")]
+        dry_run: bool,
+    },
     /// Preview or install a ZIP or 7z mod with the selected Lua policy after approval.
     Install {
         archive: PathBuf,

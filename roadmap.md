@@ -41,8 +41,8 @@ until there is a real requirement.
   redscript manifests, and explicit local bucket registration.
 - The full eleven-mod prerequisite stack has been exercised in disposable
   fixtures, not verified end to end in the live game.
-- Dependency solving, artifact acquisition, a full catalog, and the unified
-  `modn add` entry point are not yet implemented.
+- Unified `modn add` resolves first-party games and mod catalogs, verifies local archives and reuses Rust transaction approval.
+- Dependency graph solving, artifact downloads and the full catalog remain future milestones.
 
 ## Milestones (in dependency order)
 
@@ -67,16 +67,18 @@ compatibility evidence. Do not redistribute upstream binaries without permission
 
 **Exit gate:** all entries match inspected original distributions.
 
-### 3. Unified add, dependency planning and acquisition
+### 3. Dependency planning and acquisition (after Unified Add)
 
-Implement `modn add <game-id>` for games and `modn add <mod-id>` for
-packages. Support fully qualified `bucket/game/package` names and explicit
-interactive disambiguation for collisions, with structured errors for scripts.
-Resolve dependency cycles, missing entries, conflicts and already-installed
-releases deterministically. Fetch pinned HTTPS archives to a verified cache,
-or import existing ZIP/7z by digest. Preview a complete install plan and
-require approval for managed Rust writes. Never overwrite unmanaged files
-or silently update active frameworks.
+The unified add command now supports game/mod resolution, disambiguation, local archive hash verification and explicit approval. Continue with dependency graph resolution and verified HTTPS acquisition.
+
+
+
+Continue with dependency graph solving, compatible versions and conflicts,
+then pinned HTTPS archive acquisition and verified caching. Unresolved
+dependencies must remain blocked until the planner supports them. Preserve
+the existing deterministic `modn add` resolver, read-only preview and
+explicit `--yes` install approval; never overwrite unmanaged files or
+silently update active frameworks.
 
 **Exit gate:** reproducible disposable full-stack installation and rollback.
 

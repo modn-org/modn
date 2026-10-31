@@ -136,6 +136,39 @@ no-write guarantees remain. Rust retains platform access, CLI path selection,
 SQLite ownership, file identity and integrity checks, transactions and recovery.
 Lua presence signals do not certify runtime compatibility.
 
+## Unified add (local archive MVP)
+
+`modn add` resolves supported **first-party games** and **cataloged mods**
+through one entry point. It does not download archives or solve dependency graphs.
+
+```sh
+modn add cyberpunk-2077 --path "/path/to/game"
+modn add cyberpunk-2077 --src "./local-module" --path "/path/to/game"
+modn add cet
+modn add cet --file "/path/to/CET.zip" --dry-run
+modn add main/cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
+modn add cyberpunk-2077/cet --file "/path/to/CET.zip" --dry-run
+```
+
+Short mod IDs resolve only when unique across registered buckets and supported
+games. `game/mod` and `bucket/game/mod` narrow the match. If a game and mod
+share an ID, neither silently wins. Interactive terminals offer a numbered
+choice; `--json` and noninteractive invocations reject ambiguity. JSON stderr
+includes an `ambiguous_target` error and fully qualified `candidates`.
+`--game <game-id>` filters candidates.
+
+For mods, `--file` must identify an existing **ZIP or 7z** archive matching
+the catalog's exact format and SHA-256. Without `--file`, the CLI explains
+where to obtain it. `--dry-run` previews the Lua install plan without writes;
+`--yes` is required to execute through the existing Rust transaction engine.
+Dependencies must already be installed with matching catalog SHA-256 digests
+in the same bucket; unresolved dependencies block installation. This does not
+download archives, approve executable tools, or install dependencies.
+`--src` remains a one-command game-module development override, not a
+mod archive option.
+
+`modn game add` and `modn install` remain available as lower-level commands.
+
 The CLI has **no default game**. Use `modn game add <game-id> --path <directory>`
 to register an installation with its ordinary Lua module; use `--game <game-id>`
 with `--path` before registration. When a path or registered installation has
