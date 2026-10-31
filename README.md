@@ -18,7 +18,7 @@ cargo run --bin modn -- install "./downloaded-mod.zip" --dry-run --path "/path/t
 
 On Windows, omit `--path` to attempt discovery through Steam libraries, Epic Launcher manifests, and common game directories. Custom GOG/Epic/Steam installs may require an explicit path. Registration writes **only manager-owned state** outside the game directory; `scan` and `doctor` never modify game files.
 
-Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not adopt or authorize uninstalling detected files. Only a separately confirmed adoption grants ownership and later deletion permission.
+Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not claim or authorize uninstalling detected files. Only Modn-installed ZIP packages become newly managed.
 
 Current detection recognizes legacy `.archive` files, ArchiveXL `.xl` metadata, redscript `.reds` files, redscript hint `.toml`, tweak `.yaml`/`.yml` files, REDmod directories, CET mods and RED4ext plugins. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
 
@@ -34,13 +34,10 @@ supported ZIP packages with `install --dry-run`, and install with explicit
 `--yes` after reviewing the plan. There is no default game. Keep subsequent
 mod installs and uninstalls under Modn's ownership tracking.
 
-If an installation already contains manually installed mods, treat
-[explicit adoption](#explicit-adoption-of-manually-installed-mods-experimental)
-as an **advanced, optional migration** rather than normal setup. A scan
-does not grant ownership. Adoption transfers deletion authority for exactly
-the approved files; do not adopt content you cannot confidently identify.
-Unsupported or ambiguous files remain unmanaged, and conflicting existing
-files are not silently overwritten.
+If an installation contains manually installed mods, remove them using their
+original uninstall instructions before installing overlapping ZIP packages.
+Modn detects unmanaged content but never claims it; existing files or directories
+are not silently overwritten.
 
 The MVP prioritizes conservative ownership checks and refusing ambiguous
 filesystem layouts, not support for arbitrary symlink/junction setups or
@@ -247,7 +244,7 @@ Scan JSON now includes `scan_issues`, distinguishing entry-limit truncation
 ArchiveXL DLL is present, and reported informationally as `SCAN_IGNORED_GENERATED_LOG` rather than missing
 mod content. Directory symlinks and special objects stay unsafe; Unix
 conservatively reports an unknown link type. The link is never followed, and
-**adoption remains blocked** if any entries were skipped, including generated logs.
+skipped entries remain visible in diagnostics; scanning never grants ownership.
 
 ## Archive inspection and dry-run resolution
 
@@ -294,7 +291,7 @@ records before loading entry metadata.
 
 ## Transactional Luau-planned ZIP installation (experimental)
 
-The Cyberpunk Luau policy permits ZIP packages containing recognized legacy archives, ArchiveXL metadata, redscript sources/hints, YAML tweaks, CET mods and RED4ext plugin files, alone or together, with an optional wrapper and recognized documentation. A supported multi-file package is installed and uninstalled under one ownership record. Unknown or unsupported layouts block the entire package; `mods` (REDmod), unrelated framework/bootstrap files and executable installers remain out of scope. Inspect and use `install --dry-run` first. Existing manually installed files remain unmanaged until a selected package is explicitly adopted using the workflow below.
+The Cyberpunk Luau policy permits ZIP packages containing recognized legacy archives, ArchiveXL metadata, redscript sources/hints, YAML tweaks, CET mods and RED4ext plugin files, alone or together, with an optional wrapper and recognized documentation. A supported multi-file package is installed and uninstalled under one ownership record. Unknown or unsupported layouts block the entire package; `mods` (REDmod), unrelated framework/bootstrap files and executable installers remain out of scope. Inspect and use `install --dry-run` first. Existing manually installed files remain unmanaged; remove them before installing a conflicting package through Modn.
 
 ```powershell
 modn --game cyberpunk-2077 install "C:\Downloads\HD Reworked.zip" --dry-run --json --path <game>
@@ -304,7 +301,7 @@ modn uninstall <package-id> --yes --json
 modn recover --yes --json
 ```
 
-The Cyberpunk Luau policy prefers an **exclusive mod folder** for new CET, RED4ext, and mod-specific redscript subdirectories when their shared parent already exists. Modn owns the entire newly created folder: uninstall quarantines and deletes it, including changed files and runtime-generated content. Do not place unrelated personal content in these folders. Pre-existing mod directories, loose archives, tweaks, XML mappings, and manual adoption retain conservative file-level ownership. An exclusive claim never overwrites a pre-existing folder. Modn records the operating system's directory-object identity in its SQLite ledger (on Linux this requires a supported filesystem birth timestamp, not just a reusable inode). A transaction prepares each new folder at a same-volume staging name, persists that identity, and then activates it by rename. Recovery checks the directory object rather than a file marker, so interrupted cleanup remains restartable without hashing runtime contents.
+The Cyberpunk Luau policy prefers an **exclusive mod folder** for new CET, RED4ext, and mod-specific redscript subdirectories when their shared parent already exists. Modn owns the entire newly created folder: uninstall quarantines and deletes it, including changed files and runtime-generated content. Do not place unrelated personal content in these folders. Pre-existing mod directories cannot be claimed wholesale; loose archives, tweaks and XML mappings use conservative file-level ownership. An exclusive claim never overwrites a pre-existing folder. Modn records the operating system's directory-object identity in its SQLite ledger (on Linux this requires a supported filesystem birth timestamp, not just a reusable inode). A transaction prepares each new folder at a same-volume staging name, persists that identity, and then activates it by rename. Recovery checks the directory object rather than a file marker, so interrupted cleanup remains restartable without hashing runtime contents.
 
 `install` and `uninstall` require explicit `--yes` approval. The manager stores file hashes and ownership in SQLite in the state directory. It rejects existing destinations, linked paths, unsupported mod layouts, encrypted archives, oversized content, and attempts to uninstall modified files. Installation verifies ZIP content into manager-owned staging before creating game files; destination creation uses exclusive hard links rather than replacing existing files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `modn recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
 
@@ -312,41 +309,12 @@ The transaction executor is game-agnostic: Rust callers may submit an explicitly
 
 Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), package updates, file adoption, migration, or automatic recovery. Always try it on a disposable game fixture before testing against a real game.
 
-## Explicit adoption of manually installed mods (experimental)
+## Clean manager state
 
-Adoption is an **advanced, optional** opt-in **ownership transfer**, not a reinstall.
-For a new setup, prefer the clean-install workflow above. Game-specific Luau
-policy proposes bounded, explicit groups of existing files; Rust rejects incomplete
-scans, links/aliases/hard links, unknown or ambiguous groups, executables,
-ownership conflicts, changed file content, and unsafe destinations. Groups include
-only exact listed files, not all files in a directory or generated configurations.
-
-    modn --game cyberpunk-2077 adopt --dry-run --path "<game>" --json
-    modn --game cyberpunk-2077 adopt "archive/pc/mod/Existing.archive" --yes --path "<game>" --json
-    modn --game cyberpunk-2077 installed --path "<game>" --json
-
-A dry run shows selectors, exact relative paths, byte counts and SHA-256 hashes
-without initializing manager state or touching the game. To adopt, specify a
-**single exact selector** and --yes; a preview itself provides no authorization.
-A confirmed adoption writes only the manager-owned SQLite ledger (transactional
-all-or-nothing), never copies, replaces or alters game files. The installed
-package records origin: "manual" and archive_sha256: null (previously
-installed ZIP packages retain origin: "archive" and their archive digest).
-
-**Important:** confirmation grants Modn permission to **delete those previously
-manual files on a later confirmed uninstall**. Uninstall still verifies file
-integrity and refuses changed, missing, linked or aliased files. Manual sibling
-files and pre-existing directories are not removed. No automatic adoption or
-bulk approval exists. Game modules must explicitly support adoption; unsupported
-or ambiguous content remains unmanaged. Filesystem checks do not defeat a hostile
-concurrent process swapping paths between verification and use.
-
-Databases from the prior release are migrated by Store::open without changing
-existing ownership or archive provenance. Adoption writes no game files and uses
-a single SQLite transaction; unlike installation and uninstall, it requires no
-filesystem journal or recovery of partial game changes. If the process stops
-before SQLite commit, no files become owned; after commit, the entire package
-does. Run modn recover --yes only for outstanding install/uninstall journals.
+Modn does not migrate older ownership databases. Installations must use a
+fresh manager state database with a versioned schema and ZIP-backed package records. If an earlier
+version of Modn was used, move its state database aside before starting;
+do not delete game files or personal saves to reset manager state.
 
 ## Scope
 

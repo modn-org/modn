@@ -446,7 +446,7 @@ fn wrapped_input_loader_skips_only_matching_generated_runtime_outputs() {
 }
 
 #[test]
-fn scanner_and_adoption_ignore_nested_input_xml_but_offer_direct_files() {
+fn scanner_ignores_nested_input_xml_but_discovers_direct_unmanaged_files() {
     let (_temp, root, state) = game();
     let direct = root.join("r6/input/Direct.xml");
     let nested = root.join("r6/input/subdir/Unused.xml");
@@ -468,19 +468,9 @@ fn scanner_and_adoption_ignore_nested_input_xml_but_offer_direct_files() {
             .any(|mod_file| mod_file["relative_path"] == "r6/input/subdir/Unused.xml"),
         "{scanned}"
     );
-    let preview = json(
-        &state,
-        &["adopt", "--dry-run", "--path", root.to_str().expect("game")],
-    );
-    let packages = preview["packages"].as_array().expect("packages");
-    assert!(packages
+    assert!(mods
         .iter()
-        .any(|item| item["selector"] == "r6/input/Direct.xml"));
-    assert!(
-        !packages
-            .iter()
-            .any(|item| item["selector"] == "r6/input/subdir/Unused.xml"),
-        "{preview}"
-    );
+        .all(|item| !item["managed"].as_bool().expect("managed")));
+    assert_eq!(fs::read(&direct).expect("direct unchanged"), b"direct");
     assert_eq!(fs::read(nested).expect("nested unchanged"), b"nested");
 }

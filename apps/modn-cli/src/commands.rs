@@ -34,24 +34,6 @@ pub(super) enum Command {
         )]
         dry_run: bool,
     },
-    /// Preview manual mod ownership or explicitly accept later deletion on uninstall.
-    Adopt {
-        /// One game-relative package selector; required with --yes.
-        selector: Option<String>,
-        #[arg(long)]
-        path: Option<PathBuf>,
-        #[arg(
-            long,
-            help = "Grant ownership and future uninstall deletion permission"
-        )]
-        yes: bool,
-        #[arg(
-            long,
-            conflicts_with = "yes",
-            help = "Only inspect files, never create state"
-        )]
-        dry_run: bool,
-    },
     /// List manager-owned packages (unmanaged mods are never included).
     Installed {
         #[arg(long)]

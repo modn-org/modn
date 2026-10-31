@@ -116,7 +116,6 @@ pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallP
 }
 
 /// Reject overlapping installation roots, owned destinations and aliases.
-/// Reused by both installation and metadata-only adoption.
 pub(crate) fn validate_ownership_paths<'a>(
     store: &Store,
     game: &Path,
@@ -162,54 +161,6 @@ pub(crate) fn validate_ownership_paths<'a>(
         }
         if let Some(code) = insert_destination(&mut reserved, destination) {
             bail!("{code}: destination already reserved by manager: {destination}");
-        }
-    }
-    Ok(())
-}
-
-// Resolve existing ancestors before comparing a missing registered root.
-// An ancestor may have become a symlink or junction after registration.
-fn resolve_registered_root(path: &Path) -> Result<PathBuf> {
-    let mut missing = Vec::new();
-    for ancestor in path.ancestors() {
-        match fs::symlink_metadata(ancestor) {
-            Ok(_) => {
-                // A dangling link must fail closed rather than be skipped.
-                let mut resolved = ancestor.canonicalize()?;
-                for component in missing.into_iter().rev() {
-                    resolved.push(component);
-                }
-                return Ok(resolved);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                if let Some(component) = ancestor.file_name() {
-                    missing.push(component.to_os_string());
-                } else if path.is_absolute() {
-                    // No surviving prefix (for example, an offline drive).
-                    return Ok(path.to_path_buf());
-                } else {
-                    return Err(error.into());
-                }
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-    bail!("registered installation root has no resolvable ancestor")
-}
-
-// Registered game roots must not overlap another game's adoption target.
-// An existing game marker alone does not authorize cross-game file ownership.
-pub(crate) fn validate_registered_adoption_roots(
-    store: &Store,
-    game_id: &str,
-    game: &Path,
-) -> Result<()> {
-    for registration in store.list()? {
-        let other = resolve_registered_root(&registration.path)?;
-        if (other == game && registration.game_id != game_id)
-            || (other != game && (other.starts_with(game) || game.starts_with(&other)))
-        {
-            bail!("adoption installation root overlaps another registered game");
         }
     }
     Ok(())

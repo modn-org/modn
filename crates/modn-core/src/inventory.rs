@@ -202,7 +202,7 @@ pub fn scan_with_ownership_for(
                 .replace('\\', "/")
                 == owned.relative_path
         });
-        // Ambiguous aliases must remain unmanaged rather than adopt extra hard links.
+        // Ambiguous aliases must remain unmanaged rather than claim extra hard links.
         let selected = exact.or_else(|| (entries.len() == 1).then(|| entries[0]));
         if let Some(detected_index) = selected {
             let detected = &mut report.mods[detected_index];

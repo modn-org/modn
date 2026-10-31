@@ -7,7 +7,6 @@
     clippy::return_self_not_must_use,
     clippy::missing_panics_doc
 )]
-pub mod adoption;
 pub mod archive;
 /// Validate installations and discover registered game locations.
 pub mod discovery;

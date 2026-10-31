@@ -1,4 +1,3 @@
-mod adopt;
 mod commands;
 mod modules;
 mod selection;
@@ -43,7 +42,6 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
         }
         | Command::Install { path, .. }
         | Command::Installed { path }
-        | Command::Adopt { path, .. }
         | Command::Uninstall { path, .. }
         | Command::Scan { path }
         | Command::Doctor { path } => path.as_deref(),
@@ -56,7 +54,6 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
         &cli.command,
         Command::Install { path: None, .. }
             | Command::Installed { path: None }
-            | Command::Adopt { path: None, .. }
             | Command::Uninstall { path: None, .. }
             | Command::Scan { path: None }
             | Command::Doctor { path: None }
@@ -114,16 +111,9 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
             dry_run: true,
             path: Some(_),
             ..
-        } | Command::Adopt {
-            dry_run: true,
-            path: Some(_),
-            ..
         }
     );
-    let read_only_preview = matches!(
-        &cli.command,
-        Command::Install { dry_run: true, .. } | Command::Adopt { dry_run: true, .. }
-    );
+    let read_only_preview = matches!(&cli.command, Command::Install { dry_run: true, .. });
     let mut store = if matches!(
         &cli.command,
         Command::Inspect { .. } | Command::Module { .. }
@@ -189,23 +179,6 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
                     );
                 }
             }
-        }
-        Command::Adopt {
-            selector,
-            path,
-            yes,
-            dry_run,
-        } => {
-            let (game_id, game) = selected_installation(store.as_ref(), path, requested)?;
-            adopt::run(
-                store.as_mut(),
-                &game_id,
-                &game,
-                selector.as_deref(),
-                yes,
-                dry_run,
-                cli.json,
-            )?;
         }
         Command::Installed { path } => {
             let (_, game) = selected_installation(store.as_ref(), path, requested)?;
