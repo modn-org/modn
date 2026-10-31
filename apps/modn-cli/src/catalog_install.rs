@@ -1,10 +1,9 @@
-//! Unified game registration and manifest-verified local mod installation.
-use crate::selection::{choose_candidate, selected_installation};
+//! Catalog resolution and manifest-verified local mod installation.
+use crate::selection::selected_installation;
 use crate::state_access::validate_state_path;
 use anyhow::{bail, Context, Result};
 use modn_core::archive::inspect;
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore, PackageSource};
-use modn_core::game_modules::available_games;
 use modn_core::inventory::scan_with_ownership_for;
 use modn_core::planning::preview_install_zip_with_permissions;
 use modn_core::state::Store;
@@ -42,60 +41,20 @@ impl fmt::Display for AmbiguousTarget {
 
 impl std::error::Error for AmbiguousTarget {}
 
-enum Target {
-    Game(String),
-    Mod(Box<BucketPackage>),
-}
-
-impl Target {
-    fn description(&self) -> String {
-        match self {
-            Self::Game(game) => format!("game:{game}"),
-            Self::Mod(package) => format!(
-                "{}/{}/{}",
-                package.bucket, package.package.game, package.package.id
-            ),
-        }
-    }
-}
-
 fn resolve(
     query: &str,
     catalog: &BucketStore,
     game_filter: Option<&str>,
-    module_source: Option<&Path>,
     json: bool,
-) -> Result<Target> {
-    if query.is_empty() || query.split('/').any(|part| part.is_empty()) {
-        bail!("invalid add target; expected game, mod, game/mod or bucket/game/mod");
-    }
-    // The game: prefix is also used in ambiguity candidates, so every
-    // suggested choice can be passed back to a noninteractive invocation.
-    if let Some(game) = query.strip_prefix("game:") {
-        if !game.is_empty()
-            && !game.contains('/')
-            && game_filter.is_none_or(|filter| filter == game)
-            && available_games(module_source)?.iter().any(|id| id == game)
-        {
-            return Ok(Target::Game(game.into()));
-        }
-        bail!("unknown supported game: {game}");
-    }
+) -> Result<BucketPackage> {
     let parts: Vec<&str> = query.split('/').collect();
-    if parts.len() > 3 {
-        bail!("invalid add target; expected game, mod, game/mod or bucket/game/mod");
+    if !(1..=3).contains(&parts.len()) || parts.iter().any(|part| part.is_empty()) {
+        bail!("invalid mod reference; expected mod, game/mod or bucket/game/mod");
     }
-    let packages = catalog.packages(game_filter)?;
-    let mut candidates = Vec::new();
-    if parts.len() == 1 {
-        for game in available_games(module_source)? {
-            if game == query && game_filter.is_none_or(|filter| filter == game) {
-                candidates.push(Target::Game(game));
-            }
-        }
-    }
-    for package in packages {
-        let matches = match parts.as_slice() {
+    let mut candidates: Vec<_> = catalog
+        .packages(game_filter)?
+        .into_iter()
+        .filter(|package| match parts.as_slice() {
             [id] => package.package.id == *id,
             [game, id] => package.package.game == *game && package.package.id == *id,
             [bucket, game, id] => {
@@ -104,18 +63,18 @@ fn resolve(
                     && package.package.id == *id
             }
             _ => false,
-        };
-        if matches {
-            candidates.push(Target::Mod(Box::new(package)));
-        }
-    }
+        })
+        .collect();
     match candidates.len() {
-        0 => bail!("unknown supported game or catalog mod: {query}"),
+        0 => bail!("catalog mod not found: {query}"),
         1 => Ok(candidates.remove(0)),
         _ if json || !io::stdin().is_terminal() || !io::stderr().is_terminal() => {
             Err(AmbiguousTarget {
                 query: query.into(),
-                candidates: candidates.iter().map(Target::description).collect(),
+                candidates: candidates
+                    .iter()
+                    .map(|p| format!("{}/{}/{}", p.bucket, p.package.game, p.package.id))
+                    .collect(),
                 json,
             }
             .into())
@@ -123,7 +82,13 @@ fn resolve(
         _ => {
             eprintln!("Multiple matches for {query:?}. Which one do you mean?");
             for (index, candidate) in candidates.iter().enumerate() {
-                eprintln!("  {}. {}", index + 1, candidate.description());
+                eprintln!(
+                    "  {}. {}/{}/{}",
+                    index + 1,
+                    candidate.bucket,
+                    candidate.package.game,
+                    candidate.package.id
+                );
             }
             eprint!("Select [1-{}]: ", candidates.len());
             io::stderr().flush()?;
@@ -153,21 +118,6 @@ fn registered_roots(store: Option<&Store>) -> Result<Vec<PathBuf>> {
         .into_iter()
         .filter_map(|entry| entry.path.canonicalize().ok())
         .collect())
-}
-
-fn add_game(game: &str, path: Option<&Path>, state_path: &Path, json: bool) -> Result<()> {
-    let candidate = choose_candidate(game, path.map(Path::to_path_buf))?;
-    let existing = existing_store(state_path)?;
-    let roots = registered_roots(existing.as_ref())?;
-    validate_state_path(state_path, Some(game), Some(&candidate.path), &roots)?;
-    let store = Store::open(state_path)?;
-    let entry = store.add_game(game, &candidate.path, &candidate.source)?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&entry)?);
-    } else {
-        println!("Registered {} ({})", entry.path.display(), entry.source);
-    }
-    Ok(())
 }
 
 fn expected_format(format: &ArchiveFormat) -> &'static str {
@@ -232,7 +182,7 @@ fn dependency_check(
     Ok(())
 }
 
-fn add_mod(
+fn install_mod(
     selected: BucketPackage,
     file: Option<&Path>,
     path: Option<&Path>,
@@ -253,7 +203,7 @@ fn add_mod(
                 PackageSource::Https { url } => format!("download from {url}"),
                 _ => "unsupported source".to_owned(),
             };
-            bail!("{reference}: {source}, then use modn add {reference} --file <archive> --dry-run or --yes (automatic downloads are not implemented)");
+            bail!("{reference}: {source}, then use modn install {reference} --file <archive> --dry-run or --yes (automatic downloads are not implemented)");
         }
     };
     if !yes && !dry_run {
@@ -332,9 +282,10 @@ fn add_mod(
     Ok(())
 }
 
+/// Install one bucket-resolved release using an explicit, verified local archive.
 #[expect(
     clippy::too_many_arguments,
-    reason = "Pass the explicit CLI options without introducing persistent configuration"
+    reason = "Existing CLI passes explicit installation options without persisting them"
 )]
 pub(super) fn run(
     target: &str,
@@ -344,25 +295,12 @@ pub(super) fn run(
     dry_run: bool,
     state_path: &Path,
     game_filter: Option<&str>,
-    module_source: Option<&Path>,
     json: bool,
 ) -> Result<()> {
     let root = state_path
         .parent()
         .context("invalid manager state directory")?;
     let catalog = BucketStore::new(root);
-    match resolve(target, &catalog, game_filter, module_source, json)? {
-        Target::Game(game) => {
-            if file.is_some() || yes || dry_run {
-                bail!("game registration does not accept --file, --yes, or --dry-run");
-            }
-            add_game(&game, path, state_path, json)
-        }
-        Target::Mod(package) => {
-            if module_source.is_some() {
-                bail!("--src is only supported for game registration");
-            }
-            add_mod(*package, file, path, yes, dry_run, state_path, json)
-        }
-    }
+    let package = resolve(target, &catalog, game_filter, json)?;
+    install_mod(package, file, path, yes, dry_run, state_path, json)
 }

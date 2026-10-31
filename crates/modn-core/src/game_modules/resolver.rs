@@ -59,39 +59,3 @@ pub(super) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     }
     Ok((manifest, source))
 }
-
-/// List game identities exposed by the selected first-party or developer source.
-///
-/// This reads directory names or an explicit development manifest without
-/// executing Lua or changing manager state. Loading a selected game still
-/// validates the full module and enforces game identity.
-pub fn available_games(source: Option<&Path>) -> Result<Vec<String>> {
-    if let Some(source) = source {
-        let info = loader::check_module(source)?;
-        return Ok(vec![info.game_id]);
-    }
-    let root = if let Some(base) = std::env::var_os("MODN_GAME_MODULES_DIR") {
-        PathBuf::from(base)
-    } else {
-        let sibling = std::env::current_exe()?
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("invalid executable directory"))?
-            .join("game-modules");
-        if std::fs::symlink_metadata(&sibling).is_ok() {
-            sibling
-        } else {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("game-modules")
-        }
-    };
-    let mut games = Vec::new();
-    for entry in std::fs::read_dir(root)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if loader::valid_game_id(&name) {
-            games.push(name);
-        }
-    }
-    games.sort();
-    games.dedup();
-    Ok(games)
-}

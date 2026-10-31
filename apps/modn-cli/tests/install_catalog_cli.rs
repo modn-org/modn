@@ -1,4 +1,4 @@
-//! End-to-end unified add coverage with disposable fake games and local catalogs.
+//! End-to-end catalog installation coverage with disposable fake games and local catalogs.
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -67,7 +67,7 @@ impl Fixture {
     }
 
     fn register(&self) {
-        let result = self.run_paths(&["add", "test-game", "--path"], &[&self.game]);
+        let result = self.run_paths(&["game", "add", "test-game", "--path"], &[&self.game]);
         assert!(result.status.success(), "{}", error(&result));
     }
 
@@ -122,7 +122,7 @@ fn error(output: &Output) -> String {
 #[test]
 fn adds_first_party_game_and_supports_development_source() {
     let fixture = Fixture::new();
-    let missing = fixture.run(&["add", "test-game", "--path", "not-a-game"]);
+    let missing = fixture.run(&["game", "install", "test-game", "--path", "not-a-game"]);
     assert!(!missing.status.success());
     assert!(!fixture.state.exists());
 
@@ -143,7 +143,7 @@ fn adds_first_party_game_and_supports_development_source() {
         .arg(&other.state)
         .arg("--src")
         .arg(&source)
-        .args(["add", "test-game", "--path"])
+        .args(["game", "add", "test-game", "--path"])
         .arg(&other.game)
         .output()
         .expect("run");
@@ -155,7 +155,7 @@ fn short_and_qualified_names_resolve_and_ambiguous_names_fail_in_json() {
     let fixture = Fixture::new();
     let fake_hash = "0".repeat(64);
     fixture.bucket("community", "minecraft", "cet", &fake_hash, &[]);
-    let output = fixture.run(&["--json", "add", "cet"]);
+    let output = fixture.run(&["--json", "install", "cet"]);
     assert!(!output.status.success());
     let data: Value = serde_json::from_slice(&output.stderr).expect("structured ambiguity");
     assert_eq!(data["error"], "ambiguous_target");
@@ -166,12 +166,12 @@ fn short_and_qualified_names_resolve_and_ambiguous_names_fail_in_json() {
     assert!(!fixture.state.join("state.sqlite").exists());
 
     for reference in ["minecraft/cet", "community/minecraft/cet"] {
-        let result = fixture.run(&["add", reference]);
+        let result = fixture.run(&["install", reference]);
         assert!(!result.status.success());
         assert!(error(&result).contains("download"));
         assert!(!fixture.state.join("state.sqlite").exists());
     }
-    let unknown = fixture.run(&["--json", "add", "not-listed"]);
+    let unknown = fixture.run(&["--json", "install", "not-listed"]);
     assert!(!unknown.status.success());
     assert!(!fixture.state.join("state.sqlite").exists());
 }
@@ -186,18 +186,18 @@ fn local_manifest_hash_verified_then_preview_and_install_reuse_rust_transactions
     assert!(state_db.is_file());
     let expected_file = fixture.game.join("addons/example.plugin");
 
-    let missing = fixture.run(&["add", "example"]);
+    let missing = fixture.run(&["install", "example"]);
     assert!(!missing.status.success());
     assert!(error(&missing).contains("--file"));
     assert!(!expected_file.exists());
 
-    let bad = fixture.run_paths(&["add", "example", "--file"], &[&archive]);
+    let bad = fixture.run_paths(&["install", "example", "--file"], &[&archive]);
     assert!(!bad.status.success());
     assert!(error(&bad).contains("--yes"));
     assert!(!expected_file.exists());
 
     let preview = fixture.run_paths(
-        &["--json", "add", "test-game/example", "--file"],
+        &["--json", "install", "test-game/example", "--file"],
         &[&archive],
     );
     assert!(!preview.status.success(), "unapproved add must not proceed");
@@ -208,7 +208,7 @@ fn local_manifest_hash_verified_then_preview_and_install_reuse_rust_transactions
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
         .args([
             "--json",
-            "add",
+            "install",
             "community/test-game/example",
             "--dry-run",
             "--file",
@@ -226,7 +226,7 @@ fn local_manifest_hash_verified_then_preview_and_install_reuse_rust_transactions
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
-        .args(["--json", "add", "example", "--yes", "--file"])
+        .args(["--json", "install", "example", "--yes", "--file"])
         .arg(&archive)
         .output()
         .expect("install");
@@ -242,7 +242,7 @@ fn local_manifest_hash_verified_then_preview_and_install_reuse_rust_transactions
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
-        .args(["add", "example", "--yes", "--file"])
+        .args(["install", "example", "--yes", "--file"])
         .arg(&archive)
         .output()
         .expect("repeat");
@@ -266,7 +266,7 @@ fn incorrect_hash_and_unresolved_dependencies_do_not_touch_game() {
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
-        .args(["add", "bad", "--yes", "--path"])
+        .args(["install", "bad", "--yes", "--path"])
         .arg(&fixture.game)
         .arg("--file")
         .arg(&archive)
@@ -293,7 +293,7 @@ fn incorrect_hash_and_unresolved_dependencies_do_not_touch_game() {
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
-        .args(["add", "dependent", "--yes", "--path"])
+        .args(["install", "dependent", "--yes", "--path"])
         .arg(&fixture.game)
         .arg("--file")
         .arg(&archive)
@@ -307,18 +307,12 @@ fn incorrect_hash_and_unresolved_dependencies_do_not_touch_game() {
 }
 
 #[test]
-fn game_and_mod_identity_collision_requires_explicit_disambiguation() {
+fn mod_name_matching_game_id_is_still_a_mod_install() {
     let fixture = Fixture::new();
     fixture.bucket("collision", "test-game", "test-game", &"0".repeat(64), &[]);
-    let result = fixture.run(&["--json", "add", "test-game"]);
+    let result = fixture.run(&["install", "test-game"]);
     assert!(!result.status.success());
-    let error: Value = serde_json::from_slice(&result.stderr).expect("ambiguity JSON");
-    assert_eq!(error["error"], "ambiguous_target");
-    let choices = error["candidates"].as_array().expect("candidates");
-    assert!(choices.iter().any(|choice| choice == "game:test-game"));
-    assert!(choices
-        .iter()
-        .any(|choice| choice == "collision/test-game/test-game"));
+    assert!(error(&result).contains("--file"), "{}", error(&result));
     assert!(!fixture.state.join("state.sqlite").exists());
 }
 
@@ -332,7 +326,7 @@ fn local_archive_preview_without_game_registration_has_no_state_writes() {
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
-        .args(["--json", "add", "example", "--dry-run", "--path"])
+        .args(["--json", "install", "example", "--dry-run", "--path"])
         .arg(&fixture.game)
         .arg("--file")
         .arg(&archive)
@@ -343,19 +337,6 @@ fn local_archive_preview_without_game_registration_has_no_state_writes() {
     assert_eq!(data["plan"]["status"], "reviewable");
     assert!(!fixture.state.join("state.sqlite").exists());
     assert!(!fixture.game.join("addons").exists());
-}
-
-#[test]
-fn emitted_game_candidate_is_resolvable_without_interactive_input() {
-    let fixture = Fixture::new();
-    fixture.bucket("collision", "test-game", "test-game", &"0".repeat(64), &[]);
-    let chosen = fixture.run_paths(
-        &["--json", "add", "game:test-game", "--path"],
-        &[&fixture.game],
-    );
-    assert!(chosen.status.success(), "{}", error(&chosen));
-    let game: Value = serde_json::from_slice(&chosen.stdout).expect("JSON");
-    assert_eq!(game["game_id"], "test-game");
 }
 
 #[test]
@@ -398,7 +379,7 @@ fn deleted_managed_dependency_cannot_authorize_dependent_install() {
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
-        .args(["add", "base", "--yes", "--file"])
+        .args(["install", "base", "--yes", "--file"])
         .arg(&base_archive)
         .output()
         .expect("install base");
@@ -411,7 +392,7 @@ fn deleted_managed_dependency_cannot_authorize_dependent_install() {
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
-        .args(["add", "dependent", "--yes", "--file"])
+        .args(["install", "dependent", "--yes", "--file"])
         .arg(&dependent_archive)
         .output()
         .expect("install dependent");
@@ -428,5 +409,112 @@ fn deleted_managed_dependency_cannot_authorize_dependent_install() {
     assert_eq!(
         fs::read(fixture.game.join("bin/TestGame.exe")).expect("marker"),
         b"game-exe"
+    );
+}
+
+#[test]
+fn search_is_top_level_filters_name_and_game_and_never_creates_state() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["--json", "search", "Engine"]);
+    assert!(output.status.success(), "{}", error(&output));
+    let matches: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(matches.as_array().expect("array").len(), 1);
+    assert_eq!(matches[0]["id"], "cet");
+    let filtered = fixture.run(&["--json", "--game", "test-game", "search"]);
+    assert!(filtered.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&filtered.stdout).expect("json"),
+        json!([])
+    );
+    assert!(!fixture.state.join("state.sqlite").exists());
+    assert!(!fixture.run(&["bucket", "search"]).status.success());
+    assert!(!fixture.run(&["add", "cet"]).status.success());
+}
+
+#[test]
+fn list_and_game_remove_preserve_game_and_refuse_managed_mods() {
+    let fixture = Fixture::new();
+    let (archive, _) = fixture.archive();
+    fixture.register();
+    let listed = fixture.run(&[
+        "--json",
+        "list",
+        "--path",
+        fixture.game.to_str().expect("path"),
+    ]);
+    assert!(listed.status.success(), "{}", error(&listed));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&listed.stdout).expect("json"),
+        json!([])
+    );
+    assert!(!fixture.run(&["installed"]).status.success());
+
+    let installed = fixture.run_paths(&["install", "--yes"], &[&archive]);
+    assert!(installed.status.success(), "{}", error(&installed));
+    let package: Value =
+        serde_json::from_slice(&fixture.run(&["--json", "list"]).stdout).expect("list");
+    assert_eq!(package.as_array().expect("array").len(), 1);
+    let owned = fixture.game.join("addons/example.plugin");
+    assert!(owned.is_file());
+
+    let blocked = fixture.run(&["game", "remove", "test-game"]);
+    assert!(!blocked.status.success());
+    assert!(
+        error(&blocked).contains("managed packages"),
+        "{}",
+        error(&blocked)
+    );
+    assert!(owned.is_file());
+    let id = package[0]["id"].as_str().expect("id");
+    let removed = fixture.run(&["uninstall", id, "--yes"]);
+    assert!(removed.status.success(), "{}", error(&removed));
+    let unregistered = fixture.run(&["--json", "game", "remove", "test-game"]);
+    assert!(unregistered.status.success(), "{}", error(&unregistered));
+    let removal: Value = serde_json::from_slice(&unregistered.stdout).expect("json");
+    assert_eq!(removal["game_id"], "test-game");
+    let games = fixture.run(&["--json", "game", "list"]);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&games.stdout).expect("json"),
+        json!([])
+    );
+    assert!(!fixture
+        .run(&["game", "remove", "test-game"])
+        .status
+        .success());
+    assert_eq!(
+        fs::read(fixture.game.join("bin/TestGame.exe")).expect("marker"),
+        b"game-exe"
+    );
+    assert!(!owned.exists());
+}
+
+#[test]
+fn game_remove_requires_path_with_duplicate_registrations() {
+    let fixture = Fixture::new();
+    fixture.register();
+    let second = fixture.temp.path().join("second-game");
+    fs::create_dir_all(second.join("bin")).expect("fixture");
+    fs::write(second.join("bin/TestGame.exe"), b"second").expect("marker");
+    let added = fixture.run_paths(&["game", "add", "test-game", "--path"], &[&second]);
+    assert!(added.status.success(), "{}", error(&added));
+    let ambiguous = fixture.run(&["game", "remove", "test-game"]);
+    assert!(!ambiguous.status.success());
+    assert!(
+        error(&ambiguous).contains("multiple installations"),
+        "{}",
+        error(&ambiguous)
+    );
+    let selected = fixture.run_paths(&["game", "remove", "test-game", "--path"], &[&second]);
+    assert!(selected.status.success(), "{}", error(&selected));
+    let games = fixture.run(&["--json", "game", "list"]);
+    let list: Value = serde_json::from_slice(&games.stdout).expect("json");
+    assert_eq!(list.as_array().expect("array").len(), 1);
+    assert_eq!(
+        list[0]["path"],
+        serde_json::to_value(fixture.game.canonicalize().expect("canonical")).expect("json")
+    );
+    assert_eq!(
+        fs::read(second.join("bin/TestGame.exe")).expect("marker"),
+        b"second"
     );
 }

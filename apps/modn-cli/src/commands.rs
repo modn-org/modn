@@ -24,34 +24,35 @@ pub(super) struct Cli {
 
 #[derive(Subcommand)]
 pub(super) enum Command {
-    /// Register a supported game or install a cataloged mod from a verified local archive.
-    Add {
+    /// Install a cataloged mod or an explicit local ZIP/7z archive.
+    Install {
+        /// Mod ID, qualified bucket reference, or archive path.
         target: String,
         #[arg(long)]
         path: Option<PathBuf>,
-        #[arg(long = "file", value_name = "ARCHIVE")]
+        /// Manually acquired archive for a cataloged mod.
+        #[arg(long, value_name = "ARCHIVE")]
         file: Option<PathBuf>,
-        #[arg(long, conflicts_with = "dry_run")]
-        yes: bool,
-        #[arg(long, conflicts_with = "yes")]
-        dry_run: bool,
-    },
-    /// Preview or install a ZIP or 7z mod with the selected Lua policy after approval.
-    Install {
-        archive: PathBuf,
-        #[arg(long)]
-        path: Option<PathBuf>,
-        #[arg(long, help = "Confirm writing files into the game")]
+        #[arg(
+            long,
+            help = "Confirm writing files into the game",
+            conflicts_with = "dry_run"
+        )]
         yes: bool,
         #[arg(
             long,
-            conflicts_with = "yes",
-            help = "Preview operations without writing game files"
+            help = "Preview operations without writing game files",
+            conflicts_with = "yes"
         )]
         dry_run: bool,
-        /// Independently authorize one exact game-relative tool executable.
+        /// Independently authorize one exact game-relative tool executable for local archives.
         #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
         allow_executable: Vec<String>,
+    },
+    /// Search mod manifests across configured buckets.
+    Search {
+        /// Match mod ID or display name (omit to list all).
+        query: Option<String>,
     },
     /// Inspect bundled and explicitly registered local package catalogs.
     Bucket {
@@ -59,7 +60,7 @@ pub(super) enum Command {
         command: BucketCommand,
     },
     /// List manager-owned packages (unmanaged mods are never included).
-    Installed {
+    List {
         #[arg(long)]
         path: Option<PathBuf>,
     },
@@ -120,6 +121,12 @@ pub(super) enum GameCommand {
     },
     /// Show registered installations.
     List,
+    /// Unregister an installation only when no managed mods or pending operations remain.
+    Remove {
+        game: String,
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -130,8 +137,6 @@ pub(super) enum BucketCommand {
     Remove { name: String },
     /// List the bundled official bucket and registered local buckets.
     List,
-    /// Find validated package manifests; --game filters results.
-    Search,
     /// Inspect one exact bucket/game/package reference.
     Show { package: String },
 }

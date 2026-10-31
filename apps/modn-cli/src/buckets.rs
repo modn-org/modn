@@ -60,7 +60,6 @@ pub(super) fn run(
             serde_json::json!({"removed": name})
         }
         BucketCommand::List => serde_json::to_value(store.list()?)?,
-        BucketCommand::Search => serde_json::to_value(store.packages(game)?)?,
         BucketCommand::Show { package } => serde_json::to_value(store.show(&package)?)?,
     };
     if json_output {
@@ -110,4 +109,35 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
             })
             .collect(),
     )
+}
+
+/// Search all registered catalogs without writing manager state.
+pub(super) fn search(
+    query: Option<&str>,
+    state_path: &Path,
+    json_output: bool,
+    game: Option<&str>,
+) -> Result<()> {
+    let root = state_path
+        .parent()
+        .context("invalid manager state directory")?;
+    let catalog = BucketStore::new(root);
+    let needle = query.unwrap_or("").to_lowercase();
+    let matches: Vec<_> = catalog
+        .packages(game)?
+        .into_iter()
+        .filter(|entry| {
+            entry.package.id.to_lowercase().contains(&needle)
+                || entry.package.name.to_lowercase().contains(&needle)
+        })
+        .collect();
+    let value = serde_json::to_value(matches)?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        for line in command_description(&value).unwrap_or_default() {
+            println!("{line}");
+        }
+    }
+    Ok(())
 }

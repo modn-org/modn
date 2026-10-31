@@ -69,7 +69,7 @@ fn cli_requires_opt_in_and_tracks_and_uninstalls_own_files() {
         b"archive-file"
     );
 
-    let result = cli(&state, &["installed", "--path", game.to_str().unwrap()]);
+    let result = cli(&state, &["list", "--path", game.to_str().unwrap()]);
     let list: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
 
@@ -88,7 +88,7 @@ fn cli_requires_opt_in_and_tracks_and_uninstalls_own_files() {
     );
     assert!(!game.join("archive/pc/mod/HD Reworked.archive").exists());
 
-    let result = cli(&state, &["installed", "--path", game.to_str().unwrap()]);
+    let result = cli(&state, &["list", "--path", game.to_str().unwrap()]);
     let list: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 0);
 

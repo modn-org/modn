@@ -150,6 +150,62 @@ impl Store {
         })
     }
 
+    /// Unregister one installation without deleting any game files or ownership evidence.
+    ///
+    /// Refuses missing or ambiguous identities and any managed or pending work.
+    pub fn remove_game(&mut self, game_id: &str, path: Option<&Path>) -> Result<GameInstallation> {
+        let registered = self.list()?;
+        let chosen = path
+            .map(|path| {
+                if path.is_absolute() && !path.exists() {
+                    Ok(path.to_path_buf())
+                } else {
+                    path.canonicalize()
+                }
+            })
+            .transpose()?;
+        let matches: Vec<_> = registered
+            .into_iter()
+            .filter(|entry| {
+                entry.game_id == game_id && chosen.as_ref().is_none_or(|path| &entry.path == path)
+            })
+            .collect();
+        let entry = match matches.as_slice() {
+            [entry] => entry.clone(),
+            [] => bail!("no registered installation for {game_id}"),
+            _ => bail!("multiple installations registered for {game_id}; specify --path"),
+        };
+        let path_text = entry
+            .path
+            .to_str()
+            .context("registered game path must be UTF-8")?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let managed: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM managed_packages WHERE game_path=?1)",
+            [path_text],
+            |row| row.get(0),
+        )?;
+        let pending: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pending_transactions WHERE game_path=?1)",
+            [path_text],
+            |row| row.get(0),
+        )?;
+        if managed || pending {
+            bail!("cannot unregister game with managed packages or pending transactions; uninstall or recover first");
+        }
+        if tx.execute(
+            "DELETE FROM game_installations WHERE game_id=?1 AND path=?2",
+            params![entry.game_id, path_text],
+        )? != 1
+        {
+            bail!("game registration changed; retry");
+        }
+        tx.commit()?;
+        Ok(entry)
+    }
+
     /// List persisted game registrations, ordered by game and path.
     pub fn list(&self) -> Result<Vec<GameInstallation>> {
         let mut statement = self.connection.prepare(

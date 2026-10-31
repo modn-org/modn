@@ -1,5 +1,5 @@
-mod add;
 mod buckets;
+mod catalog_install;
 mod commands;
 mod modules;
 mod selection;
@@ -30,33 +30,57 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
     if let Command::Module { command } = cli.command {
         return modules::run(command, cli.json);
     }
-    if let Command::Add {
+    if let Command::Search { query } = &cli.command {
+        return buckets::search(
+            query.as_deref(),
+            &state_path,
+            cli.json,
+            cli.game_id.as_deref(),
+        );
+    }
+    if let Command::Install {
         target,
         path,
         file,
         yes,
         dry_run,
+        allow_executable,
     } = &cli.command
     {
-        return add::run(
-            target,
-            path.as_deref(),
-            file.as_deref(),
-            *yes,
-            *dry_run,
-            &state_path,
-            cli.game_id.as_deref(),
-            cli.module_source.as_deref(),
-            cli.json,
-        );
+        let source = std::path::Path::new(target);
+        let is_archive = source.is_file()
+            || source
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|ext| {
+                    ["zip", "7z", "jar"].contains(&ext.to_ascii_lowercase().as_str())
+                });
+        if !is_archive {
+            if !allow_executable.is_empty() {
+                bail!("--allow-executable applies only to standalone archive installation");
+            }
+            return catalog_install::run(
+                target,
+                path.as_deref(),
+                file.as_deref(),
+                *yes,
+                *dry_run,
+                &state_path,
+                cli.game_id.as_deref(),
+                cli.json,
+            );
+        }
+        if file.is_some() {
+            bail!("--file applies only to cataloged mods, not standalone archives");
+        }
     }
     let requested = cli.game_id.as_deref();
     if let Command::Game {
-        command: GameCommand::Add { game, .. },
+        command: GameCommand::Add { game, .. } | GameCommand::Remove { game, .. },
     } = &cli.command
     {
         if requested.is_some_and(|id| id != game) {
-            bail!("--game must match the game ID passed to game add");
+            bail!("--game must match the game ID passed to game add/remove");
         }
     }
     let selected_path = match &cli.command {
@@ -64,7 +88,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
             command: GameCommand::Add { path, .. },
         }
         | Command::Install { path, .. }
-        | Command::Installed { path }
+        | Command::List { path }
         | Command::Uninstall { path, .. }
         | Command::Scan { path }
         | Command::Doctor { path } => path.as_deref(),
@@ -76,7 +100,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
     let registered_only = matches!(
         &cli.command,
         Command::Install { path: None, .. }
-            | Command::Installed { path: None }
+            | Command::List { path: None }
             | Command::Uninstall { path: None, .. }
             | Command::Scan { path: None }
             | Command::Doctor { path: None }
@@ -117,7 +141,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
     };
     let state_game = match &cli.command {
         Command::Game {
-            command: GameCommand::Add { game, .. },
+            command: GameCommand::Add { game, .. } | GameCommand::Remove { game, .. },
         } => Some(game.as_str()),
         _ => requested.or_else(|| preselected.as_ref().map(|(id, _)| id.as_str())),
     };
@@ -137,6 +161,15 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
         }
     );
     let read_only_preview = matches!(&cli.command, Command::Install { dry_run: true, .. });
+    if matches!(
+        &cli.command,
+        Command::Game {
+            command: GameCommand::Remove { .. }
+        }
+    ) && existing_state.is_none()
+    {
+        bail!("no game registrations to remove");
+    }
     let mut store = if matches!(
         &cli.command,
         Command::Inspect { .. } | Command::Module { .. }
@@ -163,16 +196,18 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
         })
     };
     match cli.command {
-        Command::Add { .. } => unreachable!("add commands return before manager access"),
+        Command::Search { .. } => unreachable!("search commands return before manager access"),
         Command::Module { .. } => unreachable!("module commands return before manager access"),
         Command::Bucket { .. } => unreachable!("bucket commands return before manager access"),
         Command::Install {
-            archive,
+            target,
             path,
+            file: _,
             yes,
             dry_run,
             allow_executable,
         } => {
+            let archive = PathBuf::from(target);
             if !yes && !dry_run {
                 bail!("installation writes game files; choose --dry-run or explicitly approve with --yes");
             }
@@ -212,7 +247,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
                 }
             }
         }
-        Command::Installed { path } => {
+        Command::List { path } => {
             let (_, game) = selected_installation(store.as_ref(), path, requested)?;
             let packages = store
                 .as_ref()
@@ -292,6 +327,23 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&entry)?);
             } else {
                 println!("Registered {} ({})", entry.path.display(), entry.source);
+            }
+        }
+        Command::Game {
+            command: GameCommand::Remove { game, path },
+        } => {
+            let removed = store
+                .as_mut()
+                .context("game removal requires manager state")?
+                .remove_game(&game, path.as_deref())?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&removed)?);
+            } else {
+                println!(
+                    "Unregistered {} ({})",
+                    removed.game_id,
+                    removed.path.display()
+                );
             }
         }
         Command::Game {
@@ -401,7 +453,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
 
 fn main() {
     if let Err(error) = run() {
-        if let Some(ambiguous) = error.downcast_ref::<add::AmbiguousTarget>() {
+        if let Some(ambiguous) = error.downcast_ref::<catalog_install::AmbiguousTarget>() {
             if ambiguous.json {
                 eprintln!("{}", ambiguous.as_json());
                 std::process::exit(1);

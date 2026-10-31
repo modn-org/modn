@@ -136,38 +136,53 @@ no-write guarantees remain. Rust retains platform access, CLI path selection,
 SQLite ownership, file identity and integrity checks, transactions and recovery.
 Lua presence signals do not certify runtime compatibility.
 
-## Unified add (local archive MVP)
+## CLI: games, mods, buckets and search
 
-`modn add` resolves supported **first-party games** and **cataloged mods**
-through one entry point. It does not download archives or solve dependency graphs.
+Game registration, mod installation and bucket management use separate commands:
 
 ```sh
-modn add cyberpunk-2077 --path "/path/to/game"
-modn add cyberpunk-2077 --src "./local-module" --path "/path/to/game"
-modn add cet
-modn add cet --file "/path/to/CET.zip" --dry-run
-modn add main/cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
-modn add cyberpunk-2077/cet --file "/path/to/CET.zip" --dry-run
+modn game add cyberpunk-2077 --path "/path/to/game"
+modn game add cyberpunk-2077 --src "./local-module" --path "/path/to/game"
+modn game list
+modn game remove cyberpunk-2077
+
+modn bucket list
+modn bucket add community "/path/to/catalog"
+modn bucket remove community
+
+modn search cet
+modn search --game cyberpunk-2077
+modn install cet --file "/path/to/CET.zip" --dry-run
+modn install cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
+modn install main/cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
+modn install "./unlisted-mod.zip" --dry-run
+modn install "./unlisted-mod.zip" --yes
+modn list --json
+modn uninstall <managed-package-id> --yes
 ```
 
-Short mod IDs resolve only when unique across registered buckets and supported
-games. `game/mod` and `bucket/game/mod` narrow the match. If a game and mod
-share an ID, neither silently wins; use `game:<game-id>` to select the game explicitly. Interactive terminals offer a numbered
-choice; `--json` and noninteractive invocations reject ambiguity. JSON stderr
-includes an `ambiguous_target` error and fully qualified `candidates`.
-`--game <game-id>` filters candidates.
+`modn install` resolves mod IDs only, not games. Narrow a name by
+`game/mod` or `bucket/game/mod`. Interactive terminals prompt for colliding
+mod IDs; noninteractive invocations return candidates (structured JSON errors
+under `--json`). `modn search` matches mod ID or display name and accepts
+global `--game`.
 
-For mods, `--file` must identify an existing **ZIP or 7z** archive matching
-the catalog's exact format and SHA-256. Without `--file`, the CLI explains
-where to obtain it. `--dry-run` previews the Lua install plan without writes;
-`--yes` is required to execute through the existing Rust transaction engine.
-Dependencies must have matching catalog SHA-256 digests and intact managed
-content in the same bucket; unresolved dependencies block installation. This does not
-download archives, approve executable tools, or install dependencies.
-`--src` remains a one-command game-module development override, not a
-mod archive option.
+Catalog installation requires a manually acquired `--file` ZIP/7z with
+exact format and SHA-256 from its manifest. Without it, Modn explains which
+archive to supply; automatic downloads are not implemented. Standalone
+`modn install <archive.zip|archive.7z>` works without any bucket and uses
+the existing Lua planner and Rust ownership transaction. `--dry-run` previews
+without game writes; `--yes` is required for installation. Catalog
+dependencies must already be installed with matching digests and intact
+managed content. `--allow-executable` applies only to standalone archives.
 
-`modn game add` and `modn install` remain available as lower-level commands.
+`modn game remove <game-id>` only unregisters an installation and never
+deletes game files. It refuses to orphan managed mods or pending transactions;
+use `--path` if multiple installations have the same ID. `modn list`
+shows manager-owned packages, not unmanaged content. `modn uninstall`
+currently accepts the managed-package ID shown by `modn list`, not the
+bucket mod name; persisted catalog provenance and friendly-name uninstall
+remain future work.
 
 The CLI has **no default game**. Use `modn game add <game-id> --path <directory>`
 to register an installation with its ordinary Lua module; use `--game <game-id>`
@@ -252,7 +267,7 @@ The Cyberpunk Lua policy permits ZIP and 7z packages containing recognized legac
 ```powershell
 modn --game cyberpunk-2077 install "C:\Downloads\HD Reworked.zip" --dry-run --json --path <game>
 modn --game cyberpunk-2077 install "C:\Downloads\HD Reworked.zip" --yes --json --path <game>
-modn installed --json
+modn list --json
 modn uninstall <package-id> --yes --json
 modn recover --yes --json
 ```
@@ -341,7 +356,7 @@ will be curated in a later milestone.
 
 ```powershell
 modn bucket list --json
-modn bucket search --game cyberpunk-2077 --json
+modn search --game cyberpunk-2077 --json
 modn bucket show main/cyberpunk-2077/red4ext --json
 modn bucket add community C:\path\to\bucket
 modn bucket show community/test-game/example --json

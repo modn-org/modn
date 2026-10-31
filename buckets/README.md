@@ -22,7 +22,7 @@ extension point. Registered local buckets are read-only and revalidated before
 catalog lookup. The official `main` snapshot is compiled into Modn and
 works offline.
 
-Use `modn bucket search` and `modn bucket show bucket/game/package`.
+Use `modn search` for package discovery and `modn bucket show bucket/game/package` for an exact manifest.
 `modn bucket add <name> <directory>` registers a local catalog; removing
 registration does not remove its source files.
 

@@ -221,3 +221,42 @@ fn pre_adoption_archive_schema_is_rejected_even_with_identical_columns() {
     assert!(Store::open_readonly(&db).is_err());
     assert!(Store::open(&db).is_err());
 }
+
+#[test]
+fn removing_registration_refuses_pending_recovery_and_preserves_record() {
+    let temp = tempdir().expect("fixture");
+    let db = temp.path().join("state.sqlite");
+    let game = temp.path().join("game");
+    fs::create_dir(&game).expect("game");
+    let game = game.canonicalize().expect("canonical");
+    let path = game.to_str().expect("path");
+    let mut store = Store::open(&db).expect("store");
+    store
+        .connection
+        .execute(
+            "INSERT INTO game_installations(game_id,path,source) VALUES ('test-game',?1,'manual')",
+            [path],
+        )
+        .expect("registration");
+    store.connection.execute(
+        "INSERT INTO pending_transactions(id,action,status,game_path,package_id) VALUES ('pending','install','staged',?1,'pkg')",
+        [path],
+    ).expect("pending");
+    let result = store.remove_game("test-game", Some(&game));
+    assert!(result.is_err(), "pending journal must block unregister");
+    assert!(result
+        .expect_err("pending")
+        .to_string()
+        .contains("pending transactions"));
+    assert_eq!(store.list().expect("list").len(), 1);
+    store
+        .connection
+        .execute("DELETE FROM pending_transactions", [])
+        .expect("clear pending");
+    fs::remove_dir(&game).expect("simulate missing game");
+    let removed = store
+        .remove_game("test-game", Some(&game))
+        .expect("unregister missing game");
+    assert_eq!(removed.game_id, "test-game");
+    assert!(store.list().expect("list").is_empty());
+}
