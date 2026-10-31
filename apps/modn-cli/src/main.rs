@@ -1,3 +1,4 @@
+mod buckets;
 mod commands;
 mod modules;
 mod selection;
@@ -24,6 +25,9 @@ fn run() -> Result<()> {
 }
 
 fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
+    if let Command::Bucket { command } = cli.command {
+        return buckets::run(command, &state_path, cli.json, cli.game_id.as_deref());
+    }
     if let Command::Module { command } = cli.command {
         return modules::run(command, &state_path, cli.game_id.as_deref(), cli.json);
     }
@@ -141,6 +145,7 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
     };
     match cli.command {
         Command::Module { .. } => unreachable!("module commands return before manager access"),
+        Command::Bucket { .. } => unreachable!("bucket commands return before manager access"),
         Command::Install {
             archive,
             path,

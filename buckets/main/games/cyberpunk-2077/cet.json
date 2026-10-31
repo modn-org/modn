@@ -1,0 +1,7 @@
+{
+  "schema_version": 1, "id": "cet", "game": "cyberpunk-2077",
+  "name": "Cyber Engine Tweaks", "version": "1.38.1",
+  "archive_format": "zip", "sha256": "2e52be4ed431fad787e64ecbf75db346b4224577d2b89894912bc3f159020e73",
+  "source": {"kind":"manual","filename":"CET 1.38.1 - Game version 2.5 107 1.38.1 2026-10-26T01-28Z ozVyzbb0n.zip"},
+  "dependencies": []
+}

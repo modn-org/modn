@@ -8,6 +8,8 @@
     clippy::missing_panics_doc
 )]
 pub mod archive;
+/// Versioned bucket metadata, validation and local registration.
+pub mod buckets;
 /// Validate installations and discover registered game locations.
 pub mod discovery;
 /// Local, sandboxed Luau game module inspection without host filesystem capabilities.

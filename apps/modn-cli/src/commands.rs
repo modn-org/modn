@@ -37,6 +37,11 @@ pub(super) enum Command {
         #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
         allow_executable: Vec<String>,
     },
+    /// Inspect bundled and explicitly registered local package catalogs.
+    Bucket {
+        #[command(subcommand)]
+        command: BucketCommand,
+    },
     /// List manager-owned packages (unmanaged mods are never included).
     Installed {
         #[arg(long)]
@@ -138,4 +143,18 @@ pub(super) enum GameCommand {
     },
     /// Show registered installations.
     List,
+}
+
+#[derive(Subcommand)]
+pub(super) enum BucketCommand {
+    /// Register a local bucket directory after validating its complete contents.
+    Add { name: String, path: PathBuf },
+    /// Forget a local bucket registration without changing its files.
+    Remove { name: String },
+    /// List the bundled official bucket and registered local buckets.
+    List,
+    /// Find validated package manifests; --game filters results.
+    Search,
+    /// Inspect one exact bucket/game/package reference.
+    Show { package: String },
 }
