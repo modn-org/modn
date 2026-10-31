@@ -10,6 +10,11 @@ fn fresh_packages_require_archive_provenance() {
     let game = temp.path().join("game");
     fs::create_dir(&game).unwrap();
     let store = Store::open(&db).unwrap();
+    let schema_version: i64 = store
+        .connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(schema_version, 1);
     let columns: Vec<(String, i64)> = store
         .connection
         .prepare("PRAGMA table_info(managed_packages)")
@@ -105,8 +110,10 @@ fn old_manual_ownership_schema_is_rejected_not_migrated() {
     )
     .unwrap();
     drop(conn);
+    let before = fs::read(&db).unwrap();
     assert!(Store::open_readonly(&db).is_err());
     assert!(Store::open(&db).is_err());
+    assert_eq!(fs::read(&db).unwrap(), before);
     let conn = Connection::open(&db).unwrap();
     assert_eq!(
         conn.query_row(
@@ -117,4 +124,24 @@ fn old_manual_ownership_schema_is_rejected_not_migrated() {
         .unwrap(),
         "manual"
     );
+}
+
+#[test]
+fn pre_adoption_archive_schema_is_rejected_even_with_identical_columns() {
+    let temp = tempdir().unwrap();
+    let db = temp.path().join("state.sqlite");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE managed_packages (
+            id TEXT PRIMARY KEY, game_path TEXT NOT NULL,
+            archive_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO managed_packages(id,game_path,archive_sha256)
+        VALUES ('old','/game','sha256');",
+    )
+    .unwrap();
+    drop(conn);
+    assert!(Store::open_readonly(&db).is_err());
+    assert!(Store::open(&db).is_err());
 }

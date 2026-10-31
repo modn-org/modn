@@ -25,12 +25,16 @@ pub struct Store {
 impl Store {
     /// Open the manager-owned SQLite database and initialize its schema.
     pub fn open(path: &Path) -> Result<Self> {
+        let fresh = !path.exists();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("cannot create state directory {}", parent.display()))?;
         }
         let connection = Connection::open(path)
             .with_context(|| format!("cannot open state database {}", path.display()))?;
+        if !fresh {
+            validate_package_schema(&connection)?;
+        }
         connection.execute_batch(
             "CREATE TABLE IF NOT EXISTS game_installations (
                 game_id TEXT NOT NULL,
@@ -84,6 +88,9 @@ impl Store {
                 PRIMARY KEY(transaction_id, ord)
             );",
         )?;
+        if fresh {
+            connection.pragma_update(None, "user_version", 1)?;
+        }
         validate_package_schema(&connection)?;
         Ok(Self {
             connection,
@@ -146,6 +153,10 @@ impl Store {
 /// Reject old ownership ledgers rather than interpreting manually claimed files
 /// as ZIP-installed packages. A clean installation starts with a fresh state DB.
 fn validate_package_schema(connection: &Connection) -> Result<()> {
+    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if version != 1 {
+        bail!("unsupported manager state schema; start with a fresh state directory");
+    }
     let (archive_required, manual_origin): (Option<i64>, bool) = connection.query_row(
         r#"SELECT
             (SELECT "notnull" FROM pragma_table_info('managed_packages')

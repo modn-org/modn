@@ -312,7 +312,7 @@ Transactions are **recoverable** rather than one single filesystem-wide atomic v
 ## Clean manager state
 
 Modn does not migrate older ownership databases. Installations must use a
-fresh manager state database with ZIP-backed package records. If an earlier
+fresh manager state database with a versioned schema and ZIP-backed package records. If an earlier
 version of Modn was used, move its state database aside before starting;
 do not delete game files or personal saves to reset manager state.
 
