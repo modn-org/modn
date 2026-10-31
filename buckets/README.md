@@ -39,6 +39,9 @@ A Lua module release has exactly these fields in module.json:
 }
 ~~~
 
+The official Lua sources are checked out as LF on all platforms using Git's
+eol attribute so their published checksums remain stable.
+
 The SHA-256 covers the exact Lua entrypoint bytes, not a ZIP, directory,
 manifest or publisher signature. Each module-release directory contains
 only module.json and the referenced flat UTF-8 .lua file. The reader
