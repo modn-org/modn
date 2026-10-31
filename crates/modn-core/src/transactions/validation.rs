@@ -2,7 +2,8 @@
 //! Game policy never authorizes filesystem writes by itself.
 use crate::archive::{validated_name, Inspection};
 use crate::planning::{
-    existing_destination_issue, insert_destination, prohibited_payload, InstallPlan,
+    approved_compiler, existing_destination_issue, insert_destination, prohibited_payload,
+    InstallPlan,
 };
 use crate::state::Store;
 use anyhow::{bail, Result};
@@ -46,9 +47,17 @@ pub(super) fn validate_execution_plan(
         bail!("installation proposal contains no file operations");
     }
 
+    let approved_sources: HashSet<_> = proposal
+        .operations
+        .iter()
+        .filter(|operation| {
+            approved_compiler(&operation.source, &operation.destination, &operation.kind)
+        })
+        .map(|operation| operation.source.as_str())
+        .collect();
     let mut sources = HashMap::new();
     for entry in &inspection.files {
-        if prohibited_payload(&entry.entry) {
+        if prohibited_payload(&entry.entry) && !approved_sources.contains(entry.entry.as_str()) {
             bail!("executable payload is not supported: {}", entry.entry);
         }
         sources.insert(entry.entry.as_str(), entry.bytes);
@@ -79,7 +88,8 @@ pub(super) fn validate_execution_plan(
             || !validated_name(&operation.destination)
                 .is_ok_and(|name| name == operation.destination)
             || !operation.destination.contains('/')
-            || prohibited_payload(&operation.destination)
+            || (prohibited_payload(&operation.destination)
+                && !approved_compiler(&operation.source, &operation.destination, &operation.kind))
         {
             bail!("invalid destination: {}", operation.destination);
         }

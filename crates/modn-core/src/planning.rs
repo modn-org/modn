@@ -61,6 +61,13 @@ pub(crate) fn prohibited_payload(path: &str) -> bool {
     .iter()
     .any(|suffix| lower.ends_with(suffix))
 }
+/// Only the compiler distributed by the redscript framework may be an
+/// executable. Untrusted policies cannot authorize other executable payloads.
+pub(crate) fn approved_compiler(source: &str, destination: &str, kind: &str) -> bool {
+    kind == "redscript-runtime"
+        && destination == "engine/tools/scc.exe"
+        && (source == destination || source.ends_with("/engine/tools/scc.exe"))
+}
 pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str> {
     let mut current = game.to_path_buf();
     let canonical_game = game.canonicalize().ok()?;
@@ -178,6 +185,14 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
     let proposed = crate::game_modules::policy::plan(game_id, &game, inspection)?;
     let mut blockers = Vec::new();
     let mut sources = HashMap::new();
+    let approved_sources: HashSet<_> = proposed
+        .operations
+        .iter()
+        .filter(|operation| {
+            approved_compiler(&operation.source, &operation.destination, &operation.kind)
+        })
+        .map(|operation| operation.source.as_str())
+        .collect();
     for entry in &inspection.files {
         sources.insert(entry.entry.as_str(), entry.bytes);
         if crate::archive::validated_name(&entry.entry).is_err() {
@@ -187,7 +202,7 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
                 format!("Unsafe archive entry: {}", entry.entry),
             );
         }
-        if prohibited_payload(&entry.entry) {
+        if prohibited_payload(&entry.entry) && !approved_sources.contains(entry.entry.as_str()) {
             issue(
                 &mut blockers,
                 "EXECUTABLE_PAYLOAD",
@@ -275,7 +290,9 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
             );
             continue;
         }
-        if prohibited_payload(&request.destination) {
+        if prohibited_payload(&request.destination)
+            && !approved_compiler(&request.source, &request.destination, &request.kind)
+        {
             issue(
                 &mut blockers,
                 "EXECUTABLE_PAYLOAD",
