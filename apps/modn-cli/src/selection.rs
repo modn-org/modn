@@ -1,4 +1,4 @@
-//! Resolve runtime-selected Luau games without encoding game-specific layouts.
+//! Resolve runtime-selected Lua games without encoding game-specific layouts.
 use anyhow::{bail, Result};
 use modn_core::discovery::{discover_for, validate_installation_for, Candidate};
 use modn_core::state::Store;

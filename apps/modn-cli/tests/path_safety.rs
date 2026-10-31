@@ -19,7 +19,7 @@ fn create_modules(root: &Path) -> PathBuf {
         let destination = modules.join(id);
         fs::create_dir_all(&destination).expect("fixture setup or assertion");
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join(source);
-        for name in ["module.json", "main.luau"] {
+        for name in ["module.json", "main.lua"] {
             fs::copy(source.join(name), destination.join(name))
                 .expect("fixture setup or assertion");
         }

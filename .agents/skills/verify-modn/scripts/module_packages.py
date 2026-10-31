@@ -23,13 +23,13 @@ def verify_packages(driver, game, fixture):
     def package(version, destination):
         manifest = json.loads((fixture / "module.json").read_text(encoding="utf-8"))
         manifest.update(package_format=1, version=version)
-        source = (fixture / "main.luau").read_text(encoding="utf-8").replace(
+        source = (fixture / "main.lua").read_text(encoding="utf-8").replace(
             'destination = "addons/" .. suffix,',
             f'destination = "{destination}/" .. suffix,')
         path = driver.root / f"module-{version}.zip"
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("module.json", json.dumps(manifest))
-            archive.writestr("main.luau", source)
+            archive.writestr("main.lua", source)
         return path
 
     a = package("1.0", "addons")
@@ -43,7 +43,7 @@ def verify_packages(driver, game, fixture):
         report = call(label, ["--game", "test-game", "install", preview,
                               "--dry-run", "--path", game])
         require(report["operations"][0]["destination"] == destination + "/example.plugin",
-                "wrong installed Luau policy at " + label)
+                "wrong installed Lua policy at " + label)
 
     require(call("empty-list", ["module", "list"]) == [], "unexpected module store")
     call("inspect", ["module", "inspect", a])
@@ -68,7 +68,7 @@ def verify_packages(driver, game, fixture):
     conflicting = package("1.0", "conflicting")
     call("reject-version-replacement", ["module", "update", conflicting, "--yes"], success=False)
     require(files(state) == database_before, "failed update mutated the module store")
-    script = state / "game-modules" / "versions" / info["sha256"] / "main.luau"
+    script = state / "game-modules" / "versions" / info["sha256"] / "main.lua"
     original = script.read_bytes()
     script.write_bytes(b"error('tampered source executed')")
     call("reject-tampering", ["--game", "test-game", "install", preview,

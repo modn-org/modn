@@ -20,7 +20,7 @@ pub(super) struct Cli {
 
 #[derive(Subcommand)]
 pub(super) enum Command {
-    /// Preview or install a ZIP or 7z mod with the selected Luau policy after approval.
+    /// Preview or install a ZIP or 7z mod with the selected Lua policy after approval.
     Install {
         archive: PathBuf,
         #[arg(long)]
@@ -62,7 +62,7 @@ pub(super) enum Command {
     },
     /// Inspect ZIP, JAR, or 7z metadata without extracting files.
     Inspect { archive: PathBuf },
-    /// Validate a local Luau module without granting file or game-write access.
+    /// Validate a local Lua module without granting file or game-write access.
     Module {
         #[command(subcommand)]
         command: ModuleCommand,
@@ -135,7 +135,7 @@ pub(super) enum ModuleCommand {
 
 #[derive(Subcommand)]
 pub(super) enum GameCommand {
-    /// Register an installation using its game's Luau module.
+    /// Register an installation using its game's Lua module.
     Add {
         game: String,
         #[arg(long)]

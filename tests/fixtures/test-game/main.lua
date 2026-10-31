@@ -42,7 +42,7 @@ function policy.scan(limit)
         if ok then
             if result.incomplete then incomplete = true end
             for _, entry in ipairs(result.items) do
-                visited += 1
+                visited = visited + 1
                 if visited > limit then
                     incomplete = true
                     break

@@ -203,7 +203,7 @@ fn modn_name_and_default_state_directory() {
 }
 
 #[test]
-fn cyberpunk_luau_policy_changes_without_rebuilding_executable() {
+fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     use std::path::Path;
     let root = tempdir().expect("fixture root");
     let module_base = root.path().join("game-modules");
@@ -212,8 +212,8 @@ fn cyberpunk_luau_policy_changes_without_rebuilding_executable() {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../crates/modn-core/game-modules/cyberpunk-2077");
     fs::copy(source.join("module.json"), module.join("module.json")).expect("manifest fixture");
-    let original = fs::read_to_string(source.join("main.luau")).expect("Luau policy");
-    fs::write(module.join("main.luau"), &original).expect("initial policy");
+    let original = fs::read_to_string(source.join("main.lua")).expect("Lua policy");
+    fs::write(module.join("main.lua"), &original).expect("initial policy");
 
     let game = root.path().join("game");
     fs::create_dir_all(game.join("bin/x64")).expect("game bin");
@@ -242,7 +242,7 @@ fn cyberpunk_luau_policy_changes_without_rebuilding_executable() {
         .replace("bin/x64/Cyberpunk2077.exe", "bin/x64/AlternateGame.exe")
         .replace(r#""legacy-archive""#, r#""external-archive""#);
     assert_ne!(updated, original, "fixture must change policy");
-    fs::write(module.join("main.luau"), updated).expect("update Lua without rebuilding");
+    fs::write(module.join("main.lua"), updated).expect("update Lua without rebuilding");
     let after = add();
     assert!(
         after.status.success(),

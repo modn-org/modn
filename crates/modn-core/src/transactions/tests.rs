@@ -301,7 +301,7 @@ fn cet_and_red4ext_multifile_injected_failure_rolls_back_and_recovers() {
     let red = "red4ext/plugins/Fixture/Fixture.dll";
     let path = archive(dir.path(), &[(cet, b"lua"), (red, b"plugin")]);
     let proposal = crate::planning::preview_install_zip("cyberpunk-2077", &game, &path)
-        .expect("Luau mixed CET/RED4ext plan");
+        .expect("Lua mixed CET/RED4ext plan");
     assert_eq!(proposal.status, "reviewable");
     assert_eq!(proposal.operations.len(), 2);
     assert!(store
@@ -339,7 +339,7 @@ fn redscript_archivexl_mixed_failure_preserves_manual_files_and_recovers() {
         &[(script, b"script"), (xl, b"xl"), (legacy, b"archive")],
     );
     let proposal = crate::planning::preview_install_zip("cyberpunk-2077", &game, &archive)
-        .expect("Luau mixed redscript and ArchiveXL plan");
+        .expect("Lua mixed redscript and ArchiveXL plan");
     assert_eq!(proposal.status, "reviewable");
     assert_eq!(proposal.operations.len(), 3);
     assert!(store

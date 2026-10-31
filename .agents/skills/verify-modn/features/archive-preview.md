@@ -3,7 +3,7 @@
 ## Sub-features
 
 - A1: Inspect fictional package ZIP metadata.
-- A2: Resolve `test-game` Luau ZIP mapping.
+- A2: Resolve `test-game` Lua ZIP mapping.
 - A3: Verify preview preserves game bytes and does not initialize manager state.
 - A4: Verify a second game's independent ZIP mapping.
 

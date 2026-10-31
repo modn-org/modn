@@ -1,4 +1,4 @@
-//! Generic adapter for runtime-loaded, game-specific Luau policies.
+//! Generic adapter for runtime-loaded, game-specific Lua policies.
 use super::capabilities::{AllowedRoots, ReadProfile};
 use super::loader::HOST_API_VERSION;
 use super::resolver::read_policy;
@@ -93,7 +93,7 @@ fn relative_path(value: &str) -> mlua::Result<PathBuf> {
             .components()
             .all(|part| matches!(part, Component::Normal(_)))
     {
-        return Err(mlua::Error::RuntimeError("unsafe Luau scan path".into()));
+        return Err(mlua::Error::RuntimeError("unsafe Lua scan path".into()));
     }
     Ok(path.to_owned())
 }
@@ -104,7 +104,7 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
     for entry in raw_mods.sequence_values::<Table>() {
         if mods.len() >= MAX_ITEMS {
             return Err(mlua::Error::RuntimeError(
-                "Luau scan entry limit exceeded".into(),
+                "Lua scan entry limit exceeded".into(),
             ));
         }
         let entry = entry?;
@@ -164,7 +164,7 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
     })
 }
 
-/// Obtain game-specific inventory policy through a bounded read-only Luau VM.
+/// Obtain game-specific inventory policy through a bounded read-only Lua VM.
 pub(crate) fn scan(game_id: &str, root: &Path, limit: usize) -> Result<ScanReport> {
     let canonical = root.canonicalize()?;
     evaluate_with_profile(
@@ -273,10 +273,8 @@ pub(crate) fn plan(
             let entry = lua.create_table()?;
             entry.set("source", file.entry.as_str())?;
             entry.set("bytes", file.bytes)?;
-            entry.set_readonly(true);
             input.set(index + 1, entry)?;
         }
-        input.set_readonly(true);
         let output: Table = policy.get::<Function>("plan")?.call(input)?;
         let version: u32 = output.get("schema_version")?;
         if version != 1 {

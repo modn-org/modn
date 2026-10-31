@@ -19,7 +19,7 @@ use tempfile::Builder;
 
 impl Store {
     /// Execute a caller-approved proposal, independently checked against the current archive
-    /// and filesystem. This is a write API, not exposed to untrusted Luau modules.
+    /// and filesystem. This is a write API, not exposed to untrusted Lua modules.
     /// ZIP and 7z file-copy operations share the same journal and recovery.
     pub fn install_operations_zip(
         &mut self,

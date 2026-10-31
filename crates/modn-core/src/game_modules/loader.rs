@@ -1,4 +1,4 @@
-//! Local Luau module validation with bounded, root-scoped reads; no mutation APIs.
+//! Local Lua module validation with bounded, root-scoped reads; no mutation APIs.
 use super::capabilities::{AllowedRoots, ReadProfile};
 use super::runtime;
 use anyhow::{bail, Context, Result};
@@ -72,8 +72,8 @@ pub(super) fn valid_game_id(value: &str) -> bool {
 
 pub(super) fn valid_entrypoint(value: &str) -> bool {
     value.len() <= 96
-        && value.ends_with(".luau")
-        && value != ".luau"
+        && value.ends_with(".lua")
+        && value != ".lua"
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
@@ -105,15 +105,15 @@ pub(super) fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
         bail!("invalid module version");
     }
     if !valid_entrypoint(&manifest.entrypoint) {
-        bail!("entrypoint must be a single safe .luau filename in the module directory");
+        bail!("entrypoint must be a single safe .lua filename in the module directory");
     }
     Ok(())
 }
 
 fn execute_module(script: &[u8], manifest: &ModuleManifest, roots: AllowedRoots) -> Result<()> {
-    let source = std::str::from_utf8(script).context("Luau entrypoint must be UTF-8 source")?;
+    let source = std::str::from_utf8(script).context("Lua entrypoint must be UTF-8 source")?;
     if source.contains('\0') {
-        bail!("Luau entrypoint cannot contain NUL bytes or binary chunks");
+        bail!("Lua entrypoint cannot contain NUL bytes or binary chunks");
     }
     runtime::evaluate(
         source,
@@ -129,7 +129,7 @@ fn execute_module(script: &[u8], manifest: &ModuleManifest, roots: AllowedRoots)
                 || declared_version.is_some_and(|version| version != manifest.version)
             {
                 return Err(mlua::Error::RuntimeError(
-                    "Luau module identity or host API disagrees with manifest".into(),
+                    "Lua module identity or host API disagrees with manifest".into(),
                 ));
             }
             Ok(())
@@ -139,7 +139,7 @@ fn execute_module(script: &[u8], manifest: &ModuleManifest, roots: AllowedRoots)
 
 /// Load a user-selected local module solely to validate its identity and host API.
 ///
-/// The module executes in a new memory- and time-bounded Luau VM with no
+/// The module executes in a new memory- and time-bounded Lua VM with no
 /// host filesystem APIs. This is not approval, activation, installation, or
 /// a formal security boundary against native VM vulnerabilities.
 pub fn check_module(directory: &Path) -> Result<GameModuleInfo> {
@@ -222,9 +222,9 @@ pub(super) fn read_verified_module(directory: &Path) -> Result<(VerifiedModule, 
         serde_json::from_slice(&manifest_bytes).context("invalid module.json manifest")?;
     validate_manifest(&manifest)?;
     let script = bounded_file(&root.join(&manifest.entrypoint), &root, MAX_SCRIPT_BYTES)?;
-    let source = std::str::from_utf8(&script).context("Luau entrypoint must be UTF-8 source")?;
+    let source = std::str::from_utf8(&script).context("Lua entrypoint must be UTF-8 source")?;
     if source.contains('\0') {
-        bail!("Luau entrypoint cannot contain NUL bytes or binary chunks");
+        bail!("Lua entrypoint cannot contain NUL bytes or binary chunks");
     }
     Ok((
         VerifiedModule {

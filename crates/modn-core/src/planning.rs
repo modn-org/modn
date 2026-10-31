@@ -61,7 +61,7 @@ pub(crate) fn prohibited_payload(path: &str) -> bool {
     .iter()
     .any(|suffix| lower.ends_with(suffix))
 }
-/// An explicit caller permission, never a Luau operation label, can admit a
+/// An explicit caller permission, never a Lua operation label, can admit a
 /// tool executable. The approval identifies one exact destination and cannot
 /// authorize paths outside a tool directory or other executable formats.
 pub(crate) fn approved_tool_executable(
@@ -161,7 +161,7 @@ pub(crate) fn insert_destination(
     None
 }
 
-// Untrusted, versioned Luau file mapping. It carries no installation authority.
+// Untrusted, versioned Lua file mapping. It carries no installation authority.
 pub(crate) struct RequestedFile {
     pub(crate) source: String,
     pub(crate) destination: String,
@@ -181,7 +181,7 @@ fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
     });
 }
 /// Resolve untrusted module mappings into a read-only preview. Tool
-/// executable permissions must come from a trusted caller, never from Luau.
+/// executable permissions must come from a trusted caller, never from Lua.
 pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::Result<InstallPlan> {
     resolve_with_permissions(game_id, inspection, game, &[])
 }

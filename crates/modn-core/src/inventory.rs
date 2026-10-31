@@ -107,7 +107,7 @@ fn ownership_key(relative: &str) -> String {
     }
 }
 
-/// Reconcile owned files using the selected game's ordinary Luau scan policy.
+/// Reconcile owned files using the selected game's ordinary Lua scan policy.
 pub fn scan_with_ownership_for(
     store: &Store,
     game_id: &str,
@@ -248,7 +248,7 @@ pub fn scan_with_ownership_for(
     Ok(report)
 }
 
-/// Evaluate the selected game's Luau doctor policy over the reconciled inventory.
+/// Evaluate the selected game's Lua doctor policy over the reconciled inventory.
 pub fn doctor_with_ownership_for(
     store: &Store,
     game_id: &str,

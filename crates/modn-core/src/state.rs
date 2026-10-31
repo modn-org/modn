@@ -133,7 +133,7 @@ impl Store {
         })
     }
 
-    /// Register a game installation using its runtime Luau validation policy.
+    /// Register a game installation using its runtime Lua validation policy.
     pub fn add_game(&self, game_id: &str, path: &Path, source: &str) -> Result<GameInstallation> {
         let path = crate::discovery::validate_installation_for(game_id, path)?;
         let path_text = path.to_str().context("game path must be valid UTF-8")?;

@@ -10,9 +10,9 @@ fn zip(root: &Path, version: &str) -> Package {
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
     )
     .unwrap();
-    write!(zip, "{{\"package_format\":1,\"game_id\":\"test-game\",\"api_version\":1,\"version\":\"{version}\",\"entrypoint\":\"main.luau\"}}").unwrap();
+    write!(zip, "{{\"package_format\":1,\"game_id\":\"test-game\",\"api_version\":1,\"version\":\"{version}\",\"entrypoint\":\"main.lua\"}}").unwrap();
     zip.start_file(
-        "main.luau",
+        "main.lua",
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
     )
     .unwrap();
@@ -34,11 +34,7 @@ fn interrupted_selection_rolls_back_and_complete_orphans_are_retryable() {
     let database_before = fs::read(store.database()).unwrap();
     // A pre-publication interruption leaves only private staging, never selectable.
     fs::create_dir(store.root.join(".staging-interrupted")).unwrap();
-    fs::write(
-        store.root.join(".staging-interrupted/main.luau"),
-        b"partial",
-    )
-    .unwrap();
+    fs::write(store.root.join(".staging-interrupted/main.lua"), b"partial").unwrap();
     assert_eq!(
         store.active("test-game").unwrap().unwrap().info.version,
         "A"
@@ -120,7 +116,7 @@ fn corrupt_rollback_target_is_rejected_without_mutation() {
             .root
             .join("versions")
             .join(info.sha256)
-            .join("main.luau"),
+            .join("main.lua"),
         b"tampered",
     )
     .unwrap();

@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 use zip::write::SimpleFileOptions;
 
-const MANIFEST: &str = r#"{"package_format":1,"game_id":"test-game","version":"1.0","api_version":1,"entrypoint":"main.luau"}"#;
+const MANIFEST: &str = r#"{"package_format":1,"game_id":"test-game","version":"1.0","api_version":1,"entrypoint":"main.lua"}"#;
 const SCRIPT: &str = "return {game_id='test-game',api_version=1}";
 
 fn archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
@@ -66,7 +66,7 @@ fn incompatible_manifest_and_malformed_source_never_create_state() {
         ),
         (
             "entrypoint traversal",
-            MANIFEST.replace("main.luau", "../main.luau"),
+            MANIFEST.replace("main.lua", "../main.lua"),
             SCRIPT.as_bytes(),
         ),
         (
@@ -102,7 +102,7 @@ fn incompatible_manifest_and_malformed_source_never_create_state() {
         reject(
             t.path(),
             label,
-            &archive(&[("module.json", manifest.as_bytes()), ("main.luau", script)]),
+            &archive(&[("module.json", manifest.as_bytes()), ("main.lua", script)]),
         );
     }
 }
@@ -111,16 +111,16 @@ fn incompatible_manifest_and_malformed_source_never_create_state() {
 fn unsafe_extra_and_colliding_entries_never_create_state() {
     let t = tempfile::tempdir().expect("fixture operation");
     for name in [
-        "../main.luau",
-        "/main.luau",
-        "C:/main.luau",
-        "dir/main.luau",
-        "dir\\main.luau",
+        "../main.lua",
+        "/main.lua",
+        "C:/main.lua",
+        "dir/main.lua",
+        "dir\\main.lua",
         "payload.exe",
-        "main.LUAU",
-        "NUL.luau",
-        "main.luau/",
-        "main.luau.",
+        "main.LUA",
+        "NUL.lua",
+        "main.lua/",
+        "main.lua.",
     ] {
         reject(
             t.path(),
@@ -136,21 +136,21 @@ fn unsafe_extra_and_colliding_entries_never_create_state() {
         "extra file",
         &archive(&[
             ("module.json", MANIFEST.as_bytes()),
-            ("main.luau", SCRIPT.as_bytes()),
-            ("extra.luau", b"return {}"),
+            ("main.lua", SCRIPT.as_bytes()),
+            ("extra.lua", b"return {}"),
         ]),
     );
-    let manifest = MANIFEST.replace("main.luau", "mainxx.luau");
+    let manifest = MANIFEST.replace("main.lua", "mainxxx.lua");
     let valid = archive(&[
         ("module.json", manifest.as_bytes()),
-        ("mainxx.luau", SCRIPT.as_bytes()),
+        ("mainxxx.lua", SCRIPT.as_bytes()),
     ]);
     for name in [b"module.json".as_slice(), b"MODULE.JSON".as_slice()] {
         let mut bytes = valid.clone();
         let offsets: Vec<_> = bytes
             .windows(11)
             .enumerate()
-            .filter_map(|(i, b)| (b == b"mainxx.luau").then_some(i))
+            .filter_map(|(i, b)| (b == b"mainxxx.lua").then_some(i))
             .collect();
         for at in offsets {
             bytes[at..at + 11].copy_from_slice(name);
@@ -164,7 +164,7 @@ fn zip_flags_links_metadata_sizes_crc_and_input_bounds_are_checked() {
     let t = tempfile::tempdir().expect("fixture operation");
     let valid = archive(&[
         ("module.json", MANIFEST.as_bytes()),
-        ("main.luau", SCRIPT.as_bytes()),
+        ("main.lua", SCRIPT.as_bytes()),
     ]);
     let central = valid
         .windows(4)
@@ -216,7 +216,7 @@ fn zip_flags_links_metadata_sizes_crc_and_input_bounds_are_checked() {
         "script limit",
         &archive(&[
             ("module.json", MANIFEST.as_bytes()),
-            ("main.luau", &vec![b' '; 256 * 1024 + 1]),
+            ("main.lua", &vec![b' '; 256 * 1024 + 1]),
         ]),
     );
     reject(t.path(), "missing end record", &valid[..valid.len() - 10]);

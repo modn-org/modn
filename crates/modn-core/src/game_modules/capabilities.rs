@@ -1,4 +1,4 @@
-//! Narrow, read-only Luau host services scoped to operator-approved directories.
+//! Narrow, read-only Lua host services scoped to operator-approved directories.
 use crate::archive;
 use anyhow::{bail, Context, Result};
 use mlua::{Lua, Table};
@@ -225,11 +225,9 @@ fn metadata_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> m
             )?;
             answer.set("bytes", if metadata.is_dir() { 0 } else { metadata.len() })?;
             // No absolute path or operating-system handle is returned.
-            answer.set_readonly(true);
             Ok(answer)
         })?,
     )?;
-    service.set_readonly(true);
     Ok(service)
 }
 
@@ -247,7 +245,6 @@ fn hashing_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
             file_digest(&path, metadata.len()).map_err(mlua::Error::external)
         })?,
     )?;
-    service.set_readonly(true);
     Ok(service)
 }
 
@@ -260,12 +257,12 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
                 authorized_path(&roots, &budget, id, &relative).map_err(mlua::Error::external)?;
             regular_file(&metadata).map_err(mlua::Error::external)?;
             // 7z encoded headers can expand unboundedly inside the native parser,
-            // before its entry-count validation. Do not expose that path to Luau
+            // before its entry-count validation. Do not expose that path to Lua
             // until decoded-header allocations are demonstrably bounded.
             let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("");
             if !extension.eq_ignore_ascii_case("zip") && !extension.eq_ignore_ascii_case("jar") {
                 return Err(mlua::Error::RuntimeError(
-                    "Luau archive inspection supports ZIP/JAR only; 7z decoded headers are not bounded"
+                    "Lua archive inspection supports ZIP/JAR only; 7z decoded headers are not bounded"
                         .into(),
                 ));
             }
@@ -275,7 +272,7 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
             let report = archive::inspect(&path).map_err(mlua::Error::external)?;
             if report.files.len() > MAX_ARCHIVE_ENTRIES {
                 return Err(mlua::Error::RuntimeError(
-                    "archive exceeds Luau result entry limit".into(),
+                    "archive exceeds Lua result entry limit".into(),
                 ));
             }
             let answer = lua.create_table()?;
@@ -288,16 +285,12 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
                 let item = lua.create_table()?;
                 item.set("entry", entry.entry.as_str())?;
                 item.set("bytes", entry.bytes)?;
-                item.set_readonly(true);
                 files.set(index + 1, item)?;
             }
-            files.set_readonly(true);
             answer.set("files", files)?;
-            answer.set_readonly(true);
             Ok(answer)
         })?,
     )?;
-    service.set_readonly(true);
     Ok(service)
 }
 
@@ -397,10 +390,8 @@ fn directory_service(
                     let item = lua.create_table()?;
                     item.set("name", name.as_str())?;
                     item.set("kind", *kind)?;
-                    item.set_readonly(true);
                     items.set(index + 1, item)?;
                 }
-                items.set_readonly(true);
                 let response = lua.create_table()?;
                 response.set("items", items)?;
                 response.set("incomplete", incomplete)?;
@@ -411,12 +402,9 @@ fn directory_service(
                     let item = lua.create_table()?;
                     item.set("name", name.as_str())?;
                     item.set("file_symlink", *file_symlink)?;
-                    item.set_readonly(true);
                     unsafe_items.set(index + 1, item)?;
                 }
-                unsafe_items.set_readonly(true);
                 response.set("unsafe_names", unsafe_items)?;
-                response.set_readonly(true);
                 Ok(response)
             },
         )?,
@@ -449,7 +437,6 @@ fn directory_service(
             String::from_utf8(data).map_err(mlua::Error::external)
         })?,
     )?;
-    service.set_readonly(true);
     Ok(service)
 }
 
@@ -473,14 +460,11 @@ pub(super) fn register(
             for index in 0..allowed.0.len() {
                 let item = lua.create_table()?;
                 item.set("id", index + 1)?;
-                item.set_readonly(true);
                 result.set(index + 1, item)?;
             }
-            result.set_readonly(true);
             Ok(result)
         })?,
     )?;
-    discovery.set_readonly(true);
     host.set("discovery", discovery)?;
     host.set(
         "fs",

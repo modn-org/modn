@@ -1,11 +1,11 @@
 ---
 name: verify-modn
-description: Verify Modn's real CLI game selection, Luau ZIP installation, ownership and recovery using disposable game fixtures and retained evidence.
+description: Verify Modn's real CLI game selection, Lua ZIP installation, ownership and recovery using disposable game fixtures and retained evidence.
 ---
 
 # Verify Modn
 
-Use for code changing game module loading, game selection, ZIP planning, install, inventory, diagnostics, uninstall or recovery. The driver runs the **real** `modn` binary with a fictional `test-game` Luau module and a second Cyberpunk fixture. It uses no privileged Rust test hooks and never accesses user games.
+Use for code changing game module loading, game selection, ZIP planning, install, inventory, diagnostics, uninstall or recovery. The driver runs the **real** `modn` binary with a fictional `test-game` Lua module and a second Cyberpunk fixture. It uses no privileged Rust test hooks and never accesses user games.
 
 ## Launch
 
@@ -32,7 +32,7 @@ The driver performs [feature-mapped](features/README.md) CLI actions, including:
 - Register and install a second `cyberpunk-2077` fixture concurrently, confirm independent ownership for both games, reject ambiguous selection, and uninstall each without changing the other.
 - Exercise a wrapped redscript/ArchiveXL/TweakXL ZIP on disposable Cyberpunk paths with **synthetic presence-only** framework markers, verifying read-only preview, approved install, owned scan, doctor and uninstall without altering manual markers or the other game.
 
-The `test-game` module uses ordinary runtime Luau policy and ZIP operations; its full CLI lifecycle is now verified. No game-specific Rust adapter or default ID is used.
+The `test-game` module uses ordinary runtime Lua policy and ZIP operations; its full CLI lifecycle is now verified. No game-specific Rust adapter or default ID is used.
 
 ## Evidence
 
