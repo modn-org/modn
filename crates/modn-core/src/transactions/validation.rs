@@ -2,7 +2,7 @@
 //! Game policy never authorizes filesystem writes by itself.
 use crate::archive::{validated_name, Inspection};
 use crate::planning::{
-    approved_compiler, existing_destination_issue, insert_destination, prohibited_payload,
+    approved_tool_executable, existing_destination_issue, insert_destination, prohibited_payload,
     InstallPlan,
 };
 use crate::state::Store;
@@ -30,6 +30,7 @@ pub(super) fn validate_execution_plan(
     inspection: &Inspection,
     game: &Path,
     proposal: &InstallPlan,
+    approved: &[String],
 ) -> Result<()> {
     if inspection.format != "zip" {
         bail!("transaction executor currently supports ZIP file operations only");
@@ -51,7 +52,7 @@ pub(super) fn validate_execution_plan(
         .operations
         .iter()
         .filter(|operation| {
-            approved_compiler(&operation.source, &operation.destination, &operation.kind)
+            approved_tool_executable(&operation.source, &operation.destination, approved)
         })
         .map(|operation| operation.source.as_str())
         .collect();
@@ -89,7 +90,7 @@ pub(super) fn validate_execution_plan(
                 .is_ok_and(|name| name == operation.destination)
             || !operation.destination.contains('/')
             || (prohibited_payload(&operation.destination)
-                && !approved_compiler(&operation.source, &operation.destination, &operation.kind))
+                && !approved_tool_executable(&operation.source, &operation.destination, approved))
         {
             bail!("invalid destination: {}", operation.destination);
         }

@@ -61,12 +61,18 @@ pub(crate) fn prohibited_payload(path: &str) -> bool {
     .iter()
     .any(|suffix| lower.ends_with(suffix))
 }
-/// Only the compiler distributed by the redscript framework may be an
-/// executable. Untrusted policies cannot authorize other executable payloads.
-pub(crate) fn approved_compiler(source: &str, destination: &str, kind: &str) -> bool {
-    kind == "redscript-runtime"
-        && destination == "engine/tools/scc.exe"
-        && (source == destination || source.ends_with("/engine/tools/scc.exe"))
+/// An explicit caller permission, never a Luau operation label, can admit a
+/// tool executable. The approval identifies one exact destination and cannot
+/// authorize paths outside a tool directory or other executable formats.
+pub(crate) fn approved_tool_executable(
+    source: &str,
+    destination: &str,
+    approved: &[String],
+) -> bool {
+    destination.ends_with(".exe")
+        && destination.split('/').any(|part| part == "tools")
+        && approved.iter().any(|path| path == destination)
+        && (source == destination || source.ends_with(&format!("/{destination}")))
 }
 pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str> {
     let mut current = game.to_path_buf();
@@ -174,9 +180,18 @@ fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
         message: value.into(),
     });
 }
-/// Resolve untrusted module mappings into a read-only preview. This result
-/// never authorizes execution: installs require fresh validation and approval.
+/// Resolve untrusted module mappings into a read-only preview. Tool
+/// executable permissions must come from a trusted caller, never from Luau.
 pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::Result<InstallPlan> {
+    resolve_with_permissions(game_id, inspection, game, &[])
+}
+
+fn resolve_with_permissions(
+    game_id: &str,
+    inspection: &Inspection,
+    game: &Path,
+    approved: &[String],
+) -> anyhow::Result<InstallPlan> {
     use anyhow::bail;
     if !fs::symlink_metadata(game)?.file_type().is_dir() {
         bail!("installation root must be a real directory, not a link");
@@ -189,7 +204,7 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
         .operations
         .iter()
         .filter(|operation| {
-            approved_compiler(&operation.source, &operation.destination, &operation.kind)
+            approved_tool_executable(&operation.source, &operation.destination, approved)
         })
         .map(|operation| operation.source.as_str())
         .collect();
@@ -291,7 +306,7 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
             continue;
         }
         if prohibited_payload(&request.destination)
-            && !approved_compiler(&request.source, &request.destination, &request.kind)
+            && !approved_tool_executable(&request.source, &request.destination, approved)
         {
             issue(
                 &mut blockers,
@@ -399,8 +414,18 @@ pub fn preview_install_zip(
     game: &Path,
     archive: &Path,
 ) -> anyhow::Result<InstallPlan> {
+    preview_install_zip_with_permissions(game_id, game, archive, &[])
+}
+
+/// Preview with explicit, trusted per-destination tool-executable permissions.
+pub fn preview_install_zip_with_permissions(
+    game_id: &str,
+    game: &Path,
+    archive: &Path,
+    approved: &[String],
+) -> anyhow::Result<InstallPlan> {
     let inspection = crate::archive::inspect(archive)?;
-    let mut proposal = resolve(game_id, &inspection, game)?;
+    let mut proposal = resolve_with_permissions(game_id, &inspection, game, approved)?;
     if inspection.format != "zip" {
         proposal.status = "blocked".into();
         proposal.blockers.push(PlanIssue {

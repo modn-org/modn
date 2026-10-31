@@ -8,7 +8,7 @@ use commands::{Cli, Command, GameCommand};
 use modn_core::archive::inspect;
 use modn_core::game_modules::with_module_store;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
-use modn_core::planning::preview_install_zip;
+use modn_core::planning::preview_install_zip_with_permissions;
 use modn_core::state::Store;
 use selection::{choose_candidate, selected_installation};
 use state_access::{database_path, validate_state_path};
@@ -146,12 +146,14 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
             path,
             yes,
             dry_run,
+            allow_executable,
         } => {
             if !yes && !dry_run {
                 bail!("installation writes game files; choose --dry-run or explicitly approve with --yes");
             }
             let (game_id, game) = selected_installation(store.as_ref(), path, requested)?;
-            let report = preview_install_zip(&game_id, &game, &archive)?;
+            let report =
+                preview_install_zip_with_permissions(&game_id, &game, &archive, &allow_executable)?;
             if dry_run {
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -168,7 +170,12 @@ fn run_cli(cli: Cli, state_path: PathBuf) -> Result<()> {
                 let package = store
                     .as_mut()
                     .expect("install command has store")
-                    .install_operations_zip(&game, &archive, &report)?;
+                    .install_operations_zip_with_permissions(
+                        &game,
+                        &archive,
+                        &report,
+                        &allow_executable,
+                    )?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&package)?);
                 } else {

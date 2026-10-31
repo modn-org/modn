@@ -52,10 +52,24 @@ fn roundtrip(files: &[(&str, &[u8])], kind: &str, wrapper: &str) {
     zip(&package, files, wrapper);
     let game_path = game.to_str().expect("game");
     let zip_path = package.to_str().expect("ZIP");
-    let plan = json(
-        &state,
-        &["install", zip_path, "--dry-run", "--path", game_path],
-    );
+    let permission = if kind == "redscript-runtime" {
+        vec!["--allow-executable", "engine/tools/scc.exe"]
+    } else {
+        vec![]
+    };
+    let mut preview_args = vec!["install", zip_path, "--dry-run", "--path", game_path];
+    preview_args.extend(permission.iter().copied());
+    if !permission.is_empty() {
+        let denied = json(
+            &state,
+            &["install", zip_path, "--dry-run", "--path", game_path],
+        );
+        assert_eq!(
+            denied["status"], "blocked",
+            "compiler must require caller permission"
+        );
+    }
+    let plan = json(&state, &preview_args);
     assert_eq!(plan["status"], "reviewable", "{plan}");
     let operations = plan["operations"].as_array().expect("operations");
     assert_eq!(operations.len(), files.len(), "{plan}");
@@ -64,7 +78,9 @@ fn roundtrip(files: &[(&str, &[u8])], kind: &str, wrapper: &str) {
         assert!(operation.get("owned_directory").is_none(), "{operation}");
     }
     assert!(!state.exists(), "dry run created manager state");
-    let owned = json(&state, &["install", zip_path, "--yes", "--path", game_path]);
+    let mut install_args = vec!["install", zip_path, "--yes", "--path", game_path];
+    install_args.extend(permission);
+    let owned = json(&state, &install_args);
     let id = owned["id"].as_str().expect("package id");
     assert_eq!(
         owned["files"].as_array().expect("owned files").len(),
@@ -132,6 +148,10 @@ fn cet_framework_owns_loader_and_plugin_assets_as_one_package() {
             (
                 "bin/x64/plugins/cyber_engine_tweaks/tweakdb/usedhashes.kark",
                 b"hashes",
+            ),
+            (
+                "bin/x64/plugins/cyber_engine_tweaks/tweakdb/tweakdbstr.kark",
+                b"tweakdb",
             ),
             (
                 "bin/x64/plugins/cyber_engine_tweaks/scripts/json/json.lua",
@@ -222,4 +242,84 @@ fn partial_mixed_and_unapproved_executables_fail_without_side_effects() {
     assert!(!game.join("engine").exists());
     assert!(!game.join("red4ext").exists());
     assert!(!game.join("bin/x64/version.dll").exists());
+}
+
+#[test]
+fn incomplete_frameworks_missing_nonmarker_payload_are_blocked() {
+    let (temp, game, state) = fixture();
+    let root = game.to_str().expect("game");
+    let pkg = temp.path().join("incomplete.zip");
+    let zip_path = pkg.to_str().expect("ZIP");
+    type Case<'a> = (&'a [(&'a str, &'a [u8])], &'a [&'a str], bool);
+    let cases: &[Case<'_>] = &[
+        (
+            &[
+                ("engine/tools/scc.exe", b"compiler"),
+                ("engine/tools/scc_lib.dll", b"library"),
+                ("engine/config/base/scripts.ini", b"ini"),
+                ("r6/config/cybercmd/scc.toml", b"toml"),
+            ],
+            &[
+                "engine/config/base/scripts.ini",
+                "r6/config/cybercmd/scc.toml",
+            ],
+            true,
+        ),
+        (
+            &[
+                ("bin/x64/winmm.dll", b"loader"),
+                ("red4ext/RED4ext.dll", b"framework"),
+                ("red4ext/LICENSE.txt", b"license"),
+                ("red4ext/THIRD_PARTY_LICENSES.txt", b"licenses"),
+            ],
+            &["red4ext/LICENSE.txt", "red4ext/THIRD_PARTY_LICENSES.txt"],
+            false,
+        ),
+        (
+            &[
+                ("bin/x64/version.dll", b"loader"),
+                ("bin/x64/plugins/cyber_engine_tweaks.asi", b"plugin"),
+                ("bin/x64/global.ini", b"ini"),
+                (
+                    "bin/x64/plugins/cyber_engine_tweaks/scripts/json/json.lua",
+                    b"json",
+                ),
+                (
+                    "bin/x64/plugins/cyber_engine_tweaks/tweakdb/tweakdbstr.kark",
+                    b"tweakdb",
+                ),
+            ],
+            &[
+                "bin/x64/global.ini",
+                "bin/x64/plugins/cyber_engine_tweaks/scripts/json/json.lua",
+                "bin/x64/plugins/cyber_engine_tweaks/tweakdb/tweakdbstr.kark",
+            ],
+            false,
+        ),
+    ];
+    for &(complete, missing_members, compiler) in cases {
+        for &missing in missing_members {
+            let partial: Vec<_> = complete
+                .iter()
+                .copied()
+                .filter(|(path, _)| *path != missing)
+                .collect();
+            zip(&pkg, &partial, "wrapper/");
+            let mut args = vec!["install", zip_path, "--dry-run", "--path", root];
+            if compiler {
+                args.extend(["--allow-executable", "engine/tools/scc.exe"]);
+            }
+            let result = json(&state, &args);
+            assert_eq!(result["status"], "blocked", "{missing}: {result}");
+            assert!(
+                result["blockers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|issue| issue["code"] == "INCOMPLETE_FRAMEWORK"),
+                "Missing {missing} was not rejected as incomplete: {result}"
+            );
+            assert!(!state.exists(), "preview created manager state");
+        }
+    }
 }

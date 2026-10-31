@@ -693,3 +693,31 @@ fn linux_birth_identity_rejects_reused_inode_generation() {
     assert!(super::directory::verify_directory(&owned, &reused).is_err());
     assert!(super::directory::verify_directory(&owned, &current).is_ok());
 }
+
+#[test]
+fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
+    let (_temp, mut store, game, archive) = fixture();
+    make_zip(&archive, &[("engine/tools/scc.exe", b"forged")]);
+    let source = inspect(&archive).unwrap();
+    let proposal = InstallPlan {
+        archive_sha256: source.sha256,
+        game_installation: game.canonicalize().unwrap(),
+        status: "reviewable".into(),
+        metadata_only: true,
+        operations: vec![PlannedFile {
+            source: "engine/tools/scc.exe".into(),
+            destination: "engine/tools/scc.exe".into(),
+            kind: "redscript-runtime".into(),
+            bytes: 6,
+            owned_directory: None,
+        }],
+        blockers: Vec::new(),
+        skipped_generated_files: Vec::new(),
+    };
+    assert!(store
+        .install_operations_zip(&game, &archive, &proposal)
+        .is_err());
+    assert!(!game.join("engine").exists());
+    assert!(store.installed(&game).unwrap().is_empty());
+    assert!(store.pending().unwrap().is_empty());
+}

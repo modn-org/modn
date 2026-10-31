@@ -412,3 +412,35 @@ fn luau_mapped_install_can_be_uninstalled_without_original_mapping() {
     );
     assert!(!game.join("r6/scripts/new.reds").exists());
 }
+
+#[test]
+fn hostile_luau_cannot_grant_tool_executable_permission() {
+    let (temp, game, archive, state) = fixture(&["engine/tools/scc.exe"]);
+    let module = module_with(
+        temp.path(),
+        "return {schema_version=1, operations={{source=files[1].source, destination='engine/tools/scc.exe', kind='redscript-runtime', package_root=''}}, blockers={}}",
+    );
+    let denied = preview(&game, &archive, &state, Some(&module));
+    assert_eq!(denied["status"], "blocked", "{denied}");
+    assert!(
+        denied["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["code"] == "EXECUTABLE_PAYLOAD"),
+        "{denied}"
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077", "--state-dir"])
+        .arg(&state)
+        .arg("install")
+        .arg(&archive)
+        .args(["--path"])
+        .arg(&game)
+        .arg("--yes")
+        .env("MODN_GAME_MODULES_DIR", module)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!game.join("engine/tools/scc.exe").exists());
+}

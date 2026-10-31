@@ -33,6 +33,9 @@ pub(super) enum Command {
             help = "Preview operations without writing game files"
         )]
         dry_run: bool,
+        /// Independently authorize one exact game-relative tool executable.
+        #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
+        allow_executable: Vec<String>,
     },
     /// List manager-owned packages (unmanaged mods are never included).
     Installed {

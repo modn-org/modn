@@ -284,13 +284,10 @@ function policy.plan(files)
     local bootstrap = {}
     for path in pairs(sources) do
         for _, marker in ipairs({
-            { "bin/x64/version.dll", "bin/x64/plugins/cyber_engine_tweaks.asi", "cet-runtime" },
-            { "red4ext/RED4ext.dll", "bin/x64/winmm.dll", "red4ext-runtime" }, { "engine/tools/scc.exe", "engine/tools/scc_lib.dll", "redscript-runtime" },
+            { "bin/x64/version.dll", "bin/x64/plugins/cyber_engine_tweaks.asi", "cet-runtime" }, { "red4ext/RED4ext.dll", "bin/x64/winmm.dll", "red4ext-runtime" }, { "engine/tools/scc.exe", "engine/tools/scc_lib.dll", "redscript-runtime" },
         }) do
             local prefix = string.sub(path, 1, #path - #marker[1])
-            if string.sub(path, -#marker[1]) == marker[1]
-                and (prefix == "" or string.sub(prefix, -1) == "/")
-                and sources[prefix .. marker[2]] then
+            if string.sub(path, -#marker[1]) == marker[1] and (prefix == "" or string.sub(prefix, -1) == "/") and sources[prefix .. marker[2]] then
                 bootstrap[string.sub(prefix, 1, -2)] = marker[3]
             end
         end
@@ -309,18 +306,13 @@ function policy.plan(files)
         local filename = string.lower(parts[#parts] or "")
         local framework = bootstrap[table.concat(parts, "/", 1, i - 1)]; local relative = table.concat(parts, "/", i)
         if framework == "cet-runtime" and (
-            relative == "bin/x64/version.dll" or relative == "bin/x64/global.ini" or relative == "bin/x64/LICENSE"
-            or relative == "bin/x64/plugins/cyber_engine_tweaks.asi" or relative == "bin/x64/plugins/cyber_engine_tweaks/ThirdParty_LICENSES"
-            or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/fonts/[^/]+$")
-            or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/tweakdb/[^/]+$")
-            or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/scripts/.+")) then
+            relative == "bin/x64/version.dll" or relative == "bin/x64/global.ini" or relative == "bin/x64/LICENSE" or relative == "bin/x64/plugins/cyber_engine_tweaks.asi" or relative == "bin/x64/plugins/cyber_engine_tweaks/ThirdParty_LICENSES"
+            or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/fonts/[^/]+$") or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/tweakdb/[^/]+$") or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/scripts/.+")) then
             return framework
         end
-        if framework == "red4ext-runtime" and (
-            relative == "bin/x64/winmm.dll" or relative == "red4ext/RED4ext.dll"
+        if framework == "red4ext-runtime" and (relative == "bin/x64/winmm.dll" or relative == "red4ext/RED4ext.dll"
             or relative == "red4ext/LICENSE.txt" or relative == "red4ext/THIRD_PARTY_LICENSES.txt") then return framework end
-        if framework == "redscript-runtime" and (
-            relative == "engine/tools/scc.exe" or relative == "engine/tools/scc_lib.dll"
+        if framework == "redscript-runtime" and (relative == "engine/tools/scc.exe" or relative == "engine/tools/scc_lib.dll"
             or relative == "engine/config/base/scripts.ini" or relative == "r6/config/cybercmd/scc.toml") then return framework end
         if count == 4 and a == "archive" and b == "pc" and c == "mod" then
             if string.sub(filename, -8) == ".archive" then return "legacy-archive" end
@@ -385,11 +377,21 @@ function policy.plan(files)
             end
         end
     end
+    -- Mandatory members must come from this ZIP, not an existing game install.
+    local required = {
+        ["cet-runtime"] = { "bin/x64/version.dll", "bin/x64/plugins/cyber_engine_tweaks.asi", "bin/x64/global.ini", "bin/x64/plugins/cyber_engine_tweaks/scripts/json/json.lua", "bin/x64/plugins/cyber_engine_tweaks/tweakdb/tweakdbstr.kark" },
+        ["red4ext-runtime"] = { "bin/x64/winmm.dll", "red4ext/RED4ext.dll", "red4ext/LICENSE.txt", "red4ext/THIRD_PARTY_LICENSES.txt" },
+        ["redscript-runtime"] = { "engine/tools/scc.exe", "engine/tools/scc_lib.dll", "engine/config/base/scripts.ini", "r6/config/cybercmd/scc.toml" },
+    }
+    for wrapper, framework in pairs(bootstrap) do
+        for _, member in ipairs(required[framework]) do
+            local prefix = wrapper == "" and "" or wrapper .. "/"
+            if not sources[prefix .. member] then block("INCOMPLETE_FRAMEWORK", "Missing framework ZIP member: " .. member) end
+        end
+    end
     local package_framework
     for _, framework in pairs(bootstrap) do
-        if package_framework and package_framework ~= framework then
-            block("MIXED_FRAMEWORKS", "Mixed framework packages are not supported")
-        end
+        if package_framework and package_framework ~= framework then block("MIXED_FRAMEWORKS", "Mixed framework packages are not supported") end
         package_framework = framework
     end
     local needs_redscript, needs_archivexl, needs_tweakxl = false, false, false
@@ -416,9 +418,7 @@ function policy.plan(files)
                     mapped = true
                     break
                 end
-                if package_framework and kind ~= package_framework then
-                    block("MIXED_FRAMEWORKS", "Framework ZIP also contains a mod")
-                end
+                if package_framework and kind ~= package_framework then block("MIXED_FRAMEWORKS", "Framework ZIP also contains a mod") end
                 local expected = canonical_framework_prefixes[kind]
                 if expected ~= nil then
                     for offset, component in ipairs(expected) do

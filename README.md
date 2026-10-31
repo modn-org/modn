@@ -305,7 +305,7 @@ The Cyberpunk Luau policy prefers an **exclusive mod folder** for new CET, RED4e
 
 `install` and `uninstall` require explicit `--yes` approval. The manager stores file hashes and ownership in SQLite in the state directory. It rejects existing destinations, linked paths, unsupported mod layouts, encrypted archives, oversized content, and attempts to uninstall modified files. Installation verifies ZIP content into manager-owned staging before creating game files; destination creation uses exclusive hard links rather than replacing existing files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `modn recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
 
-The transaction executor is game-agnostic: Rust callers may submit an explicitly approved `InstallPlan` to `Store::install_operations_zip` for any real installation root. Under the exclusive store lock it independently re-inspects the ZIP, verifies archive hashes and all source sizes, validates destinations, collisions, executable payloads, ownership conflicts, and size limits before staging. The ownership ledger, rollback, crash recovery, and uninstall operate on generic installation roots. The CLI now resolves installation operations from Luau; no Cyberpunk-specific Rust installation planner or legacy compatibility adapter remains. No new archive extraction formats or REDmod deployment are enabled. CET/RED4ext `.dll` plugin files are permitted within the recognized plugin layout, but neither Modn nor its preview executes them or certifies their compatibility; prohibited installer/script executables remain blocked except the redscript compiler path.
+The transaction executor is game-agnostic: Rust callers may submit an explicitly approved `InstallPlan` to `Store::install_operations_zip` for any real installation root. Under the exclusive store lock it independently re-inspects the ZIP, verifies archive hashes and all source sizes, validates destinations, collisions, executable payloads, ownership conflicts, and size limits before staging. The ownership ledger, rollback, crash recovery, and uninstall operate on generic installation roots. The CLI now resolves installation operations from Luau; no Cyberpunk-specific Rust installation planner or legacy compatibility adapter remains. No new archive extraction formats or REDmod deployment are enabled. CET/RED4ext `.dll` plugin files are permitted within the recognized plugin layout, but neither Modn nor its preview executes them or certifies their compatibility; prohibited executable payloads remain blocked unless explicitly approved as an exact tool path by the caller.
 
 Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), package updates, file adoption, migration, or automatic recovery. Always try it on a disposable game fixture before testing against a real game.
 
@@ -313,8 +313,8 @@ Transactions are **recoverable** rather than one single filesystem-wide atomic v
 
 CET (Cyber Engine Tweaks), RED4ext and redscript compiler distributions can
 now be installed and removed through the ordinary ZIP lifecycle. The Cyberpunk
-Luau policy recognizes each complete original distribution by paired
-bootstrap markers and its supported file layout. Use `install --dry-run` to
+Luau policy recognizes each supported distribution through paired
+bootstrap markers and mandatory ZIP members in the same wrapper. Use `install --dry-run` to
 verify the whole archive, then `install --yes` to record **one package** per
 framework ZIP. Partial and mixed framework distributions remain blocked.
 
@@ -322,8 +322,12 @@ Framework payloads use **file-level ownership** even inside CET and RED4ext
 directories: other mods, personal configuration and generated runtime files
 remain separate. Uninstall verifies hashes of owned framework files and
 leaves unowned logs and settings untouched; modified bootstrap files block
-uninstall. Rust permits only the redscript compiler `engine/tools/scc.exe`
-as an executable payload exception; other executables remain prohibited.
+uninstall. Rust denies executable payloads by default, including the redscript compiler.
+Installing redscript requires the operator to add
+`--allow-executable engine/tools/scc.exe` to **both** the review preview and
+confirmed installation. This is a trusted, explicit approval of one exact
+game-relative tool executable, independent of Luau operation labels.
+Without that specific approval, executables remain prohibited. Explicit tool-executable permission does not certify the executable as trustworthy.
 Modn does not execute framework binaries or certify runtime compatibility,
 game-version support, or dependent-mod safety on framework uninstall.
 

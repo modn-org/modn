@@ -30,12 +30,35 @@ impl Store {
         self.install_operations_inner(game, archive, proposal, None)
     }
 
+    /// Install with independent caller-authorized tool executable destinations.
+    /// Approval is never read from the module's untrusted operation labels.
+    pub fn install_operations_zip_with_permissions(
+        &mut self,
+        game: &Path,
+        archive: &Path,
+        proposal: &InstallPlan,
+        approved: &[String],
+    ) -> Result<ManagedPackage> {
+        self.install_inner_with_permissions(game, archive, proposal, None, approved)
+    }
+
     pub(super) fn install_operations_inner(
         &mut self,
         game: &Path,
         archive: &Path,
         proposal: &InstallPlan,
         fail_after: Option<usize>,
+    ) -> Result<ManagedPackage> {
+        self.install_inner_with_permissions(game, archive, proposal, fail_after, &[])
+    }
+
+    fn install_inner_with_permissions(
+        &mut self,
+        game: &Path,
+        archive: &Path,
+        proposal: &InstallPlan,
+        fail_after: Option<usize>,
+        approved: &[String],
     ) -> Result<ManagedPackage> {
         let _guard = lock_store(self)?;
         self.ensure_no_pending()?;
@@ -44,7 +67,7 @@ impl Store {
             bail!("manager state must be separate from the game directory");
         }
         let inspection = inspect(archive)?;
-        validate_execution_plan(&inspection, &game, proposal)?;
+        validate_execution_plan(&inspection, &game, proposal, approved)?;
         validate_ownership(self, &game, proposal)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories)?;
