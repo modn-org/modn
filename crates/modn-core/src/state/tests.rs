@@ -127,6 +127,38 @@ fn old_manual_ownership_schema_is_rejected_not_migrated() {
 }
 
 #[test]
+fn concurrent_fresh_opens_finish_one_complete_schema() {
+    use std::sync::{Arc, Barrier};
+
+    let temp = tempdir().unwrap();
+    let db = temp.path().join("state.sqlite");
+    let workers = 10;
+    let barrier = Arc::new(Barrier::new(workers));
+    std::thread::scope(|scope| {
+        let threads: Vec<_> = (0..workers)
+            .map(|_| {
+                let barrier = Arc::clone(&barrier);
+                let db = db.clone();
+                scope.spawn(move || {
+                    barrier.wait();
+                    let store = Store::open(&db).unwrap();
+                    let version: i64 = store
+                        .connection
+                        .pragma_query_value(None, "user_version", |row| row.get(0))
+                        .unwrap();
+                    assert_eq!(version, 1);
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+    });
+    let store = Store::open_readonly(&db).unwrap();
+    assert!(store.list().unwrap().is_empty());
+}
+
+#[test]
 fn pre_adoption_archive_schema_is_rejected_even_with_identical_columns() {
     let temp = tempdir().unwrap();
     let db = temp.path().join("state.sqlite");

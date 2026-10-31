@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,17 +25,23 @@ pub struct Store {
 impl Store {
     /// Open the manager-owned SQLite database and initialize its schema.
     pub fn open(path: &Path) -> Result<Self> {
-        let fresh = !path.exists();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("cannot create state directory {}", parent.display()))?;
         }
-        let connection = Connection::open(path)
+        let mut connection = Connection::open(path)
             .with_context(|| format!("cannot open state database {}", path.display()))?;
-        if !fresh {
-            validate_package_schema(&connection)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing_state: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master
+             WHERE type='table' AND name NOT LIKE 'sqlite_%')",
+            [],
+            |row| row.get(0),
+        )?;
+        if existing_state {
+            validate_package_schema(&tx)?;
         }
-        connection.execute_batch(
+        tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS game_installations (
                 game_id TEXT NOT NULL,
                 path TEXT NOT NULL,
@@ -43,7 +49,7 @@ impl Store {
                 PRIMARY KEY (game_id, path)
             );",
         )?;
-        connection.execute_batch(
+        tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS managed_packages (
                 id TEXT PRIMARY KEY,
                 game_path TEXT NOT NULL,
@@ -88,10 +94,11 @@ impl Store {
                 PRIMARY KEY(transaction_id, ord)
             );",
         )?;
-        if fresh {
-            connection.pragma_update(None, "user_version", 1)?;
+        if !existing_state {
+            tx.pragma_update(None, "user_version", 1)?;
         }
-        validate_package_schema(&connection)?;
+        validate_package_schema(&tx)?;
+        tx.commit()?;
         Ok(Self {
             connection,
             state_root: path
