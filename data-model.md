@@ -94,8 +94,13 @@ installations of the same game must have independent managed state.
 | `content_sha256` | Digest of the module release content. |
 
 A module release is **executable game integration code**, not a mod archive.
-Both official and community buckets can publish module releases. Only
-acknowledged community buckets can supply active third-party modules.
+Within one bucket snapshot, each game has one current module release stored
+at `modules/<game-id>/`, with its version declared in `module.json`.
+Bucket/game identifies the published module; the bucket revision and content
+digest distinguish its exact release. Historical versions and rollback
+copies belong to the module lifecycle, not the bucket tree. Both official
+and community buckets can publish releases. Only acknowledged community
+buckets can supply active third-party modules.
 
 **ActiveModule** identifies a selected release per `game_id`, plus a previous
 selection for rollback. Installing or updating catalog metadata does not

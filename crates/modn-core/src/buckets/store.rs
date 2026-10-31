@@ -1,10 +1,8 @@
 use super::manifest::{valid_id, PackageManifest};
-use super::module::{
-    read_release, valid_version, validate_release, BucketModule, ModuleReleaseManifest,
-};
+use super::module::{read_release, validate_release, BucketModule, ModuleReleaseManifest};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -136,7 +134,6 @@ fn read_modules(root: &Path) -> Result<Vec<ModuleReleaseManifest>> {
     }
     real_directory(&modules, &canonical)?;
     let mut releases = Vec::new();
-    let mut seen = HashSet::new();
     for game in fs::read_dir(&modules)? {
         let game = game?;
         let id = game.file_name().to_string_lossy().into_owned();
@@ -144,35 +141,19 @@ fn read_modules(root: &Path) -> Result<Vec<ModuleReleaseManifest>> {
             bail!("invalid module game directory");
         }
         real_directory(&game.path(), &canonical)?;
-        for version in fs::read_dir(game.path())? {
-            let version = version?;
-            let label = version.file_name().to_string_lossy().into_owned();
-            if !valid_version(&label)
-                || !seen.insert(format!("{id}/{}", label.to_ascii_lowercase()))
-            {
-                bail!("invalid or case-colliding module version directory");
-            }
-            real_directory(&version.path(), &canonical)?;
-            if releases.len() >= MAX_MODULES {
-                bail!("bucket module release limit exceeded");
-            }
-            releases.push(read_release(&version.path(), &id, &label)?);
+        if releases.len() >= MAX_MODULES {
+            bail!("bucket module release limit exceeded");
         }
+        releases.push(read_release(&game.path(), &id)?);
     }
-    releases.sort_by(|a, b| (&a.game_id, &a.version).cmp(&(&b.game_id, &b.version)));
+    releases.sort_by(|a, b| a.game_id.cmp(&b.game_id));
     Ok(releases)
 }
 
 fn official_modules() -> Result<Vec<ModuleReleaseManifest>> {
-    let manifest =
-        include_bytes!("../../../../buckets/main/modules/cyberpunk-2077/0.1.0/module.json");
-    let script = include_bytes!("../../../../buckets/main/modules/cyberpunk-2077/0.1.0/main.lua");
-    Ok(vec![validate_release(
-        manifest,
-        script,
-        "cyberpunk-2077",
-        "0.1.0",
-    )?])
+    let manifest = include_bytes!("../../../../buckets/main/modules/cyberpunk-2077/module.json");
+    let script = include_bytes!("../../../../buckets/main/modules/cyberpunk-2077/main.lua");
+    Ok(vec![validate_release(manifest, script, "cyberpunk-2077")?])
 }
 
 fn official() -> Result<Vec<PackageManifest>> {
@@ -396,29 +377,20 @@ impl BucketStore {
             }
         }
         releases.retain(|entry| game.is_none_or(|id| entry.module.game_id == id));
-        releases.sort_by(|a, b| {
-            (&a.bucket, &a.module.game_id, &a.module.version).cmp(&(
-                &b.bucket,
-                &b.module.game_id,
-                &b.module.version,
-            ))
-        });
+        releases
+            .sort_by(|a, b| (&a.bucket, &a.module.game_id).cmp(&(&b.bucket, &b.module.game_id)));
         Ok(releases)
     }
 
-    /// Resolve a bucket/game/version module reference without executing it.
+    /// Resolve a bucket/game module reference without executing it.
     pub fn show_module(&self, reference: &str) -> Result<BucketModule> {
         let parts: Vec<&str> = reference.split('/').collect();
-        if parts.len() != 3
-            || !valid_id(parts[0])
-            || !valid_id(parts[1])
-            || !valid_version(parts[2])
-        {
-            bail!("expected bucket/game/module-version");
+        if parts.len() != 2 || parts.iter().any(|part| !valid_id(part)) {
+            bail!("expected bucket/game");
         }
         self.modules(Some(parts[1]))?
             .into_iter()
-            .find(|m| m.bucket == parts[0] && m.module.version == parts[2])
+            .find(|m| m.bucket == parts[0] && m.module.game_id == parts[1])
             .with_context(|| format!("bucket module not found: {reference}"))
     }
 

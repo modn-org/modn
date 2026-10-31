@@ -24,7 +24,7 @@ fn seed(root: &Path, bucket: &str, game: &str, version: &str, script: &[u8]) {
         format!(r#"{{"schema_version":1,"name":"{bucket}","title":"Test Bucket"}}"#),
     )
     .expect("fixture");
-    let release = root.join("modules").join(game).join(version);
+    let release = root.join("modules").join(game);
     fs::create_dir_all(&release).expect("fixture");
     fs::write(release.join("main.lua"), script).expect("fixture");
     fs::write(
@@ -58,12 +58,24 @@ fn official_module_is_available_offline_without_state_or_execution() {
     assert_eq!(entries[0]["bucket"], "main");
     assert_eq!(entries[0]["game_id"], "cyberpunk-2077");
     assert_eq!(entries[0]["api_version"], 1);
-    let show = run(&state, &["module-show", "main/cyberpunk-2077/0.1.0"]);
+    assert_eq!(entries[0]["version"], "0.1.0");
+    let show = run(&state, &["module-show", "main/cyberpunk-2077"]);
     assert!(show.status.success(), "{}", stderr(&show));
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&show.stdout).expect("JSON"),
         entries[0]
     );
+    let human = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args([
+            "--state-dir",
+            state.to_str().expect("fixture"),
+            "bucket",
+            "modules",
+        ])
+        .output()
+        .expect("run fixture CLI");
+    assert!(human.status.success(), "{}", stderr(&human));
+    assert!(String::from_utf8_lossy(&human.stdout).contains("main/cyberpunk-2077, version 0.1.0"));
     assert!(!state.exists(), "metadata-only reads must not create state");
 }
 
@@ -90,7 +102,7 @@ fn module_only_buckets_are_namespaced_and_lua_is_never_executed() {
     assert_eq!(entries[0]["bucket"], "alpha");
     assert_eq!(entries[1]["bucket"], "beta");
     assert_eq!(entries[2]["bucket"], "main");
-    let shown = run(&state, &["module-show", "beta/test-game/1.0.0"]);
+    let shown = run(&state, &["module-show", "beta/test-game"]);
     assert!(shown.status.success(), "{}", stderr(&shown));
     let shown: serde_json::Value = serde_json::from_slice(&shown.stdout).expect("JSON");
     assert_eq!(shown["bucket"], "beta");
@@ -111,13 +123,13 @@ fn malformed_module_manifests_and_entries_fail_before_registration() {
     let root = temp.path().join("community");
     let state = temp.path().join("state");
     seed(&root, "community", "test-game", "1.0.0", b"return {}");
-    let manifest_path = root.join("modules/test-game/1.0.0/module.json");
+    let manifest_path = root.join("modules/test-game/module.json");
     let original: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest_path).expect("fixture")).expect("JSON");
     for (field, invalid) in [
         ("schema_version", serde_json::json!(2)),
         ("game_id", serde_json::json!("other-game")),
-        ("version", serde_json::json!("2.0.0")),
+        ("version", serde_json::json!("invalid/version")),
         ("api_version", serde_json::json!(999)),
         ("entrypoint", serde_json::json!("../escape.lua")),
         ("content_sha256", serde_json::json!("0".repeat(64))),
@@ -130,10 +142,10 @@ fn malformed_module_manifests_and_entries_fail_before_registration() {
         assert!(!state.join("buckets").exists(), "{field}");
     }
     fs::write(&manifest_path, original.to_string()).expect("fixture");
-    fs::write(root.join("modules/test-game/1.0.0/extra.lua"), b"return {}").expect("fixture");
+    fs::write(root.join("modules/test-game/extra.lua"), b"return {}").expect("fixture");
     assert!(!add(&state, &root, "community").status.success());
-    fs::remove_file(root.join("modules/test-game/1.0.0/extra.lua")).expect("fixture");
-    fs::write(root.join("modules/test-game/1.0.0/main.lua"), [0xff, 0xfe]).expect("fixture");
+    fs::remove_file(root.join("modules/test-game/extra.lua")).expect("fixture");
+    fs::write(root.join("modules/test-game/main.lua"), [0xff, 0xfe]).expect("fixture");
     assert!(!add(&state, &root, "community").status.success());
     assert!(!state.join("buckets").exists());
 }
@@ -147,7 +159,7 @@ fn registered_module_source_changes_fail_closed() {
     let result = add(&state, &root, "community");
     assert!(result.status.success(), "{}", stderr(&result));
     fs::write(
-        root.join("modules/test-game/1.0.0/main.lua"),
+        root.join("modules/test-game/main.lua"),
         b"return {changed=true}",
     )
     .expect("fixture");
@@ -161,20 +173,67 @@ fn registered_module_source_changes_fail_closed() {
     assert!(!state.join("state.sqlite").exists());
 }
 
+#[test]
+fn module_snapshot_exposes_one_release_with_version_in_manifest() {
+    let temp = TempDir::new().expect("fixture");
+    let root = temp.path().join("community");
+    let state = temp.path().join("state");
+    seed(&root, "community", "test-game", "1.0.0", b"return {}");
+    let added = add(&state, &root, "community");
+    assert!(added.status.success(), "{}", stderr(&added));
+    let old = run(&state, &["module-show", "community/test-game/1.0.0"]);
+    assert!(
+        !old.status.success(),
+        "old versioned reference must be rejected"
+    );
+    seed(
+        &root,
+        "community",
+        "test-game",
+        "2.0.0",
+        b"return {updated=true}",
+    );
+    let list = run(&state, &["modules"]);
+    assert!(list.status.success(), "{}", stderr(&list));
+    let entries: serde_json::Value = serde_json::from_slice(&list.stdout).expect("JSON");
+    assert_eq!(entries.as_array().expect("array").len(), 2);
+    assert_eq!(entries[0]["bucket"], "community");
+    assert_eq!(entries[0]["version"], "2.0.0");
+    let shown = run(&state, &["module-show", "community/test-game"]);
+    assert!(shown.status.success(), "{}", stderr(&shown));
+    let found: serde_json::Value = serde_json::from_slice(&shown.stdout).expect("JSON");
+    assert_eq!(found, entries[0]);
+    assert!(!state.join("state.sqlite").exists(), "no module activation");
+}
+
+#[test]
+fn old_versioned_module_directory_layout_is_rejected() {
+    let temp = TempDir::new().expect("fixture");
+    let root = temp.path().join("community");
+    let state = temp.path().join("state");
+    seed(&root, "community", "test-game", "1.0.0", b"return {}");
+    let game = root.join("modules/test-game");
+    let old_release = game.join("1.0.0");
+    fs::create_dir_all(&old_release).expect("fixture");
+    for name in ["module.json", "main.lua"] {
+        fs::rename(game.join(name), old_release.join(name)).expect("fixture");
+    }
+    assert!(!add(&state, &root, "community").status.success());
+    assert!(!state.join("buckets").exists());
+}
+
 #[cfg(unix)]
 #[test]
-fn module_directory_alias_and_case_collisions_are_refused() {
+fn linked_module_directory_is_refused() {
     use std::os::unix::fs::symlink;
     let temp = TempDir::new().expect("fixture");
     let root = temp.path().join("community");
     let state = temp.path().join("state");
-    seed(&root, "community", "test-game", "V1", b"return {}");
-    seed(&root, "community", "test-game", "v1", b"return {}");
-    assert!(!add(&state, &root, "community").status.success());
-    fs::remove_dir_all(root.join("modules/test-game/v1")).expect("fixture");
+    seed(&root, "community", "test-game", "1.0.0", b"return {}");
+    let game = root.join("modules/test-game");
     let external = temp.path().join("outside");
-    fs::create_dir(&external).expect("fixture");
-    symlink(&external, root.join("modules/test-game/v1")).expect("fixture");
+    fs::rename(&game, &external).expect("fixture");
+    symlink(&external, &game).expect("fixture");
     assert!(!add(&state, &root, "community").status.success());
 }
 

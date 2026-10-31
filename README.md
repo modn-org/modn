@@ -400,7 +400,7 @@ modn bucket show main/cyberpunk-2077/red4ext --json
 modn bucket add community C:\path\to\bucket
 modn bucket show community/test-game/example --json
 modn bucket modules --json
-modn bucket module-show main/cyberpunk-2077/0.1.0 --json
+modn bucket module-show main/cyberpunk-2077 --json
 modn bucket remove community
 ```
 

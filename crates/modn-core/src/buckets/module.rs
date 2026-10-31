@@ -78,7 +78,6 @@ pub(super) fn validate_release(
     manifest_bytes: &[u8],
     script: &[u8],
     game: &str,
-    version: &str,
 ) -> Result<ModuleReleaseManifest> {
     if manifest_bytes.len() as u64 > MAX_MANIFEST || script.len() as u64 > MAX_SCRIPT {
         bail!("bucket module entry exceeds size limit");
@@ -88,10 +87,9 @@ pub(super) fn validate_release(
     if release.schema_version != 1
         || release.game_id != game
         || !valid_id(&release.game_id)
-        || release.version != version
         || !valid_version(&release.version)
     {
-        bail!("bucket module identity or schema disagrees with modules/<game>/<version> path");
+        bail!("bucket module identity or schema disagrees with modules/<game> path");
     }
     if release.api_version != crate::game_modules::HOST_API_VERSION {
         bail!("unsupported bucket module host API");
@@ -116,11 +114,7 @@ pub(super) fn validate_release(
 }
 
 /// Read exactly one manifest and Lua source; do not evaluate Lua or modify state.
-pub(super) fn read_release(
-    path: &Path,
-    game: &str,
-    version: &str,
-) -> Result<ModuleReleaseManifest> {
+pub(super) fn read_release(path: &Path, game: &str) -> Result<ModuleReleaseManifest> {
     let manifest = bounded_file(&path.join("module.json"), MAX_MANIFEST)?;
     let header: ModuleReleaseManifest =
         serde_json::from_slice(&manifest).context("invalid bucket module.json")?;
@@ -142,5 +136,5 @@ pub(super) fn read_release(
         bail!("bucket module release must contain only module.json and its entrypoint");
     }
     let script = bounded_file(&path.join(&header.entrypoint), MAX_SCRIPT)?;
-    validate_release(&manifest, &script, game, version)
+    validate_release(&manifest, &script, game)
 }

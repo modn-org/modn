@@ -91,12 +91,17 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
                     .and_then(Value::as_str)
                     .unwrap_or_else(|| entry.get("name").and_then(Value::as_str).unwrap_or(""));
                 let game = entry.get("game").or_else(|| entry.get("game_id"));
-                let id = entry.get("id").or_else(|| entry.get("version"));
+                let id = entry.get("id");
                 match (game, id, entry.get("version")) {
                     (Some(game), Some(id), Some(version)) => format!(
                         "{prefix}/{}/{}, version {}",
                         game.as_str().unwrap_or(""),
                         id.as_str().unwrap_or(""),
+                        version.as_str().unwrap_or("")
+                    ),
+                    (Some(game), None, Some(version)) => format!(
+                        "{prefix}/{}, version {}",
+                        game.as_str().unwrap_or(""),
                         version.as_str().unwrap_or("")
                     ),
                     _ => format!(
