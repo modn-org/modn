@@ -224,7 +224,8 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     let add = || {
         Command::new(env!("CARGO_BIN_EXE_modn"))
             .args(["--game", "cyberpunk-2077"])
-            .env("MODN_GAME_MODULES_DIR", &module_base)
+            .arg("--src")
+            .arg(&module)
             .arg("--state-dir")
             .arg(&state)
             .args(["game", "add", "cyberpunk-2077", "--path"])
@@ -252,7 +253,8 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
 
     let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
-        .env("MODN_GAME_MODULES_DIR", &module_base)
+        .arg("--module-src")
+        .arg(&module)
         .arg("--state-dir")
         .arg(&state)
         .args(["scan", "--json"])
@@ -266,12 +268,23 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     let report: Value = serde_json::from_slice(&scan.stdout).expect("JSON scan");
     assert_eq!(report["mods"][0]["kind"], "external-archive");
     assert_eq!(report["mods"][0]["managed"], false);
-    // A module can change the game marker, but it cannot weaken Rust's
-    // independent state-directory exclusion for executable-layout roots.
+    let normal = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args(["--game", "cyberpunk-2077", "--state-dir"])
+        .arg(&state)
+        .args(["scan", "--json"])
+        .output()
+        .expect("invoke default scan");
+    assert!(
+        !normal.status.success(),
+        "development source must not persist"
+    );
+    assert!(String::from_utf8_lossy(&normal.stderr).contains("Cyberpunk2077.exe"));
+
     let unsafe_state = game.join("private/state");
     let forbidden = Command::new(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
-        .env("MODN_GAME_MODULES_DIR", &module_base)
+        .arg("--src")
+        .arg(&module)
         .arg("--state-dir")
         .arg(&unsafe_state)
         .args(["scan", "--path"])
@@ -289,4 +302,33 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
         fs::read(game.join("archive/pc/mod/example.archive")).unwrap(),
         b"manual"
     );
+}
+
+#[test]
+fn explicit_development_source_rejects_wrong_game_without_registering() {
+    use std::path::Path;
+    let temp = tempdir().expect("fixture");
+    let game = temp.path().join("game");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().expect("parent")).expect("game");
+    fs::write(&marker, b"unchanged").expect("marker");
+    let state = temp.path().join("state");
+    let wrong_module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
+    let result = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--src")
+        .arg(&wrong_module)
+        .arg("--state-dir")
+        .arg(&state)
+        .args(["game", "add", "cyberpunk-2077", "--path"])
+        .arg(&game)
+        .output()
+        .expect("run");
+    assert!(!result.status.success());
+    assert!(
+        String::from_utf8_lossy(&result.stderr).contains("identity does not match"),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!state.exists(), "invalid source must not register game");
+    assert_eq!(fs::read(marker).expect("marker"), b"unchanged");
 }

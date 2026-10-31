@@ -26,7 +26,7 @@ fn evaluate_with_profile<T>(
     profile: ReadProfile,
     action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
-    let (manifest, source, _) = read_policy(game_id)?;
+    let (manifest, source) = read_policy(game_id)?;
     if manifest.game_id != game_id {
         bail!("game module identity does not match requested game");
     }

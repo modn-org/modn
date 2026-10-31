@@ -353,3 +353,31 @@ fn bucket_registry_destination_inside_game_root_is_refused() {
     assert_eq!(fs::read(&marker).expect("marker"), b"original marker");
     assert!(!state.join("state.sqlite").exists());
 }
+
+#[test]
+fn obsolete_module_directory_is_not_a_valid_bucket() {
+    let temp = TempDir::new().expect("fixture");
+    let bucket = temp.path().join("source");
+    let state = temp.path().join("state");
+    seed(&bucket, &valid_manifest());
+    fs::create_dir_all(bucket.join("modules/test-game")).expect("fixture");
+    let result = run(
+        &state,
+        &["add", "community", bucket.to_str().expect("path")],
+    );
+    assert!(!result.status.success());
+    assert!(output(&result).contains("bucket module directories are unsupported"));
+    assert!(!state.join("buckets").exists());
+    assert!(!run(&state, &["modules"]).status.success());
+}
+
+#[test]
+fn package_catalog_remains_independent_of_game_module_source() {
+    let temp = TempDir::new().expect("fixture");
+    let state = temp.path().join("state");
+    let result = run(&state, &["show", "main/cyberpunk-2077/cet"]);
+    assert!(result.status.success(), "{}", output(&result));
+    let entry: serde_json::Value = serde_json::from_slice(&result.stdout).expect("json");
+    assert_eq!(entry["id"], "cet");
+    assert!(!state.exists());
+}

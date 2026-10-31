@@ -10,9 +10,13 @@ pub(super) struct Cli {
     #[arg(long, global = true, value_name = "DIR")]
     pub(super) state_dir: Option<PathBuf>,
 
-    /// Select a runtime-loaded game policy by ID.
+    /// Select a first-party Lua game policy by ID.
     #[arg(long = "game", global = true, value_name = "ID")]
     pub(super) game_id: Option<String>,
+
+    /// Use one local module source directory for this command only (development).
+    #[arg(long = "module-src", alias = "src", global = true, value_name = "DIR")]
+    pub(super) module_source: Option<PathBuf>,
 
     #[command(subcommand)]
     pub(super) command: Command,
@@ -92,45 +96,6 @@ pub(super) enum ModuleCommand {
         #[arg(long = "allow-root", value_name = "DIR")]
         allow_roots: Vec<PathBuf>,
     },
-    /// Validate an unsigned local module ZIP without creating state.
-    Inspect { archive: PathBuf },
-    /// Install an unsigned local ZIP; activation requires a separate enable.
-    Install {
-        archive: PathBuf,
-        #[arg(long, conflicts_with = "yes")]
-        dry_run: bool,
-        #[arg(long)]
-        yes: bool,
-    },
-    /// Install and select a new version of an already enabled user module.
-    Update {
-        archive: PathBuf,
-        #[arg(long)]
-        yes: bool,
-    },
-    /// Explicitly select an installed version (including over a bundled module).
-    Enable {
-        game: String,
-        version: String,
-        #[arg(long)]
-        yes: bool,
-    },
-    /// Disable user selection, retaining installed and rollback versions.
-    Disable {
-        game: String,
-        #[arg(long)]
-        yes: bool,
-    },
-    /// Swap the selected and previous installed versions.
-    Rollback {
-        game: String,
-        #[arg(long)]
-        yes: bool,
-    },
-    /// List and integrity-check installed user versions without creating state.
-    List,
-    /// Show user selection, rollback target and effective module source.
-    Status { game: String },
 }
 
 #[derive(Subcommand)]
@@ -157,8 +122,4 @@ pub(super) enum BucketCommand {
     Search,
     /// Inspect one exact bucket/game/package reference.
     Show { package: String },
-    /// List versioned Lua game-module metadata without executing it.
-    Modules,
-    /// Inspect one exact bucket/game module reference.
-    ModuleShow { module: String },
 }

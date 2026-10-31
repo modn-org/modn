@@ -46,7 +46,7 @@ Avoid redirected game/mod directories where practical; use dedicated game
 installations and do not run another mod manager against the same files
 at the same time.
 
-## Local Lua game modules (experimental)
+## First-party Lua game modules
 
 `modn module check <directory> --json` validates a local module without creating manager state or touching a game installation. The selected directory must contain `module.json` and one flat `.lua` entrypoint. [A runnable example](examples/game-modules/sample-game/) is included:
 
@@ -68,103 +68,7 @@ return { game_id = "sample-game", api_version = mods_host.api_version }
 
 The loader negotiates **host API v1** and rejects mismatching manifest/script identities, unsupported versions, malformed input, unsafe filenames, linked files and directories, oversized source files, and binary/non-UTF-8 Lua chunks. The VM is fresh per check, with an 8 MiB memory ceiling, a 1-second execution deadline checked every 1,000 VM instructions, and a ceiling of 100,000 instruction-hook callbacks. Manifest size is capped at 16 KiB and script size at 256 KiB. Script failures produce explicit errors.
 
-This is **explicitly selected local module execution**, not compatibility certification or code trust verification. Without explicit roots, Lua only receives `mods_host.api_version`; it has no host filesystem, state database, game directory, archive, network, or process API. OS, IO, package loading, dynamic script loading, debug, print and warn globals are unavailable. The default host exposes no filesystem writes or process API, and suppresses script printing so `--json` stays valid. These execution limits are **not a sandbox or security guarantee** for intentionally trusted modules. The richer module capability model and bucket trust decisions belong to later milestones. Read-only capabilities and runtime policy selection are documented below.
-
-### Distributing and selecting local module ZIPs
-
-A module package is an **unsigned local ZIP**, containing exactly root
-`module.json` and the one flat `.lua` file named by its manifest. Add
-`"package_format":1` to the manifest above when distributing a ZIP. The existing
-directory check also accepts manifests without this field. Unknown or duplicate
-JSON fields are rejected. Game IDs, host API and optional script `version`
-declarations must agree with the manifest. Version labels are opaque, case-sensitive
-labels (1Ã¢â‚¬â€œ48 ASCII letters, digits, `.`, `-`, `+`), not ordered SemVer ranges.
-A game/version pair is immutable: publish changed content under a new label.
-
-**Runtime transition:** Lua 5.4 is the sole game module backend. Older
-`.luau` entrypoints and ZIP packages are no longer accepted. Repackage their
-source as `.lua`, convert any Luau-only syntax, and publish a new immutable
-module version before enabling it. This release does not silently rewrite
-previously stored module packages or selections. In-memory Lua metadata tables
-are mutable snapshots; the host offers no general filesystem write APIs in
-this milestone. The planned bucket-based trust and expanded capabilities are
-separate changes.
-
-Use ZIP stored or deflate compression, regular files with no executable bits,
-and matching local/central headers in the same entry order. Directories, extra files, links, reparse flags,
-encryption, duplicate/case-colliding names, unsafe or Windows-reserved names,
-ZIP64, split archives, extra fields, comments, data descriptors, prefixes and
-trailing data are refused. The compressed input is limited to 288 KiB, central
-metadata to 8 KiB, manifest to 16 KiB and expanded script to 256 KiB. Expanded
-bytes and CRCs are checked before running source. For example, Python's ordinary
-seekable `zipfile.ZipFile(..., "w", compression=zipfile.ZIP_DEFLATED)` with two
-`writestr` calls produces this format.
-
-```sh
-modn --state-dir ./manager module inspect ./test-game-1.zip --json
-modn --state-dir ./manager module install ./test-game-1.zip --dry-run --json
-modn --state-dir ./manager module install ./test-game-1.zip --yes
-modn --state-dir ./manager module list --json
-modn --state-dir ./manager module enable test-game 1.0.0 --yes
-modn --state-dir ./manager module status test-game --json
-modn --state-dir ./manager module update ./test-game-2.zip --yes
-modn --state-dir ./manager module rollback test-game --yes
-modn --state-dir ./manager module disable test-game --yes
-modn --state-dir ./manager module enable test-game 1.0.0 --yes
-```
-
-All module writes require `--yes`. Installation alone never enables or shadows
-a bundled module. `update` requires an already enabled user module and atomically
-installs/selects the new version; initial activation requires `enable`. Switching
-versions retains the previous selection. Rollback swaps current and previous,
-so it is reversible; retrying the same update preserves the rollback target.
-Disable preserves both selections and all installed content, and returns policy
-resolution to the bundled module where available. It does not disable an explicit
-operator override. Updates and rollback never remove old versions.
-
-**Trust:** SHA-256 checks integrity of recorded bytes; it does **not authenticate
-a publisher or prove safety**. Package inspection executes validation in
-the bounded Lua interpreter with zero filesystem roots. Before a write, the
-incoming policy also checks candidate state-directory ancestors using the
-existing root-scoped read-only game-recognition check, to reject a store inside
-a game. Those grants are temporary. Enabled policies run in
-the same bounded interpreter with command-authorized read-only capabilities
-and can propose mod installation mappings. Review the source and its origin
-before enabling it. There are no remote downloads, signing keys, or additional
-host capabilities in this workflow.
-
-The separate store is `<state-dir>/game-modules/`: `modules.sqlite` records
-package digests and transactional selections; `versions/<content-sha256>/`
-holds exact immutable manifest/source bytes. The content address hashes the
-ASCII domain `modn-module-package-v1` plus NUL, the manifest's little-endian
-64-bit byte length, then manifest and script bytes. Separate manifest and script
-SHA-256 values are also recorded and reported. Module actions never create
-`state.sqlite` or write game files. Read-only check, inspect, dry-run, list and
-status do not create a store. Use a state directory outside game installations;
-existing registration roots are read only to enforce that write boundary.
-
-Writers take an exclusive store lock (a busy store gives an explicit retry error),
-publish a complete version by a rename from staging on the same filesystem,
-then commit selection through SQLite with FULL synchronous mode. Every policy
-read rechecks the exact selected bytes **before execution**; corruption of an
-explicit active selection fails closed with no bundled fallback. An interrupted
-publication can leave unused `.staging-*` directories or complete unselected
-content; neither becomes active. Retry the original command. File contents are
-flushed before publication; directory durability is additionally synced on Unix.
-Portable Windows directory fsync and protection against concurrent external
-filesystem replacement are not claimed.
-
-For repair, inspect `module status <game-id>` and its integrity error. Restore
-the original manifest/source bytes from the trusted original ZIP, or explicitly
-`module disable <game-id> --yes` / enable another intact installed version.
-Rollback requires intact current and previous packages. A reinstall refuses to
-overwrite tampered content or reuse a label with different bytes. Stop other
-module writers before manually removing abandoned `.staging-*` directories;
-leave `versions/` and `modules.sqlite` together, and never edit the selection
-database or delete rollback versions. A corrupt selection database itself must
-be restored from backup, or the entire module store moved aside and original
-ZIPs reinstalled and explicitly enabled. The game ownership database remains
-separate.
+This is **explicitly selected local module execution**, not compatibility certification or code trust verification. Without explicit roots, Lua only receives `mods_host.api_version`; it has no host filesystem, state database, game directory, archive, network, or process API. OS, IO, package loading, dynamic script loading, debug, print and warn globals are unavailable. The default host exposes no filesystem writes or process API, and suppresses script printing so `--json` stays valid. These execution limits are **not a sandbox or security guarantee** for intentionally trusted modules. Read-only capabilities and runtime policy selection are documented below.
 
 ## Read-only Lua host capabilities (experimental)
 
@@ -202,17 +106,27 @@ now reside in `crates/modn-core/game-modules/cyberpunk-2077/` as
 `module.json` and `main.lua`. Rust loads them **at runtime** through a
 game-agnostic policy executor, not an embedded `cyberpunk.rs` adapter.
 
-Resolution priority is an explicit `MODN_GAME_MODULES_DIR/<game-id>/` override,
-then an explicitly enabled user version under the selected `--state-dir`, then
-`game-modules/<game-id>/` beside the executable, then the repository directory
-for development builds. Distributions must ship the bundled module folder beside
-the executable. `module status` reports the effective origin and selected digests.
-The operator override always wins, even over a corrupt user selection, and a
-missing or invalid override never falls back. Core library callers scope policy
-operations with `game_modules::with_module_store(state_dir, action)`; the CLI
-does this before resolving any game policy.
-Missing or incompatible modules fail closed. Policy edits are observed on the
-next CLI command without recompiling (covered by a CLI integration test).
+The canonical first-party module sources are committed here and included in
+Modn distributions. Resolution uses `game-modules/<game-id>/` beside the
+executable or, for development builds, the repository module directory.
+Distributions must ship the module directory beside the executable.
+There is no separately installed module ZIP, activation database, module
+marketplace or bucket-provided Lua policy.
+
+For development, select a source directory containing `module.json` and
+its Lua entrypoint for the current invocation only:
+
+```sh
+modn game add cyberpunk-2077 --src ./my-cyberpunk-module --path "/path/to/game"
+modn --game cyberpunk-2077 scan --module-src ./my-cyberpunk-module --json
+```
+
+The `--src` alias for `--module-src` is global but never persisted.
+`MODN_GAME_MODULES_DIR/<game-id>/` remains an alternative developer override.
+An explicit missing, invalid or mismatched source fails without fallback.
+Ordinary commands return to the bundled policy; edits to a selected local
+source are observed without rebuilding Modn. Neither override grants write
+access to the game or changes Rust installation transactions.
 
 The shared read-only host adds `mods_host.directory.list(root_id,relative[,max_entries])`
 (default and maximum 2,048 entries; an optional per-call bound reports
@@ -367,8 +281,7 @@ installation. Third-party mod ZIPs/7z files cannot include unapproved
 executable payloads. The game-agnostic transaction engine streams 7z
 members directly into private staging with the same archive hash, file-size,
 ownership and crash recovery checks as ZIP; it never extracts unselected
-content into the game. Game-module *distribution* archives remain ZIP-only,
-and Lua's read-only archive inspection capability still excludes 7z.
+content into the game. Lua's read-only archive inspection capability still excludes 7z.
 
 ## Clean manager state
 
@@ -399,8 +312,6 @@ modn bucket search --game cyberpunk-2077 --json
 modn bucket show main/cyberpunk-2077/red4ext --json
 modn bucket add community C:\path\to\bucket
 modn bucket show community/test-game/example --json
-modn bucket modules --json
-modn bucket module-show main/cyberpunk-2077 --json
 modn bucket remove community
 ```
 
@@ -411,11 +322,9 @@ sha256, source (`manual` with filename, or `https` with URL),
 optional dependencies (same-game IDs) and homepage. Unknown fields and
 unsupported schemas are rejected. See `buckets/main` for examples.
 Registrations point to explicitly selected directories. Package manifests
-and versioned Lua module records are revalidated (including content hashes)
-on every read. The canonical layout and validation limits are described in
-[bucket contract v1](buckets/README.md). The official snapshot now includes
-Cyberpunk Lua source metadata, but module selection and execution still use
-the existing separate module store. Browsing buckets never executes Lua.
+are revalidated on every read. Buckets contain mod-package metadata only;
+`modules/` directories are rejected. See [bucket contract v1](buckets/README.md).
+Game modules are first-party source shipped with Modn, outside buckets.
 
 This feature is **metadata-only**: no fetching, dependency resolution,
 installing from manifests, or game-file writes. Installations still use
