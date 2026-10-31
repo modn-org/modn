@@ -20,7 +20,7 @@ pub(super) struct Cli {
 
 #[derive(Subcommand)]
 pub(super) enum Command {
-    /// Preview or install a ZIP with the selected Luau policy after approval.
+    /// Preview or install a ZIP or 7z mod with the selected Luau policy after approval.
     Install {
         archive: PathBuf,
         #[arg(long)]
@@ -33,6 +33,9 @@ pub(super) enum Command {
             help = "Preview operations without writing game files"
         )]
         dry_run: bool,
+        /// Independently authorize one exact game-relative tool executable.
+        #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
+        allow_executable: Vec<String>,
     },
     /// List manager-owned packages (unmanaged mods are never included).
     Installed {

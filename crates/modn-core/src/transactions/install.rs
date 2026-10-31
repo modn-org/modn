@@ -1,4 +1,4 @@
-//! Game-agnostic, ownership-aware ZIP operation executor.
+//! Game-agnostic, ownership-aware ZIP/7z operation executor.
 use super::directory::exclusive_roots;
 use super::journal::{
     digest, lock_store, target_path, temp_path, JournalFile, ManagedPackage, OwnedFile,
@@ -20,7 +20,7 @@ use tempfile::Builder;
 impl Store {
     /// Execute a caller-approved proposal, independently checked against the current archive
     /// and filesystem. This is a write API, not exposed to untrusted Luau modules.
-    /// For now, only ZIP file-copy operations are supported.
+    /// ZIP and 7z file-copy operations share the same journal and recovery.
     pub fn install_operations_zip(
         &mut self,
         game: &Path,
@@ -30,12 +30,35 @@ impl Store {
         self.install_operations_inner(game, archive, proposal, None)
     }
 
+    /// Install with independent caller-authorized tool executable destinations.
+    /// Approval is never read from the module's untrusted operation labels.
+    pub fn install_operations_zip_with_permissions(
+        &mut self,
+        game: &Path,
+        archive: &Path,
+        proposal: &InstallPlan,
+        approved: &[String],
+    ) -> Result<ManagedPackage> {
+        self.install_inner_with_permissions(game, archive, proposal, None, approved)
+    }
+
     pub(super) fn install_operations_inner(
         &mut self,
         game: &Path,
         archive: &Path,
         proposal: &InstallPlan,
         fail_after: Option<usize>,
+    ) -> Result<ManagedPackage> {
+        self.install_inner_with_permissions(game, archive, proposal, fail_after, &[])
+    }
+
+    fn install_inner_with_permissions(
+        &mut self,
+        game: &Path,
+        archive: &Path,
+        proposal: &InstallPlan,
+        fail_after: Option<usize>,
+        approved: &[String],
     ) -> Result<ManagedPackage> {
         let _guard = lock_store(self)?;
         self.ensure_no_pending()?;
@@ -44,7 +67,7 @@ impl Store {
             bail!("manager state must be separate from the game directory");
         }
         let inspection = inspect(archive)?;
-        validate_execution_plan(&inspection, &game, proposal)?;
+        validate_execution_plan(&inspection, &game, proposal, approved)?;
         validate_ownership(self, &game, proposal)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories)?;
@@ -57,6 +80,14 @@ impl Store {
             .to_string();
         self.begin_staging(&id, &game, &inspection.sha256)?;
         let staged = (|| -> Result<Vec<JournalFile>> {
+            if inspection.format == "7z" {
+                let files =
+                    super::staging::stage_7z(archive, &inspection, proposal, staging.path())?;
+                if inspect(archive)?.sha256 != inspection.sha256 {
+                    bail!("archive changed between inspection and extraction");
+                }
+                return Ok(files);
+            }
             let mut zip = zip::ZipArchive::new(File::open(archive)?)?;
             let original_names: HashMap<_, _> = inspection
                 .files

@@ -61,6 +61,19 @@ pub(crate) fn prohibited_payload(path: &str) -> bool {
     .iter()
     .any(|suffix| lower.ends_with(suffix))
 }
+/// An explicit caller permission, never a Luau operation label, can admit a
+/// tool executable. The approval identifies one exact destination and cannot
+/// authorize paths outside a tool directory or other executable formats.
+pub(crate) fn approved_tool_executable(
+    source: &str,
+    destination: &str,
+    approved: &[String],
+) -> bool {
+    destination.ends_with(".exe")
+        && destination.split('/').any(|part| part == "tools")
+        && approved.iter().any(|path| path == destination)
+        && (source == destination || source.ends_with(&format!("/{destination}")))
+}
 pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str> {
     let mut current = game.to_path_buf();
     let canonical_game = game.canonicalize().ok()?;
@@ -167,9 +180,18 @@ fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
         message: value.into(),
     });
 }
-/// Resolve untrusted module mappings into a read-only preview. This result
-/// never authorizes execution: installs require fresh validation and approval.
+/// Resolve untrusted module mappings into a read-only preview. Tool
+/// executable permissions must come from a trusted caller, never from Luau.
 pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::Result<InstallPlan> {
+    resolve_with_permissions(game_id, inspection, game, &[])
+}
+
+fn resolve_with_permissions(
+    game_id: &str,
+    inspection: &Inspection,
+    game: &Path,
+    approved: &[String],
+) -> anyhow::Result<InstallPlan> {
     use anyhow::bail;
     if !fs::symlink_metadata(game)?.file_type().is_dir() {
         bail!("installation root must be a real directory, not a link");
@@ -178,6 +200,14 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
     let proposed = crate::game_modules::policy::plan(game_id, &game, inspection)?;
     let mut blockers = Vec::new();
     let mut sources = HashMap::new();
+    let approved_sources: HashSet<_> = proposed
+        .operations
+        .iter()
+        .filter(|operation| {
+            approved_tool_executable(&operation.source, &operation.destination, approved)
+        })
+        .map(|operation| operation.source.as_str())
+        .collect();
     for entry in &inspection.files {
         sources.insert(entry.entry.as_str(), entry.bytes);
         if crate::archive::validated_name(&entry.entry).is_err() {
@@ -187,7 +217,7 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
                 format!("Unsafe archive entry: {}", entry.entry),
             );
         }
-        if prohibited_payload(&entry.entry) {
+        if prohibited_payload(&entry.entry) && !approved_sources.contains(entry.entry.as_str()) {
             issue(
                 &mut blockers,
                 "EXECUTABLE_PAYLOAD",
@@ -275,7 +305,9 @@ pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::R
             );
             continue;
         }
-        if prohibited_payload(&request.destination) {
+        if prohibited_payload(&request.destination)
+            && !approved_tool_executable(&request.source, &request.destination, approved)
+        {
             issue(
                 &mut blockers,
                 "EXECUTABLE_PAYLOAD",
@@ -382,13 +414,23 @@ pub fn preview_install_zip(
     game: &Path,
     archive: &Path,
 ) -> anyhow::Result<InstallPlan> {
+    preview_install_zip_with_permissions(game_id, game, archive, &[])
+}
+
+/// Preview with explicit, trusted per-destination tool-executable permissions.
+pub fn preview_install_zip_with_permissions(
+    game_id: &str,
+    game: &Path,
+    archive: &Path,
+    approved: &[String],
+) -> anyhow::Result<InstallPlan> {
     let inspection = crate::archive::inspect(archive)?;
-    let mut proposal = resolve(game_id, &inspection, game)?;
-    if inspection.format != "zip" {
+    let mut proposal = resolve_with_permissions(game_id, &inspection, game, approved)?;
+    if inspection.format != "zip" && inspection.format != "7z" {
         proposal.status = "blocked".into();
         proposal.blockers.push(PlanIssue {
             code: "NOT_INSTALLABLE".into(),
-            message: "Only ZIP archives can be installed".into(),
+            message: "Only ZIP and 7z archives can be installed".into(),
         });
     }
     Ok(proposal)
