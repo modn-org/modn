@@ -328,3 +328,28 @@ fn bucket_title_control_characters_are_rejected() {
     );
     assert!(!state.join("buckets").exists());
 }
+
+#[test]
+fn bucket_registry_destination_inside_game_root_is_refused() {
+    let temp = TempDir::new().expect("test fixture invariant");
+    let source = temp.path().join("source");
+    seed(&source, &valid_manifest());
+    let state = temp.path().join("state");
+    let game = state.join("buckets");
+    let marker = game.join("bin/x64/Cyberpunk2077.exe");
+    fs::create_dir_all(marker.parent().expect("marker parent")).expect("fixture game");
+    fs::write(&marker, b"original marker").expect("fixture game marker");
+    let result = run(
+        &state,
+        &["add", "community", source.to_str().expect("source path")],
+    );
+    assert!(!result.status.success(), "{}", output(&result));
+    assert!(
+        output(&result).contains("outside a game installation"),
+        "{}",
+        output(&result)
+    );
+    assert!(!game.join("registrations").exists());
+    assert_eq!(fs::read(&marker).expect("marker"), b"original marker");
+    assert!(!state.join("state.sqlite").exists());
+}

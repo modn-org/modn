@@ -43,11 +43,14 @@ pub(super) fn run(
         }
         games.sort();
         games.dedup();
+        // Validate the actual registry write location, not just its state
+        // parent: a game may itself reside in <state-dir>/buckets.
+        let registry_target = root.join("buckets/registrations/.bucket-entry.json");
         if games.is_empty() {
-            validate_state_path(state_path, None, None, &roots)?;
+            validate_state_path(&registry_target, None, None, &roots)?;
         }
         for game in games {
-            validate_state_path(state_path, Some(&game), None, &roots)?;
+            validate_state_path(&registry_target, Some(&game), None, &roots)?;
         }
     }
     let value: Value = match command {
