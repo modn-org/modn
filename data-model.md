@@ -174,8 +174,8 @@ actually used Modn's managed-install path.
 
 ## Current implementation mapping (2026-10-31)
 
-The current shipped runtime uses **Luau**, not the target Lua 5.4. It has a
-separate module store; bucket-managed modules are **not yet implemented**.
+This revision uses **Lua 5.4** via `mlua`, after migrating from Luau. It
+still has a separate module store; bucket-managed modules are **not yet implemented**.
 
 | Domain concept | Current data |
 | --- | --- |

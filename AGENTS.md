@@ -23,7 +23,7 @@ code, documentation, CLI and reviews.
 
 The target design has game-specific modules distributed through the official
 trusted bucket, with community buckets explicitly trusted by the user. Standard
-Lua 5.4 is the planned runtime; current `main` uses Luau pending migration.
+Lua 5.4 is the game-module runtime in this revision; earlier releases used Luau.
 A trusted module may be powerful, but Rust-owned managed transactions,
 ownership and recoverability are separate correctness guarantees. No
 roadmap item authorizes modifying a user's real game or merging a PR.
@@ -33,7 +33,7 @@ roadmap item authorizes modifying a user's real game or merging a PR.
 - Prefer the simplest correct design: unique ownership and borrowing before `Rc`/`Arc`; inherent methods before unnecessary traits, and functions before macros.
 - For unclear boolean arguments, prefer meaningful enums. Use newtypes for semantically distinct identifiers. Favor named struct fields.
 - Use `Option` for expected absence, `Result` for recoverable errors, and `expect("invariant")` rather than `unwrap()` when a true programmer invariant must be asserted. Never panic for ordinary malformed mod input or recoverable filesystem failures.
-- Keep game-agnostic functionality in the core and game-specific behavior in game modules. Keep host APIs focused on stable capabilities, not implementation details; the current runtime uses Luau and the roadmap targets Lua 5.4.
+- Keep game-agnostic functionality in the core and game-specific behavior in game modules. Keep host APIs focused on stable capabilities, not implementation details; use Lua 5.4 via mlua, keeping game policy outside Rust.
 - Preserve transactional installation, ownership tracking, rollback, and recovery guarantees. Do not make code prettier at the cost of recoverability.
 - Public libraries should apply Google's additional API/documentation guidelines; application-only code can prefer directness over general-purpose abstractions.
 - Keep source files at or below 500 lines when creating or modifying them; split an existing oversized file before making substantive changes to it.

@@ -37,7 +37,7 @@ impl Fixture {
 
     fn package(&self, version: &str, destination: &str) -> PathBuf {
         let source = fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game/main.luau"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game/main.lua"),
         )
         .expect("fixture operation");
         let source = source.replace(
@@ -45,13 +45,13 @@ impl Fixture {
             &format!("destination = \"{destination}/\" .. suffix,"),
         );
         let manifest = serde_json::json!({"package_format":1,"game_id":"test-game",
-            "version":version,"api_version":1,"entrypoint":"main.luau"});
+            "version":version,"api_version":1,"entrypoint":"main.lua"});
         let path = self.temp.path().join(format!("{version}.zip"));
         write_zip(
             &path,
             &[
                 ("module.json", manifest.to_string().as_bytes()),
-                ("main.luau", source.as_bytes()),
+                ("main.lua", source.as_bytes()),
             ],
         );
         path
@@ -182,7 +182,7 @@ fn tampering_fails_closed_and_explicit_disable_is_a_repair_route() {
         .state
         .join("game-modules/versions")
         .join(installed["sha256"].as_str().expect("fixture operation"))
-        .join("main.luau");
+        .join("main.lua");
     let original = fs::read(&source).expect("fixture operation");
     fs::write(&source, b"error('TAMPERED CODE EXECUTED')").expect("fixture operation");
     for _ in 0..2 {
@@ -282,10 +282,10 @@ fn operator_override_outranks_enabled_user_store_and_fails_closed_when_missing()
     fs::create_dir_all(&module).expect("fixture operation");
     fs::write(
         module.join("module.json"),
-        r#"{"game_id":"test-game","version":"override","api_version":1,"entrypoint":"main.luau"}"#,
+        r#"{"game_id":"test-game","version":"override","api_version":1,"entrypoint":"main.lua"}"#,
     )
     .expect("fixture operation");
-    fs::write(module.join("main.luau"), "error('OVERRIDE WAS SELECTED')")
+    fs::write(module.join("main.lua"), "error('OVERRIDE WAS SELECTED')")
         .expect("fixture operation");
     // Status validates identity files; actual policy execution rejects this source.
     let archive = f.temp.path().join("mod.zip");
@@ -338,13 +338,13 @@ fn bundled_policy_is_only_shadowed_by_explicit_enable_and_corruption_never_falls
     fs::copy(env!("CARGO_BIN_EXE_modn"), &binary).expect("fixture operation");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
     fs::copy(fixture.join("module.json"), module.join("module.json")).expect("fixture operation");
-    let bundled_source = fs::read_to_string(fixture.join("main.luau"))
+    let bundled_source = fs::read_to_string(fixture.join("main.lua"))
         .expect("fixture operation")
         .replace(
             "destination = \"addons/\" .. suffix,",
             "destination = \"bundled-addons/\" .. suffix,",
         );
-    fs::write(module.join("main.luau"), bundled_source).expect("fixture operation");
+    fs::write(module.join("main.lua"), bundled_source).expect("fixture operation");
     let archive = f.temp.path().join("mod.zip");
     write_zip(&archive, &[("package/plugins/example.plugin", b"payload")]);
     let preview = || {
@@ -383,7 +383,7 @@ fn bundled_policy_is_only_shadowed_by_explicit_enable_and_corruption_never_falls
         .state
         .join("game-modules/versions")
         .join(info["sha256"].as_str().expect("fixture operation"))
-        .join("main.luau");
+        .join("main.lua");
     fs::write(script, b"tampered").expect("fixture operation");
     let corrupt = preview();
     assert!(!corrupt.status.success());

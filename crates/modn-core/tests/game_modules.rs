@@ -1,4 +1,4 @@
-//! Disposable-fixture acceptance tests for the local, untrusted Luau module boundary.
+//! Disposable-fixture acceptance tests for the local, untrusted Lua module boundary.
 use modn_core::game_modules::{check_module, HOST_API_VERSION};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,7 +8,7 @@ fn fixture() -> (TempDir, PathBuf) {
     let root = tempfile::tempdir().expect("create fixture");
     let directory = root.path().join("integration");
     fs::create_dir(&directory).expect("create module directory");
-    write_manifest(&directory, "fixture-game", 1, "main.luau");
+    write_manifest(&directory, "fixture-game", 1, "main.lua");
     write_script(
         &directory,
         "return { game_id = 'fixture-game', api_version = mods_host.api_version }",
@@ -31,7 +31,7 @@ fn write_manifest(directory: &Path, game_id: &str, api_version: u32, entrypoint:
 }
 
 fn write_script(directory: &Path, script: &str) {
-    fs::write(directory.join("main.luau"), script).expect("write module script");
+    fs::write(directory.join("main.lua"), script).expect("write module script");
 }
 
 #[test]
@@ -48,19 +48,37 @@ fn local_fixture_is_loaded_without_host_rebuild() {
         "return {game_id='other-game', api_version=mods_host.api_version}",
     );
     assert!(format!("{:#}", check_module(&directory).unwrap_err()).contains("identity"));
-    write_manifest(&directory, "other-game", 1, "main.luau");
+    write_manifest(&directory, "other-game", 1, "main.lua");
     let updated = check_module(&directory).expect("updated module loads without recompile");
     assert_eq!(updated.game_id, "other-game");
 }
 
 #[test]
+fn standard_lua54_syntax_loads_and_luau_assignment_is_rejected() {
+    let (_root, directory) = fixture();
+    write_script(
+        &directory,
+        "local flags = 7 & 3; local ratio = 7 // 2; assert(flags + ratio == 6); return {game_id='fixture-game', api_version=mods_host.api_version}",
+    );
+    check_module(&directory).expect("Lua 5.4 bitwise and floor division are supported");
+    write_script(
+        &directory,
+        "local count = 0; count += 1; return {game_id='fixture-game', api_version=mods_host.api_version}",
+    );
+    assert!(
+        check_module(&directory).is_err(),
+        "Luau compound assignment must not load"
+    );
+}
+
+#[test]
 fn incompatible_manifest_or_script_fails_closed() {
     let (_root, directory) = fixture();
-    write_manifest(&directory, "fixture-game", 2, "main.luau");
+    write_manifest(&directory, "fixture-game", 2, "main.lua");
     assert!(
         format!("{:#}", check_module(&directory).unwrap_err()).contains("incompatible host API")
     );
-    write_manifest(&directory, "fixture-game", 1, "main.luau");
+    write_manifest(&directory, "fixture-game", 1, "main.lua");
     write_script(
         &directory,
         "return {game_id='fixture-game', api_version=999}",
@@ -68,7 +86,7 @@ fn incompatible_manifest_or_script_fails_closed() {
     assert!(format!("{:#}", check_module(&directory).unwrap_err()).contains("identity"));
     write_script(&directory, "error('intentional failure')");
     assert!(format!("{:#}", check_module(&directory).unwrap_err())
-        .contains("Luau module execution failed"));
+        .contains("Lua module execution failed"));
     write_script(&directory, "return 2");
     assert!(check_module(&directory).is_err());
 }
@@ -82,7 +100,7 @@ fn no_os_or_file_write_capability_is_exposed() {
         r#"
         assert(io == nil and os == nil and package == nil)
         assert(require == nil and loadfile == nil and dofile == nil)
-        assert(loadstring == nil and debug == nil)
+        assert(load == nil and loadstring == nil and debug == nil)
         assert(print == nil and warn == nil)
         assert(type(mods_host.api_version) == "number")
         assert(not pcall(function() mods_host.api_version = 99 end))
@@ -117,11 +135,11 @@ fn loops_and_memory_exhaustion_return_explicit_errors() {
 #[test]
 fn malformed_manifests_and_untrusted_entrypoints_are_rejected() {
     let (_root, directory) = fixture();
-    write_manifest(&directory, "fixture-game", 1, "../outside.luau");
+    write_manifest(&directory, "fixture-game", 1, "../outside.lua");
     assert!(format!("{:#}", check_module(&directory).unwrap_err()).contains("entrypoint"));
-    write_manifest(&directory, "fixture-game", 1, "subdir/main.luau");
+    write_manifest(&directory, "fixture-game", 1, "subdir/main.lua");
     assert!(check_module(&directory).is_err());
-    write_manifest(&directory, "Invalid Game", 1, "main.luau");
+    write_manifest(&directory, "Invalid Game", 1, "main.lua");
     assert!(check_module(&directory).is_err());
     fs::write(directory.join("module.json"), "{broken").expect("overwrite manifest");
     assert!(format!("{:#}", check_module(&directory).unwrap_err()).contains("invalid module.json"));
@@ -130,10 +148,10 @@ fn malformed_manifests_and_untrusted_entrypoints_are_rejected() {
 #[test]
 fn bytecode_or_non_utf8_entrypoints_are_rejected_as_source() {
     let (_root, directory) = fixture();
-    fs::write(directory.join("main.luau"), [0xff, 0, 0]).expect("binary fixture");
+    fs::write(directory.join("main.lua"), [0xff, 0, 0]).expect("binary fixture");
     let error = format!("{:#}", check_module(&directory).unwrap_err());
     assert!(error.contains("UTF-8 source"), "{error}");
-    fs::write(directory.join("main.luau"), b"return {}\0").expect("NUL fixture");
+    fs::write(directory.join("main.lua"), b"return {}\0").expect("NUL fixture");
     let error = format!("{:#}", check_module(&directory).unwrap_err());
     assert!(error.contains("binary chunks"), "{error}");
 }
@@ -154,10 +172,10 @@ fn oversized_manifest_and_script_are_rejected() {
 fn linked_script_and_linked_module_directory_are_rejected() {
     use std::os::unix::fs::symlink;
     let (root, directory) = fixture();
-    let external = root.path().join("outside.luau");
+    let external = root.path().join("outside.lua");
     fs::write(&external, "return {}").expect("write outside fixture");
-    fs::remove_file(directory.join("main.luau")).expect("remove script");
-    symlink(&external, directory.join("main.luau")).expect("link script");
+    fs::remove_file(directory.join("main.lua")).expect("remove script");
+    symlink(&external, directory.join("main.lua")).expect("link script");
     assert!(check_module(&directory).is_err());
     let alias = root.path().join("module-alias");
     symlink(&directory, &alias).expect("link module");

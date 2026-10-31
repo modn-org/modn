@@ -27,10 +27,9 @@ the normal managed-install path still uses Rust's ownership, conflict checks,
 transaction journal, rollback and recovery. A trusted module does not silently
 acquire ownership of pre-existing user files.
 
-Prefer **standard Lua 5.4** via `mlua` for the eventual module runtime. Replace
-Luau rather than maintaining two script engines. This is a planned migration,
-not present behavior; preserve the existing public module contracts or document
-a deliberate version transition.
+Prefer **standard Lua 5.4** via `mlua` for the eventual module runtime. Use
+Lua 5.4 as the single supported runtime, not two parallel script engines.
+Preserve established module contracts or document a deliberate version transition.
 
 Keep the product **bucket-first**. Source URLs and user-supplied local archives
 are enough for initial acquisition. Do not introduce Nexus, DEG Mods, BasedMods,
@@ -43,7 +42,7 @@ it should not redistribute upstream binaries without permission.
 On `main` at the time of writing:
 - Rust CLI, SQLite state, discovery, diagnostics, ZIP/7z previews and approved
   installs, file/directory ownership, uninstall and crash recovery exist.
-- Runtime-loaded, individually packaged **Luau** modules provide Cyberpunk
+- Runtime-loaded, individually packaged **Lua 5.4** modules provide Cyberpunk
   policy; a synthetic second-game module proves the host is game-agnostic.
 - Module versions/selections live in a separate manager-owned module store.
   They are **not yet sourced from buckets**.
@@ -92,8 +91,8 @@ bucket cannot become trusted silently.
 
 - Put each game's versioned module inside the official or selected community
   bucket. A module can coexist with package manifests for the same game.
-- Migrate `mlua` from Luau to standard Lua 5.4. Convert existing Cyberpunk and
-  test-game scripts and distributed module packaging, including documentation.
+- Maintain the standard Lua 5.4 runtime, converted Cyberpunk/test-game
+  scripts and distributed module packaging (runtime migration in PR #24).
 - Use a clear **active module selection** per game, with provenance, version,
   integrity check, explicit update/disable and rollback. Do not replace the
   active module just because a bucket changes.

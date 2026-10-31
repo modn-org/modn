@@ -93,8 +93,8 @@ function policy.scan(limit)
             mark_limit()
             return false
         end
-        remaining -= 1
-        if framework then framework_remaining -= 1 end
+        remaining = remaining - 1
+        if framework then framework_remaining = framework_remaining - 1 end
         return true
     end
     local function collect_files(folder, extensions, kind, required_root)
@@ -106,7 +106,7 @@ function policy.scan(limit)
             local current = table.remove(stack)
             if framework and framework_remaining <= 0 then
                 -- Bounded peeks: uncertainty must be reported as incomplete.
-                empty_peeks += 1
+                empty_peeks = empty_peeks + 1
                 if empty_peeks > 32 then
                     mark_limit()
                     return
@@ -265,7 +265,7 @@ function policy.doctor(report)
     for _, status in ipairs({"missing", "modified", "unsafe", "unreadable"}) do
         local count = 0
         for _, file in ipairs(report.owned_files) do
-            if file.status == status then count += 1 end
+            if file.status == status then count = count + 1 end
         end
         if count > 0 then
             add("OWNED_FILE_" .. string.upper(status), "warning",

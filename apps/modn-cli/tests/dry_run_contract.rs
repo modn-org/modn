@@ -39,13 +39,13 @@ fn module_with(temp: &Path, implementation: &str) -> PathBuf {
     let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../crates/modn-core/game-modules/cyberpunk-2077");
     fs::copy(bundled.join("module.json"), module.join("module.json")).unwrap();
-    let code = fs::read_to_string(bundled.join("main.luau")).unwrap();
+    let code = fs::read_to_string(bundled.join("main.lua")).unwrap();
     let before = code
         .strip_suffix("return policy\r\n")
         .or_else(|| code.strip_suffix("return policy\n"))
         .unwrap();
     fs::write(
-        module.join("main.luau"),
+        module.join("main.lua"),
         format!("{before}\nfunction policy.plan(files)\n{implementation}\nend\nreturn policy\n"),
     )
     .unwrap();
@@ -198,7 +198,7 @@ fn occupied_target_is_blocked_even_if_module_requests_it() {
 }
 
 #[test]
-fn oversized_plan_is_blocked_before_luau_execution() {
+fn oversized_plan_is_blocked_before_lua_execution() {
     let names: Vec<String> = (0..2_049)
         .map(|i| format!("r6/scripts/fixture/{i:05}.reds"))
         .collect();
@@ -285,7 +285,7 @@ fn preview_blocks_non_installable_formats_and_layouts() {
 }
 
 #[test]
-fn repeated_shared_luau_strings_respect_host_allocation_budget() {
+fn repeated_shared_lua_strings_respect_host_allocation_budget() {
     let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
     let module = module_with(temp.path(),
         "local source = string.rep('a', 4096)\nlocal target = string.rep('b', 1024)\nlocal root = string.rep('c', 256)\nlocal ops = {}\nfor i = 1, 2048 do\n  ops[i] = { source = source, destination = target, kind = 'legacy-archive', package_root = root }\nend\nreturn { schema_version = 1, operations = ops, blockers = {} }");
@@ -301,7 +301,7 @@ fn repeated_shared_luau_strings_respect_host_allocation_budget() {
 }
 
 #[test]
-fn oversized_luau_blocker_messages_are_denied_before_copying() {
+fn oversized_lua_blocker_messages_are_denied_before_copying() {
     let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
     let module = module_with(temp.path(),
         "return { schema_version = 1, operations = {}, blockers = { { code = 'ERROR', message = string.rep('x', 1048576) } } }");
@@ -316,7 +316,7 @@ fn oversized_luau_blocker_messages_are_denied_before_copying() {
 }
 
 #[test]
-fn approved_install_rejects_untrusted_luau_mappings_without_game_writes() {
+fn approved_install_rejects_untrusted_lua_mappings_without_game_writes() {
     let (temp, game, archive, state) = fixture(&["archive/pc/mod/good.archive"]);
     for implementation in [
         single_operation("../outside/escape.archive"),
@@ -344,7 +344,7 @@ fn approved_install_rejects_untrusted_luau_mappings_without_game_writes() {
 }
 
 #[test]
-fn bundled_luau_policy_rejects_expanded_layouts_until_enabled() {
+fn bundled_lua_policy_rejects_expanded_layouts_until_enabled() {
     let (_temp, game, archive, state) = fixture(&["r6/scripts/hello.reds"]);
     let output = Command::new(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
@@ -364,7 +364,7 @@ fn bundled_luau_policy_rejects_expanded_layouts_until_enabled() {
 }
 
 #[test]
-fn luau_mapped_install_can_be_uninstalled_without_original_mapping() {
+fn lua_mapped_install_can_be_uninstalled_without_original_mapping() {
     let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
     let module = module_with(temp.path(), &single_operation("r6/scripts/new.reds"));
     let install = Command::new(env!("CARGO_BIN_EXE_modn"))
@@ -414,7 +414,7 @@ fn luau_mapped_install_can_be_uninstalled_without_original_mapping() {
 }
 
 #[test]
-fn hostile_luau_cannot_grant_tool_executable_permission() {
+fn hostile_lua_cannot_grant_tool_executable_permission() {
     let (temp, game, archive, state) = fixture(&["engine/tools/scc.exe"]);
     let module = module_with(
         temp.path(),

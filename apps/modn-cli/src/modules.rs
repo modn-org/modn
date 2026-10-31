@@ -131,5 +131,5 @@ fn validate_write(state_path: &Path, game: &str) -> Result<()> {
 }
 
 fn warn_unsigned() {
-    eprintln!("warning: unsigned local Luau module; SHA-256 verifies integrity, not publisher identity or safety. Enabled modules execute bounded sandbox logic and can propose game-file mappings.");
+    eprintln!("warning: unsigned local Lua module; SHA-256 verifies integrity, not publisher identity or safety. Enabled modules execute bounded sandbox logic and can propose game-file mappings.");
 }

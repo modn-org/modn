@@ -125,24 +125,24 @@ def verify(driver):
     require(report["status"] == "reviewable" and report["metadata_only"], str(report))
     require([(o["source"], o["destination"]) for o in report["operations"]] ==
             [("Demo/package/plugins/example.plugin", "addons/example.plugin")],
-            "Luau mapping ignored")
+            "Lua mapping ignored")
     require(snapshot(game) == before, "preview modified game")
     require(not (root / "state").exists(), "preview created state")
 
-    # A Luau-only change affects the next preview; there is no Rust rebuild.
-    module_file = modules / "test-game/main.luau"
+    # A Lua-only change affects the next preview; there is no Rust rebuild.
+    module_file = modules / "test-game/main.lua"
     original_policy = module_file.read_text(encoding="utf-8")
     changed_policy = original_policy.replace(
         'destination = "addons/" .. suffix,',
         'destination = "other-addons/" .. suffix,')
     require(changed_policy != original_policy, "fixture policy replacement was a no-op")
     module_file.write_text(changed_policy, encoding="utf-8")
-    changed = driver.json("runtime-luau-remapping",
+    changed = driver.json("runtime-lua-remapping",
                           ["--game", "test-game", "install", test_zip, "--dry-run",
                            "--path", game])
     require(changed["status"] == "reviewable" and
             changed["operations"][0]["destination"] == "other-addons/example.plugin",
-            "Luau changes require an unexpected Rust rebuild")
+            "Lua changes require an unexpected Rust rebuild")
     module_file.write_text(original_policy, encoding="utf-8")
     require(snapshot(game) == before and not (root / "state").exists(),
             "runtime policy preview modified game or state")
@@ -182,14 +182,14 @@ def verify(driver):
     require(scan["game_id"] == "test-game", "wrong scan policy")
     require(any(x["relative_path"] == "addons/example.plugin" and x["managed"]
                 and x["kind"] == "test-plugin" for x in scan["mods"]),
-            "Luau scan ownership missing")
+            "Lua scan ownership missing")
     require(any(x["relative_path"] == "addons/manual.plugin" and not x["managed"]
                 for x in scan["mods"]), "unmanaged fixture adopted")
     driver.json("duplicate-install-blocked",
                 ["install", test_zip, "--yes", "--path", game], success=False)
     require(owned.read_bytes() == b"fixture-plugin", "duplicate mutated owned file")
 
-    # Both distinct Luau policies own files simultaneously in the same database.
+    # Both distinct Lua policies own files simultaneously in the same database.
     driver.json("register-cyberpunk",
                 ["game", "add", "cyberpunk-2077", "--path", cyberpunk])
     second = driver.json("cyberpunk-dry-run",
@@ -230,7 +230,7 @@ def verify(driver):
                           ["--game", "cyberpunk-2077", "install", xl_zip,
                            "--dry-run", "--path", cyberpunk])
     require(xl_plan["status"] == "reviewable" and len(xl_plan["operations"]) == 4,
-            "redscript/ArchiveXL Luau ZIP proposal not reviewable")
+            "redscript/ArchiveXL Lua ZIP proposal not reviewable")
     require(snapshot(cyberpunk) == cyber_before, "new preview changed game")
     xl_package = driver.json("redscript-archivexl-install",
                              ["--game", "cyberpunk-2077", "install", xl_zip,
@@ -254,7 +254,7 @@ def verify(driver):
     owned.write_bytes(b"operator-modification")
     doctor = driver.json("doctor-drift", ["doctor", "--path", game])
     require(any(x["code"] == "OWNED_FILE_DRIFT" for x in doctor["diagnostics"]),
-            "Luau doctor missed modified file")
+            "Lua doctor missed modified file")
     driver.json("modified-uninstall-blocked",
                 ["uninstall", package_id, "--yes", "--path", game], success=False)
     require(owned.read_bytes() == b"operator-modification", "modified file deleted")

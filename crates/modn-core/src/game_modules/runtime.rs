@@ -1,13 +1,13 @@
-//! Shared bounded Luau VM for external and bundled game policies.
+//! Shared bounded Lua VM for external and bundled game policies.
 use super::capabilities::{self, AllowedRoots, ReadProfile};
 use super::loader::HOST_API_VERSION;
 use anyhow::Result;
-use mlua::{Lua, LuaOptions, StdLib, Table, VmState};
+use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
 use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 const MAX_VM_BYTES: usize = 8 * 1024 * 1024;
-const MAX_INTERRUPTS: u64 = 100_000;
+const MAX_HOOKS: u64 = 100_000;
 const MAX_EXECUTION: Duration = Duration::from_secs(1);
 
 pub(super) fn evaluate<T>(
@@ -31,6 +31,7 @@ pub(super) fn evaluate<T>(
             "debug",
             "require",
             "loadstring",
+            "load",
             "dofile",
             "loadfile",
             "getfenv",
@@ -43,23 +44,37 @@ pub(super) fn evaluate<T>(
         let host = lua.create_table()?;
         host.set("api_version", HOST_API_VERSION)?;
         capabilities::register(&lua, &host, roots, profile)?;
-        host.set_readonly(true);
-        globals.set("mods_host", host)?;
-        lua.sandbox(true)?;
+        // Keep ordinary assignments to mods_host from changing the public API.
+        // The proxy is not a sandbox against deliberately trusted code (e.g. rawset).
+        let proxy = lua.create_table()?;
+        let meta = lua.create_table()?;
+        meta.set("__index", host)?;
+        meta.set(
+            "__newindex",
+            lua.create_function(|_, _: (Value, Value, Value)| {
+                Err::<(), _>(mlua::Error::RuntimeError("mods_host is read-only".into()))
+            })?,
+        )?;
+        meta.set("__metatable", false)?;
+        proxy.set_metatable(Some(meta))?;
+        globals.set("mods_host", proxy)?;
         let started = Instant::now();
-        let interrupts = Cell::new(0u64);
-        lua.set_interrupt(move |_| {
-            let next = interrupts.get().saturating_add(1);
-            interrupts.set(next);
-            if next > MAX_INTERRUPTS || started.elapsed() > MAX_EXECUTION {
-                return Err(mlua::Error::RuntimeError(
-                    "Luau module execution budget exceeded".into(),
-                ));
-            }
-            Ok(VmState::Continue)
-        });
+        let hooks = Cell::new(0u64);
+        lua.set_hook(
+            HookTriggers::new().every_nth_instruction(1_000),
+            move |_, _| {
+                let next = hooks.get().saturating_add(1);
+                hooks.set(next);
+                if next > MAX_HOOKS || started.elapsed() > MAX_EXECUTION {
+                    return Err(mlua::Error::RuntimeError(
+                        "Lua module execution budget exceeded".into(),
+                    ));
+                }
+                Ok(VmState::Continue)
+            },
+        )?;
         let output: Table = lua.load(source).set_name(label).eval()?;
         evaluate(&lua, output)
     };
-    run().map_err(|error| anyhow::anyhow!("Luau module execution failed: {error}"))
+    run().map_err(|error| anyhow::anyhow!("Lua module execution failed: {error}"))
 }

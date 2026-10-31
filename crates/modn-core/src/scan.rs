@@ -95,7 +95,7 @@ pub struct DoctorReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Scan using a runtime-selected game's Luau module.
+/// Scan using a runtime-selected game's Lua module.
 #[must_use]
 pub fn scan_for(game_id: &str, installation: &Path) -> ScanReport {
     scan_bounded_for(game_id, installation, MAX_ENTRIES)
