@@ -12,6 +12,7 @@ mod directory_ledger;
 mod generic_tests;
 mod install;
 mod journal;
+mod recovery;
 mod stack;
 mod staging;
 #[cfg(test)]
