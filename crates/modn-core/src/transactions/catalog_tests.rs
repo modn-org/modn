@@ -1,5 +1,5 @@
 //! Catalog provenance, lock-held dependency readiness and dependent protection.
-use super::{CatalogDependency, CatalogReference, CatalogRelease, ManagedPackage};
+use super::{CatalogDependency, CatalogReference, CatalogRelease, DependencyState, ManagedPackage};
 use crate::archive::inspect;
 use crate::game_modules::with_module_source;
 use crate::planning::{InstallPlan, PlannedFile};
@@ -225,4 +225,52 @@ fn dependency_readiness_needs_no_game_module() {
         drifted.contains("dependency not installed or intact"),
         "{drifted}"
     );
+}
+
+#[test]
+fn dependency_states_distinguish_ready_damaged_other_release_and_missing() {
+    let mut fixture = Fixture::new();
+    let base_archive = fixture.archive("base");
+    let other_archive = fixture.archive("other");
+    let pinned = dependency_on(&base_archive, "base");
+    let absent = dependency_on(&fixture.archive("absent"), "absent");
+    let states = |fixture: &Fixture| {
+        fixture
+            .store
+            .dependency_states(&fixture.game, &[pinned.clone(), absent.clone()])
+            .unwrap()
+    };
+    assert_eq!(
+        states(&fixture),
+        [DependencyState::Missing, DependencyState::Missing]
+    );
+
+    // A managed package recorded as catalog mod `base`, from another archive.
+    let other = fixture.install(&other_archive, "base", Vec::new()).unwrap();
+    assert_eq!(
+        states(&fixture)[0],
+        DependencyState::OtherRelease {
+            package_ids: vec![other.id.clone()]
+        }
+    );
+    fixture.uninstall(&other.id).unwrap();
+
+    let base = fixture.install(&base_archive, "base", Vec::new()).unwrap();
+    assert_eq!(
+        states(&fixture),
+        [
+            DependencyState::Ready {
+                package_ids: vec![base.id.clone()]
+            },
+            DependencyState::Missing
+        ]
+    );
+    fs::write(fixture.game.join("addons/base.plugin"), b"modified").unwrap();
+    assert_eq!(
+        states(&fixture)[0],
+        DependencyState::Damaged {
+            package_ids: vec![base.id]
+        }
+    );
+    assert_eq!(fixture.count("pending_transactions"), 0);
 }

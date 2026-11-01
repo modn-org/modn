@@ -1,6 +1,7 @@
 mod buckets;
 mod catalog_install;
 mod commands;
+mod dependency_plan;
 mod games;
 mod install;
 mod install_consent;

@@ -7,6 +7,7 @@ use crate::integrity::package_intact;
 use crate::state::Store;
 use anyhow::{bail, Result};
 use rusqlite::{params, Transaction};
+use serde::Serialize;
 use std::fmt;
 use std::path::Path;
 
@@ -88,6 +89,30 @@ pub(super) struct CatalogRecord<'a> {
     pub(super) dependency_ids: Vec<String>,
 }
 
+/// Installed state of one catalog dependency in one game installation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DependencyState {
+    /// Managed packages with the pinned digest whose content is intact.
+    Ready {
+        /// Managed package IDs that satisfy the dependency.
+        package_ids: Vec<String>,
+    },
+    /// Managed packages with the pinned digest whose content has drifted.
+    Damaged {
+        /// Managed package IDs to restore or uninstall.
+        package_ids: Vec<String>,
+    },
+    /// Managed packages from the same catalog mod with a different digest.
+    OtherRelease {
+        /// Managed package IDs installed from another release of the mod.
+        package_ids: Vec<String>,
+    },
+    /// No managed package matches the dependency.
+    Missing,
+}
+
 impl Store {
     /// Return the managed packages that satisfy every dependency.
     ///
@@ -101,32 +126,82 @@ impl Store {
         game: &Path,
         dependencies: &[CatalogDependency],
     ) -> Result<Vec<String>> {
-        if dependencies.is_empty() {
-            return Ok(Vec::new());
-        }
-        let game = validate_transaction_root(game)?;
-        let installed = self.installed(&game)?;
         let mut satisfied = Vec::new();
-        for dependency in dependencies {
-            let before = satisfied.len();
-            satisfied.extend(
-                installed
-                    .iter()
-                    .filter(|package| package.archive_sha256 == dependency.archive_sha256)
-                    .filter(|package| package_intact(self, &game, package))
-                    .map(|package| package.id.clone()),
-            );
-            if satisfied.len() == before {
+        for (dependency, state) in dependencies
+            .iter()
+            .zip(self.dependency_states(game, dependencies)?)
+        {
+            let DependencyState::Ready { package_ids } = state else {
                 bail!(
                     "dependency not installed or intact: {}; install or restore it first",
                     dependency.reference
                 );
-            }
+            };
+            satisfied.extend(package_ids);
         }
         satisfied.sort();
         satisfied.dedup();
         Ok(satisfied)
     }
+
+    /// Report the installed state of each dependency, in the given order.
+    ///
+    /// Uses the same digest and integrity rules as [`Store::ready_dependencies`].
+    /// Another release is recognized only through recorded catalog provenance.
+    /// This read never locks or writes and does not authorize installation.
+    pub fn dependency_states(
+        &self,
+        game: &Path,
+        dependencies: &[CatalogDependency],
+    ) -> Result<Vec<DependencyState>> {
+        if dependencies.is_empty() {
+            return Ok(Vec::new());
+        }
+        let game = validate_transaction_root(game)?;
+        let installed = self.installed(&game)?;
+        dependencies
+            .iter()
+            .map(|dependency| {
+                let (intact, damaged): (Vec<_>, Vec<_>) = installed
+                    .iter()
+                    .filter(|package| package.archive_sha256 == dependency.archive_sha256)
+                    .partition(|package| package_intact(self, &game, package));
+                if !intact.is_empty() {
+                    return Ok(DependencyState::Ready {
+                        package_ids: intact.iter().map(|p| p.id.clone()).collect(),
+                    });
+                }
+                if !damaged.is_empty() {
+                    return Ok(DependencyState::Damaged {
+                        package_ids: damaged.iter().map(|p| p.id.clone()).collect(),
+                    });
+                }
+                let recorded = provenance_packages(self, &dependency.reference)?;
+                let package_ids: Vec<String> = installed
+                    .iter()
+                    .filter(|package| recorded.contains(&package.id))
+                    .map(|package| package.id.clone())
+                    .collect();
+                Ok(if package_ids.is_empty() {
+                    DependencyState::Missing
+                } else {
+                    DependencyState::OtherRelease { package_ids }
+                })
+            })
+            .collect()
+    }
+}
+
+fn provenance_packages(store: &Store, reference: &CatalogReference) -> Result<Vec<String>> {
+    let mut statement = store.connection.prepare(
+        "SELECT package_id FROM catalog_provenance
+         WHERE bucket=?1 AND game_id=?2 AND mod_id=?3 ORDER BY package_id",
+    )?;
+    let rows = statement.query_map(
+        params![reference.bucket, reference.game_id, reference.mod_id],
+        |row| row.get(0),
+    )?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRecord) -> Result<()> {
