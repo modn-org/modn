@@ -46,14 +46,8 @@ pub(super) enum Command {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// Remove an unchanged manager-owned package.
-    Uninstall {
-        package_id: String,
-        #[arg(long)]
-        path: Option<PathBuf>,
-        #[arg(long, help = "Confirm removing managed game files")]
-        yes: bool,
-    },
+    /// Remove an unchanged manager-owned package, by ID or catalog name.
+    Uninstall(UninstallArgs),
     /// Safely roll back interrupted installs/uninstalls.
     Recover {
         #[arg(long, help = "Confirm rollback of interrupted transactions")]
@@ -168,4 +162,32 @@ pub(super) struct InstallArgs {
     /// Independently authorize one exact game-relative tool executable in the archive.
     #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
     pub(super) allow_executable: Vec<String>,
+}
+
+/// Options for removing manager-owned packages.
+#[derive(Args)]
+pub(super) struct UninstallArgs {
+    /// Managed-package ID from `modn list`, or the catalog name it was installed
+    /// under: `mod`, `game/mod` or `bucket/game/mod`.
+    pub(super) package: String,
+    #[arg(long)]
+    pub(super) path: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Confirm removing managed game files",
+        conflicts_with = "dry_run"
+    )]
+    pub(super) yes: bool,
+    #[arg(
+        long,
+        help = "List the packages that would be removed, in order, and change nothing",
+        conflicts_with = "yes"
+    )]
+    pub(super) dry_run: bool,
+    /// Also remove each dependency that no remaining package needs.
+    #[arg(long = "include-deps")]
+    pub(super) include_deps: bool,
+    /// Also remove every package that needs the selected one, dependents first.
+    #[arg(long)]
+    pub(super) cascade: bool,
 }

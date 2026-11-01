@@ -1,7 +1,9 @@
 //! `modn list`, `uninstall` and `recover`: manager-owned packages and journals.
+use crate::commands::UninstallArgs;
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Result};
+use modn_core::transactions::UninstallScope;
 use std::path::{Path, PathBuf};
 
 pub(super) fn list(
@@ -21,32 +23,69 @@ pub(super) fn list(
         println!("No manager-owned packages installed.");
     } else {
         for package in packages {
-            println!("{}: {} owned files", package.id, package.files.len());
+            match &package.catalog {
+                Some(catalog) => println!(
+                    "{}: {catalog}, {} owned files",
+                    package.id,
+                    package.files.len()
+                ),
+                None => println!("{}: {} owned files", package.id, package.files.len()),
+            }
         }
     }
     Ok(())
 }
 
 pub(super) fn uninstall(
-    package_id: &str,
-    path: Option<PathBuf>,
-    yes: bool,
+    args: &UninstallArgs,
     state_path: &Path,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
     let state = ManagerState::load(state_path)?;
-    let target = state.target_for(path.as_deref(), requested)?;
-    let mut store = state.open_writable(&target)?;
-    if !yes {
-        bail!("uninstall removes game files; rerun with --yes");
+    let target = state.target_for(args.path.as_deref(), requested)?;
+    let scope = UninstallScope::default()
+        .including_dependencies(args.include_deps)
+        .including_dependents(args.cascade);
+    if args.dry_run {
+        let store = state.open_preview(&target)?;
+        let (_, game) = selected_installation(Some(&store), args.path.clone(), requested)?;
+        let plan = store.plan_uninstall(&game, &args.package, scope)?;
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"dry_run": true, "packages": plan})
+                )?
+            );
+        } else {
+            println!("Would uninstall, in this order:");
+            for step in &plan {
+                match &step.catalog {
+                    Some(catalog) => {
+                        println!("  {} {catalog} ({} owned files)", step.id, step.files);
+                    }
+                    None => println!("  {} ({} owned files)", step.id, step.files),
+                }
+            }
+        }
+        return Ok(());
     }
-    let (_, game) = selected_installation(Some(&store), path, requested)?;
-    store.uninstall(&game, package_id)?;
+    if !args.yes {
+        bail!("uninstall removes game files; rerun with --yes, or --dry-run to preview");
+    }
+    let mut store = state.open_writable(&target)?;
+    let (_, game) = selected_installation(Some(&store), args.path.clone(), requested)?;
+    let removed = store.uninstall_with(&game, &args.package, scope)?;
     if json {
-        println!("{}", serde_json::json!({"uninstalled": package_id}));
+        println!(
+            "{}",
+            serde_json::json!({"uninstalled": args.package, "packages": removed})
+        );
     } else {
-        println!("Uninstalled {package_id}");
+        for id in &removed {
+            println!("Uninstalled {id}");
+        }
     }
     Ok(())
 }

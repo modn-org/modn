@@ -45,11 +45,7 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
         Command::Inspect { archive } => inspect_archive(&archive, json),
         Command::Game { command } => games::run(command, state_path, requested, json),
         Command::List { path } => managed::list(path, state_path, requested, json),
-        Command::Uninstall {
-            package_id,
-            path,
-            yes,
-        } => managed::uninstall(&package_id, path, yes, state_path, requested, json),
+        Command::Uninstall(args) => managed::uninstall(&args, state_path, requested, json),
         Command::Recover { yes } => managed::recover(yes, state_path, requested, json),
         Command::Scan { path } => inventory::scan(path, state_path, requested, json),
         Command::Doctor { path } => inventory::doctor(path, state_path, requested, json),

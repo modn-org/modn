@@ -165,6 +165,9 @@ modn install "./unlisted-mod.zip" --dry-run
 modn install "./unlisted-mod.zip" --yes
 modn list --json
 modn uninstall <managed-package-id> --yes
+modn uninstall cet --dry-run
+modn uninstall codeware --include-deps --yes
+modn uninstall red4ext --cascade --yes
 ```
 
 `modn install` resolves mod IDs only, not games. Narrow a name by
@@ -288,8 +291,21 @@ not declare stays blocked unless `--allow-executable` names it.
 deletes game files. It refuses to orphan managed mods or pending transactions;
 use `--path` if multiple installations have the same ID. `modn list`
 shows manager-owned packages, not unmanaged content. `modn uninstall`
-currently accepts the managed-package ID shown by `modn list`, not the
-bucket mod name; friendly-name uninstall remains future work.
+accepts the managed-package ID shown by `modn list`, or the catalog name the
+package was installed under: `mod`, `game/mod` or `bucket/game/mod`. `modn list`
+shows that name beside each ID. A name that matches several packages is refused.
+Packages from a standalone archive have no catalog name, only an ID.
+
+`modn uninstall <package> --dry-run` lists the packages it would remove, in
+order, and writes nothing. `--include-deps` also removes each dependency that
+no remaining package needs. `--cascade` also removes every package that needs
+the selected one, dependents first. Without `--cascade`, a needed package is
+refused. Modn does not record whether you asked for a package or it came in as
+a dependency, so `--include-deps` also removes a dependency you installed on
+its own, once nothing else needs it. Review the dry run first. `--yes` and
+`--dry-run` exclude each other. Each package is a separate recoverable
+removal under one lock. If one fails, the earlier removals stay done, the rest
+stay installed, and the error names both.
 
 The CLI has **no default game**. Use `modn game add <game-id> --path <directory>`
 to register an installation with its ordinary Lua module; use `--game <game-id>`
