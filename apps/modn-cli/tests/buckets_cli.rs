@@ -66,7 +66,7 @@ fn bundled_main_is_available_without_mutating_state() {
     let entry: serde_json::Value =
         serde_json::from_slice(&result.stdout).expect("test fixture invariant");
     assert_eq!(entry["version"], "1.31.0");
-    assert_eq!(entry["source"]["kind"], "manual");
+    assert_eq!(entry["source"]["kind"], "https");
     assert!(!temp.path().join("state.sqlite").exists());
 }
 
@@ -89,7 +89,10 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
     assert!(search.status.success(), "{}", output(&search));
     let entries: serde_json::Value =
         serde_json::from_slice(&search.stdout).expect("test fixture invariant");
-    assert_eq!(entries.as_array().expect("test fixture invariant").len(), 4);
+    assert_eq!(
+        entries.as_array().expect("test fixture invariant").len(),
+        12
+    );
     let show = run(&state, &["show", "community/test-game/example"]);
     assert!(show.status.success(), "{}", output(&show));
     assert_eq!(
@@ -114,7 +117,7 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
     assert!(search.status.success(), "{}", output(&search));
     let after: serde_json::Value =
         serde_json::from_slice(&search.stdout).expect("test fixture invariant");
-    assert_eq!(after.as_array().expect("array").len(), 3);
+    assert_eq!(after.as_array().expect("array").len(), 11);
     assert!(!run(&state, &["remove", "main"]).status.success());
     assert!(!state.join("state.sqlite").exists());
 }
@@ -222,7 +225,7 @@ fn leftover_temp_files_outside_registry_do_not_block_reads() {
             .as_array()
             .expect("array")
             .len(),
-        4
+        12
     );
     assert!(run(&state, &["remove", "community"]).status.success());
     assert!(
