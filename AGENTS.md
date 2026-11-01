@@ -21,10 +21,14 @@ they differ from the code, inspect the current revision and active PRs; do not
 present planned behavior as implemented. Use glossary terms consistently in
 code, documentation, CLI and reviews.
 
-Project memory lives in `memory/`. Read
-[memory/CURRENT_STATE.md](memory/CURRENT_STATE.md) before substantive work.
-`memory/events.jsonl` is append-only: revise a record with a supersession that
-gives the reason, and commit new records with the change they describe.
+Project memory lives in `memory/`. At the start of substantive work, call
+`memory_context` for the task; without the MCP server, read
+[memory/CURRENT_STATE.md](memory/CURRENT_STATE.md). Record durable decisions,
+sourced findings, important failures, hypotheses and serious candidates with
+`memory_add`, with `source_refs`, committed with the change they describe.
+Revise with `memory_supersede` and a reason; `memory/events.jsonl` is
+append-only. Never store secrets, personal data, raw reasoning, or speculation
+stated as fact.
 
 Game-specific Lua modules are first-party source shipped with Modn, not
 distributed by buckets. Buckets catalog mod packages only. Standard Lua 5.4
