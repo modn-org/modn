@@ -4,5 +4,6 @@
   "archive_format": "zip", "sha256": "882c57a80b07e453bc8a34cd8430f460aceed789581de8743638e19dcfb7936f",
   "source": {"kind":"https","url":"https://github.com/jac3km4/redscript/releases/download/v0.5.32/redscript-v0.5.32-windows.zip"},
   "dependencies": [],
+  "executables": ["engine/tools/scc.exe"],
   "homepage": "https://github.com/jac3km4/redscript"
 }

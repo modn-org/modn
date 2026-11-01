@@ -1,11 +1,12 @@
 //! Catalog resolution and manifest-verified local mod installation.
 use crate::commands::InstallArgs;
+use crate::install_consent::{self, Request};
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore, PackageSource};
-use modn_core::planning::{preview_install_zip_with_permissions, PlanStatus};
+use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
 use modn_core::transactions::{CatalogDependency, CatalogReference, CatalogRelease};
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
@@ -169,11 +170,12 @@ fn install_mod(
                 PackageSource::Https { url } => format!("download from {url}"),
                 _ => "unsupported source".to_owned(),
             };
-            bail!("{reference}: {source}, then use modn install {reference} --file <archive> --dry-run or --yes (automatic downloads are not implemented)");
+            bail!("{reference}: {source}, then use modn install {reference} --file <archive> (automatic downloads are not implemented)");
         }
     };
-    if !args.yes && !args.dry_run {
-        bail!("installation writes game files; choose --dry-run or explicitly approve with --yes");
+    let interactive = !args.yes && !args.dry_run;
+    if interactive && !install_consent::can_prompt(json) {
+        bail!("installation writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
     }
     if !std::fs::symlink_metadata(archive)?.file_type().is_file() {
         bail!("archive must be a regular file");
@@ -213,21 +215,47 @@ fn install_mod(
             }
         }
     }
-    let plan = preview_install_zip_with_permissions(
-        &game_id,
-        &installation,
-        archive,
-        &args.allow_executable,
-    )?;
-    if plan.archive_sha256 != selected.package.sha256 {
-        bail!("{reference}: source changed after catalog verification");
-    }
+    let preview = |approved: &[String]| -> Result<InstallPlan> {
+        let plan =
+            preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?;
+        if plan.archive_sha256 != selected.package.sha256 {
+            bail!("{reference}: source changed after catalog verification");
+        }
+        Ok(plan)
+    };
+    let explicit = &args.allow_executable;
+    let declared = &selected.package.executables;
+    let mut plan = preview(explicit)?;
+    // An unapproved executable is absent from a blocked plan, so find the
+    // declared ones the archive installs from a candidate that includes them.
+    // The candidate is only installed after interactive confirmation.
+    let mut candidate_approvals = explicit.clone();
+    candidate_approvals.extend(
+        declared
+            .iter()
+            .filter(|path| !explicit.contains(path))
+            .cloned(),
+    );
+    let candidate = if candidate_approvals.len() > explicit.len() {
+        Some(preview(&candidate_approvals)?)
+    } else {
+        None
+    };
+    let pending = candidate.as_ref().map_or_else(Vec::new, |candidate| {
+        let destinations: Vec<&str> = candidate
+            .operations
+            .iter()
+            .map(|operation| operation.destination.as_str())
+            .collect();
+        install_consent::pending_executables(declared, explicit, &destinations)
+    });
     if args.dry_run {
         if json {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "package": reference, "plan": plan,
+                    "unapproved_declared_executables": pending,
                 }))?
             );
         } else {
@@ -238,11 +266,37 @@ fn install_mod(
             for issue in &plan.blockers {
                 println!("BLOCKER {}: {}", issue.code, issue.message);
             }
+            for path in &pending {
+                println!("DECLARED EXECUTABLE {path}: needs confirmation or --allow-executable");
+            }
         }
         return Ok(());
     }
+    let mut approved = explicit.clone();
+    if interactive && !pending.is_empty() {
+        // Declared executables join the approval only after the operator says yes.
+        approved.extend(pending.iter().cloned());
+        plan = preview(&approved)?;
+    }
     if plan.status != PlanStatus::Reviewable {
+        if !pending.is_empty() && !interactive {
+            bail!(
+                "{reference}: installation blocked; its manifest declares {}. Confirm in a terminal without --yes, or pass --allow-executable for each path",
+                pending.join(", ")
+            );
+        }
         bail!("{reference}: installation blocked; inspect with --dry-run first");
+    }
+    if interactive {
+        let request = Request {
+            reference: &reference,
+            game: &installation,
+            files: plan.operations.len(),
+            executables: &pending,
+        };
+        if !install_consent::confirm(&request, &mut io::stdin().lock(), &mut io::stderr())? {
+            bail!("{reference}: installation cancelled");
+        }
     }
     let mut store = state.open_writable(&ProtectedTarget {
         game: Some(game_id),
@@ -253,7 +307,7 @@ fn install_mod(
         archive,
         &plan,
         &release,
-        &args.allow_executable,
+        &approved,
     )?;
     if json {
         println!(

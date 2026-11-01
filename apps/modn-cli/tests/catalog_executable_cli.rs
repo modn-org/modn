@@ -128,6 +128,12 @@ fn manifest(id: &str, sha256: &str, dependencies: &[&str]) -> Value {
     })
 }
 
+/// Adds a manifest declaration; declarations never approve an executable.
+fn declaring(mut manifest: Value, executables: &[&str]) -> Value {
+    manifest["executables"] = json!(executables);
+    manifest
+}
+
 fn catalog() -> Catalog {
     let fixture = Fixture::new();
     let compiler_files: [(&str, &[u8]); 4] = [
@@ -142,9 +148,15 @@ fn catalog() -> Catalog {
     let smuggler = fixture.zip("smuggler.zip", &smuggled);
     let dependent = fixture.zip("script-mod.zip", &[("r6/scripts/Mod/Mod.reds", b"script")]);
     let packages = [
-        manifest("redscript", &fixture.digest(&redscript), &[]),
+        declaring(
+            manifest("redscript", &fixture.digest(&redscript), &[]),
+            &[COMPILER],
+        ),
         manifest("script-mod", &fixture.digest(&dependent), &["redscript"]),
-        manifest("smuggler", &fixture.digest(&smuggler), &[]),
+        declaring(
+            manifest("smuggler", &fixture.digest(&smuggler), &[]),
+            &[COMPILER],
+        ),
     ];
     fixture.register_bucket(&packages);
     fixture.json(&[
@@ -266,4 +278,71 @@ fn approved_catalog_compiler_unblocks_dependents_and_uninstalls_cleanly() {
     }
     assert!(!fixture.game.join(COMPILER).exists());
     assert!(!fixture.game.join("r6/scripts/Mod/Mod.reds").exists());
+}
+
+#[test]
+fn declared_executable_is_reported_but_never_approved_by_yes() {
+    let Catalog {
+        fixture, redscript, ..
+    } = catalog();
+    let preview = fixture.install(REDSCRIPT, &redscript, &["--dry-run"]);
+    let preview: Value = serde_json::from_slice(&preview.stdout).expect("plan JSON");
+    assert_eq!(preview["plan"]["status"], "blocked", "{preview}");
+    assert_eq!(
+        preview["unapproved_declared_executables"],
+        json!([COMPILER])
+    );
+
+    let approval = ["--allow-executable", COMPILER];
+    let approved = fixture.install(
+        REDSCRIPT,
+        &redscript,
+        &[&approval[..], &["--dry-run"]].concat(),
+    );
+    let approved: Value = serde_json::from_slice(&approved.stdout).expect("plan JSON");
+    assert_eq!(approved["plan"]["status"], "reviewable", "{approved}");
+    assert_eq!(approved["unapproved_declared_executables"], json!([]));
+
+    let refused = fixture.install(REDSCRIPT, &redscript, &["--yes"]);
+    assert!(!refused.status.success());
+    let message = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        message.contains(COMPILER) && message.contains("--allow-executable"),
+        "{message}"
+    );
+    assert!(!fixture.game.join(COMPILER).exists());
+
+    // Without a terminal there is nobody to confirm, so nothing is written.
+    let unattended = fixture.install(REDSCRIPT, &redscript, &[]);
+    assert!(!unattended.status.success());
+    assert!(String::from_utf8_lossy(&unattended.stderr).contains("confirm in a terminal"));
+    assert!(!fixture.game.join(COMPILER).exists());
+}
+
+#[test]
+fn manifests_cannot_declare_executables_outside_tool_directories() {
+    for executables in [
+        &["bin/x64/Cyberpunk2077.exe"][..],
+        &["engine/tools/scc.dll"],
+        &["engine/tools/../scc.exe"],
+        &[COMPILER, COMPILER],
+    ] {
+        let fixture = Fixture::new();
+        let root = fixture.temp.path().join("community");
+        let games = root.join("games/cyberpunk-2077");
+        fs::create_dir_all(&games).expect("bucket directories");
+        fs::write(
+            root.join("bucket.json"),
+            r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+        )
+        .expect("bucket metadata");
+        let package = declaring(manifest("tool", &"0".repeat(64), &[]), executables);
+        fs::write(
+            games.join("tool.json"),
+            serde_json::to_vec(&package).expect("JSON"),
+        )
+        .expect("manifest");
+        let added = fixture.cli(&["bucket", "add", "community", root.to_str().expect("bucket")]);
+        assert!(!added.status.success(), "{executables:?}");
+    }
 }

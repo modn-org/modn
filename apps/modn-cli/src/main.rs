@@ -3,6 +3,7 @@ mod catalog_install;
 mod commands;
 mod games;
 mod install;
+mod install_consent;
 mod inventory;
 mod managed;
 mod modules;

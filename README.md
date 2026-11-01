@@ -156,6 +156,7 @@ modn bucket remove community
 modn search cet
 modn search --game cyberpunk-2077
 modn install cet --file "/path/to/CET.zip" --dry-run
+modn install redscript --file "/path/to/redscript.zip"
 modn install cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install main/cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install "./unlisted-mod.zip" --dry-run
@@ -175,7 +176,9 @@ exact format and SHA-256 from its manifest. Without it, Modn explains which
 archive to supply; automatic downloads are not implemented. Standalone
 `modn install <archive.zip|archive.7z>` works without any bucket and uses
 the existing Lua planner and Rust ownership transaction. `--dry-run` previews
-without game writes; `--yes` is required for installation. Catalog
+without game writes. A catalog install in an interactive terminal shows what
+it will write and asks `Install? [y/N]`; scripts and `--json` must pass
+`--yes`. Standalone archive installs always require `--yes`. Catalog
 dependencies must already be installed with matching digests and intact
 managed content; installation re-checks this while holding the transaction
 lock. Each catalog installation records its `bucket/game/mod` provenance and
@@ -183,10 +186,17 @@ the managed packages that satisfied its dependencies, in the same SQLite
 commit as its ownership. `modn uninstall` refuses to remove a recorded
 dependency while a dependent managed package remains; uninstall the dependent
 first. Standalone archive installs and packages installed before this record
-existed carry no dependency links. `--allow-executable` works the same way for
-catalog and standalone installs. The catalog manifest never grants it, so
-`modn install redscript --file <archive> --allow-executable engine/tools/scc.exe`
-needs the flag on both `--dry-run` and `--yes`.
+existed carry no dependency links.
+
+A catalog manifest may declare the tool executables its archive installs,
+for example redscript's `engine/tools/scc.exe`. A declaration only lets Modn
+name them; it never approves them. The interactive prompt lists each declared
+executable the archive installs that no `--allow-executable` flag already
+approved, and installs them only if you answer `y`. `--yes` never
+approves a declared executable: scripts pass `--allow-executable <path>` for
+each one, exactly as for standalone archives. An executable the manifest does
+not declare stays blocked unless `--allow-executable` names it.
+`--dry-run --json` reports `unapproved_declared_executables`.
 
 `modn game remove <game-id>` only unregisters an installation and never
 deletes game files. It refuses to orphan managed mods or pending transactions;
@@ -285,7 +295,7 @@ modn recover --yes --json
 
 The Cyberpunk Lua policy prefers an **exclusive mod folder** for new CET, RED4ext, and mod-specific redscript subdirectories when their shared parent already exists. Modn owns the entire newly created folder: uninstall quarantines and deletes it, including changed files and runtime-generated content. Do not place unrelated personal content in these folders. Pre-existing mod directories cannot be claimed wholesale; loose archives, tweaks and XML mappings use conservative file-level ownership. An exclusive claim never overwrites a pre-existing folder. Modn records the operating system's directory-object identity in its SQLite ledger (on Linux this requires a supported filesystem birth timestamp, not just a reusable inode). A transaction prepares each new folder at a same-volume staging name, persists that identity, and then activates it by rename. Recovery checks the directory object rather than a file marker, so interrupted cleanup remains restartable without hashing runtime contents.
 
-`install` and `uninstall` require explicit `--yes` approval. The manager stores file hashes and ownership in SQLite in the state directory. It rejects existing destinations, linked paths, unsupported mod layouts, encrypted archives, oversized content, and attempts to uninstall modified files. Installation verifies archive content into manager-owned staging before creating game files; destination creation uses exclusive hard links rather than replacing existing files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `modn recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
+`uninstall` and standalone archive installs require explicit `--yes` approval; catalog installs accept `--yes` or an interactive confirmation. The manager stores file hashes and ownership in SQLite in the state directory. It rejects existing destinations, linked paths, unsupported mod layouts, encrypted archives, oversized content, and attempts to uninstall modified files. Installation verifies archive content into manager-owned staging before creating game files; destination creation uses exclusive hard links rather than replacing existing files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `modn recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
 
 The transaction executor is game-agnostic: Rust callers may submit an explicitly approved `InstallPlan` to `Store::install_operations_zip` for any real installation root. Under the exclusive store lock it independently re-inspects the archive, verifies archive hashes and all source sizes, validates destinations, collisions, executable payloads, ownership conflicts, and size limits before staging. The ownership ledger, rollback, crash recovery, and uninstall operate on generic installation roots. The CLI now resolves installation operations from Lua; no Cyberpunk-specific Rust installation planner or legacy compatibility adapter remains. ZIP and 7z extraction are supported; REDmod deployment remains unsupported. CET/RED4ext `.dll` plugin files are permitted within the recognized plugin layout, but neither Modn nor its preview executes them or certifies their compatibility; prohibited executable payloads remain blocked unless explicitly approved as an exact tool path by the caller.
 
@@ -305,7 +315,8 @@ directories: other mods, personal configuration and generated runtime files
 remain separate. Uninstall verifies hashes of owned framework files and
 leaves unowned logs and settings untouched; modified bootstrap files block
 uninstall. Rust denies executable payloads by default, including the redscript compiler.
-Installing redscript requires the operator to add
+Installing redscript requires the operator to approve `engine/tools/scc.exe`:
+at the catalog install prompt, or by adding
 `--allow-executable engine/tools/scc.exe` to **both** the review preview and
 confirmed installation. This is a trusted, explicit approval of one exact
 game-relative tool executable, independent of Lua operation labels.
@@ -335,9 +346,9 @@ in an isolated game fixture:
 | Virtual Atelier | ArchiveXL metadata, archives, redscript and hint | Original ZIP |
 | redscript | Compiler and framework configuration | Original ZIP |
 
-The redscript framework ZIP additionally requires an explicit trusted
-`--allow-executable engine/tools/scc.exe` option on both preview and
-installation. Third-party mod ZIPs/7z files cannot include unapproved
+The redscript framework ZIP additionally requires explicit approval of
+`engine/tools/scc.exe`, either at the catalog install prompt or with
+`--allow-executable engine/tools/scc.exe` on both preview and installation. Third-party mod ZIPs/7z files cannot include unapproved
 executable payloads. The game-agnostic transaction engine streams 7z
 members directly into private staging with the same archive hash, file-size,
 ownership and crash recovery checks as ZIP; it never extracts unselected
