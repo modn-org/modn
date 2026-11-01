@@ -43,8 +43,13 @@ until there is a real requirement.
 - Package-only official `main` bucket snapshot with all eleven prerequisite
   manifests, verified against their original distributions, and explicit
   local bucket registration.
-- The full eleven-mod prerequisite stack has been exercised in disposable
-  fixtures, not verified end to end in the live game.
+- The milestone 3 exit gate passes. `apps/modn-cli/tests/milestone_gate.rs`
+  checks the full eleven-mod stack in a disposable fake game directory, through
+  the user-facing install path. The first check is that a failed stack rolls
+  back. The second is that recovery rolls back an interrupted stack. The third
+  is that all 11 packages (137 owned files) install and uninstall in reverse
+  order to the original files. A synthetic copy of the graph runs in CI. The
+  real run needs the four Nexus archives. Nothing is verified in the live game.
 - `modn game add/list/remove` registers games; `modn install` handles standalone archives and verified catalog mods; `modn search` lists catalog entries; `modn list` shows managed packages.
 - `modn install <mod> --dry-run` shows a read-only dependency plan: install
   order and the state of each dependency. `modn install <mod> --file ...`
@@ -92,6 +97,7 @@ explicit install approval (interactive confirmation or `--yes`); never overwrite
 silently update active frameworks.
 
 **Exit gate:** reproducible disposable full-stack installation and rollback.
+Met by `milestone_gate.rs`; see the baseline above.
 
 ### 4. Controlled live Cyberpunk validation
 
