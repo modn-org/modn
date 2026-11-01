@@ -183,8 +183,10 @@ the managed packages that satisfied its dependencies, in the same SQLite
 commit as its ownership. `modn uninstall` refuses to remove a recorded
 dependency while a dependent managed package remains; uninstall the dependent
 first. Standalone archive installs and packages installed before this record
-existed carry no dependency links. `--allow-executable` applies only to
-standalone archives.
+existed carry no dependency links. `--allow-executable` works the same way for
+catalog and standalone installs. The catalog manifest never grants it, so
+`modn install redscript --file <archive> --allow-executable engine/tools/scc.exe`
+needs the flag on both `--dry-run` and `--yes`.
 
 `modn game remove <game-id>` only unregisters an installation and never
 deletes game files. It refuses to orphan managed mods or pending transactions;

@@ -29,9 +29,6 @@ pub(super) fn run(
     json: bool,
 ) -> Result<()> {
     if !is_standalone_archive(args) {
-        if !args.allow_executable.is_empty() {
-            bail!("--allow-executable applies only to standalone archive installation");
-        }
         return catalog_install::run(args, state_path, requested, json);
     }
     if args.file.is_some() {

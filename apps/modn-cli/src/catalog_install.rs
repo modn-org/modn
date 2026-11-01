@@ -213,7 +213,12 @@ fn install_mod(
             }
         }
     }
-    let plan = preview_install_zip_with_permissions(&game_id, &installation, archive, &[])?;
+    let plan = preview_install_zip_with_permissions(
+        &game_id,
+        &installation,
+        archive,
+        &args.allow_executable,
+    )?;
     if plan.archive_sha256 != selected.package.sha256 {
         bail!("{reference}: source changed after catalog verification");
     }
@@ -243,7 +248,13 @@ fn install_mod(
         game: Some(game_id),
         root: Some(installation.clone()),
     })?;
-    let package = store.install_catalog_release(&installation, archive, &plan, &release)?;
+    let package = store.install_catalog_release_with_permissions(
+        &installation,
+        archive,
+        &plan,
+        &release,
+        &args.allow_executable,
+    )?;
     if json {
         println!(
             "{}",

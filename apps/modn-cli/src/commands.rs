@@ -140,7 +140,7 @@ pub(super) struct InstallArgs {
         conflicts_with = "yes"
     )]
     pub(super) dry_run: bool,
-    /// Independently authorize one exact game-relative tool executable for local archives.
+    /// Independently authorize one exact game-relative tool executable in the archive.
     #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
     pub(super) allow_executable: Vec<String>,
 }
