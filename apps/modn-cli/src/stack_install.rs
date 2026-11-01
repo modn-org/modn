@@ -34,18 +34,36 @@ pub(super) struct Stack<'a> {
 ///
 /// One managed package satisfies every release that pins its archive digest,
 /// so each digest installs once: a second release with the same archive
-/// would only collide with the first.
+/// would only collide with the first. The skipped release must declare the
+/// same dependencies as the installed one. Otherwise its own requirements
+/// would be neither checked under the lock nor recorded as links.
 fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<(&'a BucketPackage, PathBuf)>> {
-    let mut digests = BTreeSet::new();
-    let mut needed: Vec<&BucketPackage> = stack
+    let mut by_digest: BTreeMap<&str, &BucketPackage> = BTreeMap::new();
+    let mut needed: Vec<&BucketPackage> = Vec::new();
+    let missing = stack
         .order
         .iter()
         .zip(stack.dependencies)
         .filter(|(_, dependency)| dependency.missing())
-        .map(|(release, _)| release)
-        .filter(|release| digests.insert(release.package.sha256.as_str()))
-        .collect();
-    if digests.contains(stack.selected.package.sha256.as_str()) {
+        .map(|(release, _)| release);
+    for release in missing {
+        let Some(kept) = by_digest.get(release.package.sha256.as_str()) else {
+            by_digest.insert(&release.package.sha256, release);
+            needed.push(release);
+            continue;
+        };
+        let declared = |release: &BucketPackage| -> BTreeSet<String> {
+            release.package.dependencies.iter().cloned().collect()
+        };
+        if declared(kept) != declared(release) {
+            bail!(
+                "{} and {} share one archive but declare different dependencies; install them separately",
+                reference_of(kept),
+                reference_of(release)
+            );
+        }
+    }
+    if by_digest.contains_key(stack.selected.package.sha256.as_str()) {
         bail!(
             "{}: its archive is also the archive of a missing dependency; install that dependency first",
             reference_of(stack.selected)

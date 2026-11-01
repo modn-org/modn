@@ -289,4 +289,26 @@ fn dependencies_sharing_one_archive_install_it_once() {
         error(&refused)
     );
     assert!(!fixture.game.join("addons").exists());
+
+    // A skipped alias may not drop requirements the kept release lacks.
+    let fixture = Fixture::new();
+    let (shared, shared_hash) = plugin_archive(&fixture, "shared");
+    let (x, x_hash) = plugin_archive(&fixture, "x");
+    let (top, top_hash) = plugin_archive(&fixture, "top");
+    fixture.bucket("deps", "test-game", "a", &shared_hash, &[]);
+    manifest(&fixture, "b", &shared_hash, &["x"], json!({}));
+    manifest(&fixture, "x", &x_hash, &[], json!({}));
+    manifest(&fixture, "top", &top_hash, &["a", "b"], json!({}));
+    fixture.register();
+    let refused = run(&fixture, &["install", "top", "--yes"], &[&shared, &x, &top]);
+    assert!(!refused.status.success());
+    assert!(
+        error(&refused).contains(
+            "deps/test-game/a and deps/test-game/b share one archive but declare different dependencies"
+        ),
+        "{}",
+        error(&refused)
+    );
+    assert!(!fixture.game.join("addons").exists());
+    assert_eq!(managed(&fixture), 0);
 }
