@@ -53,7 +53,7 @@ and the separate ZIP module installation/activation database. Keep one Lua
 source per supported game in Modn and a temporary development override.
 Preserve current discovery, diagnostics and safe installation proposals.
 
-**Exit gate:** Cyberpunk policy loads from the bundled first-party directory,
+**Exit gate:** Cyberpunk policy loads from the embedded first-party module,
 overrides do not persist or fall back silently, and an independent fictional
 module runs without game-specific Rust.
 
