@@ -1,6 +1,6 @@
 # modn
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Lua Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, bucket downloads/dependency resolution, MCP, and desktop UI remain future milestones.
+A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Lua Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, version-constrained dependency resolution, MCP, and desktop UI remain future milestones.
 
 ## Development
 
@@ -171,9 +171,10 @@ mod IDs; noninteractive invocations return candidates (structured JSON errors
 under `--json`). `modn search` matches mod ID or display name and accepts
 global `--game`.
 
-Catalog installation requires a locally supplied `--file` ZIP/7z with
-exact format and SHA-256 from its manifest. Without it, Modn explains which
-archive to supply; automatic downloads are not implemented. Standalone
+Catalog installation needs each archive with the exact format and SHA-256
+from its manifest. Modn downloads an `https` source itself. A `manual`
+source, such as a Nexus file, is never downloaded: supply it with `--file`,
+and without it Modn names the file to get. Standalone
 `modn install <archive.zip|archive.7z>` works without any bucket and uses
 the existing Lua planner and Rust ownership transaction. `--dry-run` previews
 without game writes. A catalog install in an interactive terminal shows what
@@ -201,10 +202,10 @@ dependency also shows the supplied `archive`, if one matches. The plan
 writes nothing.
 
 To install a mod with its missing dependencies, pass `--file` once for each
-archive, in any order. Modn matches each archive to a release by SHA-256 and
-refuses an archive that no release in the installation pins. Every missing
-dependency needs an archive; otherwise Modn names the missing ones and writes
-nothing. One confirmation, or `--yes`, approves the whole stack. With `--yes`,
+`manual` archive, in any order. Modn downloads or reuses the `https` ones.
+Modn matches each archive to a release by SHA-256 and refuses an archive that
+no release in the installation pins. When a `manual` archive is missing, Modn
+names it and writes nothing. One confirmation, or `--yes`, approves the whole stack. With `--yes`,
 each executable that a stack manifest declares also needs `--allow-executable`.
 Modn installs the stack in dependency order under one transaction lock. The
 game policy plans each package after the packages before it are installed.
@@ -216,6 +217,32 @@ dependencies that pin the same archive digest install it once. If the process st
 other writes are refused until `modn recover --yes` uninstalls the stack's
 packages. A damaged dependency or another installed release is never replaced:
 the install fails until you restore or uninstall it.
+
+### Download cache
+
+Modn keeps downloaded archives in a cache, after Scoop's download cache. The
+cache is `<state-dir>/cache` unless `MODN_CACHE` names another directory.
+Each entry is named `<game>#<mod>#<version>#<url hash><extension>`. Modn
+downloads only over HTTPS, and redirects must stay on HTTPS. A download
+fails if the server sends nothing for 60 seconds. Each attempt writes its own
+`<entry>.<random>.download` file, so concurrent downloads never share bytes.
+Modn checks the manifest's SHA-256 and a 4 GiB size limit, then atomically
+renames the file into place. A failed check removes that attempt's partial
+file and prints the URL with the expected and actual digests. Unlike Scoop,
+an entry exists only after its digest is verified. Modn verifies an entry
+again each time it uses it; an entry that fails is never used, and the next
+download replaces it. The cache directory, like the state directory, must be
+outside every game installation; Modn checks this before it downloads. A dry
+run reads the cache but never downloads. Modn downloads only after you
+confirm. A single mod asks `Download? [y/N]` first, because its install
+prompt needs the archive. A stack checks that every `manual` archive is
+supplied, then asks once for the whole stack.
+
+- `modn install <mod> --no-cache` downloads again instead of using an entry.
+- `modn cache show [mod]` lists entries and their total size.
+- `modn cache rm <mod>` or `modn cache rm --all` removes entries. A file
+  counts as an entry only if its whole name matches the entry format. Other
+  files, including partial downloads, are left alone.
 
 A catalog manifest may declare the tool executables its archive installs,
 for example redscript's `engine/tools/scc.exe`. A declaration only lets Modn
@@ -405,8 +432,8 @@ TweakXL, Codeware, Mod Settings, Equipment-EX, Browser Extension, No Intro
 Videos and Virtual Atelier. Each SHA-256 was checked against the original
 distribution. GitHub-hosted packages record their release URL as an `https`
 source. Nexus-only packages are `manual` sources naming the original file.
-Modn does not mirror these archives, and an `https` source is not downloaded
-automatically. The snapshot does not assert compatibility with every game
+Modn does not mirror these archives. It downloads an `https` source from its
+original URL when you install it. The snapshot does not assert compatibility with every game
 version. See [provenance](buckets/main/PROVENANCE.md) for versions, dependency
 evidence and compatibility notes.
 
@@ -434,5 +461,5 @@ Bucket registration, listing, searching and manifest inspection are
 **metadata-only** and never modify game files. A catalog entry can be
 installed from a supplied, SHA-256-verified ZIP/7z with an explicit approval;
 standalone local archives use the same managed transaction engine. A checksum
-proves the bytes match a catalog record, not publisher trust. Automatic
-downloads and deterministic dependency solving are future milestones.
+proves the bytes match a catalog record, not publisher trust. Version
+constraints and conflict solving are future milestones.

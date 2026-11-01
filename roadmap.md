@@ -19,7 +19,8 @@ Buckets cannot publish executable Lua. The official `main` package catalog
 works offline. Package manifests never authorize changes to game files: a
 manifest may declare the tool executables its archive installs, but only the
 user's confirmation or an explicit `--allow-executable` approves them.
-Git-backed catalog sync and acquisition remain future milestones.
+Modn downloads `https` sources into a verified cache; `manual` sources still
+need the user's file. Git-backed catalog sync remains a future milestone.
 
 Development-only `--module-src` (`--src`) and
 `MODN_GAME_MODULES_DIR` overrides load source explicitly selected for the
@@ -48,8 +49,9 @@ until there is a real requirement.
 - `modn install <mod> --dry-run` shows a read-only dependency plan: install
   order and the state of each dependency. `modn install <mod> --file ...`
   installs the mod and its missing dependencies from supplied archives as one
-  approved stack that rolls back as a whole. Version constraints, artifact
-  downloads and the full catalog remain future milestones.
+  approved stack that rolls back as a whole. Missing `https` archives download
+  into a SHA-256-verified cache, after Scoop's. Version constraints and the
+  full catalog remain future milestones.
 
 ## Milestones (in dependency order)
 
