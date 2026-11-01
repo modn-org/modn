@@ -7,12 +7,13 @@ use std::path::{Component, Path, PathBuf};
 
 /// Manager state as it exists before a command decides how to use it.
 ///
-/// Loading never creates a database. Registrations read here identify game
-/// roots that the state location must stay outside before any writable open.
+/// Loading never creates a database. Registrations identify game roots that
+/// the state location must stay outside before any writable open.
 pub(super) struct ManagerState {
     path: PathBuf,
     existing: Option<Store>,
-    registered_roots: Vec<PathBuf>,
+    // `None` defers reading registrations until the state location is validated.
+    registered_roots: Option<Vec<PathBuf>>,
 }
 
 /// Game identity and root that the manager state location must not enter.
@@ -23,24 +24,28 @@ pub(super) struct ProtectedTarget {
 }
 
 impl ManagerState {
-    /// Open an existing database read-only, if one exists.
+    /// Open an existing database read-only, if one exists, and read its
+    /// registered game roots immediately.
     pub(super) fn load(path: &Path) -> Result<Self> {
+        let mut state = Self::load_deferred(path)?;
+        state.registered_roots = Some(registered_roots(state.existing())?);
+        Ok(state)
+    }
+
+    /// Open an existing database read-only, if one exists, but read registered
+    /// game roots only when the state location is validated.
+    ///
+    /// Catalog installation reads registrations only before its approved
+    /// write, so selection and preview errors keep their precedence.
+    pub(super) fn load_deferred(path: &Path) -> Result<Self> {
         let existing = path
             .is_file()
             .then(|| Store::open_readonly(path))
             .transpose()?;
-        let registered_roots = existing
-            .as_ref()
-            .map(Store::list)
-            .transpose()?
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|entry| entry.path.canonicalize().ok())
-            .collect();
         Ok(Self {
             path: path.to_path_buf(),
             existing,
-            registered_roots,
+            registered_roots: None,
         })
     }
 
@@ -96,13 +101,31 @@ impl ManagerState {
     }
 
     fn validate(&self, target: &ProtectedTarget) -> Result<()> {
+        let deferred;
+        let roots = match &self.registered_roots {
+            Some(roots) => roots,
+            None => {
+                deferred = registered_roots(self.existing())?;
+                &deferred
+            }
+        };
         validate_state_path(
             &self.path,
             target.game.as_deref(),
             target.root.as_deref(),
-            &self.registered_roots,
+            roots,
         )
     }
+}
+
+fn registered_roots(store: Option<&Store>) -> Result<Vec<PathBuf>> {
+    Ok(store
+        .map(Store::list)
+        .transpose()?
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|entry| entry.path.canonicalize().ok())
+        .collect())
 }
 
 pub(super) fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {

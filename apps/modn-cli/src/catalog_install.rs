@@ -184,7 +184,7 @@ fn install_mod(
     if inspected.sha256 != selected.package.sha256 {
         bail!("{reference}: archive SHA-256 does not match catalog manifest");
     }
-    let state = ManagerState::load(state_path)?;
+    let state = ManagerState::load_deferred(state_path)?;
     let (game_id, installation) = selected_installation(
         state.existing(),
         args.path.clone(),

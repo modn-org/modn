@@ -4,6 +4,7 @@ mod support;
 
 use serde_json::{json, Value};
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use support::{error, Fixture};
 
@@ -379,4 +380,30 @@ fn explicit_extensionless_path_reaches_raw_archive_validation() {
         error(&preview)
     );
     assert!(!fixture.game.join("addons/example.plugin").exists());
+}
+
+#[test]
+fn catalog_selection_errors_precede_registered_root_reads() {
+    let fixture = Fixture::new();
+    let (archive, hash) = fixture.archive();
+    fixture.bucket("deps", "test-game", "base", &hash, &[]);
+    fixture.register();
+    // A ledger that still passes read-only schema checks but cannot list
+    // registrations. Catalog installation reads registrations only before an
+    // approved write, so the missing --path is reported first.
+    let connection =
+        rusqlite::Connection::open(fixture.state.join("state.sqlite")).expect("state database");
+    connection
+        .execute_batch("DROP TABLE game_installations;")
+        .expect("drop registrations");
+    drop(connection);
+    let missing = fixture.temp.path().join("missing-game");
+    let output = fixture.run_paths(
+        &["install", "base", "--dry-run", "--file"],
+        &[&archive, Path::new("--path"), &missing],
+    );
+    assert!(!output.status.success());
+    let stderr = error(&output);
+    assert!(!stderr.contains("game_installations"), "{stderr}");
+    assert!(!missing.exists());
 }
