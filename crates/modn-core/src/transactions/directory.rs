@@ -41,7 +41,7 @@ pub(super) fn exclusive_roots(game: &Path, plan: &InstallPlan) -> Result<Vec<Str
         }
     }
     for root in &roots {
-        let target = target_path(game, root, false)?;
+        let target = target_path(game, root)?;
         if fs::symlink_metadata(&target).is_ok() {
             bail!(
                 "exclusive directory must not preexist: {}",
@@ -148,7 +148,7 @@ pub(super) fn quarantine_path(
     id: &str,
     ordinal: usize,
 ) -> Result<PathBuf> {
-    let path = target_path(game, root, false)?;
+    let path = target_path(game, root)?;
     Ok(path
         .parent()
         .context("directory has no parent")?
@@ -181,7 +181,7 @@ fn rename_unoccupied(from: &Path, to: &Path) -> Result<()> {
 }
 
 pub(super) fn prepare_install(game: &Path, root: &str, id: &str, n: usize) -> Result<String> {
-    let active = target_path(game, root, false)?;
+    let active = target_path(game, root)?;
     let staged = quarantine_path(game, root, id, n)?;
     if fs::symlink_metadata(&active).is_ok() {
         bail!("exclusive directory already exists: {}", active.display());
@@ -197,7 +197,7 @@ pub(super) fn activate_install(
     n: usize,
     expected: &str,
 ) -> Result<()> {
-    let active = target_path(game, root, false)?;
+    let active = target_path(game, root)?;
     let staged = quarantine_path(game, root, id, n)?;
     verify_directory(&staged, expected)?;
     if fs::symlink_metadata(&active).is_ok() {
@@ -214,7 +214,7 @@ pub(super) fn quarantine(
     n: usize,
     expected: &str,
 ) -> Result<()> {
-    let active = target_path(game, root, false)?;
+    let active = target_path(game, root)?;
     verify_directory(&active, expected)?;
     let staged = quarantine_path(game, root, id, n)?;
     if fs::symlink_metadata(&staged).is_ok() {
@@ -246,7 +246,7 @@ pub(super) fn recover_directory(
     expected: &str,
     committed: bool,
 ) -> Result<()> {
-    let active = target_path(game, root, false)?;
+    let active = target_path(game, root)?;
     let staged = quarantine_path(game, root, id, n)?;
     let saved = present_directory(&staged)?;
     let live = present_directory(&active)?;
@@ -306,7 +306,7 @@ pub(super) fn recover_install(
     n: usize,
     expected: Option<&str>,
 ) -> Result<()> {
-    let active = target_path(game, root, false)?;
+    let active = target_path(game, root)?;
     let staged = quarantine_path(game, root, id, n)?;
     let saved = present_directory(&staged)?;
     let live = present_directory(&active)?;

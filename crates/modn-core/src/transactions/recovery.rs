@@ -69,6 +69,10 @@ impl Store {
             "DELETE FROM pending_directories WHERE transaction_id=?1",
             [id],
         )?;
+        tx.execute(
+            "DELETE FROM pending_created_directories WHERE transaction_id=?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
@@ -84,7 +88,7 @@ impl Store {
         }
         let game = validate_transaction_root(&journal.game)?;
         for f in journal.files.iter().rev() {
-            let dest = target_path(&game, &f.destination, /* create_parents= */ false)?;
+            let dest = target_path(&game, &f.destination)?;
             let temp = temp_path(&dest, &journal.id, f.ordinal)?;
             let witness = match fs::symlink_metadata(&temp) {
                 Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
@@ -127,11 +131,7 @@ impl Store {
                                 );
                             }
                         } else {
-                            let checked = target_path(
-                                &game,
-                                &f.destination,
-                                /* create_parents= */ false,
-                            )?;
+                            let checked = target_path(&game, &f.destination)?;
                             if let Some(parent) = checked.parent() {
                                 if !parent.is_dir() {
                                     bail!("recovery parent missing: {}", parent.display());
@@ -180,15 +180,19 @@ impl Store {
                     claim.identity.as_deref(),
                 )?;
             }
+            self.remove_journal_directories(&game, &journal.id)?;
         }
         self.finish_journal(&journal.id)
     }
 
-    /// Recover interrupted transactions, then roll back unfinished installation
-    /// stacks. Never deletes an unverified file.
+    /// Recover interrupted transactions, roll back unfinished installation
+    /// stacks, then remove empty directories that Modn created. Never deletes
+    /// an unverified file or a directory that Modn did not create.
     pub fn recover(&mut self) -> Result<usize> {
         let _guard = lock_store(self)?;
-        Ok(self.recover_locked()? + self.recover_stacks_locked()?)
+        let recovered = self.recover_locked()? + self.recover_stacks_locked()?;
+        self.prune_all_created()?;
+        Ok(recovered)
     }
 
     pub(super) fn recover_locked(&mut self) -> Result<usize> {

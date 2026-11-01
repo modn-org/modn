@@ -112,6 +112,20 @@ impl Store {
                 dependency_id TEXT NOT NULL REFERENCES managed_packages(id),
                 PRIMARY KEY(package_id, dependency_id)
             );
+            CREATE TABLE IF NOT EXISTS pending_created_directories (
+                transaction_id TEXT NOT NULL REFERENCES pending_transactions(id),
+                ord INTEGER NOT NULL,
+                relative_path TEXT NOT NULL,
+                identity TEXT,
+                PRIMARY KEY(transaction_id, ord)
+            );
+            CREATE TABLE IF NOT EXISTS created_directories (
+                game_path TEXT NOT NULL,
+                path_key TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                identity TEXT,
+                PRIMARY KEY(game_path, path_key)
+            );
             CREATE TABLE IF NOT EXISTS package_conflicts (
                 package_id TEXT NOT NULL REFERENCES managed_packages(id),
                 bucket TEXT NOT NULL,
@@ -221,6 +235,11 @@ impl Store {
         if managed || pending {
             bail!("cannot unregister game with managed packages or pending transactions; uninstall or recover first");
         }
+        // Modn no longer manages anything here, so its directory records end.
+        tx.execute(
+            "DELETE FROM created_directories WHERE game_path=?1",
+            [path_text],
+        )?;
         if tx.execute(
             "DELETE FROM game_installations WHERE game_id=?1 AND path=?2",
             params![entry.game_id, path_text],

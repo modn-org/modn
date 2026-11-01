@@ -48,7 +48,7 @@ until there is a real requirement.
   the user-facing install path. The first check is that a failed stack rolls
   back. The second is that recovery rolls back an interrupted stack. The third
   is that all 11 packages (137 owned files) install and uninstall in reverse
-  order to the original files. A synthetic copy of the graph runs in CI. The
+  order to the original tree, directories included. A synthetic copy of the graph runs in CI. The
   real run needs the four Nexus archives. Nothing is verified in the live game.
 - `modn game add/list/remove` registers games; `modn install` handles standalone archives and verified catalog mods; `modn search` lists catalog entries; `modn list` shows managed packages.
 - `modn install <mod> --dry-run` shows a read-only dependency plan: install

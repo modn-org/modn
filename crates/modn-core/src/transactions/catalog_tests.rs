@@ -87,7 +87,7 @@ impl Fixture {
     }
 }
 
-fn module_source() -> PathBuf {
+pub(super) fn module_source() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game")
 }
 
@@ -107,6 +107,11 @@ fn dependency_on(archive: &Path, mod_id: &str) -> CatalogDependency {
 }
 
 fn plan(game: &Path, archive: &Path) -> InstallPlan {
+    plan_into(game, archive, "addons")
+}
+
+/// A reviewable plan that copies each archive file into `directory`.
+pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> InstallPlan {
     let checked = inspect(archive).unwrap();
     InstallPlan {
         archive_sha256: checked.sha256,
@@ -117,7 +122,7 @@ fn plan(game: &Path, archive: &Path) -> InstallPlan {
             .files
             .into_iter()
             .map(|entry| PlannedFile {
-                destination: format!("addons/{}", entry.entry.rsplit('/').next().unwrap()),
+                destination: format!("{directory}/{}", entry.entry.rsplit('/').next().unwrap()),
                 source: entry.entry,
                 bytes: entry.bytes,
                 kind: "file-copy".into(),

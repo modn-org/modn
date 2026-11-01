@@ -236,7 +236,8 @@ impl Store {
                 super::directory::activate_install(&game, root, &id, ordinal, &identity)?;
             }
             for f in &files {
-                let dest = target_path(&game, &f.destination, /* create_parents= */ true)?;
+                self.create_parents(&id, &game, &f.destination)?;
+                let dest = target_path(&game, &f.destination)?;
                 if fs::symlink_metadata(&dest).is_ok() {
                     bail!("existing unmanaged destination: {}", dest.display());
                 }

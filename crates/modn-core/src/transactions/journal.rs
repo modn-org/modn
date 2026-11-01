@@ -75,7 +75,11 @@ pub(crate) fn lock_store(store: &Store) -> Result<File> {
         .context("cannot acquire exclusive transaction lock")?;
     Ok(lock)
 }
-pub(super) fn target_path(game: &Path, relative: &str, create_parents: bool) -> Result<PathBuf> {
+/// Validate a game-relative destination and every existing ancestor.
+///
+/// This never creates a directory: an install creates missing parents
+/// through `Store::create_parents`, which journals each one first.
+pub(super) fn target_path(game: &Path, relative: &str) -> Result<PathBuf> {
     let canonical = game.canonicalize()?;
     let mut current = canonical.clone();
     let parts: Vec<_> = relative.split('/').collect();
@@ -91,10 +95,6 @@ pub(super) fn target_path(game: &Path, relative: &str, create_parents: bool) -> 
         match fs::symlink_metadata(&current) {
             Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {}
             Ok(_) => bail!("linked or non-directory ancestor: {}", current.display()),
-            Err(e) if e.kind() == io::ErrorKind::NotFound && create_parents => {
-                fs::create_dir(&current)
-                    .with_context(|| format!("cannot create {}", current.display()))?;
-            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(canonical.join(relative)),
             Err(e) => return Err(e.into()),
         }
@@ -283,6 +283,7 @@ impl Store {
         if let Some(catalog) = catalog {
             super::catalog::record(&tx, id, catalog)?;
         }
+        super::created_dirs::commit(&tx, id, game)?;
         tx.execute(
             "UPDATE pending_transactions SET status='committed' WHERE id=?1",
             [id],
