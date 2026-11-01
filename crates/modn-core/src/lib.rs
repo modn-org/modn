@@ -14,6 +14,7 @@ pub mod buckets;
 pub mod discovery;
 /// Local, sandboxed Lua game module inspection without host filesystem capabilities.
 pub mod game_modules;
+mod integrity;
 pub mod inventory;
 pub mod planning;
 /// Inventory detected game files and produce diagnostic findings.

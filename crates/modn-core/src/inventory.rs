@@ -1,122 +1,10 @@
 //! Reconcile on-disk discovery against manager-owned SQLite records without writing to a game.
-use crate::scan::{self, DoctorReport, IntegrityStatus, OwnedFileCheck, ScanReport};
+use crate::integrity::{self, PathState};
+use crate::scan::{self, DoctorReport, IntegrityStatus, ScanReport};
 use crate::state::Store;
 use anyhow::Result;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{self, Read};
-use std::path::{Path, PathBuf};
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PathState {
-    Present,
-    Missing,
-    Unsafe,
-    Unreadable,
-}
-
-// Walk each component without trusting reparse points, symlinks or directory redirects.
-// A failed check is reported as drift, never used to infer or transfer ownership.
-fn checked_path(root: &Path, relative: &str, expect_directory: bool) -> (PathState, PathBuf) {
-    let mut current = root.to_path_buf();
-    let parts: Vec<_> = relative.split('/').collect();
-    if parts.is_empty()
-        || parts.iter().any(|part| {
-            part.is_empty()
-                || *part == "."
-                || *part == ".."
-                || part.contains([':', '\\'])
-                || part.chars().any(|c| c.is_control())
-        })
-    {
-        return (PathState::Unsafe, current);
-    }
-
-    for (i, part) in parts.iter().enumerate() {
-        current.push(part);
-        let last = i + 1 == parts.len();
-        let metadata = match fs::symlink_metadata(&current) {
-            Ok(metadata) => metadata,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                return (PathState::Missing, current);
-            }
-            Err(_) => return (PathState::Unreadable, current),
-        };
-        if metadata.file_type().is_symlink()
-            || (last && metadata.is_dir() != expect_directory)
-            || (!last && !metadata.is_dir())
-        {
-            return (PathState::Unsafe, current);
-        }
-        match current.canonicalize() {
-            Ok(canonical) if canonical.starts_with(root) => {}
-            Ok(_) => return (PathState::Unsafe, current),
-            Err(_) => return (PathState::Unreadable, current),
-        }
-    }
-    (PathState::Present, current)
-}
-
-fn verify_owned(
-    root: &Path,
-    relative: &str,
-    expected_bytes: u64,
-    expected_sha: &str,
-) -> IntegrityStatus {
-    let (status, path) = checked_path(root, relative, false);
-    match status {
-        PathState::Missing => return IntegrityStatus::Missing,
-        PathState::Unsafe => return IntegrityStatus::Unsafe,
-        PathState::Unreadable => return IntegrityStatus::Unreadable,
-        PathState::Present => {}
-    }
-    let metadata = match fs::metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(_) => return IntegrityStatus::Unreadable,
-    };
-    if !metadata.is_file() {
-        return IntegrityStatus::Unsafe;
-    }
-    if metadata.len() != expected_bytes {
-        return IntegrityStatus::Modified;
-    }
-    let input = match File::open(&path) {
-        Ok(file) => file,
-        Err(_) => return IntegrityStatus::Unreadable,
-    };
-    let mut hasher = Sha256::new();
-    match io::copy(
-        &mut input.take(expected_bytes.saturating_add(1)),
-        &mut hasher,
-    ) {
-        Ok(read) if read == expected_bytes => {
-            if format!("{:x}", hasher.finalize()) == expected_sha {
-                IntegrityStatus::Intact
-            } else {
-                IntegrityStatus::Modified
-            }
-        }
-        Ok(_) => IntegrityStatus::Modified,
-        Err(_) => IntegrityStatus::Unreadable,
-    }
-}
-
-/// Check original package files, even beneath exclusive owned directories.
-///
-/// Directory-owned runtime output stays mutable; this function only proves
-/// that the original installed prerequisite bytes remain present.
-#[must_use]
-pub fn original_package_payloads_intact(
-    game: &Path,
-    package: &crate::transactions::ManagedPackage,
-) -> bool {
-    !package.files.is_empty()
-        && package.files.iter().all(|file| {
-            verify_owned(game, &file.destination, file.bytes, &file.sha256)
-                == IntegrityStatus::Intact
-        })
-}
+use std::path::Path;
 
 // Non-contextual per-character case folding is only a Windows candidate search.
 // Different names can fold identically on NTFS; actual file identity still decides ownership.
@@ -139,39 +27,8 @@ pub fn scan_with_ownership_for(
     let mut report = crate::game_modules::policy::scan(game_id, &game, 20_000)?;
     let mut matched: HashMap<String, Vec<usize>> = HashMap::new();
 
-    let mut directory_roots = Vec::new();
-    for package in installed {
-        for root in &package.directories {
-            let (state, path) = checked_path(&game, root, true);
-            let status = match state {
-                PathState::Present
-                    if store.verified_managed_directory(&package.id, root, &path) =>
-                {
-                    IntegrityStatus::Present
-                }
-                PathState::Present | PathState::Unsafe => IntegrityStatus::Unsafe,
-                PathState::Missing => IntegrityStatus::Missing,
-                PathState::Unreadable => IntegrityStatus::Unreadable,
-            };
-            directory_roots.push((root.clone(), package.id.clone(), status));
-        }
-        for file in package.files {
-            let root_status = directory_roots.iter().find(|(root, id, _)| {
-                id == &package.id && file.destination.starts_with(&format!("{root}/"))
-            });
-            let status = match root_status {
-                Some((_, _, status)) => *status,
-                None => verify_owned(&game, &file.destination, file.bytes, &file.sha256),
-            };
-            report.owned_files.push(OwnedFileCheck {
-                package_id: package.id.clone(),
-                relative_path: file.destination,
-                status,
-                expected_sha256: file.sha256,
-                expected_bytes: file.bytes,
-            });
-        }
-    }
+    let (owned_files, directory_roots) = integrity::owned_file_checks(store, &game, installed);
+    report.owned_files.extend(owned_files);
     report.owned_files.sort_by(|a, b| {
         a.relative_path
             .cmp(&b.relative_path)
@@ -242,8 +99,9 @@ pub fn scan_with_ownership_for(
             continue;
         }
         let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
-        let candidate = directory_roots.iter().find(|(root, _, status)| {
-            if *status != IntegrityStatus::Present
+        let candidate = directory_roots.iter().find(|check| {
+            let root = &check.root;
+            if check.status != IntegrityStatus::Present
                 || !crate::transactions::directory_candidate_key(&relative).starts_with(&format!(
                     "{}/",
                     crate::transactions::directory_candidate_key(root)
@@ -260,10 +118,10 @@ pub fn scan_with_ownership_for(
                 .join("/");
             same_file::is_same_file(game.join(root), game.join(prefix)).unwrap_or(false)
         });
-        if let Some((_, package_id, _)) = candidate {
-            if checked_path(&game, &relative, false).0 == PathState::Present {
+        if let Some(check) = candidate {
+            if integrity::checked_path(&game, &relative, false).0 == PathState::Present {
                 detected.managed = true;
-                detected.package_id = Some(package_id.clone());
+                detected.package_id = Some(check.package_id.clone());
                 detected.integrity = Some(IntegrityStatus::Present);
             }
         }

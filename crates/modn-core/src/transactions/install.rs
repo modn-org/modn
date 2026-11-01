@@ -90,11 +90,7 @@ impl Store {
         validate_directory_reservations(self, &game, &directories)?;
         let catalog = release
             .map(|release| -> Result<CatalogRecord> {
-                let dependency_ids = self.ready_dependencies(
-                    &release.reference.game_id,
-                    &game,
-                    &release.dependencies,
-                )?;
+                let dependency_ids = self.ready_dependencies(&game, &release.dependencies)?;
                 Ok(CatalogRecord {
                     release,
                     dependency_ids,

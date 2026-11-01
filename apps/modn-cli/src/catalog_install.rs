@@ -202,7 +202,7 @@ fn install_mod(
     // Preview readiness early; `install_catalog_release` repeats it under the lock.
     match state.existing() {
         Some(store) => {
-            store.ready_dependencies(&game_id, &installation, &release.dependencies)?;
+            store.ready_dependencies(&installation, &release.dependencies)?;
         }
         None => {
             if let Some(dependency) = release.dependencies.first() {

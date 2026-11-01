@@ -2,9 +2,8 @@
 //!
 //! Callers resolve bucket manifests; this module only sees verified archive
 //! digests, so readiness and uninstall protection stay game- and bucket-agnostic.
-use super::journal::ManagedPackage;
-use crate::inventory::{original_package_payloads_intact, scan_with_ownership_for};
-use crate::scan::ScanReport;
+use super::validation::validate_transaction_root;
+use crate::integrity::package_intact;
 use crate::state::Store;
 use anyhow::{bail, Result};
 use rusqlite::{params, Transaction};
@@ -95,18 +94,18 @@ impl Store {
     /// A dependency is satisfied only by a managed package with the pinned
     /// archive digest whose owned files and original payload bytes are intact.
     /// A ledger entry alone is not proof that a prerequisite is still present.
+    /// The check reads only the ledger and the filesystem, never game discovery.
     /// This read does not lock; installation repeats it under the transaction lock.
     pub fn ready_dependencies(
         &self,
-        game_id: &str,
         game: &Path,
         dependencies: &[CatalogDependency],
     ) -> Result<Vec<String>> {
         if dependencies.is_empty() {
             return Ok(Vec::new());
         }
-        let installed = self.installed(game)?;
-        let report = scan_with_ownership_for(self, game_id, game)?;
+        let game = validate_transaction_root(game)?;
+        let installed = self.installed(&game)?;
         let mut satisfied = Vec::new();
         for dependency in dependencies {
             let before = satisfied.len();
@@ -114,7 +113,7 @@ impl Store {
                 installed
                     .iter()
                     .filter(|package| package.archive_sha256 == dependency.archive_sha256)
-                    .filter(|package| package_intact(&report, game, package))
+                    .filter(|package| package_intact(self, &game, package))
                     .map(|package| package.id.clone()),
             );
             if satisfied.len() == before {
@@ -128,19 +127,6 @@ impl Store {
         satisfied.dedup();
         Ok(satisfied)
     }
-}
-
-// Exclusive directories report "present"; their original payload bytes are
-// checked separately because runtime output inside them stays mutable.
-fn package_intact(report: &ScanReport, game: &Path, package: &ManagedPackage) -> bool {
-    let mut checks = report
-        .owned_files
-        .iter()
-        .filter(|entry| entry.package_id == package.id)
-        .peekable();
-    checks.peek().is_some()
-        && checks.all(|entry| entry.status.is_in_place())
-        && original_package_payloads_intact(game, package)
 }
 
 pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRecord) -> Result<()> {

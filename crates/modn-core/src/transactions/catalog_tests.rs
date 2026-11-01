@@ -200,3 +200,29 @@ fn plain_archive_installs_record_no_catalog_provenance() {
     assert_eq!(fixture.count("catalog_provenance"), 0);
     fixture.uninstall(&package.id).unwrap();
 }
+
+#[test]
+fn dependency_readiness_needs_no_game_module() {
+    let mut fixture = Fixture::new();
+    let base_archive = fixture.archive("base");
+    let base = fixture.install(&base_archive, "base", Vec::new()).unwrap();
+    let requirement = vec![dependency_on(&base_archive, "base")];
+
+    // No module source is selected here, so any Lua discovery would fail.
+    let ready = fixture
+        .store
+        .ready_dependencies(&fixture.game, &requirement)
+        .unwrap();
+    assert_eq!(ready, vec![base.id]);
+
+    fs::write(fixture.game.join("addons/base.plugin"), b"modified").unwrap();
+    let drifted = fixture
+        .store
+        .ready_dependencies(&fixture.game, &requirement)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        drifted.contains("dependency not installed or intact"),
+        "{drifted}"
+    );
+}
