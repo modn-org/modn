@@ -159,6 +159,8 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
         "notes#alpha#draft#keep.txt",
         "test-game#alpha#1.0#XYZ1234.zip",
         "test-game#alpha#1.0#abcdef0.zip.1234.download",
+        "test-game#alpha#1.0#abcdef0.zip.bak",
+        "test-game#alpha#1.0#abcdef0.zip.old",
     ] {
         fs::write(cache.root().join(name), b"keep").unwrap();
     }
@@ -170,7 +172,7 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
 
     assert_eq!(cache.remove(Some("alpha")).unwrap().len(), 1);
     assert_eq!(cache.remove(None).unwrap().len(), 1);
-    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 4);
+    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 6);
 }
 
 #[test]

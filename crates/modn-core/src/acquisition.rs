@@ -295,10 +295,14 @@ fn parse_entry_name(name: &str) -> Option<[&str; 3]> {
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
     };
     let (url_hash, ext) = rest.split_at_checked(7)?;
+    // `extension()` emits one final extension, so it never contains a dot.
     let valid_ext = ext.is_empty()
-        || ext
-            .strip_prefix('.')
-            .is_some_and(|ext| (1..=8).contains(&ext.len()) && named(ext));
+        || ext.strip_prefix('.').is_some_and(|ext| {
+            (1..=8).contains(&ext.len())
+                && ext
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        });
     (named(game_id)
         && named(mod_id)
         && named(version)
