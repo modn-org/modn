@@ -44,7 +44,7 @@ impl Store {
             })
             .collect();
         for f in &files {
-            let target = target_path(&game, &f.destination, /* create_parents= */ false)?;
+            let target = target_path(&game, &f.destination)?;
             if !target.is_file() || digest(&target)? != f.sha256 {
                 bail!(
                     "owned file missing or modified; refusing uninstall: {}",
@@ -55,7 +55,7 @@ impl Store {
         // Refuse absent, linked or replaced directories before recording a
         // persistent transaction; recovery must never need to guess ownership.
         for (index, root) in package.directories.iter().enumerate() {
-            let path = target_path(&game, root, false)?;
+            let path = target_path(&game, root)?;
             let metadata = fs::symlink_metadata(&path)?;
             if !metadata.is_dir()
                 || metadata.file_type().is_symlink()
@@ -89,7 +89,7 @@ impl Store {
                 quarantine(&game, root, &id, index, &identity)?;
             }
             for f in &files {
-                let target = target_path(&game, &f.destination, /* create_parents= */ false)?;
+                let target = target_path(&game, &f.destination)?;
                 if !target.is_file() || digest(&target)? != f.sha256 {
                     bail!("owned file modified during uninstall: {}", target.display());
                 }
@@ -118,6 +118,8 @@ impl Store {
         }
         self.recover_locked()
             .context("uninstall committed; cleanup incomplete, run 'modn recover'")?;
+        self.prune_created(&game)
+            .context("uninstall committed; folder cleanup incomplete, run 'modn recover'")?;
         Ok(())
     }
 }

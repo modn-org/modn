@@ -5,6 +5,9 @@ mod catalog_tests;
 mod conflicts;
 #[cfg(test)]
 mod conflicts_tests;
+mod created_dirs;
+#[cfg(test)]
+mod created_dirs_tests;
 mod directory;
 pub(crate) use directory::case_key as directory_candidate_key;
 mod directory_ledger;
@@ -12,6 +15,7 @@ mod directory_ledger;
 mod generic_tests;
 mod install;
 mod journal;
+mod recovery;
 mod stack;
 mod staging;
 #[cfg(test)]

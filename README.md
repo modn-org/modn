@@ -213,12 +213,40 @@ Modn installs the stack in dependency order under one transaction lock. The
 game policy plans each package after the packages before it are installed.
 Each package keeps its own ownership record, provenance and dependency links.
 If any package fails, Modn uninstalls the packages that this command
-installed, newest first. Like `modn uninstall`, rollback removes owned files
-but leaves empty parent directories that installation created. Two
+installed, newest first. Rollback, like `modn uninstall`, also removes the
+parent directories that Modn created, once they are empty. Two
 dependencies that pin the same archive digest install it once. If the process stops before the stack completes,
 other writes are refused until `modn recover --yes` uninstalls the stack's
 packages. A damaged dependency or another installed release is never replaced:
 the install fails until you restore or uninstall it.
+
+### Directories Modn creates
+
+An install creates the missing parent directories of its files. Modn
+journals each one before it creates it, with the directory's native identity
+(volume and file index on Windows, device, inode and birth time on Linux).
+The install's commit moves these records into a per-game ledger of
+directories that Modn created. Uninstall, rollback, stack rollback and
+`modn recover` remove a recorded directory deepest first, and only in these
+cases:
+- it is empty
+- it is still a real directory, not a link
+- its identity still matches
+
+A directory that holds other content stays recorded; a later uninstall or
+`modn recover` removes it once it is empty. A directory that was replaced is
+forgotten and left alone. A directory that existed before Modn is never
+recorded, so Modn never removes it, even when it is empty. The ledger belongs
+to the game, not one package, so directories that several packages share stay
+until the last file in them is gone. A record without an identity proves
+nothing: a crash may have come before the `create_dir`, and another tool may
+have made the directory since. Modn forgets such a record and never acts on it.
+So on platforms without a native directory identity, Modn records nothing and
+leaves the directories, as before. Recovery prunes only a game root that is
+still a real directory at its recorded canonical path. On Linux, directory
+records are case-sensitive. A directory that a rolled-back install created but
+that still holds content moves into the ledger, so a later prune can remove it.
+`modn game remove` ends the records for that game.
 
 ### Download cache
 

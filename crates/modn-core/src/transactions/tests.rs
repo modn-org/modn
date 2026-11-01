@@ -140,7 +140,7 @@ fn recovering_crashed_install_removes_only_proven_hardlinks() {
             &[],
         )
         .unwrap();
-    let dest = target_path(&game, &f.destination, /* create_parents= */ true).unwrap();
+    let dest = test_target(&game, &f.destination);
     let temp = temp_path(&dest, id, 0).unwrap();
     fs::write(&temp, b"owned").unwrap();
     fs::hard_link(&temp, &dest).unwrap();
@@ -155,7 +155,7 @@ fn recovering_crashed_uninstall_restores_original_file() {
     let (_dir, mut store, game) = fixture();
     let f = prepared_file("archive/pc/mod/crashed.archive", b"owned");
     let id = "txn-test-uninstall";
-    let dest = target_path(&game, &f.destination, /* create_parents= */ true).unwrap();
+    let dest = test_target(&game, &f.destination);
     fs::write(&dest, b"owned").unwrap();
     store
         .insert_journal(
@@ -192,7 +192,7 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
             &[],
         )
         .unwrap();
-    let dest = target_path(&game, &f.destination, /* create_parents= */ true).unwrap();
+    let dest = test_target(&game, &f.destination);
     let temp = temp_path(&dest, id, 0).unwrap();
     fs::write(&temp, b"owned").unwrap();
     fs::hard_link(&temp, &dest).unwrap();
@@ -365,4 +365,10 @@ fn redscript_archivexl_mixed_failure_preserves_manual_files_and_recovers() {
     for name in [script, xl, legacy] {
         assert!(!game.join(name).exists());
     }
+}
+
+/// Simulated crash states need the destination's parent directories.
+fn test_target(game: &Path, relative: &str) -> PathBuf {
+    fs::create_dir_all(game.join(relative).parent().unwrap()).unwrap();
+    target_path(game, relative).unwrap()
 }

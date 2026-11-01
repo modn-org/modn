@@ -73,4 +73,5 @@ through the first-party Cyberpunk policy in dependency order: 137 owned files.
 Uninstalling in reverse order restores the fixture. The milestone 3 gate
 (`apps/modn-cli/tests/milestone_gate.rs`) repeats this through catalog stack
 installs, which download the `https` archives, and adds rollback and recovery
-checks. Uninstall leaves the empty directories that installation created.
+checks. It compares the whole tree, directories included: uninstall and
+rollback also remove the empty directories that Modn created.

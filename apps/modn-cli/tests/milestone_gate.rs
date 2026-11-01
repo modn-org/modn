@@ -15,16 +15,18 @@
 //! `MODN_GATE_CACHE` optionally reuses a download cache between runs.
 #[path = "support/catalog.rs"]
 mod support;
+#[path = "support/tree.rs"]
+mod tree;
 
 use rusqlite::Connection;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use support::{error, Fixture};
+use tree::{file_count, sha, snapshot};
 use zip::write::SimpleFileOptions;
 
 /// One official prerequisite release and its declared requirements.
@@ -113,29 +115,6 @@ const TOPS: [&str; 5] = [
     "no-intro-videos",
     "cet",
 ];
-
-/// Every regular file under `root`, by relative path, with its digest.
-fn snapshot(root: &Path) -> BTreeMap<String, String> {
-    fn walk(root: &Path, dir: &Path, files: &mut BTreeMap<String, String>) {
-        for entry in fs::read_dir(dir).expect("read dir") {
-            let path = entry.expect("entry").path();
-            if path.is_dir() {
-                walk(root, &path, files);
-            } else {
-                let relative = path.strip_prefix(root).expect("prefix");
-                let digest = format!("{:x}", Sha256::digest(fs::read(&path).expect("file")));
-                files.insert(relative.to_string_lossy().replace('\\', "/"), digest);
-            }
-        }
-    }
-    let mut files = BTreeMap::new();
-    walk(root, root, &mut files);
-    files
-}
-
-fn sha(path: &Path) -> String {
-    format!("{:x}", Sha256::digest(fs::read(path).expect("archive")))
-}
 
 struct Gate {
     fixture: Fixture,
@@ -229,7 +208,7 @@ impl Gate {
         fs::write(&occupied, b"unmanaged user file").expect("planted file");
         // Captured before the install, so a changed planted file fails.
         let expected = snapshot(&self.game);
-        assert_eq!(expected.len(), before.len() + 1);
+        assert_eq!(file_count(&expected), file_count(&before) + 1);
         let message = self
             .install("virtual-atelier", extra)
             .expect_err("occupied destination must fail");
@@ -237,6 +216,16 @@ impl Gate {
         assert!(self.managed().is_empty());
         assert_eq!(snapshot(&self.game), expected);
         fs::remove_file(&occupied).expect("remove planted file");
+        // The test, not Modn, created the planted file's missing parents.
+        let mut parent = Path::new(planted).parent();
+        while let Some(directory) = parent.filter(|p| !p.as_os_str().is_empty()) {
+            let key = format!("{}/", directory.to_string_lossy().replace('\\', "/"));
+            if !before.contains_key(&key) {
+                fs::remove_dir(self.game.join(directory)).expect("remove planted parent");
+            }
+            parent = directory.parent();
+        }
+        assert_eq!(snapshot(&self.game), before);
 
         // 2. A stack interrupted before it commits is rolled back by recovery.
         let ids = self.install("codeware", extra).expect("codeware stack");
@@ -268,7 +257,10 @@ impl Gate {
             .iter()
             .map(|package| package["files"].as_array().expect("files").len())
             .sum();
-        assert_eq!(snapshot(&self.game).len(), before.len() + owned);
+        assert_eq!(
+            file_count(&snapshot(&self.game)),
+            file_count(&before) + owned
+        );
         for id in order.iter().rev() {
             self.uninstall(id);
         }
