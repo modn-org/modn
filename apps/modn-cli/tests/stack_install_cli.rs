@@ -248,3 +248,45 @@ fn declared_executables_need_explicit_approval_before_the_stack_starts() {
     assert!(approved.status.success(), "{}", error(&approved));
     assert_eq!(managed(&fixture), 3);
 }
+
+#[test]
+fn dependencies_sharing_one_archive_install_it_once() {
+    let fixture = Fixture::new();
+    let (shared, shared_hash) = plugin_archive(&fixture, "shared");
+    let (top, top_hash) = plugin_archive(&fixture, "top");
+    fixture.bucket("deps", "test-game", "a", &shared_hash, &[]);
+    manifest(&fixture, "b", &shared_hash, &[], json!({}));
+    manifest(&fixture, "top", &top_hash, &["a", "b"], json!({}));
+    fixture.register();
+
+    let installed = run(
+        &fixture,
+        &["--json", "install", "top", "--yes"],
+        &[&shared, &top],
+    );
+    assert!(installed.status.success(), "{}", error(&installed));
+    let report: Value = serde_json::from_slice(&installed.stdout).expect("JSON");
+    let order: Vec<&str> = report["stack"]
+        .as_array()
+        .expect("stack")
+        .iter()
+        .map(|member| member["package"].as_str().expect("reference"))
+        .collect();
+    assert_eq!(order, ["deps/test-game/a", "deps/test-game/top"]);
+    assert_eq!(managed(&fixture), 2);
+
+    // The mod itself may not share its archive with a missing dependency.
+    let fixture = Fixture::new();
+    let (archive, hash) = plugin_archive(&fixture, "same");
+    fixture.bucket("deps", "test-game", "base", &hash, &[]);
+    manifest(&fixture, "top", &hash, &["base"], json!({}));
+    fixture.register();
+    let refused = run(&fixture, &["install", "top", "--yes"], &[&archive]);
+    assert!(!refused.status.success());
+    assert!(
+        error(&refused).contains("also the archive of a missing dependency"),
+        "{}",
+        error(&refused)
+    );
+    assert!(!fixture.game.join("addons").exists());
+}

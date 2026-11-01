@@ -210,7 +210,9 @@ Modn installs the stack in dependency order under one transaction lock. The
 game policy plans each package after the packages before it are installed.
 Each package keeps its own ownership record, provenance and dependency links.
 If any package fails, Modn uninstalls the packages that this command
-installed, newest first. If the process stops before the stack completes,
+installed, newest first. Like `modn uninstall`, rollback removes owned files
+but leaves empty parent directories that installation created. Two
+dependencies that pin the same archive digest install it once. If the process stops before the stack completes,
 other writes are refused until `modn recover --yes` uninstalls the stack's
 packages. A damaged dependency or another installed release is never replaced:
 the install fails until you restore or uninstall it.

@@ -12,7 +12,7 @@ use anyhow::{bail, Context, Result};
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::planning::{preview_install_zip_with_permissions, PlanStatus};
 use modn_core::transactions::StackMember;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::PathBuf;
 
@@ -31,15 +31,27 @@ pub(super) struct Stack<'a> {
 }
 
 /// Releases to install, in order: every missing dependency, then the mod.
+///
+/// One managed package satisfies every release that pins its archive digest,
+/// so each digest installs once: a second release with the same archive
+/// would only collide with the first.
 fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<(&'a BucketPackage, PathBuf)>> {
-    let needed: Vec<&BucketPackage> = stack
+    let mut digests = BTreeSet::new();
+    let mut needed: Vec<&BucketPackage> = stack
         .order
         .iter()
         .zip(stack.dependencies)
         .filter(|(_, dependency)| dependency.missing())
         .map(|(release, _)| release)
-        .chain([stack.selected])
+        .filter(|release| digests.insert(release.package.sha256.as_str()))
         .collect();
+    if digests.contains(stack.selected.package.sha256.as_str()) {
+        bail!(
+            "{}: its archive is also the archive of a missing dependency; install that dependency first",
+            reference_of(stack.selected)
+        );
+    }
+    needed.push(stack.selected);
     let absent: Vec<String> = needed
         .iter()
         .filter(|release| {
