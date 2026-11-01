@@ -28,7 +28,7 @@ impl Installed {
     fn label(&self) -> String {
         match &self.reference {
             Some(reference) => format!("{} ({reference})", self.id),
-            None => format!("{} (archive {})", self.id, &self.archive_sha256),
+            None => format!("{} (archive {})", self.id, self.archive_sha256),
         }
     }
 
