@@ -116,3 +116,24 @@ fn bundled_snapshot_matches_the_checked_in_bucket_directory() {
     let search = modn(&state, &["search"]);
     assert_eq!(entries_in(&search, "main"), entries_in(&search, "checkout"));
 }
+
+#[test]
+fn every_official_mod_resolves_with_its_version_requirements() {
+    let temp = TempDir::new().expect("fixture");
+    let game = temp.path().join("game");
+    fs::create_dir_all(game.join("bin/x64")).expect("game");
+    fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").expect("marker");
+    let state = temp.path().join("state");
+    let game_path = game.to_str().expect("UTF-8 game path");
+    for id in PREREQUISITES {
+        let plan = modn(&state, &["install", id, "--dry-run", "--path", game_path]);
+        assert_eq!(plan["package"], format!("main/cyberpunk-2077/{id}"));
+    }
+    let constrained = modn(&state, &["search"])
+        .as_array()
+        .expect("search array")
+        .iter()
+        .filter(|entry| entry["dependency_versions"].is_object())
+        .count();
+    assert_eq!(constrained, 4);
+}

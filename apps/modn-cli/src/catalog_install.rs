@@ -11,7 +11,9 @@ use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{install_order, ArchiveFormat, BucketPackage, BucketStore, PackageSource};
 use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
-use modn_core::transactions::{CatalogDependency, CatalogReference, CatalogRelease};
+use modn_core::transactions::{
+    CatalogConflict, CatalogDependency, CatalogReference, CatalogRelease,
+};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
@@ -133,11 +135,12 @@ pub(super) fn catalog_release(
     catalog: &BucketStore,
 ) -> Result<CatalogRelease> {
     let reference = reference_of(selected);
-    let catalog_packages = if selected.package.dependencies.is_empty() {
-        Vec::new()
-    } else {
-        catalog.packages(Some(&selected.package.game))?
-    };
+    let catalog_packages =
+        if selected.package.dependencies.is_empty() && selected.package.conflicts.is_empty() {
+            Vec::new()
+        } else {
+            catalog.packages(Some(&selected.package.game))?
+        };
     let dependencies = selected
         .package
         .dependencies
@@ -160,7 +163,29 @@ pub(super) fn catalog_release(
             ))
         })
         .collect::<Result<_>>()?;
-    Ok(CatalogRelease::new(reference, dependencies))
+    let conflicts = selected
+        .package
+        .conflicts
+        .iter()
+        .map(|id| {
+            // A conflicting mod the bucket publishes also matches by digest.
+            let published = catalog_packages
+                .iter()
+                .find(|candidate| {
+                    candidate.bucket == selected.bucket && candidate.package.id == *id
+                })
+                .map(|candidate| candidate.package.sha256.clone());
+            CatalogConflict::new(
+                CatalogReference::new(
+                    selected.bucket.clone(),
+                    selected.package.game.clone(),
+                    id.clone(),
+                ),
+                published,
+            )
+        })
+        .collect();
+    Ok(CatalogRelease::new(reference, dependencies).with_conflicts(conflicts))
 }
 
 /// Match each supplied archive to the selected release or one of its
@@ -249,6 +274,23 @@ fn install_mod(
         )?;
     }
     let dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+    // Check declared conflicts before any download or write; the Rust core
+    // repeats the check for each package under the transaction lock.
+    let installing: Vec<&BucketPackage> = order
+        .iter()
+        .zip(&dependencies)
+        .filter(|(_, dependency)| dependency.missing())
+        .map(|(release, _)| release)
+        .chain([&selected])
+        .collect();
+    let conflicts =
+        dependency_plan::conflicts(&installing, &catalog, state.existing(), &installation)?;
+    if !args.dry_run && !conflicts.is_empty() {
+        bail!(
+            "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
+            conflicts.join("\n  ")
+        );
+    }
     // Missing dependencies install with the mod as one stack. A damaged
     // dependency or another installed release keeps the single-install path,
     // which fails closed: Modn never replaces or repairs a framework implicitly.
@@ -304,7 +346,14 @@ fn install_mod(
         download::download(&cache, cache_use, &[&selected], &mut archives, json)?;
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
-        return dependency_plan::report(&reference, &selected, None, &dependencies, json);
+        return dependency_plan::report(
+            &reference,
+            &selected,
+            None,
+            &dependencies,
+            &conflicts,
+            json,
+        );
     };
     let preview = |approved: &[String]| -> Result<InstallPlan> {
         let plan =
@@ -345,7 +394,14 @@ fn install_mod(
             plan: &plan,
             unapproved_declared_executables: &pending,
         };
-        return dependency_plan::report(&reference, &selected, Some(preview), &dependencies, json);
+        return dependency_plan::report(
+            &reference,
+            &selected,
+            Some(preview),
+            &dependencies,
+            &conflicts,
+            json,
+        );
     }
     let mut approved = explicit.clone();
     if interactive && !pending.is_empty() {

@@ -59,12 +59,18 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
             needed.push(release);
             continue;
         };
-        let declared = |release: &BucketPackage| -> BTreeSet<String> {
-            release.package.dependencies.iter().cloned().collect()
+        // Only the kept release's requirements are checked under the lock
+        // and recorded, so a skipped alias must declare the same ones.
+        let declared = |release: &BucketPackage| -> (BTreeSet<String>, BTreeSet<String>) {
+            let set = |ids: &[String]| ids.iter().cloned().collect();
+            (
+                set(&release.package.dependencies),
+                set(&release.package.conflicts),
+            )
         };
         if declared(kept) != declared(release) {
             bail!(
-                "{} and {} share one archive but declare different dependencies; install them separately",
+                "{} and {} share one archive but declare different dependencies or conflicts; install them separately",
                 reference_of(kept),
                 reference_of(release)
             );

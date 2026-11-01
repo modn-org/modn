@@ -44,10 +44,12 @@ were read by the reviewer of this snapshot.
 - `cet`: the v1.38.1 README says to install RED4ext first.
 - `archivexl`, `tweakxl`, `codeware`: their READMEs require RED4ext 1.31.0+
   and list redscript 0.5.32+ for compatibility. Each ships `.reds` scripts.
+  Their manifests declare both as `dependency_versions`.
 - `mod-settings`: its README requires RED4ext and redscript. It also ships
   `ModSettings.archive.xl`, which ArchiveXL loads.
 - `equipment-ex`: its README requires ArchiveXL, TweakXL, Codeware and
-  redscript. Its scripts check for ArchiveXL 1.28.0 and TweakXL 1.12.0.
+  redscript. Its scripts check for ArchiveXL 1.28.0 and TweakXL 1.12.0, which
+  its manifest declares as `dependency_versions`.
 - `virtual-atelier`: imports `Codeware.UI` unconditionally and ships an
   `.archive.xl`, so it needs Codeware and ArchiveXL. Its Nexus page also
   requires Mod Settings, which configures it through `@runtimeProperty`
@@ -56,6 +58,9 @@ were read by the reviewer of this snapshot.
 - `browser-extension`: its Nexus page requires redscript, RED4ext and
   Codeware. Its Mod Settings support is conditional.
 - `no-intro-videos`: one redscript source file.
+
+No upstream source documents a conflict between these packages, so no manifest
+declares `conflicts`.
 
 ## Compatibility
 

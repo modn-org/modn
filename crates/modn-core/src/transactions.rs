@@ -2,6 +2,9 @@
 mod catalog;
 #[cfg(test)]
 mod catalog_tests;
+mod conflicts;
+#[cfg(test)]
+mod conflicts_tests;
 mod directory;
 pub(crate) use directory::case_key as directory_candidate_key;
 mod directory_ledger;
@@ -16,7 +19,9 @@ mod tests;
 mod uninstall;
 mod validation;
 
-pub use catalog::{CatalogDependency, CatalogReference, CatalogRelease, DependencyState};
+pub use catalog::{
+    CatalogConflict, CatalogDependency, CatalogReference, CatalogRelease, DependencyState,
+};
 pub(crate) use journal::lock_store;
 pub use journal::{ManagedPackage, OwnedFile};
 pub use stack::StackMember;

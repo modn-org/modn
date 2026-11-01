@@ -50,8 +50,10 @@ until there is a real requirement.
   order and the state of each dependency. `modn install <mod> --file ...`
   installs the mod and its missing dependencies from supplied archives as one
   approved stack that rolls back as a whole. Missing `https` archives download
-  into a SHA-256-verified cache, after Scoop's. Version constraints and the
-  full catalog remain future milestones.
+  into a SHA-256-verified cache, after Scoop's. Manifests may declare
+  dependency version requirements and conflicts, which block a plan before
+  any write. Choosing between several releases of one mod and the full catalog
+  remain future milestones.
 
 ## Milestones (in dependency order)
 

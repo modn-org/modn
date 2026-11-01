@@ -304,7 +304,7 @@ fn dependencies_sharing_one_archive_install_it_once() {
     assert!(!refused.status.success());
     assert!(
         error(&refused).contains(
-            "deps/test-game/a and deps/test-game/b share one archive but declare different dependencies"
+            "deps/test-game/a and deps/test-game/b share one archive but declare different dependencies or conflicts"
         ),
         "{}",
         error(&refused)

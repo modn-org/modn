@@ -1,7 +1,7 @@
 //! Read-only dependency plan shown by `modn install <mod> --dry-run`.
-use crate::catalog_install::reference_of;
+use crate::catalog_install::{catalog_release, reference_of};
 use anyhow::Result;
-use modn_core::buckets::{BucketPackage, PackageSource};
+use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
 use modn_core::transactions::{CatalogDependency, DependencyState};
@@ -105,6 +105,29 @@ pub(super) fn plan(
         .collect())
 }
 
+/// Installed packages that conflict with any release this command installs.
+pub(super) fn conflicts(
+    releases: &[&BucketPackage],
+    catalog: &BucketStore,
+    store: Option<&Store>,
+    game: &Path,
+) -> Result<Vec<String>> {
+    let Some(store) = store else {
+        return Ok(Vec::new());
+    };
+    let mut found = Vec::new();
+    for release in releases {
+        let reference = reference_of(release);
+        let catalog_release = catalog_release(release, catalog)?;
+        for package in
+            store.conflicting_packages(game, Some(&catalog_release), &release.package.sha256)?
+        {
+            found.push(format!("{reference} conflicts with installed {package}"));
+        }
+    }
+    Ok(found)
+}
+
 /// How to obtain an archive, as a short instruction.
 pub(super) fn acquisition(source: &PackageSource) -> String {
     match source {
@@ -129,6 +152,7 @@ pub(super) fn report(
     selected: &BucketPackage,
     archive: Option<ArchivePreview<'_>>,
     dependencies: &[PlannedDependency],
+    conflicts: &[String],
     json: bool,
 ) -> Result<()> {
     if json {
@@ -146,11 +170,15 @@ pub(super) fn report(
                     .map(PlannedDependency::as_json)
                     .collect::<Result<Vec<_>>>()?,
                 "dependencies_ready": dependencies.iter().all(PlannedDependency::ready),
+                "conflicts": conflicts,
             }))?
         );
         return Ok(());
     }
     print(dependencies);
+    for conflict in conflicts {
+        println!("CONFLICT {conflict}");
+    }
     let Some(preview) = archive else {
         let next = match &selected.package.source {
             PackageSource::Https { .. } => "when you install it",

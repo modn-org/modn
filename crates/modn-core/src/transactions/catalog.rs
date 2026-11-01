@@ -35,6 +35,28 @@ impl CatalogReference {
     }
 }
 
+/// A catalog mod that must not share a game installation with a release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CatalogConflict {
+    /// Catalog identity of the conflicting mod.
+    pub reference: CatalogReference,
+    /// Archive digest the bucket pins for that mod, when it publishes one.
+    /// A managed package with this digest counts as that mod.
+    pub archive_sha256: Option<String>,
+}
+
+impl CatalogConflict {
+    /// Declare a conflict with one catalog mod.
+    #[must_use]
+    pub fn new(reference: CatalogReference, archive_sha256: Option<String>) -> Self {
+        Self {
+            reference,
+            archive_sha256,
+        }
+    }
+}
+
 impl CatalogDependency {
     /// Require the release whose archive digest is pinned by its manifest.
     #[must_use]
@@ -53,7 +75,15 @@ impl CatalogRelease {
         Self {
             reference,
             dependencies,
+            conflicts: Vec::new(),
         }
+    }
+
+    /// Add the catalog mods this release must not be installed with.
+    #[must_use]
+    pub fn with_conflicts(mut self, conflicts: Vec<CatalogConflict>) -> Self {
+        self.conflicts = conflicts;
+        self
     }
 }
 
@@ -81,6 +111,8 @@ pub struct CatalogRelease {
     pub reference: CatalogReference,
     /// Releases that must already be managed and intact in the same game installation.
     pub dependencies: Vec<CatalogDependency>,
+    /// Catalog mods that must not be managed in the same game installation.
+    pub conflicts: Vec<CatalogConflict>,
 }
 
 /// A catalog release to install, optionally as one member of a stack.
@@ -248,10 +280,12 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
             params![stack_id, package_id],
         )?;
     }
+    super::conflicts::record(tx, package_id, record.release)?;
     Ok(())
 }
 
 pub(super) fn forget(tx: &Transaction<'_>, package_id: &str) -> Result<()> {
+    super::conflicts::forget(tx, package_id)?;
     tx.execute(
         "DELETE FROM pending_stack_packages WHERE package_id=?1",
         [package_id],

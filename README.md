@@ -450,7 +450,8 @@ A local bucket contains `bucket.json` (schema_version: 1, name, title)
 and `games/<game-id>/<package-id>.json` files. Each package record
 has schema_version, id, game, name, version, archive_format (`zip`/`7z`),
 sha256, source (`manual` with filename, or `https` with URL),
-optional dependencies (same-game IDs) and homepage. Unknown fields and
+optional dependencies (same-game IDs), dependency_versions, conflicts,
+executables and homepage. Unknown fields and
 unsupported schemas are rejected. See `buckets/main` for examples.
 Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. Buckets contain mod-package metadata only;
@@ -461,5 +462,24 @@ Bucket registration, listing, searching and manifest inspection are
 **metadata-only** and never modify game files. A catalog entry can be
 installed from a supplied, SHA-256-verified ZIP/7z with an explicit approval;
 standalone local archives use the same managed transaction engine. A checksum
-proves the bytes match a catalog record, not publisher trust. Version
-constraints and conflict solving are future milestones.
+proves the bytes match a catalog record, not publisher trust.
+
+A manifest may require a dependency version with `dependency_versions` and
+declare `conflicts` with other mods of its bucket and game. Before any
+download or write, Modn refuses a plan in these cases:
+- a dependency's release in the bucket misses a requirement
+- two releases in the installation conflict
+- a release conflicts with an installed managed package, in either direction
+
+A dry run lists these conflicts in `conflicts`. The Rust core checks
+conflicts again under the transaction lock, and records each package's
+conflicts in the same commit as its ownership. A conflict matches by catalog
+identity or by the pinned archive digest, the same rule that dependency
+readiness uses. So a mod installed through another manifest with the same
+archive is still caught. A standalone `modn install <archive>` also meets the
+recorded conflicts, by its digest. On older state without catalog tables,
+installed packages still match by digest. A shared-archive alias in a stack must declare the same
+dependencies and conflicts as the release that installs the archive. A bucket publishes one release
+per mod, so Modn checks requirements rather than choosing between versions.
+Installed packages carry no version, so an `other_release` dependency is
+still not replaced or reinterpreted.

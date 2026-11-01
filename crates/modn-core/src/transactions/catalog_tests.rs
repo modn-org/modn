@@ -14,14 +14,14 @@ use std::path::{Path, PathBuf};
 use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
-struct Fixture {
+pub(super) struct Fixture {
     dir: TempDir,
-    store: Store,
-    game: PathBuf,
+    pub(super) store: Store,
+    pub(super) game: PathBuf,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = tempdir().unwrap();
         let game = dir.path().join("game");
         fs::create_dir_all(game.join("bin")).unwrap();
@@ -31,7 +31,7 @@ impl Fixture {
         Self { dir, store, game }
     }
 
-    fn archive(&self, name: &str) -> PathBuf {
+    pub(super) fn archive(&self, name: &str) -> PathBuf {
         let path = self.dir.path().join(format!("{name}.zip"));
         let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
         zip.start_file(format!("pack/{name}.plugin"), SimpleFileOptions::default())
@@ -47,10 +47,17 @@ impl Fixture {
         mod_id: &str,
         dependencies: Vec<CatalogDependency>,
     ) -> anyhow::Result<ManagedPackage> {
-        let release = CatalogRelease {
-            reference: reference(mod_id),
-            dependencies,
-        };
+        self.install_release(
+            archive,
+            CatalogRelease::new(reference(mod_id), dependencies),
+        )
+    }
+
+    pub(super) fn install_release(
+        &mut self,
+        archive: &Path,
+        release: CatalogRelease,
+    ) -> anyhow::Result<ManagedPackage> {
         let proposal = plan(&self.game, archive);
         let game = self.game.clone();
         with_module_source(Some(&module_source()), || {
@@ -59,14 +66,18 @@ impl Fixture {
         })
     }
 
-    fn uninstall(&mut self, package_id: &str) -> anyhow::Result<()> {
+    pub(super) fn uninstall(&mut self, package_id: &str) -> anyhow::Result<()> {
         let game = self.game.clone();
         with_module_source(Some(&module_source()), || {
             self.store.uninstall(&game, package_id)
         })
     }
 
-    fn count(&self, table: &str) -> i64 {
+    pub(super) fn state_path(&self) -> PathBuf {
+        self.dir.path().join("state/state.sqlite")
+    }
+
+    pub(super) fn count(&self, table: &str) -> i64 {
         self.store
             .connection
             .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
@@ -80,7 +91,7 @@ fn module_source() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game")
 }
 
-fn reference(mod_id: &str) -> CatalogReference {
+pub(super) fn reference(mod_id: &str) -> CatalogReference {
     CatalogReference {
         bucket: "deps".into(),
         game_id: "test-game".into(),
@@ -311,10 +322,7 @@ fn read_only_state_without_provenance_table_reports_missing_dependencies() {
 fn member(archive: &Path, mod_id: &str, dependencies: Vec<CatalogDependency>) -> StackMember {
     StackMember::new(
         archive.to_path_buf(),
-        CatalogRelease {
-            reference: reference(mod_id),
-            dependencies,
-        },
+        CatalogRelease::new(reference(mod_id), dependencies),
         Vec::new(),
     )
 }
@@ -418,10 +426,7 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
     let base = fixture.archive("base");
     let other = fixture.archive("other");
     let game = fixture.game.clone();
-    let release = CatalogRelease {
-        reference: reference("base"),
-        dependencies: Vec::new(),
-    };
+    let release = CatalogRelease::new(reference("base"), Vec::new());
     // Simulate a crash after the first member committed, before the stack did.
     let proposal = plan(&game, &base);
     let stack_id = fixture.store.begin_stack(&game).unwrap();

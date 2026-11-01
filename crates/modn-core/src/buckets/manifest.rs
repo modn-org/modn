@@ -1,6 +1,7 @@
-use anyhow::{bail, Result};
+use super::version::VersionReq;
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 /// One immutable package version, independent of installer policy.
 #[expect(
@@ -27,6 +28,14 @@ pub struct PackageManifest {
     /// lets Modn name them in its confirmation prompt; it never approves them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub executables: Vec<String>,
+    /// Version requirement for each listed dependency that needs one, such
+    /// as `{"red4ext": ">=1.31.0"}`. The bucket's release must satisfy it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dependency_versions: BTreeMap<String, String>,
+    /// Mods in the same bucket and game that must not be installed together
+    /// with this one, in either order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<String>,
 }
 
 /// Format of the original, unextracted download.
@@ -67,6 +76,7 @@ pub(super) fn valid_id(value: &str) -> bool {
 }
 
 const MAX_EXECUTABLES: usize = 16;
+const MAX_CONFLICTS: usize = 32;
 
 /// Matches the only executables Rust can approve: an exact, normalized
 /// game-relative `.exe` path inside a `tools` directory.
@@ -163,6 +173,29 @@ impl PackageManifest {
                 bail!("invalid, self-referential or duplicate dependency");
             }
         }
+        for (dependency, requirement) in &self.dependency_versions {
+            if !unique.contains(dependency) {
+                bail!("dependency_versions names {dependency}, which is not a dependency");
+            }
+            if requirement.len() > 64 {
+                bail!("version requirement for {dependency} is too long");
+            }
+            VersionReq::parse(requirement)
+                .with_context(|| format!("invalid version requirement for {dependency}"))?;
+        }
+        let mut conflicts = HashSet::new();
+        if self.conflicts.len() > MAX_CONFLICTS {
+            bail!("too many conflicts");
+        }
+        for conflict in &self.conflicts {
+            if !valid_id(conflict)
+                || conflict == &self.id
+                || unique.contains(conflict)
+                || !conflicts.insert(conflict)
+            {
+                bail!("invalid, self-referential, duplicate or depended-on conflict: {conflict}");
+            }
+        }
         Ok(())
     }
 }
@@ -193,6 +226,48 @@ mod tests {
             "engine/tools/scc.bat",
         ] {
             assert!(!valid_tool_executable(path), "{path:?}");
+        }
+    }
+
+    fn manifest(extra: serde_json::Value) -> anyhow::Result<()> {
+        let mut value = serde_json::json!({
+            "schema_version": 1, "id": "top", "game": "test-game", "name": "Top",
+            "version": "1.0", "archive_format": "zip", "sha256": "0".repeat(64),
+            "source": {"kind": "manual", "filename": "top.zip"},
+            "dependencies": ["base", "xl"]
+        });
+        if let (Some(value), serde_json::Value::Object(extra)) = (value.as_object_mut(), extra) {
+            value.extend(extra);
+        }
+        let manifest: super::PackageManifest = serde_json::from_value(value)?;
+        manifest.validate("test-game", "top")
+    }
+
+    #[test]
+    fn version_requirements_and_conflicts_are_validated() {
+        use serde_json::json;
+        manifest(json!({})).expect("no new fields");
+        manifest(json!({
+            "dependency_versions": {"base": ">=1.31.0", "xl": ">=1.28.0, <2"},
+            "conflicts": ["rival"]
+        }))
+        .expect("valid fields");
+        for (extra, message) in [
+            (
+                json!({"dependency_versions": {"other": ">=1"}}),
+                "not a dependency",
+            ),
+            (
+                json!({"dependency_versions": {"base": "1.0"}}),
+                "invalid version requirement",
+            ),
+            (json!({"conflicts": ["top"]}), "self-referential"),
+            (json!({"conflicts": ["base"]}), "depended-on"),
+            (json!({"conflicts": ["rival", "rival"]}), "duplicate"),
+            (json!({"conflicts": ["Bad_ID"]}), "invalid"),
+        ] {
+            let error = format!("{:#}", manifest(extra.clone()).unwrap_err());
+            assert!(error.contains(message), "{extra}: {error}");
         }
     }
 }
