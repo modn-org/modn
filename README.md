@@ -8,6 +8,8 @@ Requires a current stable Rust toolchain.
 
 ```sh
 cargo test --workspace
+# Milestone 3 gate with the real archives, in a disposable fake game directory:
+MODN_GATE_ARCHIVES=~/Downloads/CP77 cargo test -p modn-cli --test milestone_gate -- --ignored
 cargo run --bin modn -- game add cyberpunk-2077 --path "/path/to/Cyberpunk 2077"
 cargo run --bin modn -- game list
 cargo run --bin modn -- scan --json
