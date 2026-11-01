@@ -9,8 +9,8 @@ for working commands, [data-model.md](data-model.md) for invariants and
 
 Modn is a game-agnostic Rust mod manager using first-party Lua 5.4 game
 modules. Every supported game has a canonical source at
-`crates/modn-core/game-modules/<game-id>/`. Modn reviews and ships these
-sources with the application. They are not downloaded, installed, activated,
+`crates/modn-core/game-modules/<game-id>/`. Modn reviews these sources and
+compiles them into the executable. They are not downloaded, installed, activated,
 or updated through buckets.
 
 The `main` official bucket and registered local community buckets describe
@@ -53,7 +53,7 @@ and the separate ZIP module installation/activation database. Keep one Lua
 source per supported game in Modn and a temporary development override.
 Preserve current discovery, diagnostics and safe installation proposals.
 
-**Exit gate:** Cyberpunk policy loads from the bundled first-party directory,
+**Exit gate:** Cyberpunk policy loads from the embedded first-party module,
 overrides do not persist or fall back silently, and an independent fictional
 module runs without game-specific Rust.
 

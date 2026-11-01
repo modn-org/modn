@@ -11,7 +11,7 @@ Modn separates **first-party executable game support**, **catalog metadata**,
 and **managed installation state**.
 
 First-party Lua 5.4 modules are reviewed with Modn, sourced at
-`crates/modn-core/game-modules/<game-id>/` and released with the application.
+`crates/modn-core/game-modules/<game-id>/` and compiled into the executable.
 They are not bucket entries or independently installable artifacts. The
 development-only `--module-src` flag selects a local source for one command;
 it does not change any persistent selection or stored installation record.
@@ -60,7 +60,7 @@ first-party Lua policy. Do not confuse an identity with a physical installation.
 
 ### First-party game module
 
-Each supported game has one bundled `module.json` and Lua entrypoint.
+Each supported game has one embedded `module.json` and Lua entrypoint.
 The manifest declares `game_id`, `version`, `api_version` and
 `entrypoint`. Modn releases carry changes to supported game policies.
 A caller can explicitly provide a temporary alternative source for tests;
@@ -154,7 +154,7 @@ fixture exercises game-agnostic support.
 | File ownership | `state.sqlite / managed_files(...)` |
 | Directory ownership | `state.sqlite / managed_directories(...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
-| Game module | Bundled first-party `game-modules/<game-id>/module.json` + Lua |
+| Game module | First-party `game-modules/<game-id>/module.json` + Lua, embedded with `include_str!` |
 | Development override | In-memory per-invocation `--module-src` / `--src` |
 | Bucket packages | Embedded `main` snapshot and explicitly registered local directories |
 

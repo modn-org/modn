@@ -1,1 +1,2 @@
 crates/modn-core/game-modules/**/*.lua text eol=lf
+crates/modn-core/game-modules/**/module.json text eol=lf

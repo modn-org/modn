@@ -192,11 +192,39 @@ pub(super) fn read_verified_module(directory: &Path) -> Result<(VerifiedModule, 
     }
     let root: PathBuf = directory.canonicalize()?;
     let manifest_bytes = bounded_file(&root.join("module.json"), &root, MAX_MANIFEST_BYTES)?;
-    let manifest: ModuleManifest =
-        serde_json::from_slice(&manifest_bytes).context("invalid module.json manifest")?;
-    validate_manifest(&manifest)?;
+    let manifest = parse_manifest(&manifest_bytes)?;
     let script = bounded_file(&root.join(&manifest.entrypoint), &root, MAX_SCRIPT_BYTES)?;
-    let source = std::str::from_utf8(&script).context("Lua entrypoint must be UTF-8 source")?;
+    verified(manifest, &script)
+}
+
+/// Validate a first-party module compiled into the executable.
+///
+/// Embedded sources pass the same manifest, size and source checks as a
+/// module read from disk; `entrypoint` names the file that was embedded.
+pub(super) fn verify_embedded(
+    manifest_bytes: &[u8],
+    entrypoint: &str,
+    script: &[u8],
+) -> Result<(VerifiedModule, String)> {
+    if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES || script.len() as u64 > MAX_SCRIPT_BYTES {
+        bail!("embedded game module exceeds its size limit");
+    }
+    let manifest = parse_manifest(manifest_bytes)?;
+    if manifest.entrypoint != entrypoint {
+        bail!("embedded game module entrypoint does not match its manifest");
+    }
+    verified(manifest, script)
+}
+
+fn parse_manifest(bytes: &[u8]) -> Result<ModuleManifest> {
+    let manifest: ModuleManifest =
+        serde_json::from_slice(bytes).context("invalid module.json manifest")?;
+    validate_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+fn verified(manifest: ModuleManifest, script: &[u8]) -> Result<(VerifiedModule, String)> {
+    let source = std::str::from_utf8(script).context("Lua entrypoint must be UTF-8 source")?;
     if source.contains('\0') {
         bail!("Lua entrypoint cannot contain NUL bytes or binary chunks");
     }
