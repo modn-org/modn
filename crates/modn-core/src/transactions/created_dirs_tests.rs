@@ -127,3 +127,89 @@ fn an_interrupted_install_removes_the_directories_it_created() {
     assert_eq!(fixture.count("created_directories"), 0);
     assert_eq!(fixture.count("pending_transactions"), 0);
 }
+
+/// Leave the journal a crash leaves: an uncommitted install that recorded
+/// `relative` as a directory it intended to create.
+fn crashed_install(fixture: &Fixture, relative: &str, identity: Option<&str>) {
+    let game = fixture.game.to_string_lossy().into_owned();
+    let connection = &fixture.store.connection;
+    connection
+        .execute(
+            "INSERT INTO pending_transactions(id,action,status,game_path,package_id)
+             VALUES ('txn-crash','install','pending',?1,'txn-crash')",
+            [&game],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO pending_created_directories(transaction_id,ord,relative_path,identity)
+             VALUES ('txn-crash',0,?1,?2)",
+            rusqlite::params![relative, identity],
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_unproven_creation_record_never_removes_a_directory() {
+    let mut fixture = Fixture::new();
+    // The crash came before `create_dir`; another tool made `mods` since.
+    crashed_install(&fixture, "mods", None);
+    fs::create_dir(fixture.game.join("mods")).unwrap();
+    fixture.recover();
+    assert!(fixture.game.join("mods").is_dir());
+    assert_eq!(fixture.count("pending_created_directories"), 0);
+    assert_eq!(fixture.count("created_directories"), 0);
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+#[test]
+fn an_occupied_rollback_directory_moves_to_the_ledger() {
+    let mut fixture = Fixture::new();
+    let mods = fixture.game.join("mods");
+    fs::create_dir(&mods).unwrap();
+    let identity = super::directory::identity(&mods).unwrap();
+    fs::write(mods.join("user.txt"), b"user").unwrap();
+    crashed_install(&fixture, "mods", Some(&identity));
+
+    fixture.recover();
+    assert!(mods.join("user.txt").is_file());
+    assert_eq!(fixture.count("created_directories"), 1);
+    fs::remove_file(mods.join("user.txt")).unwrap();
+    fixture.recover();
+    assert!(!mods.exists());
+    assert_eq!(fixture.count("created_directories"), 0);
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+#[test]
+fn a_recreated_directory_replaces_its_stale_record() {
+    let mut fixture = Fixture::new();
+    let first = fixture.archive("first");
+    let second = fixture.archive("second");
+    let mods = fixture.game.join("mods");
+    let a = fixture.install_into(&first, "mods").unwrap();
+    fs::write(mods.join("user.txt"), b"user").unwrap();
+    fixture.uninstall(&a.id).unwrap();
+    assert_eq!(fixture.count("created_directories"), 1);
+
+    // Another tool removes the folder; the next install recreates it.
+    fs::remove_dir_all(&mods).unwrap();
+    let b = fixture.install_into(&second, "mods").unwrap();
+    fixture.uninstall(&b.id).unwrap();
+    assert!(!mods.exists());
+    assert_eq!(fixture.count("created_directories"), 0);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn directories_differing_only_in_case_are_separate_on_linux() {
+    let mut fixture = Fixture::new();
+    let upper = fixture.archive("upper");
+    let lower = fixture.archive("lower");
+    let a = fixture.install_into(&upper, "mods/Foo").unwrap();
+    let b = fixture.install_into(&lower, "mods/foo").unwrap();
+    assert_eq!(fixture.count("created_directories"), 3);
+    fixture.uninstall(&a.id).unwrap();
+    fixture.uninstall(&b.id).unwrap();
+    assert!(!fixture.game.join("mods").exists());
+}

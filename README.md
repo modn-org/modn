@@ -238,9 +238,15 @@ A directory that holds other content stays recorded; a later uninstall or
 forgotten and left alone. A directory that existed before Modn is never
 recorded, so Modn never removes it, even when it is empty. The ledger belongs
 to the game, not one package, so directories that several packages share stay
-until the last file in them is gone. On platforms without a native identity,
-only emptiness guards removal. `modn game remove` ends the records for that
-game.
+until the last file in them is gone. A record without an identity proves
+nothing: a crash may have come before the `create_dir`, and another tool may
+have made the directory since. Modn forgets such a record and never acts on it.
+So on platforms without a native directory identity, Modn records nothing and
+leaves the directories, as before. Recovery prunes only a game root that is
+still a real directory at its recorded canonical path. On Linux, directory
+records are case-sensitive. A directory that a rolled-back install created but
+that still holds content moves into the ledger, so a later prune can remove it.
+`modn game remove` ends the records for that game.
 
 ### Download cache
 

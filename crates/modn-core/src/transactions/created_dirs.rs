@@ -9,7 +9,13 @@
 //! recorded directory only when it is empty and its native identity still
 //! matches. A directory that existed before Modn is never recorded, so it is
 //! never removed, even when it is empty.
+//!
+//! A record without an identity proves nothing: a crash may have stopped
+//! the install before its `create_dir`, and another tool may have made the
+//! directory since. Such a record is forgotten, never acted on. Platforms
+//! without a native directory identity therefore record nothing.
 use super::journal::target_path;
+use super::validation::validate_transaction_root;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use rusqlite::{params, Transaction};
@@ -28,6 +34,17 @@ enum Prune {
     Replaced,
     /// The directory still holds content, so it stays recorded.
     Occupied,
+    /// No identity proves that Modn created this directory.
+    Unproven,
+}
+
+/// Ledger key: Windows paths compare case-insensitively, others exactly.
+fn directory_key(relative: &str) -> String {
+    if cfg!(windows) {
+        relative.to_lowercase()
+    } else {
+        relative.to_owned()
+    }
 }
 
 impl Store {
@@ -64,15 +81,24 @@ impl Store {
                 params![transaction_id, directory],
             )?;
             match fs::create_dir(&current) {
-                Ok(()) => {
-                    // Without a native identity, only emptiness guards removal.
-                    let identity = super::directory::identity(&current).ok();
-                    self.connection.execute(
-                        "UPDATE pending_created_directories SET identity=?3
-                         WHERE transaction_id=?1 AND relative_path=?2",
-                        params![transaction_id, directory, identity],
-                    )?;
-                }
+                Ok(()) => match super::directory::identity(&current) {
+                    Ok(identity) => {
+                        self.connection.execute(
+                            "UPDATE pending_created_directories SET identity=?3
+                             WHERE transaction_id=?1 AND relative_path=?2",
+                            params![transaction_id, directory, identity],
+                        )?;
+                    }
+                    // Without an identity Modn can never prove ownership, so
+                    // the directory stays unrecorded, as before this ledger.
+                    Err(_) => {
+                        self.connection.execute(
+                            "DELETE FROM pending_created_directories
+                             WHERE transaction_id=?1 AND relative_path=?2",
+                            params![transaction_id, directory],
+                        )?;
+                    }
+                },
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                     // Another creator won the race; the directory is not Modn's.
                     self.connection.execute(
@@ -97,7 +123,9 @@ impl Store {
     }
 
     /// Roll back the directories an uncommitted install created, deepest
-    /// first. The journal rows are removed with the journal itself.
+    /// first. A directory that still holds content moves to the game ledger,
+    /// so a later prune can remove it. The journal rows are removed with the
+    /// journal itself.
     pub(super) fn remove_journal_directories(
         &self,
         game: &Path,
@@ -112,8 +140,16 @@ impl Store {
                 Ok((row.get::<_, String>(0)?, row.get(1)?))
             })?
             .collect::<rusqlite::Result<Vec<(String, Option<String>)>>>()?;
+        drop(statement);
+        let game_path = game.to_string_lossy().into_owned();
         for (relative, identity) in &created {
-            prune_one(game, relative, identity.as_deref())?;
+            if prune_one(game, relative, identity.as_deref())? == Prune::Occupied {
+                self.connection.execute(
+                    "INSERT OR REPLACE INTO created_directories
+                         (game_path,path_key,relative_path,identity) VALUES (?1,?2,?3,?4)",
+                    params![game_path, directory_key(relative), relative, identity],
+                )?;
+            }
         }
         Ok(())
     }
@@ -121,6 +157,10 @@ impl Store {
     /// Remove every recorded directory in `game` that is now empty, deepest
     /// first, and forget the records that no longer describe Modn's directory.
     pub(super) fn prune_created(&mut self, game: &Path) -> Result<usize> {
+        let root = fs::symlink_metadata(game)?;
+        if !root.is_dir() || root.file_type().is_symlink() {
+            bail!("game root is not a real directory: {}", game.display());
+        }
         let game_path = game.to_string_lossy().into_owned();
         let mut statement = self.connection.prepare(
             "SELECT path_key, relative_path, identity FROM created_directories
@@ -166,10 +206,12 @@ impl Store {
         drop(statement);
         let mut removed = 0;
         for game in games {
-            let game = PathBuf::from(game);
-            // A game directory that is gone has nothing left to prune.
-            if game.is_dir() {
-                removed += self.prune_created(&game)?;
+            let stored = PathBuf::from(game);
+            // Prune only a root that still resolves, without links, to the
+            // recorded canonical path; otherwise keep the records untouched.
+            match validate_transaction_root(&stored) {
+                Ok(root) if root == stored => removed += self.prune_created(&root)?,
+                _ => {}
             }
         }
         Ok(removed)
@@ -190,12 +232,16 @@ pub(super) fn commit(tx: &Transaction<'_>, transaction_id: &str, game: &Path) ->
         .collect::<rusqlite::Result<Vec<(String, Option<String>)>>>()?;
     let game_path = game.to_string_lossy();
     for (relative, identity) in &created {
+        let Some(identity) = identity else {
+            continue;
+        };
+        // This creation is newer evidence than any stale record for the path.
         tx.execute(
-            "INSERT OR IGNORE INTO created_directories(game_path,path_key,relative_path,identity)
+            "INSERT OR REPLACE INTO created_directories(game_path,path_key,relative_path,identity)
              VALUES (?1,?2,?3,?4)",
             params![
                 game_path.as_ref(),
-                relative.to_lowercase(),
+                directory_key(relative),
                 relative,
                 identity
             ],
@@ -219,10 +265,11 @@ fn prune_one(game: &Path, relative: &str, identity: Option<&str>) -> Result<Prun
             Err(e) => return Err(e.into()),
         }
     }
-    if let Some(expected) = identity {
-        if super::directory::identity(&path).ok().as_deref() != Some(expected) {
-            return Ok(Prune::Replaced);
-        }
+    let Some(expected) = identity else {
+        return Ok(Prune::Unproven);
+    };
+    if super::directory::identity(&path).ok().as_deref() != Some(expected) {
+        return Ok(Prune::Replaced);
     }
     if fs::read_dir(&path)?.next().is_some() {
         return Ok(Prune::Occupied);
