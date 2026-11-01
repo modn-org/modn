@@ -96,7 +96,7 @@ fn plan(game: &Path, archive: &Path) -> InstallPlan {
     InstallPlan {
         archive_sha256: checked.sha256,
         game_installation: game.to_path_buf(),
-        status: "reviewable".into(),
+        status: crate::planning::PlanStatus::Reviewable,
         metadata_only: true,
         operations: checked
             .files

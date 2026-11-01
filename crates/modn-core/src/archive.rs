@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -24,6 +25,45 @@ pub struct ArchiveFile {
     pub bytes: u64,
 }
 
+/// Container format recognized from an archive's file extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub enum ArchiveFormat {
+    /// `.zip` archive.
+    #[serde(rename = "zip")]
+    Zip,
+    /// `.jar` archive; inspectable but not installable.
+    #[serde(rename = "jar")]
+    Jar,
+    /// `.7z` archive.
+    #[serde(rename = "7z")]
+    SevenZ,
+}
+
+impl ArchiveFormat {
+    /// Serialized name, also passed to Lua modules.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Zip => "zip",
+            Self::Jar => "jar",
+            Self::SevenZ => "7z",
+        }
+    }
+
+    /// Whether the transaction executor can extract this format.
+    #[must_use]
+    pub fn is_installable(self) -> bool {
+        matches!(self, Self::Zip | Self::SevenZ)
+    }
+}
+
+impl fmt::Display for ArchiveFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Read-only archive metadata, not verified contents or compatibility.
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
@@ -31,7 +71,7 @@ pub struct Inspection {
     /// Source archive path.
     pub archive: PathBuf,
     /// Detected archive format.
-    pub format: String,
+    pub format: ArchiveFormat,
     /// SHA-256 of the archive at inspection.
     pub sha256: String,
     /// Sum of declared uncompressed sizes.
@@ -166,9 +206,9 @@ pub fn inspect(path: &Path) -> Result<Inspection> {
         .to_ascii_lowercase()
         .as_str()
     {
-        "zip" => "zip",
-        "jar" => "jar",
-        "7z" => "7z",
+        "zip" => ArchiveFormat::Zip,
+        "jar" => ArchiveFormat::Jar,
+        "7z" => ArchiveFormat::SevenZ,
         _ => bail!("unsupported archive format (expected .zip, .jar, or .7z)"),
     };
     let mut hasher = Sha256::new();
@@ -178,7 +218,7 @@ pub fn inspect(path: &Path) -> Result<Inspection> {
     let mut files = Vec::new();
     let mut seen = HashSet::new();
     let mut total = 0u64;
-    if format == "7z" {
+    if format == ArchiveFormat::SevenZ {
         let reader = sevenz_rust2::ArchiveReader::open(path, sevenz_rust2::Password::empty())
             .context("invalid or encrypted 7z archive")?;
         if reader.archive().files.len() > MAX_ENTRIES {
@@ -236,7 +276,7 @@ pub fn inspect(path: &Path) -> Result<Inspection> {
     files.sort_by(|a, b| a.entry.cmp(&b.entry));
     Ok(Inspection {
         archive: path.to_path_buf(),
-        format: format.into(),
+        format,
         sha256,
         total_uncompressed_bytes: total,
         files,

@@ -1,5 +1,5 @@
 use crate::commands::BucketCommand;
-use crate::state_access::validate_state_path;
+use crate::state_access::{validate_state_path, ManagerState};
 use anyhow::{Context, Result};
 use modn_core::buckets::BucketStore;
 use modn_core::state::Store;
@@ -23,13 +23,10 @@ pub(super) fn run(
         // Keep catalog mutations outside known game roots, even when the
         // operator supplies --state-dir without --game. Game identities come
         // from data and registered state, not game-specific Rust adapters.
-        let existing = if state_path.is_file() {
-            Some(Store::open_readonly(state_path)?)
-        } else {
-            None
-        };
-        let registered = existing
-            .as_ref()
+        // Registered paths are used as stored, not canonicalized, as before.
+        let state = ManagerState::load_deferred(state_path)?;
+        let registered = state
+            .existing()
             .map(Store::list)
             .transpose()?
             .unwrap_or_default();

@@ -1,6 +1,8 @@
 //! Integration checks for archive plan behavior.
 use modn_core::archive::inspect;
+use modn_core::archive::ArchiveFormat;
 use modn_core::planning::resolve;
+use modn_core::planning::PlanStatus;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
@@ -51,11 +53,16 @@ fn zip_inspection_and_legacy_plan_are_read_only() {
         ],
     );
     let inspection = inspect(&archive).unwrap();
-    assert_eq!(inspection.format, "zip");
+    assert_eq!(inspection.format, ArchiveFormat::Zip);
     assert_eq!(inspection.sha256.len(), 64);
     assert_eq!(inspection.files.len(), 2);
     let report = plan(&inspection, &game);
-    assert_eq!(report.status, "reviewable", "{:?}", report.blockers);
+    assert_eq!(
+        report.status,
+        PlanStatus::Reviewable,
+        "{:?}",
+        report.blockers
+    );
     assert_eq!(report.operations.len(), 1);
     assert_eq!(
         report.operations[0].destination,
@@ -80,7 +87,7 @@ fn unmanaged_file_and_linked_directory_block_installation_plan() {
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     fs::write(&target, "existing").unwrap();
     let report = plan(&inspection, &game);
-    assert_eq!(report.status, "blocked");
+    assert_eq!(report.status, PlanStatus::Blocked);
     assert!(report
         .blockers
         .iter()
@@ -143,7 +150,7 @@ fn unsafe_paths_duplicates_and_unknown_layouts_are_refused() {
     let archive = dir.path().join("unknown.zip");
     zip_fixture(&archive, &[("random/location/data.bin", b"x")]);
     let report = plan(&inspect(&archive).unwrap(), &game);
-    assert_eq!(report.status, "blocked");
+    assert_eq!(report.status, PlanStatus::Blocked);
     assert!(report
         .blockers
         .iter()
@@ -172,7 +179,7 @@ fn mixed_package_variants_are_blocked() {
         ],
     );
     let result = plan(&inspect(&archive).unwrap(), &game);
-    assert_eq!(result.status, "blocked");
+    assert_eq!(result.status, PlanStatus::Blocked);
     assert!(result
         .blockers
         .iter()
@@ -195,7 +202,7 @@ fn sevenz_headers_can_be_inspected_without_extraction() {
         .unwrap();
     writer.finish().unwrap();
     let report = inspect(&archive).unwrap();
-    assert_eq!(report.format, "7z");
+    assert_eq!(report.format, ArchiveFormat::SevenZ);
     assert!(report
         .files
         .iter()
@@ -222,7 +229,7 @@ fn mixed_framework_layouts_are_plannable() {
         ],
     );
     let report = plan(&inspect(&archive).unwrap(), &game_dir);
-    assert_eq!(report.status, "blocked", "{:?}", report.blockers);
+    assert_eq!(report.status, PlanStatus::Blocked, "{:?}", report.blockers);
     assert_eq!(report.operations.len(), 4);
     assert!(report
         .blockers
@@ -241,7 +248,7 @@ fn directory_replaced_by_file_blocks_plan() {
     let archive = dir.path().join("mod.zip");
     zip_fixture(&archive, &[("archive/pc/mod/test.archive", b"x")]);
     let report = plan(&inspect(&archive).unwrap(), &game_dir);
-    assert_eq!(report.status, "blocked");
+    assert_eq!(report.status, PlanStatus::Blocked);
     assert!(report
         .blockers
         .iter()
@@ -262,7 +269,7 @@ fn executable_disguised_as_documentation_is_not_ignored() {
         ],
     );
     let report = plan(&inspect(&archive).unwrap(), &game_dir);
-    assert_eq!(report.status, "blocked");
+    assert_eq!(report.status, PlanStatus::Blocked);
     assert!(report
         .blockers
         .iter()
@@ -311,7 +318,7 @@ fn documentation_prefix_does_not_hide_payloads() {
         ],
     );
     let report = plan(&inspect(&archive).unwrap(), &root);
-    assert_eq!(report.status, "blocked", "{:?}", report.blockers);
+    assert_eq!(report.status, PlanStatus::Blocked, "{:?}", report.blockers);
     assert!(report
         .blockers
         .iter()
@@ -333,7 +340,7 @@ fn conflicts_between_planned_file_and_directory_are_blocked() {
         ],
     );
     let report = plan(&inspect(&archive).unwrap(), &root);
-    assert_eq!(report.status, "blocked");
+    assert_eq!(report.status, PlanStatus::Blocked);
     assert!(report
         .blockers
         .iter()
@@ -390,7 +397,12 @@ fn extensionless_readme_and_changelog_do_not_block_valid_package() {
         ],
     );
     let report = plan(&inspect(&archive).unwrap(), &root);
-    assert_eq!(report.status, "reviewable", "{:?}", report.blockers);
+    assert_eq!(
+        report.status,
+        PlanStatus::Reviewable,
+        "{:?}",
+        report.blockers
+    );
     assert_eq!(report.operations.len(), 1);
 }
 
@@ -404,7 +416,7 @@ fn stale_archive_inspection_cannot_make_module_preview_reviewable() {
     let stale = inspect(&archive).unwrap();
     zip_fixture(&archive, &[("archive/pc/mod/example.archive", b"after")]);
     let result = modn_core::planning::resolve("cyberpunk-2077", &stale, &game).unwrap();
-    assert_eq!(result.status, "blocked");
+    assert_eq!(result.status, PlanStatus::Blocked);
     assert!(
         result
             .blockers

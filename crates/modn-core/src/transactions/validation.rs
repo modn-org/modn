@@ -32,10 +32,13 @@ pub(super) fn validate_execution_plan(
     proposal: &InstallPlan,
     approved: &[String],
 ) -> Result<()> {
-    if inspection.format != "zip" && inspection.format != "7z" {
+    if !inspection.format.is_installable() {
         bail!("transaction executor supports only ZIP and 7z operations");
     }
-    if proposal.status != "reviewable" || !proposal.blockers.is_empty() || !proposal.metadata_only {
+    if proposal.status != crate::planning::PlanStatus::Reviewable
+        || !proposal.blockers.is_empty()
+        || !proposal.metadata_only
+    {
         bail!("blocked or invalid installation proposal cannot be executed");
     }
     if proposal.archive_sha256 != inspection.sha256 {

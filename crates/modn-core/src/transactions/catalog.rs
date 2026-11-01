@@ -139,7 +139,7 @@ fn package_intact(report: &ScanReport, game: &Path, package: &ManagedPackage) ->
         .filter(|entry| entry.package_id == package.id)
         .peekable();
     checks.peek().is_some()
-        && checks.all(|entry| matches!(entry.status.as_str(), "intact" | "present"))
+        && checks.all(|entry| entry.status.is_in_place())
         && original_package_payloads_intact(game, package)
 }
 

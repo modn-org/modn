@@ -3,6 +3,7 @@ use crate::selection::selected_installation;
 use crate::state_access::ManagerState;
 use anyhow::Result;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
+use modn_core::scan::IntegrityStatus;
 use modn_core::state::Store;
 use std::path::{Path, PathBuf};
 
@@ -49,13 +50,12 @@ pub(super) fn scan(
             },
             entry
                 .integrity
-                .as_deref()
                 .map(|status| format!(", {status}"))
                 .unwrap_or_default()
         );
     }
     for file in report.owned_files {
-        if file.status != "intact" {
+        if file.status != IntegrityStatus::Intact {
             println!(
                 "OWNED {}: {} ({})",
                 file.status, file.relative_path, file.package_id

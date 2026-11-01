@@ -1,5 +1,6 @@
 //! Integration checks for inventory behavior.
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
+use modn_core::scan::IntegrityStatus;
 use modn_core::state::Store;
 use std::fs::{self, File};
 use std::io::Write;
@@ -80,7 +81,7 @@ fn discovers_unmanaged_frameworks_and_owned_legacy_archives() {
         .unwrap();
     assert!(managed.managed);
     assert_eq!(managed.package_id.as_deref(), Some(installed.id.as_str()));
-    assert_eq!(managed.integrity.as_deref(), Some("intact"));
+    assert_eq!(managed.integrity, Some(IntegrityStatus::Intact));
     assert!(
         !report
             .mods
@@ -135,7 +136,7 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
     assert!(report
         .mods
         .iter()
-        .any(|m| m.managed && m.integrity.as_deref() == Some("modified")));
+        .any(|m| m.managed && m.integrity == Some(IntegrityStatus::Modified)));
     assert!(doctor_with_ownership_for(&store, "cyberpunk-2077", &game)
         .unwrap()
         .diagnostics
@@ -330,7 +331,7 @@ fn windows_non_ascii_case_only_rename_stays_managed() {
     let renamed = game.join("archive/pc/mod/\u{00E9}.archive");
     fs::rename(&original, &renamed).unwrap();
     let detected = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
-    assert_eq!(detected.owned_files[0].status, "intact");
+    assert_eq!(detected.owned_files[0].status, IntegrityStatus::Intact);
     let entry = detected
         .mods
         .iter()
@@ -394,7 +395,7 @@ fn windows_greek_sigma_contextual_case_rename_stays_managed() {
     fs::rename(&original, &renamed).unwrap();
     assert!(same_file::is_same_file(&original, &renamed).unwrap());
     let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
-    assert_eq!(report.owned_files[0].status, "intact");
+    assert_eq!(report.owned_files[0].status, IntegrityStatus::Intact);
     let detected = report
         .mods
         .iter()

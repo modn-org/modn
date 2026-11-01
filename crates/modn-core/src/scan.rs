@@ -1,6 +1,7 @@
 use crate::game_modules::policy;
 use anyhow::Result;
 use serde::Serialize;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 const MAX_ENTRIES: usize = 20_000;
@@ -20,7 +21,7 @@ pub struct DetectedMod {
     pub package_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Recorded owned-file integrity status, if available.
-    pub integrity: Option<String>,
+    pub integrity: Option<IntegrityStatus>,
 }
 
 /// Read-only inventory of a game installation.
@@ -45,6 +46,53 @@ pub struct ScanReport {
     pub framework_signals: Vec<FrameworkSignal>,
 }
 
+/// Integrity of a manager-owned file, as observed on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum IntegrityStatus {
+    /// Size and SHA-256 match the installation record.
+    Intact,
+    /// Covered by a verified exclusive directory; contents are not hashed.
+    Present,
+    /// Present but with a different size or digest.
+    Modified,
+    /// Not present at its recorded path.
+    Missing,
+    /// Linked, redirected or not the expected kind of filesystem entry.
+    Unsafe,
+    /// Could not be read to verify.
+    Unreadable,
+}
+
+impl IntegrityStatus {
+    /// Serialized name, also passed to Lua doctor policies.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Intact => "intact",
+            Self::Present => "present",
+            Self::Modified => "modified",
+            Self::Missing => "missing",
+            Self::Unsafe => "unsafe",
+            Self::Unreadable => "unreadable",
+        }
+    }
+
+    /// Whether the recorded content is still in place: `intact` files or
+    /// files inside a verified exclusive directory.
+    #[must_use]
+    pub fn is_in_place(self) -> bool {
+        matches!(self, Self::Intact | Self::Present)
+    }
+}
+
+impl fmt::Display for IntegrityStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Integrity result for a manager-owned file.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[non_exhaustive]
@@ -53,8 +101,8 @@ pub struct OwnedFileCheck {
     pub package_id: String,
     /// Recorded game-relative destination.
     pub relative_path: String,
-    /// `intact`, `modified`, `missing`, `unsafe`, or `unreadable`.
-    pub status: String,
+    /// Observed integrity of the recorded file.
+    pub status: IntegrityStatus,
     /// SHA-256 recorded during installation.
     pub expected_sha256: String,
     /// Size recorded during installation.
