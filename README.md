@@ -170,7 +170,7 @@ mod IDs; noninteractive invocations return candidates (structured JSON errors
 under `--json`). `modn search` matches mod ID or display name and accepts
 global `--game`.
 
-Catalog installation requires a manually acquired `--file` ZIP/7z with
+Catalog installation requires a locally supplied `--file` ZIP/7z with
 exact format and SHA-256 from its manifest. Without it, Modn explains which
 archive to supply; automatic downloads are not implemented. Standalone
 `modn install <archive.zip|archive.7z>` works without any bucket and uses
@@ -357,12 +357,16 @@ All first-party code is MIT licensed.
 
 ## Local buckets (metadata contract v1)
 
-Modn includes a read-only `main` bucket snapshot with three verified Cyberpunk
-prerequisite archives (CET 1.38.1, RED4ext 1.31.0, redscript 0.5.32).
-Their SHA-256 digests were checked against original downloaded archives.
-They are **manual** sources, not automatic download links; the snapshot
-does not assert compatibility with every game version. More catalog entries
-will be curated in a later milestone.
+Modn includes a read-only `main` bucket snapshot of the eleven Cyberpunk
+prerequisite packages: RED4ext, redscript, Cyber Engine Tweaks, ArchiveXL,
+TweakXL, Codeware, Mod Settings, Equipment-EX, Browser Extension, No Intro
+Videos and Virtual Atelier. Each SHA-256 was checked against the original
+distribution. GitHub-hosted packages record their release URL as an `https`
+source. Nexus-only packages are `manual` sources naming the original file.
+Modn does not mirror these archives, and an `https` source is not downloaded
+automatically. The snapshot does not assert compatibility with every game
+version. See [provenance](buckets/main/PROVENANCE.md) for versions, dependency
+evidence and compatibility notes.
 
 ```powershell
 modn bucket list --json

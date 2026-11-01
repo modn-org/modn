@@ -37,8 +37,9 @@ until there is a real requirement.
   installs, ownership tracking, uninstall and crash recovery.
 - First-party Cyberpunk Lua 5.4 runtime policy and a synthetic second-game
   fixture. Lua host capabilities remain scoped and bounded.
-- Package-only official `main` bucket snapshot with CET, RED4ext and
-  redscript manifests, and explicit local bucket registration.
+- Package-only official `main` bucket snapshot with all eleven prerequisite
+  manifests, verified against their original distributions, and explicit
+  local bucket registration.
 - The full eleven-mod prerequisite stack has been exercised in disposable
   fixtures, not verified end to end in the live game.
 - `modn game add/list/remove` registers games; `modn install` handles standalone archives and verified catalog mods; `modn search` lists catalog entries; `modn list` shows managed packages.

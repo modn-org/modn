@@ -1,0 +1,8 @@
+{
+  "schema_version": 1, "id": "no-intro-videos", "game": "cyberpunk-2077",
+  "name": "No Intro Videos", "version": "0.8",
+  "archive_format": "zip", "sha256": "6d5d0ef603466da3544867b84f946d2f0cd9c3bcd2ad3490fb60e2d601388aef",
+  "source": {"kind":"manual","filename":"No Intro Videos - redscript-533-0-8-1760416944.zip"},
+  "dependencies": ["redscript"],
+  "homepage": "https://www.nexusmods.com/cyberpunk2077/mods/533"
+}

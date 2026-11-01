@@ -1,0 +1,8 @@
+{
+  "schema_version": 1, "id": "codeware", "game": "cyberpunk-2077",
+  "name": "Codeware", "version": "1.21.2",
+  "archive_format": "zip", "sha256": "269b65b8b97d26ea85d4516f5eb34c01a19dc85e299be57fb4f764e16c164dd2",
+  "source": {"kind":"https","url":"https://github.com/psiberx/cp2077-codeware/releases/download/v1.21.2/Codeware-1.21.2.zip"},
+  "dependencies": ["red4ext", "redscript"],
+  "homepage": "https://github.com/psiberx/cp2077-codeware"
+}
