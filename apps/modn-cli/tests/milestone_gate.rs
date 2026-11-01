@@ -227,13 +227,14 @@ impl Gate {
         let occupied = self.game.join(planted);
         fs::create_dir_all(occupied.parent().expect("parent")).expect("planted dir");
         fs::write(&occupied, b"unmanaged user file").expect("planted file");
+        // Captured before the install, so a changed planted file fails.
+        let expected = snapshot(&self.game);
+        assert_eq!(expected.len(), before.len() + 1);
         let message = self
             .install("virtual-atelier", extra)
             .expect_err("occupied destination must fail");
         assert!(message.contains("rolled back 5 package(s)"), "{message}");
         assert!(self.managed().is_empty());
-        let mut expected = before.clone();
-        expected.insert(planted.to_owned(), sha(&occupied));
         assert_eq!(snapshot(&self.game), expected);
         fs::remove_file(&occupied).expect("remove planted file");
 
@@ -364,6 +365,51 @@ fn synthetic_gate() -> Gate {
 
 #[test]
 fn synthetic_full_stack_installs_and_rolls_back_reproducibly() {
+    // The synthetic graph must stay the official one.
+    let catalog =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
+    let mut official: Vec<String> = fs::read_dir(&catalog)
+        .expect("official catalog")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    official.sort();
+    let mut synthetic: Vec<String> = STACK.iter().map(|r| format!("{}.json", r.id)).collect();
+    synthetic.sort();
+    assert_eq!(synthetic, official, "same mods as buckets/main");
+    for release in &STACK {
+        let manifest: Value = serde_json::from_slice(
+            &fs::read(catalog.join(format!("{}.json", release.id))).expect("manifest"),
+        )
+        .expect("JSON");
+        let requirements: serde_json::Map<String, Value> = release
+            .versions
+            .iter()
+            .map(|(id, requirement)| ((*id).to_owned(), json!(requirement)))
+            .collect();
+        assert_eq!(manifest["version"], release.version, "{}", release.id);
+        assert_eq!(
+            manifest["dependencies"],
+            json!(release.dependencies),
+            "{}",
+            release.id
+        );
+        assert_eq!(
+            manifest
+                .get("dependency_versions")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+            Value::Object(requirements),
+            "{}",
+            release.id
+        );
+    }
+
     let gate = synthetic_gate();
     let owned = gate.run("addons/virtual-atelier.plugin", &[]);
     assert_eq!(owned, STACK.len());
