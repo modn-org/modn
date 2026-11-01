@@ -3,6 +3,6 @@
   "name": "Cyber Engine Tweaks", "version": "1.38.1",
   "archive_format": "zip", "sha256": "2e52be4ed431fad787e64ecbf75db346b4224577d2b89894912bc3f159020e73",
   "source": {"kind":"https","url":"https://github.com/maximegmd/CyberEngineTweaks/releases/download/v1.38.1/cet_1_38_1.zip"},
-  "dependencies": [],
+  "dependencies": ["red4ext"],
   "homepage": "https://github.com/maximegmd/CyberEngineTweaks"
 }

@@ -31,8 +31,12 @@ from 2024, predates game 2.5; 1.2.10 is on Nexus only.
 
 ## Dependencies
 
-Dependencies list only hard requirements. Optional integrations are left out.
+Dependencies list what the upstream author documents as required, plus
+anything the inspected archive needs to load. Optional integrations are left
+out. Nexus requirement tables block automated fetches; the Nexus entries below
+were read by the reviewer of this snapshot.
 
+- `cet`: the v1.38.1 README says to install RED4ext first.
 - `archivexl`, `tweakxl`, `codeware`: their READMEs require RED4ext 1.31.0+
   and list redscript 0.5.32+ for compatibility. Each ships `.reds` scripts.
 - `mod-settings`: its README requires RED4ext and redscript. It also ships
@@ -40,11 +44,13 @@ Dependencies list only hard requirements. Optional integrations are left out.
 - `equipment-ex`: its README requires ArchiveXL, TweakXL, Codeware and
   redscript. Its scripts check for ArchiveXL 1.28.0 and TweakXL 1.12.0.
 - `virtual-atelier`: imports `Codeware.UI` unconditionally and ships an
-  `.archive.xl`. Its `redsUserHints` require ArchiveXL 1.28.0+. Browser
-  Extension, Equipment-EX and Atelier Delivery support is
-  `@if(ModuleExists(...))`, so it is optional.
-- `browser-extension`, `no-intro-videos`: redscript sources only. Browser
-  Extension's Mod Settings support is conditional.
+  `.archive.xl`, so it needs Codeware and ArchiveXL. Its Nexus page also
+  requires Mod Settings, which configures it through `@runtimeProperty`
+  annotations. Browser Extension, Equipment-EX and Atelier Delivery support
+  is `@if(ModuleExists(...))`, so it is optional.
+- `browser-extension`: its Nexus page requires redscript, RED4ext and
+  Codeware. Its Mod Settings support is conditional.
+- `no-intro-videos`: one redscript source file.
 
 ## Compatibility
 
