@@ -29,6 +29,11 @@ The Cyber Engine Tweaks GitHub asset is byte-identical to its Nexus file.
 Equipment-EX is published as manual because the newest GitHub release, 1.2.7
 from 2024, predates game 2.5; 1.2.10 is on Nexus only.
 
+## Declared executables
+
+`redscript` declares `engine/tools/scc.exe`, the script compiler shipped in its
+original Windows ZIP. No other package installs an executable.
+
 ## Dependencies
 
 Dependencies list what the upstream author documents as required, plus

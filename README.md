@@ -156,6 +156,7 @@ modn bucket remove community
 modn search cet
 modn search --game cyberpunk-2077
 modn install cet --file "/path/to/CET.zip" --dry-run
+modn install redscript --file "/path/to/redscript.zip"
 modn install cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install main/cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install "./unlisted-mod.zip" --dry-run
@@ -175,7 +176,9 @@ exact format and SHA-256 from its manifest. Without it, Modn explains which
 archive to supply; automatic downloads are not implemented. Standalone
 `modn install <archive.zip|archive.7z>` works without any bucket and uses
 the existing Lua planner and Rust ownership transaction. `--dry-run` previews
-without game writes; `--yes` is required for installation. Catalog
+without game writes. A catalog install in an interactive terminal shows what
+it will write and asks `Install? [y/N]`; scripts and `--json` must pass
+`--yes`. Standalone archive installs always require `--yes`. Catalog
 dependencies must already be installed with matching digests and intact
 managed content; installation re-checks this while holding the transaction
 lock. Each catalog installation records its `bucket/game/mod` provenance and
@@ -183,10 +186,16 @@ the managed packages that satisfied its dependencies, in the same SQLite
 commit as its ownership. `modn uninstall` refuses to remove a recorded
 dependency while a dependent managed package remains; uninstall the dependent
 first. Standalone archive installs and packages installed before this record
-existed carry no dependency links. `--allow-executable` works the same way for
-catalog and standalone installs. The catalog manifest never grants it, so
-`modn install redscript --file <archive> --allow-executable engine/tools/scc.exe`
-needs the flag on both `--dry-run` and `--yes`.
+existed carry no dependency links.
+
+A catalog manifest may declare the tool executables its archive installs,
+for example redscript's `engine/tools/scc.exe`. A declaration only lets Modn
+name them; it never approves them. The interactive prompt lists every
+declared executable and installs them only if you answer `y`. `--yes` never
+approves a declared executable: scripts pass `--allow-executable <path>` for
+each one, exactly as for standalone archives. An executable the manifest does
+not declare stays blocked unless `--allow-executable` names it.
+`--dry-run --json` reports `unapproved_declared_executables`.
 
 `modn game remove <game-id>` only unregisters an installation and never
 deletes game files. It refuses to orphan managed mods or pending transactions;
@@ -305,7 +314,8 @@ directories: other mods, personal configuration and generated runtime files
 remain separate. Uninstall verifies hashes of owned framework files and
 leaves unowned logs and settings untouched; modified bootstrap files block
 uninstall. Rust denies executable payloads by default, including the redscript compiler.
-Installing redscript requires the operator to add
+Installing redscript requires the operator to approve `engine/tools/scc.exe`:
+at the catalog install prompt, or by adding
 `--allow-executable engine/tools/scc.exe` to **both** the review preview and
 confirmed installation. This is a trusted, explicit approval of one exact
 game-relative tool executable, independent of Lua operation labels.
@@ -335,9 +345,9 @@ in an isolated game fixture:
 | Virtual Atelier | ArchiveXL metadata, archives, redscript and hint | Original ZIP |
 | redscript | Compiler and framework configuration | Original ZIP |
 
-The redscript framework ZIP additionally requires an explicit trusted
-`--allow-executable engine/tools/scc.exe` option on both preview and
-installation. Third-party mod ZIPs/7z files cannot include unapproved
+The redscript framework ZIP additionally requires explicit approval of
+`engine/tools/scc.exe`, either at the catalog install prompt or with
+`--allow-executable engine/tools/scc.exe` on both preview and installation. Third-party mod ZIPs/7z files cannot include unapproved
 executable payloads. The game-agnostic transaction engine streams 7z
 members directly into private staging with the same archive hash, file-size,
 ownership and crash recovery checks as ZIP; it never extracts unselected

@@ -12,7 +12,9 @@ games/<game-id>/<package-id>.json
 `bucket.json` declares `schema_version` (integer 1), `name` and `title`.
 Each package manifest declares `schema_version`, `id`, `game`, `name`,
 `version`, `archive_format`, `sha256`, `source`, and optional
-`dependencies` and `homepage`. IDs use lowercase ASCII letters, digits and
+`dependencies`, `homepage` and `executables`. `executables` lists up to 16
+exact game-relative `.exe` paths inside a `tools` directory that the archive
+installs. It is a declaration shown at the install prompt, never an approval. IDs use lowercase ASCII letters, digits and
 hyphens, beginning with a letter and not ending with a hyphen.
 Package identity is `bucket/game-id/package-id`; one version per ID is
 published in each bucket snapshot. See `buckets/main/games/` for examples.

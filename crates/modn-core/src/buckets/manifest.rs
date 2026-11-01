@@ -23,6 +23,10 @@ pub struct PackageManifest {
     pub dependencies: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
+    /// Game-relative tool executables the archive installs. A declaration
+    /// lets Modn name them in its confirmation prompt; it never approves them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub executables: Vec<String>,
 }
 
 /// Format of the original, unextracted download.
@@ -60,6 +64,22 @@ pub(super) fn valid_id(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         && !value.ends_with('-')
+}
+
+const MAX_EXECUTABLES: usize = 16;
+
+/// Matches the only executables Rust can approve: an exact, normalized
+/// game-relative `.exe` path inside a `tools` directory.
+fn valid_tool_executable(path: &str) -> bool {
+    path.len() <= 255
+        && path.ends_with(".exe")
+        && !path.starts_with('/')
+        && !path.contains(['\\', ':'])
+        && !path.chars().any(char::is_control)
+        && path.split('/').any(|part| part == "tools")
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
 fn valid_https(url: &str) -> bool {
@@ -128,6 +148,15 @@ impl PackageManifest {
         if self.homepage.as_ref().is_some_and(|url| !valid_https(url)) {
             bail!("homepage URL must be HTTPS");
         }
+        let mut declared = HashSet::new();
+        if self.executables.len() > MAX_EXECUTABLES
+            || !self
+                .executables
+                .iter()
+                .all(|path| valid_tool_executable(path) && declared.insert(path))
+        {
+            bail!("invalid or duplicate declared tool executable");
+        }
         let mut unique = HashSet::new();
         for dependency in &self.dependencies {
             if !valid_id(dependency) || dependency == &self.id || !unique.insert(dependency) {
@@ -135,5 +164,35 @@ impl PackageManifest {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_tool_executable;
+    use crate::planning::approved_tool_executable;
+
+    #[test]
+    fn declarations_are_limited_to_approvable_tool_executables() {
+        for path in ["engine/tools/scc.exe", "tools/a.exe", "x/tools/y/z.exe"] {
+            assert!(valid_tool_executable(path), "{path}");
+            let approval = [path.to_owned()];
+            assert!(approved_tool_executable(path, path, &approval), "{path}");
+        }
+        for path in [
+            "",
+            "bin/x64/Cyberpunk2077.exe",
+            "engine/tools/scc.dll",
+            "engine/tools/scc.EXE",
+            "/engine/tools/scc.exe",
+            r"engine\tools\scc.exe",
+            "C:/engine/tools/scc.exe",
+            "engine/tools/../scc.exe",
+            "engine/./tools/scc.exe",
+            "engine//tools/scc.exe",
+            "engine/tools/scc.bat",
+        ] {
+            assert!(!valid_tool_executable(path), "{path:?}");
+        }
     }
 }

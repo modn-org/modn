@@ -16,7 +16,9 @@ or updated through buckets.
 The `main` official bucket and registered local community buckets describe
 mod packages only: versions, hashes, sources and known dependencies.
 Buckets cannot publish executable Lua. The official `main` package catalog
-works offline. Package manifests never authorize changes to game files.
+works offline. Package manifests never authorize changes to game files: a
+manifest may declare the tool executables its archive installs, but only the
+user's confirmation or an explicit `--allow-executable` approves them.
 Git-backed catalog sync and acquisition remain future milestones.
 
 Development-only `--module-src` (`--src`) and
@@ -78,7 +80,7 @@ Continue with dependency graph solving, compatible versions and conflicts,
 then pinned HTTPS archive acquisition and verified caching. Unresolved
 dependencies must remain blocked until the planner supports them. Preserve
 the existing deterministic `modn install` resolver, read-only preview and
-explicit `--yes` install approval; never overwrite unmanaged files or
+explicit install approval (interactive confirmation or `--yes`); never overwrite unmanaged files or
 silently update active frameworks.
 
 **Exit gate:** reproducible disposable full-stack installation and rollback.
