@@ -110,9 +110,11 @@ Rust must validate and stage managed writes before recording ownership.
 ### Managed package
 
 A committed installation record for a specific game installation, linked to
-an original archive digest and its ownership claims. Later, record the
-originating bucket/release for provenance without replacing the existing
-ownership evidence.
+an original archive digest and its ownership claims. Catalog installations
+also record their originating `bucket/game/mod` and the managed packages that
+satisfied their dependencies, committed atomically with ownership. Recorded
+dependencies cannot be uninstalled while a dependent remains. Provenance does
+not replace the ownership evidence.
 
 ### Ownership claim
 
@@ -147,6 +149,8 @@ fixture exercises game-agnostic support.
 | --- | --- |
 | Game installation | `state.sqlite / game_installations(game_id, path, source)` |
 | Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at)` |
+| Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
+| Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
 | File ownership | `state.sqlite / managed_files(...)` |
 | Directory ownership | `state.sqlite / managed_directories(...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |

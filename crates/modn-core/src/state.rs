@@ -100,6 +100,17 @@ impl Store {
                 sha256 TEXT NOT NULL,
                 bytes INTEGER NOT NULL,
                 PRIMARY KEY(transaction_id, ord)
+            );
+            CREATE TABLE IF NOT EXISTS catalog_provenance (
+                package_id TEXT PRIMARY KEY REFERENCES managed_packages(id),
+                bucket TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                mod_id TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS package_dependencies (
+                package_id TEXT NOT NULL REFERENCES managed_packages(id),
+                dependency_id TEXT NOT NULL REFERENCES managed_packages(id),
+                PRIMARY KEY(package_id, dependency_id)
             );",
         )?;
         if !existing_state {

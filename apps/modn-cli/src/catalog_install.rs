@@ -4,9 +4,9 @@ use crate::state_access::validate_state_path;
 use anyhow::{bail, Context, Result};
 use modn_core::archive::inspect;
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore, PackageSource};
-use modn_core::inventory::{original_package_payloads_intact, scan_with_ownership_for};
 use modn_core::planning::preview_install_zip_with_permissions;
 use modn_core::state::Store;
+use modn_core::transactions::{CatalogDependency, CatalogReference, CatalogRelease};
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -128,60 +128,46 @@ fn expected_format(format: &ArchiveFormat) -> &'static str {
     }
 }
 
-fn dependency_check(
-    selected: &BucketPackage,
-    catalog: &BucketStore,
-    store: Option<&Store>,
-    game: &Path,
-) -> Result<()> {
-    if selected.package.dependencies.is_empty() {
-        return Ok(());
-    }
-    let catalog_packages = catalog.packages(Some(&selected.package.game))?;
-    let owned = store
-        .map(|db| db.installed(game))
-        .transpose()?
-        .unwrap_or_default();
-    // A ledger entry is not proof that the prerequisite is still present.
-    // Reuse the exact ownership/alias checks used for the normal inventory.
-    let checked = store
-        .map(|db| scan_with_ownership_for(db, &selected.package.game, game))
-        .transpose()?;
-    for id in &selected.package.dependencies {
-        let dependency = catalog_packages
-            .iter()
-            .find(|candidate| candidate.bucket == selected.bucket && candidate.package.id == *id)
-            .with_context(|| {
-                format!(
-                    "dependency unavailable in bucket: {}/{}/{}",
-                    selected.bucket, selected.package.game, id
-                )
-            })?;
-        let is_intact = owned.iter().any(|package| {
-            if package.archive_sha256 != dependency.package.sha256 {
-                return false;
-            }
-            let Some(report) = checked.as_ref() else {
-                return false;
-            };
-            let mut checks = report
-                .owned_files
+fn reference_of(package: &BucketPackage) -> CatalogReference {
+    CatalogReference::new(
+        package.bucket.clone(),
+        package.package.game.clone(),
+        package.package.id.clone(),
+    )
+}
+
+// Resolve declared dependencies to manifest-pinned digests in the same bucket.
+// Readiness itself is decided by the Rust core, under the install lock.
+fn catalog_release(selected: &BucketPackage, catalog: &BucketStore) -> Result<CatalogRelease> {
+    let reference = reference_of(selected);
+    let catalog_packages = if selected.package.dependencies.is_empty() {
+        Vec::new()
+    } else {
+        catalog.packages(Some(&selected.package.game))?
+    };
+    let dependencies = selected
+        .package
+        .dependencies
+        .iter()
+        .map(|id| {
+            let dependency = catalog_packages
                 .iter()
-                .filter(|entry| entry.package_id == package.id);
-            let first = checks.next();
-            first.is_some_and(|entry| matches!(entry.status.as_str(), "intact" | "present"))
-                && checks.all(|entry| matches!(entry.status.as_str(), "intact" | "present"))
-                // A folder's "present" status does not prove its original files.
-                && original_package_payloads_intact(game, package)
-        });
-        if !is_intact {
-            bail!(
-                "dependency not installed or intact: {}/{}/{}; restore its managed content before adding {}",
-                selected.bucket, selected.package.game, id, selected.package.id
-            );
-        }
-    }
-    Ok(())
+                .find(|candidate| {
+                    candidate.bucket == selected.bucket && candidate.package.id == *id
+                })
+                .with_context(|| {
+                    format!(
+                        "dependency unavailable in bucket: {}/{}/{}",
+                        selected.bucket, selected.package.game, id
+                    )
+                })?;
+            Ok(CatalogDependency::new(
+                reference_of(dependency),
+                dependency.package.sha256.clone(),
+            ))
+        })
+        .collect::<Result<_>>()?;
+    Ok(CatalogRelease::new(reference, dependencies))
 }
 
 fn install_mod(
@@ -193,10 +179,7 @@ fn install_mod(
     state_path: &Path,
     json: bool,
 ) -> Result<()> {
-    let reference = format!(
-        "{}/{}/{}",
-        selected.bucket, selected.package.game, selected.package.id
-    );
+    let reference = reference_of(&selected).to_string();
     let archive = match file {
         Some(path) => path,
         None => {
@@ -227,16 +210,28 @@ fn install_mod(
         path.map(Path::to_path_buf),
         Some(&selected.package.game),
     )?;
-    dependency_check(
+    let release = catalog_release(
         &selected,
         &BucketStore::new(
             state_path
                 .parent()
                 .context("invalid manager state directory")?,
         ),
-        existing.as_ref(),
-        &installation,
     )?;
+    // Preview readiness early; `install_catalog_release` repeats it under the lock.
+    match existing.as_ref() {
+        Some(store) => {
+            store.ready_dependencies(&game_id, &installation, &release.dependencies)?;
+        }
+        None => {
+            if let Some(dependency) = release.dependencies.first() {
+                bail!(
+                    "dependency not installed or intact: {}; install or restore it first",
+                    dependency.reference
+                );
+            }
+        }
+    }
     let plan = preview_install_zip_with_permissions(&game_id, &installation, archive, &[])?;
     if plan.archive_sha256 != selected.package.sha256 {
         bail!("{reference}: source changed after catalog verification");
@@ -266,8 +261,7 @@ fn install_mod(
     let roots = registered_roots(existing.as_ref())?;
     validate_state_path(state_path, Some(&game_id), Some(&installation), &roots)?;
     let mut store = Store::open(state_path)?;
-    let package =
-        store.install_operations_zip_with_permissions(&installation, archive, &plan, &[])?;
+    let package = store.install_catalog_release(&installation, archive, &plan, &release)?;
     if json {
         println!(
             "{}",

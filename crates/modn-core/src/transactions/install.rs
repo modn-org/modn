@@ -1,4 +1,5 @@
 //! Game-agnostic, ownership-aware ZIP/7z operation executor.
+use super::catalog::{CatalogRecord, CatalogRelease};
 use super::directory::exclusive_roots;
 use super::journal::{
     digest, lock_store, target_path, temp_path, JournalFile, ManagedPackage, OwnedFile,
@@ -39,7 +40,22 @@ impl Store {
         proposal: &InstallPlan,
         approved: &[String],
     ) -> Result<ManagedPackage> {
-        self.install_inner_with_permissions(game, archive, proposal, None, approved)
+        self.install_inner_with_permissions(game, archive, proposal, None, approved, None)
+    }
+
+    /// Install a catalog release, recording its provenance and dependency links.
+    ///
+    /// Dependency readiness is checked while the transaction lock is held, so a
+    /// concurrent uninstall cannot remove a prerequisite between the check and
+    /// the ownership commit. Recorded dependencies then block their uninstall.
+    pub fn install_catalog_release(
+        &mut self,
+        game: &Path,
+        archive: &Path,
+        proposal: &InstallPlan,
+        release: &CatalogRelease,
+    ) -> Result<ManagedPackage> {
+        self.install_inner_with_permissions(game, archive, proposal, None, &[], Some(release))
     }
 
     pub(super) fn install_operations_inner(
@@ -49,7 +65,7 @@ impl Store {
         proposal: &InstallPlan,
         fail_after: Option<usize>,
     ) -> Result<ManagedPackage> {
-        self.install_inner_with_permissions(game, archive, proposal, fail_after, &[])
+        self.install_inner_with_permissions(game, archive, proposal, fail_after, &[], None)
     }
 
     fn install_inner_with_permissions(
@@ -59,6 +75,7 @@ impl Store {
         proposal: &InstallPlan,
         fail_after: Option<usize>,
         approved: &[String],
+        release: Option<&CatalogRelease>,
     ) -> Result<ManagedPackage> {
         let _guard = lock_store(self)?;
         self.ensure_no_pending()?;
@@ -71,6 +88,19 @@ impl Store {
         validate_ownership(self, &game, proposal)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories)?;
+        let catalog = release
+            .map(|release| -> Result<CatalogRecord> {
+                let dependency_ids = self.ready_dependencies(
+                    &release.reference.game_id,
+                    &game,
+                    &release.dependencies,
+                )?;
+                Ok(CatalogRecord {
+                    release,
+                    dependency_ids,
+                })
+            })
+            .transpose()?;
         let staging = Builder::new().prefix("txn-").tempdir_in(&self.state_root)?;
         let id = staging
             .path()
@@ -189,7 +219,14 @@ impl Store {
                     bail!("injected interruption after {} files", f.ordinal + 1);
                 }
             }
-            self.commit_install(&id, &game, &inspection.sha256, &files, &directories)
+            self.commit_install(
+                &id,
+                &game,
+                &inspection.sha256,
+                &files,
+                &directories,
+                catalog.as_ref(),
+            )
         })();
         if let Err(err) = attempt {
             let recover = self.recover_locked();

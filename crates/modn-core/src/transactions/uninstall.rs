@@ -18,6 +18,13 @@ impl Store {
             .into_iter()
             .find(|p| p.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
+        let dependents = super::catalog::dependents(self, &package.id)?;
+        if !dependents.is_empty() {
+            bail!(
+                "managed package {package_id} is required by {}; uninstall dependents first",
+                dependents.join(", ")
+            );
+        }
         let files: Vec<_> = package
             .files
             .iter()
