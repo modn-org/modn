@@ -242,7 +242,12 @@ fn install_mod(
         None
     };
     let pending = candidate.as_ref().map_or_else(Vec::new, |candidate| {
-        install_consent::pending_executables(declared, explicit, candidate)
+        let destinations: Vec<&str> = candidate
+            .operations
+            .iter()
+            .map(|operation| operation.destination.as_str())
+            .collect();
+        install_consent::pending_executables(declared, explicit, &destinations)
     });
     if args.dry_run {
         if json {

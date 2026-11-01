@@ -4,7 +4,6 @@
 //! approves them: interactively at this prompt, or with an explicit
 //! `--allow-executable` flag naming each path. `--yes` alone never approves a
 //! declared executable.
-use modn_core::planning::InstallPlan;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::Path;
 
@@ -13,20 +12,16 @@ pub(super) fn can_prompt(json: bool) -> bool {
     !json && io::stdin().is_terminal() && io::stderr().is_terminal()
 }
 
-/// Declared executables the plan installs that no flag has approved yet.
+/// Declared executables among a plan's destinations that no flag approved.
 pub(super) fn pending_executables(
     declared: &[String],
     explicit: &[String],
-    plan: &InstallPlan,
+    destinations: &[&str],
 ) -> Vec<String> {
     declared
         .iter()
         .filter(|path| !explicit.contains(path))
-        .filter(|path| {
-            plan.operations
-                .iter()
-                .any(|operation| operation.destination == **path)
-        })
+        .filter(|path| destinations.contains(&path.as_str()))
         .cloned()
         .collect()
 }
@@ -108,6 +103,31 @@ mod tests {
         ] {
             assert_eq!(ask(&compiler, answer).0, expected, "{answer:?}");
         }
+    }
+
+    #[test]
+    fn only_declared_unapproved_installed_executables_are_pending() {
+        let owned = |paths: &[&str]| paths.iter().map(|&p| p.to_owned()).collect::<Vec<_>>();
+        let declared = owned(&[
+            "engine/tools/a.exe",
+            "engine/tools/b.exe",
+            "engine/tools/absent.exe",
+        ]);
+        let explicit = owned(&["engine/tools/a.exe", "engine/tools/undeclared.exe"]);
+        let destinations = [
+            "engine/tools/a.exe",
+            "engine/tools/b.exe",
+            "engine/tools/undeclared.exe",
+            "engine/tools/other.exe",
+            "r6/scripts/mod.reds",
+        ];
+        // a: already approved by flag; absent: not installed; undeclared and
+        // other: never approvable by the manifest.
+        assert_eq!(
+            pending_executables(&declared, &explicit, &destinations),
+            ["engine/tools/b.exe"]
+        );
+        assert!(pending_executables(&[], &explicit, &destinations).is_empty());
     }
 
     #[test]
