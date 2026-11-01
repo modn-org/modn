@@ -106,12 +106,13 @@ now reside in `crates/modn-core/game-modules/cyberpunk-2077/` as
 `module.json` and `main.lua`. Rust loads them **at runtime** through a
 game-agnostic policy executor, not an embedded `cyberpunk.rs` adapter.
 
-The canonical first-party module sources are committed here and included in
-Modn distributions. Resolution uses `game-modules/<game-id>/` beside the
-executable or, for development builds, the repository module directory.
-Distributions must ship the module directory beside the executable.
-There is no separately installed module ZIP, activation database, module
-marketplace or bucket-provided Lua policy.
+The canonical first-party module sources are committed here and **compiled
+into the `modn` executable** at build time. A release binary is portable: it
+never reads policy from a `game-modules/` directory beside it or from the
+build machine's source tree, so replacing files next to the executable
+cannot change the reviewed policy. Editing a bundled source requires a
+rebuild. There is no separately installed module ZIP, activation database,
+module marketplace or bucket-provided Lua policy.
 
 For development, select a source directory containing `module.json` and
 its Lua entrypoint for the current invocation only:
@@ -124,8 +125,10 @@ modn --game cyberpunk-2077 scan --module-src ./my-cyberpunk-module --json
 The `--src` alias for `--module-src` is global but never persisted.
 `MODN_GAME_MODULES_DIR/<game-id>/` remains an alternative developer override.
 An explicit missing, invalid or mismatched source fails without fallback.
-Ordinary commands return to the bundled policy; edits to a selected local
-source are observed without rebuilding Modn. Neither override grants write
+Ordinary commands return to the embedded policy; edits to a selected local
+source are observed without rebuilding Modn. A persistent
+`MODN_GAME_MODULES_DIR` applies to every command in that environment, so
+unset it outside development. Neither override grants write
 access to the game or changes Rust installation transactions.
 
 The shared read-only host adds `mods_host.directory.list(root_id,relative[,max_entries])`

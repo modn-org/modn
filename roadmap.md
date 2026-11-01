@@ -9,8 +9,8 @@ for working commands, [data-model.md](data-model.md) for invariants and
 
 Modn is a game-agnostic Rust mod manager using first-party Lua 5.4 game
 modules. Every supported game has a canonical source at
-`crates/modn-core/game-modules/<game-id>/`. Modn reviews and ships these
-sources with the application. They are not downloaded, installed, activated,
+`crates/modn-core/game-modules/<game-id>/`. Modn reviews these sources and
+compiles them into the executable. They are not downloaded, installed, activated,
 or updated through buckets.
 
 The `main` official bucket and registered local community buckets describe

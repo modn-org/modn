@@ -1,4 +1,5 @@
-//! Per-command development overrides and bundled first-party Lua policies.
+//! Per-command development overrides and embedded first-party Lua policies.
+use super::bundled::read_bundled;
 use super::loader::{self, VerifiedModule};
 use anyhow::{bail, Result};
 use std::cell::RefCell;
@@ -26,34 +27,20 @@ pub fn with_module_source<T>(source: Option<&Path>, action: impl FnOnce() -> T) 
     action()
 }
 
-fn bundled_directory(game: &str) -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let directory = parent.join("game-modules").join(game);
-            // Presence (including a broken link) selects the bundle and fails closed.
-            if std::fs::symlink_metadata(&directory).is_ok() {
-                return directory;
-            }
-        }
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("game-modules")
-        .join(game)
-}
-
 pub(super) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     if !loader::valid_game_id(game) {
         bail!("invalid game module identifier");
     }
+    // An explicit development source wins and never falls back; otherwise use
+    // the reviewed module compiled into this executable.
     let source = MODULE_SOURCE.with(|slot| slot.borrow().clone());
-    let directory = if let Some(directory) = source {
-        directory
-    } else if let Some(base) = std::env::var_os("MODN_GAME_MODULES_DIR") {
-        PathBuf::from(base).join(game)
-    } else {
-        bundled_directory(game)
+    let directory = source.or_else(|| {
+        std::env::var_os("MODN_GAME_MODULES_DIR").map(|base| PathBuf::from(base).join(game))
+    });
+    let (manifest, source) = match directory {
+        Some(directory) => loader::read_verified_module(&directory)?,
+        None => read_bundled(game)?,
     };
-    let (manifest, source) = loader::read_verified_module(&directory)?;
     if manifest.game_id != game {
         bail!("game module identity does not match requested game");
     }
