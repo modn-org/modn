@@ -9,6 +9,7 @@ mod inventory;
 mod managed;
 mod modules;
 mod selection;
+mod stack_install;
 mod state_access;
 use anyhow::Result;
 use clap::Parser;

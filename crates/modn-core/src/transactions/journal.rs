@@ -420,10 +420,11 @@ impl Store {
         self.finish_journal(&journal.id)
     }
 
-    /// Recover interrupted transactions. Never deletes an unverified file.
+    /// Recover interrupted transactions, then roll back unfinished installation
+    /// stacks. Never deletes an unverified file.
     pub fn recover(&mut self) -> Result<usize> {
         let _guard = lock_store(self)?;
-        self.recover_locked()
+        Ok(self.recover_locked()? + self.recover_stacks_locked()?)
     }
 
     pub(super) fn recover_locked(&mut self) -> Result<usize> {

@@ -166,11 +166,12 @@ fn incorrect_hash_and_unresolved_dependencies_do_not_touch_game() {
     assert!(!fixture.state.join("state.sqlite").exists());
     assert!(!fixture.game.join("addons").exists());
 
-    // Cross-manifest dependency exists but has not been installed.
+    // Cross-manifest dependency exists but has not been installed. Its own
+    // archive differs, so the dependent's archive cannot stand in for it.
     fixture.bucket("deps", "test-game", "dependent", &digest, &["base"]);
     let base = json!({
         "schema_version":1, "id":"base","game":"test-game","name":"Base",
-        "version":"1.0","archive_format":"zip","sha256":digest,
+        "version":"1.0","archive_format":"zip","sha256":"3".repeat(64),
         "source":{"kind":"manual","filename":"fixture.zip"}, "dependencies":[]
     });
     fs::write(

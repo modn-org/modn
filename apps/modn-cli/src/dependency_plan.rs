@@ -1,11 +1,12 @@
 //! Read-only dependency plan shown by `modn install <mod> --dry-run`.
 use crate::catalog_install::reference_of;
 use anyhow::Result;
-use modn_core::buckets::{install_order, BucketPackage, BucketStore, PackageSource};
+use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
 use modn_core::transactions::{CatalogDependency, DependencyState};
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 /// One release the selected mod needs, with its installed state.
 pub(super) struct PlannedDependency {
@@ -14,6 +15,8 @@ pub(super) struct PlannedDependency {
     sha256: String,
     source: PackageSource,
     state: DependencyState,
+    /// A supplied archive whose digest matches this release.
+    archive: Option<PathBuf>,
 }
 
 impl PlannedDependency {
@@ -24,6 +27,7 @@ impl PlannedDependency {
             "version": self.version,
             "sha256": self.sha256,
             "source": self.source,
+            "archive": self.archive,
         });
         if let (Some(record), serde_json::Value::Object(state)) =
             (record.as_object_mut(), serde_json::to_value(&self.state)?)
@@ -36,19 +40,44 @@ impl PlannedDependency {
     pub(super) fn ready(&self) -> bool {
         matches!(self.state, DependencyState::Ready { .. })
     }
+
+    pub(super) fn missing(&self) -> bool {
+        matches!(self.state, DependencyState::Missing)
+    }
+
+    /// The state as one line, with what the user can do about it.
+    pub(super) fn describe(&self) -> String {
+        let state = match &self.state {
+            DependencyState::Ready { package_ids } => format!("ready ({})", package_ids.join(", ")),
+            DependencyState::Damaged { package_ids } => format!(
+                "damaged ({}); restore or uninstall it, then install it again",
+                package_ids.join(", ")
+            ),
+            DependencyState::OtherRelease { package_ids } => format!(
+                "other release installed ({}); needs {}",
+                package_ids.join(", "),
+                self.version
+            ),
+            DependencyState::Missing => match &self.archive {
+                Some(path) => format!("missing; archive supplied: {}", path.display()),
+                None => format!("missing; {}", acquisition(&self.source)),
+            },
+            _ => "unknown state".to_owned(),
+        };
+        format!("{} {}: {state}", self.reference, self.version)
+    }
 }
 
-/// Every dependency of `selected`, transitively, in install order.
+/// The installed state of each dependency in `order`, the dependencies of
+/// the selected release in install order.
 ///
 /// Without manager state nothing is managed, so every dependency is missing.
 pub(super) fn plan(
-    selected: &BucketPackage,
-    catalog: &BucketStore,
+    order: &[BucketPackage],
+    archives: &BTreeMap<String, PathBuf>,
     store: Option<&Store>,
     game: &Path,
 ) -> Result<Vec<PlannedDependency>> {
-    let mut order = install_order(selected, &catalog.packages(Some(&selected.package.game))?)?;
-    order.pop(); // The selected release is last; it is not its own dependency.
     let required: Vec<CatalogDependency> = order
         .iter()
         .map(|release| {
@@ -60,14 +89,18 @@ pub(super) fn plan(
         None => vec![DependencyState::Missing; required.len()],
     };
     Ok(order
-        .into_iter()
+        .iter()
         .zip(states)
-        .map(|(release, state)| PlannedDependency {
-            reference: reference_of(&release).to_string(),
-            version: release.package.version,
-            sha256: release.package.sha256,
-            source: release.package.source,
-            state,
+        .map(|(release, state)| {
+            let reference = reference_of(release).to_string();
+            PlannedDependency {
+                archive: archives.get(&reference).cloned(),
+                reference,
+                version: release.package.version.clone(),
+                sha256: release.package.sha256.clone(),
+                source: release.package.source.clone(),
+                state,
+            }
         })
         .collect())
 }
@@ -145,20 +178,6 @@ fn print(dependencies: &[PlannedDependency]) {
     }
     println!("Dependencies, in install order:");
     for dependency in dependencies {
-        let state = match &dependency.state {
-            DependencyState::Ready { package_ids } => format!("ready ({})", package_ids.join(", ")),
-            DependencyState::Damaged { package_ids } => format!(
-                "damaged ({}); restore or uninstall it, then install it again",
-                package_ids.join(", ")
-            ),
-            DependencyState::OtherRelease { package_ids } => format!(
-                "other release installed ({}); needs {}",
-                package_ids.join(", "),
-                dependency.version
-            ),
-            DependencyState::Missing => format!("missing; {}", acquisition(&dependency.source)),
-            _ => "unknown state".to_owned(),
-        };
-        println!("  {} {}: {state}", dependency.reference, dependency.version);
+        println!("  {}", dependency.describe());
     }
 }

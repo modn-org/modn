@@ -125,9 +125,10 @@ pub(super) struct InstallArgs {
     pub(super) target: String,
     #[arg(long)]
     pub(super) path: Option<PathBuf>,
-    /// Manually acquired archive for a cataloged mod.
+    /// Manually acquired archive for a cataloged mod or a missing dependency.
+    /// Repeat for each archive; Modn matches each one to its release by SHA-256.
     #[arg(long, value_name = "ARCHIVE")]
-    pub(super) file: Option<PathBuf>,
+    pub(super) file: Vec<PathBuf>,
     #[arg(
         long,
         help = "Confirm writing files into the game",

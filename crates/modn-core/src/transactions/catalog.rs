@@ -83,10 +83,19 @@ pub struct CatalogRelease {
     pub dependencies: Vec<CatalogDependency>,
 }
 
+/// A catalog release to install, optionally as one member of a stack.
+#[derive(Clone, Copy)]
+pub(super) struct CatalogInstall<'a> {
+    pub(super) release: &'a CatalogRelease,
+    pub(super) stack_id: Option<&'a str>,
+}
+
 /// Provenance and dependency links written in the same commit as ownership.
 pub(super) struct CatalogRecord<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) dependency_ids: Vec<String>,
+    /// Uncommitted stack that rolls this package back if the stack fails.
+    pub(super) stack_id: Option<&'a str>,
 }
 
 /// Installed state of one catalog dependency in one game installation.
@@ -232,10 +241,21 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
             params![package_id, dependency],
         )?;
     }
+    if let Some(stack_id) = record.stack_id {
+        tx.execute(
+            "INSERT INTO pending_stack_packages(stack_id,ord,package_id)
+             SELECT ?1, COUNT(*), ?2 FROM pending_stack_packages WHERE stack_id=?1",
+            params![stack_id, package_id],
+        )?;
+    }
     Ok(())
 }
 
 pub(super) fn forget(tx: &Transaction<'_>, package_id: &str) -> Result<()> {
+    tx.execute(
+        "DELETE FROM pending_stack_packages WHERE package_id=?1",
+        [package_id],
+    )?;
     tx.execute(
         "DELETE FROM package_dependencies WHERE package_id=?1",
         [package_id],

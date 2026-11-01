@@ -1,5 +1,9 @@
 //! Catalog provenance, lock-held dependency readiness and dependent protection.
-use super::{CatalogDependency, CatalogReference, CatalogRelease, DependencyState, ManagedPackage};
+use super::catalog::CatalogInstall;
+use super::{
+    CatalogDependency, CatalogReference, CatalogRelease, DependencyState, ManagedPackage,
+    StackMember,
+};
 use crate::archive::inspect;
 use crate::game_modules::with_module_source;
 use crate::planning::{InstallPlan, PlannedFile};
@@ -302,4 +306,162 @@ fn read_only_state_without_provenance_table_reports_missing_dependencies() {
         error,
         "dependency not installed or intact: deps/test-game/base; install or restore it first"
     );
+}
+
+fn member(archive: &Path, mod_id: &str, dependencies: Vec<CatalogDependency>) -> StackMember {
+    StackMember::new(
+        archive.to_path_buf(),
+        CatalogRelease {
+            reference: reference(mod_id),
+            dependencies,
+        },
+        Vec::new(),
+    )
+}
+
+impl Fixture {
+    fn stack(
+        &mut self,
+        members: &[StackMember],
+        mut fail_on: Option<&str>,
+    ) -> anyhow::Result<Vec<ManagedPackage>> {
+        let game = self.game.clone();
+        with_module_source(Some(&module_source()), || {
+            self.store.install_catalog_stack(&game, members, |member| {
+                if fail_on == Some(member.release.reference.mod_id.as_str()) {
+                    fail_on = None;
+                    anyhow::bail!("injected plan failure");
+                }
+                Ok(plan(&game, &member.archive))
+            })
+        })
+    }
+
+    fn pending_stack_rows(&self) -> i64 {
+        self.count("pending_stacks") + self.count("pending_stack_packages")
+    }
+}
+
+#[test]
+fn stack_installs_members_in_order_as_separate_packages() {
+    let mut fixture = Fixture::new();
+    let base = fixture.archive("base");
+    let top = fixture.archive("top");
+    let game = fixture.game.clone();
+    let members = [
+        member(&base, "base", Vec::new()),
+        member(&top, "top", vec![dependency_on(&base, "base")]),
+    ];
+    let packages = with_module_source(Some(&module_source()), || {
+        fixture
+            .store
+            .install_catalog_stack(&game, &members, |member| {
+                // Each plan is made after the earlier members are installed.
+                if member.release.reference.mod_id == "top" {
+                    assert!(game.join("addons/base.plugin").is_file());
+                }
+                Ok(plan(&game, &member.archive))
+            })
+    })
+    .unwrap();
+    assert_eq!(packages.len(), 2);
+    assert_eq!(fixture.store.installed(&fixture.game).unwrap().len(), 2);
+    assert_eq!(fixture.count("catalog_provenance"), 2);
+    assert_eq!(fixture.count("package_dependencies"), 1);
+    assert_eq!(fixture.pending_stack_rows(), 0);
+    // Recorded links still protect the dependency after the stack commits.
+    let blocked = fixture.uninstall(&packages[0].id).unwrap_err().to_string();
+    assert!(blocked.contains("required by"), "{blocked}");
+}
+
+#[test]
+fn failed_member_rolls_back_every_earlier_member() {
+    let mut fixture = Fixture::new();
+    let base = fixture.archive("base");
+    let middle = fixture.archive("middle");
+    let top = fixture.archive("top");
+    let members = [
+        member(&base, "base", Vec::new()),
+        member(&middle, "middle", vec![dependency_on(&base, "base")]),
+        member(&top, "top", vec![dependency_on(&middle, "middle")]),
+    ];
+    let error = format!("{:#}", fixture.stack(&members, Some("top")).unwrap_err());
+    assert!(error.contains("rolled back 2 package(s)"), "{error}");
+    assert!(error.contains("injected plan failure"), "{error}");
+    assert!(error.contains("deps/test-game/top"), "{error}");
+    for name in ["base", "middle", "top"] {
+        assert!(!fixture.game.join(format!("addons/{name}.plugin")).exists());
+    }
+    assert!(fixture.store.installed(&fixture.game).unwrap().is_empty());
+    assert_eq!(fixture.count("catalog_provenance"), 0);
+    assert_eq!(fixture.count("package_dependencies"), 0);
+    assert_eq!(fixture.count("pending_transactions"), 0);
+    assert_eq!(fixture.pending_stack_rows(), 0);
+
+    // A member whose dependency is not ready also rolls the stack back.
+    let unready = [
+        member(&base, "base", Vec::new()),
+        member(&top, "top", vec![dependency_on(&middle, "middle")]),
+    ];
+    let error = format!("{:#}", fixture.stack(&unready, None).unwrap_err());
+    assert!(
+        error.contains("dependency not installed or intact"),
+        "{error}"
+    );
+    assert!(fixture.store.installed(&fixture.game).unwrap().is_empty());
+    assert_eq!(fixture.pending_stack_rows(), 0);
+}
+
+#[test]
+fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
+    let mut fixture = Fixture::new();
+    let base = fixture.archive("base");
+    let other = fixture.archive("other");
+    let game = fixture.game.clone();
+    let release = CatalogRelease {
+        reference: reference("base"),
+        dependencies: Vec::new(),
+    };
+    // Simulate a crash after the first member committed, before the stack did.
+    let proposal = plan(&game, &base);
+    let stack_id = fixture.store.begin_stack(&game).unwrap();
+    with_module_source(Some(&module_source()), || {
+        fixture.store.install_locked(
+            &game,
+            &base,
+            &proposal,
+            None,
+            &[],
+            Some(CatalogInstall {
+                release: &release,
+                stack_id: Some(&stack_id),
+            }),
+        )
+    })
+    .unwrap();
+    assert!(game.join("addons/base.plugin").is_file());
+    assert_eq!(fixture.count("pending_stack_packages"), 1);
+
+    let blocked = fixture
+        .install(&other, "other", Vec::new())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        blocked.contains("unfinished installation stack"),
+        "{blocked}"
+    );
+    let package = fixture.store.installed(&game).unwrap().remove(0);
+    let blocked = fixture.uninstall(&package.id).unwrap_err().to_string();
+    assert!(
+        blocked.contains("unfinished installation stack"),
+        "{blocked}"
+    );
+
+    let recovered = with_module_source(Some(&module_source()), || fixture.store.recover()).unwrap();
+    assert_eq!(recovered, 1);
+    assert!(!game.join("addons/base.plugin").exists());
+    assert!(fixture.store.installed(&game).unwrap().is_empty());
+    assert_eq!(fixture.count("catalog_provenance"), 0);
+    assert_eq!(fixture.pending_stack_rows(), 0);
+    fixture.install(&other, "other", Vec::new()).unwrap();
 }

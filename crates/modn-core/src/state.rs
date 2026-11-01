@@ -111,6 +111,16 @@ impl Store {
                 package_id TEXT NOT NULL REFERENCES managed_packages(id),
                 dependency_id TEXT NOT NULL REFERENCES managed_packages(id),
                 PRIMARY KEY(package_id, dependency_id)
+            );
+            CREATE TABLE IF NOT EXISTS pending_stacks (
+                id TEXT PRIMARY KEY,
+                game_path TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS pending_stack_packages (
+                stack_id TEXT NOT NULL REFERENCES pending_stacks(id),
+                ord INTEGER NOT NULL,
+                package_id TEXT NOT NULL UNIQUE REFERENCES managed_packages(id),
+                PRIMARY KEY(stack_id, ord)
             );",
         )?;
         if !existing_state {
@@ -195,7 +205,8 @@ impl Store {
             |row| row.get(0),
         )?;
         let pending: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM pending_transactions WHERE game_path=?1)",
+            "SELECT EXISTS(SELECT 1 FROM pending_transactions WHERE game_path=?1)
+                 OR EXISTS(SELECT 1 FROM pending_stacks WHERE game_path=?1)",
             [path_text],
             |row| row.get(0),
         )?;

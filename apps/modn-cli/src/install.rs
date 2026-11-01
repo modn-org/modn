@@ -19,7 +19,7 @@ fn is_standalone_archive(args: &InstallArgs) -> bool {
         });
     let explicit_path =
         source.is_absolute() || args.target.starts_with('.') || args.target.contains('\\');
-    archive_extension || (args.file.is_none() && explicit_path && source.is_file())
+    archive_extension || (args.file.is_empty() && explicit_path && source.is_file())
 }
 
 pub(super) fn run(
@@ -31,7 +31,7 @@ pub(super) fn run(
     if !is_standalone_archive(args) {
         return catalog_install::run(args, state_path, requested, json);
     }
-    if args.file.is_some() {
+    if !args.file.is_empty() {
         bail!("--file applies only to cataloged mods, not standalone archives");
     }
     install_archive(args, state_path, requested, json)

@@ -178,10 +178,10 @@ archive to supply; automatic downloads are not implemented. Standalone
 the existing Lua planner and Rust ownership transaction. `--dry-run` previews
 without game writes. A catalog install in an interactive terminal shows what
 it will write and asks `Install? [y/N]`; scripts and `--json` must pass
-`--yes`. Standalone archive installs always require `--yes`. Catalog
-dependencies must already be installed with matching digests and intact
-managed content; installation re-checks this while holding the transaction
-lock. Each catalog installation records its `bucket/game/mod` provenance and
+`--yes`. Standalone archive installs always require `--yes`. Each catalog
+dependency must be installed with its pinned digest and intact managed
+content, or be installed in the same command. Installation re-checks this
+while holding the transaction lock. Each catalog installation records its `bucket/game/mod` provenance and
 the managed packages that satisfied its dependencies, in the same SQLite
 commit as its ownership. `modn uninstall` refuses to remove a recorded
 dependency while a dependent managed package remains; uninstall the dependent
@@ -196,9 +196,24 @@ unknown dependency ID fails the dry run. Each dependency has a state:
 but drifted content), `other_release` (recorded from the same catalog mod
 with another digest) or `missing`. Missing dependencies name their artifact
 source. Without `--file`, the dry run names the archive to supply, and JSON
-`plan` is `null`. JSON adds `dependencies` and `dependencies_ready`. The plan
-writes nothing and does not install dependencies; install each one first, in
-the listed order.
+`plan` is `null`. JSON adds `dependencies` and `dependencies_ready`. Each
+dependency also shows the supplied `archive`, if one matches. The plan
+writes nothing.
+
+To install a mod with its missing dependencies, pass `--file` once for each
+archive, in any order. Modn matches each archive to a release by SHA-256 and
+refuses an archive that no release in the installation pins. Every missing
+dependency needs an archive; otherwise Modn names the missing ones and writes
+nothing. One confirmation, or `--yes`, approves the whole stack. With `--yes`,
+each executable that a stack manifest declares also needs `--allow-executable`.
+Modn installs the stack in dependency order under one transaction lock. The
+game policy plans each package after the packages before it are installed.
+Each package keeps its own ownership record, provenance and dependency links.
+If any package fails, Modn uninstalls the packages that this command
+installed, newest first. If the process stops before the stack completes,
+other writes are refused until `modn recover --yes` uninstalls the stack's
+packages. A damaged dependency or another installed release is never replaced:
+the install fails until you restore or uninstall it.
 
 A catalog manifest may declare the tool executables its archive installs,
 for example redscript's `engine/tools/scc.exe`. A declaration only lets Modn
