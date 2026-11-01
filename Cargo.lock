@@ -528,6 +528,7 @@ dependencies = [
  "anyhow",
  "clap",
  "modn-core",
+ "rusqlite",
  "same-file",
  "serde_json",
  "sevenz-rust2",

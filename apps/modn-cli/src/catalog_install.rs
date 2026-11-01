@@ -1,15 +1,15 @@
 //! Catalog resolution and manifest-verified local mod installation.
+use crate::commands::InstallArgs;
 use crate::selection::selected_installation;
-use crate::state_access::validate_state_path;
+use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::archive::inspect;
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore, PackageSource};
 use modn_core::planning::preview_install_zip_with_permissions;
-use modn_core::state::Store;
 use modn_core::transactions::{CatalogDependency, CatalogReference, CatalogRelease};
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug)]
 pub(super) struct AmbiguousTarget {
@@ -103,23 +103,6 @@ fn resolve(
     }
 }
 
-fn existing_store(state_path: &Path) -> Result<Option<Store>> {
-    state_path
-        .is_file()
-        .then(|| Store::open_readonly(state_path))
-        .transpose()
-}
-
-fn registered_roots(store: Option<&Store>) -> Result<Vec<PathBuf>> {
-    Ok(store
-        .map(Store::list)
-        .transpose()?
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|entry| entry.path.canonicalize().ok())
-        .collect())
-}
-
 fn expected_format(format: &ArchiveFormat) -> &'static str {
     match format {
         ArchiveFormat::Zip => "zip",
@@ -172,15 +155,12 @@ fn catalog_release(selected: &BucketPackage, catalog: &BucketStore) -> Result<Ca
 
 fn install_mod(
     selected: BucketPackage,
-    file: Option<&Path>,
-    path: Option<&Path>,
-    yes: bool,
-    dry_run: bool,
+    args: &InstallArgs,
     state_path: &Path,
     json: bool,
 ) -> Result<()> {
     let reference = reference_of(&selected).to_string();
-    let archive = match file {
+    let archive = match args.file.as_deref() {
         Some(path) => path,
         None => {
             let source = match &selected.package.source {
@@ -191,7 +171,7 @@ fn install_mod(
             bail!("{reference}: {source}, then use modn install {reference} --file <archive> --dry-run or --yes (automatic downloads are not implemented)");
         }
     };
-    if !yes && !dry_run {
+    if !args.yes && !args.dry_run {
         bail!("installation writes game files; choose --dry-run or explicitly approve with --yes");
     }
     if !std::fs::symlink_metadata(archive)?.file_type().is_file() {
@@ -204,10 +184,10 @@ fn install_mod(
     if inspected.sha256 != selected.package.sha256 {
         bail!("{reference}: archive SHA-256 does not match catalog manifest");
     }
-    let existing = existing_store(state_path)?;
+    let state = ManagerState::load_deferred(state_path)?;
     let (game_id, installation) = selected_installation(
-        existing.as_ref(),
-        path.map(Path::to_path_buf),
+        state.existing(),
+        args.path.clone(),
         Some(&selected.package.game),
     )?;
     let release = catalog_release(
@@ -219,7 +199,7 @@ fn install_mod(
         ),
     )?;
     // Preview readiness early; `install_catalog_release` repeats it under the lock.
-    match existing.as_ref() {
+    match state.existing() {
         Some(store) => {
             store.ready_dependencies(&game_id, &installation, &release.dependencies)?;
         }
@@ -236,7 +216,7 @@ fn install_mod(
     if plan.archive_sha256 != selected.package.sha256 {
         bail!("{reference}: source changed after catalog verification");
     }
-    if dry_run {
+    if args.dry_run {
         if json {
             println!(
                 "{}",
@@ -258,9 +238,10 @@ fn install_mod(
     if plan.status != "reviewable" {
         bail!("{reference}: installation blocked; inspect with --dry-run first");
     }
-    let roots = registered_roots(existing.as_ref())?;
-    validate_state_path(state_path, Some(&game_id), Some(&installation), &roots)?;
-    let mut store = Store::open(state_path)?;
+    let mut store = state.open_writable(&ProtectedTarget {
+        game: Some(game_id),
+        root: Some(installation.clone()),
+    })?;
     let package = store.install_catalog_release(&installation, archive, &plan, &release)?;
     if json {
         println!(
@@ -279,16 +260,8 @@ fn install_mod(
 }
 
 /// Install one bucket-resolved release using an explicit, verified local archive.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Existing CLI passes explicit installation options without persisting them"
-)]
 pub(super) fn run(
-    target: &str,
-    path: Option<&Path>,
-    file: Option<&Path>,
-    yes: bool,
-    dry_run: bool,
+    args: &InstallArgs,
     state_path: &Path,
     game_filter: Option<&str>,
     json: bool,
@@ -297,6 +270,6 @@ pub(super) fn run(
         .parent()
         .context("invalid manager state directory")?;
     let catalog = BucketStore::new(root);
-    let package = resolve(target, &catalog, game_filter, json)?;
-    install_mod(package, file, path, yes, dry_run, state_path, json)
+    let package = resolve(&args.target, &catalog, game_filter, json)?;
+    install_mod(package, args, state_path, json)
 }
