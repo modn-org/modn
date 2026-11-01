@@ -1,5 +1,5 @@
 //! Game-agnostic, ownership-aware ZIP/7z operation executor.
-use super::catalog::{CatalogRecord, CatalogRelease};
+use super::catalog::{CatalogInstall, CatalogRecord, CatalogRelease};
 use super::directory::exclusive_roots;
 use super::journal::{
     digest, lock_store, target_path, temp_path, JournalFile, ManagedPackage, OwnedFile,
@@ -94,6 +94,24 @@ impl Store {
         release: Option<&CatalogRelease>,
     ) -> Result<ManagedPackage> {
         let _guard = lock_store(self)?;
+        self.ensure_idle()?;
+        let catalog = release.map(|release| CatalogInstall {
+            release,
+            stack_id: None,
+        });
+        self.install_locked(game, archive, proposal, fail_after, approved, catalog)
+    }
+
+    /// Install one package; the caller holds the transaction lock.
+    pub(super) fn install_locked(
+        &mut self,
+        game: &Path,
+        archive: &Path,
+        proposal: &InstallPlan,
+        fail_after: Option<usize>,
+        approved: &[String],
+        catalog: Option<CatalogInstall<'_>>,
+    ) -> Result<ManagedPackage> {
         self.ensure_no_pending()?;
         let game = validate_transaction_root(game)?;
         if self.state_root.starts_with(&game) || game.starts_with(&self.state_root) {
@@ -104,12 +122,14 @@ impl Store {
         validate_ownership(self, &game, proposal)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories)?;
-        let catalog = release
-            .map(|release| -> Result<CatalogRecord> {
-                let dependency_ids = self.ready_dependencies(&game, &release.dependencies)?;
+        let catalog = catalog
+            .map(|catalog| -> Result<CatalogRecord> {
+                let dependency_ids =
+                    self.ready_dependencies(&game, &catalog.release.dependencies)?;
                 Ok(CatalogRecord {
-                    release,
+                    release: catalog.release,
                     dependency_ids,
+                    stack_id: catalog.stack_id,
                 })
             })
             .transpose()?;

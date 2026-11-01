@@ -46,9 +46,10 @@ until there is a real requirement.
   fixtures, not verified end to end in the live game.
 - `modn game add/list/remove` registers games; `modn install` handles standalone archives and verified catalog mods; `modn search` lists catalog entries; `modn list` shows managed packages.
 - `modn install <mod> --dry-run` shows a read-only dependency plan: install
-  order and the state of each dependency. Installing a dependency stack in one
-  approval, version constraints, artifact downloads and the full catalog remain
-  future milestones.
+  order and the state of each dependency. `modn install <mod> --file ...`
+  installs the mod and its missing dependencies from supplied archives as one
+  approved stack that rolls back as a whole. Version constraints, artifact
+  downloads and the full catalog remain future milestones.
 
 ## Milestones (in dependency order)
 

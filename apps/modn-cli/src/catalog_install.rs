@@ -1,17 +1,19 @@
 //! Catalog resolution and manifest-verified local mod installation.
 use crate::commands::InstallArgs;
-use crate::dependency_plan;
+use crate::dependency_plan::{self, PlannedDependency};
 use crate::install_consent::{self, Request};
 use crate::selection::selected_installation;
+use crate::stack_install;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::archive::{self, inspect};
-use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore};
+use modn_core::buckets::{install_order, ArchiveFormat, BucketPackage, BucketStore};
 use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
 use modn_core::transactions::{CatalogDependency, CatalogReference, CatalogRelease};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub(super) struct AmbiguousTarget {
@@ -124,7 +126,10 @@ pub(super) fn reference_of(package: &BucketPackage) -> CatalogReference {
 
 // Resolve declared dependencies to manifest-pinned digests in the same bucket.
 // Readiness itself is decided by the Rust core, under the install lock.
-fn catalog_release(selected: &BucketPackage, catalog: &BucketStore) -> Result<CatalogRelease> {
+pub(super) fn catalog_release(
+    selected: &BucketPackage,
+    catalog: &BucketStore,
+) -> Result<CatalogRelease> {
     let reference = reference_of(selected);
     let catalog_packages = if selected.package.dependencies.is_empty() {
         Vec::new()
@@ -156,6 +161,43 @@ fn catalog_release(selected: &BucketPackage, catalog: &BucketStore) -> Result<Ca
     Ok(CatalogRelease::new(reference, dependencies))
 }
 
+/// Match each supplied archive to the selected release or one of its
+/// dependencies by SHA-256, verifying its format against that manifest.
+fn match_archives(
+    files: &[PathBuf],
+    selected: &BucketPackage,
+    dependencies: &[BucketPackage],
+) -> Result<BTreeMap<String, PathBuf>> {
+    let reference = reference_of(selected);
+    let mut archives = BTreeMap::new();
+    for file in files {
+        if !std::fs::symlink_metadata(file)?.file_type().is_file() {
+            bail!("archive must be a regular file: {}", file.display());
+        }
+        let inspected = inspect(file)?;
+        // One archive is the verified artifact of every release pinning its digest.
+        let matches: Vec<&BucketPackage> = dependencies
+            .iter()
+            .chain([selected])
+            .filter(|release| release.package.sha256 == inspected.sha256)
+            .collect();
+        if matches.is_empty() {
+            bail!(
+                "{}: archive SHA-256 does not match catalog manifest of {reference} or its dependencies",
+                file.display()
+            );
+        }
+        for release in matches {
+            let matched = reference_of(release);
+            if Some(inspected.format) != expected_format(&release.package.archive_format) {
+                bail!("{matched}: archive format does not match catalog manifest");
+            }
+            archives.insert(matched.to_string(), file.clone());
+        }
+    }
+    Ok(archives)
+}
+
 fn install_mod(
     selected: BucketPackage,
     args: &InstallArgs,
@@ -163,26 +205,23 @@ fn install_mod(
     json: bool,
 ) -> Result<()> {
     let reference = reference_of(&selected).to_string();
-    let archive = args.file.as_deref();
+    let catalog = BucketStore::new(
+        state_path
+            .parent()
+            .context("invalid manager state directory")?,
+    );
+    let mut order = install_order(&selected, &catalog.packages(Some(&selected.package.game))?)?;
+    order.pop(); // The selected release is last; the rest are its dependencies.
+    let interactive = !args.yes && !args.dry_run;
+    // Archives match releases by digest before any manager state is read.
+    let archives = match_archives(&args.file, &selected, &order)?;
+    let archive = archives.get(&reference).map(PathBuf::as_path);
     if archive.is_none() && !args.dry_run {
         let source = dependency_plan::acquisition(&selected.package.source);
         bail!("{reference}: {source}, then use modn install {reference} --file <archive> (automatic downloads are not implemented)");
     }
-    let interactive = !args.yes && !args.dry_run;
     if interactive && !install_consent::can_prompt(json) {
         bail!("installation writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
-    }
-    if let Some(archive) = archive {
-        if !std::fs::symlink_metadata(archive)?.file_type().is_file() {
-            bail!("archive must be a regular file");
-        }
-        let inspected = inspect(archive)?;
-        if Some(inspected.format) != expected_format(&selected.package.archive_format) {
-            bail!("{reference}: archive format does not match catalog manifest");
-        }
-        if inspected.sha256 != selected.package.sha256 {
-            bail!("{reference}: archive SHA-256 does not match catalog manifest");
-        }
     }
     let state = ManagerState::load_deferred(state_path)?;
     let (game_id, installation) = selected_installation(
@@ -190,16 +229,27 @@ fn install_mod(
         args.path.clone(),
         Some(&selected.package.game),
     )?;
-    let catalog = BucketStore::new(
-        state_path
-            .parent()
-            .context("invalid manager state directory")?,
-    );
     let release = catalog_release(&selected, &catalog)?;
-    // A dry run reports every dependency's state instead of failing on the first.
-    let dependencies = if args.dry_run {
-        dependency_plan::plan(&selected, &catalog, state.existing(), &installation)?
-    } else {
+    let dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+    // Missing dependencies install with the mod as one stack. A damaged
+    // dependency or another installed release keeps the single-install path,
+    // which fails closed: Modn never replaces or repairs a framework implicitly.
+    let stackable = dependencies
+        .iter()
+        .all(|dependency| dependency.ready() || dependency.missing());
+    if !args.dry_run && stackable && !dependencies.iter().all(PlannedDependency::ready) {
+        let stack = stack_install::Stack {
+            selected: &selected,
+            order: &order,
+            dependencies: &dependencies,
+            archives: &archives,
+            catalog: &catalog,
+            game_id,
+            installation,
+        };
+        return stack_install::run(&stack, state, args, json);
+    }
+    if !args.dry_run {
         // Preview readiness early; `install_catalog_release` repeats it under the lock.
         match state.existing() {
             Some(store) => {
@@ -214,8 +264,7 @@ fn install_mod(
                 }
             }
         }
-        Vec::new()
-    };
+    }
     let Some(archive) = archive else {
         return dependency_plan::report(&reference, &selected, None, &dependencies, json);
     };

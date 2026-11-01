@@ -1,0 +1,181 @@
+//! All-or-nothing installation of a catalog release and its missing dependencies.
+//!
+//! Each member is its own journaled package transaction with its own
+//! ownership record. A pending stack row ties the members together until the
+//! whole stack commits. A failed stack, or one interrupted before it commits,
+//! is rolled back by uninstalling its members in reverse order, so the game
+//! returns to its state before the stack.
+use super::catalog::{CatalogInstall, CatalogRelease};
+use super::journal::{lock_store, ManagedPackage};
+use super::validation::validate_transaction_root;
+use crate::planning::InstallPlan;
+use crate::state::Store;
+use anyhow::{anyhow, bail, Context, Result};
+use rusqlite::params;
+use std::path::{Path, PathBuf};
+use tempfile::Builder;
+
+/// One stack member: a verified archive, its catalog release and approvals.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct StackMember {
+    /// Archive whose digest the caller verified against the release manifest.
+    pub archive: PathBuf,
+    /// Catalog identity and the releases this member requires.
+    pub release: CatalogRelease,
+    /// Tool executables the user approved for this member.
+    pub approved_executables: Vec<String>,
+}
+
+impl StackMember {
+    /// Describe one member of an installation stack.
+    #[must_use]
+    pub fn new(
+        archive: PathBuf,
+        release: CatalogRelease,
+        approved_executables: Vec<String>,
+    ) -> Self {
+        Self {
+            archive,
+            release,
+            approved_executables,
+        }
+    }
+}
+
+impl Store {
+    /// Install `members` in order, as one unit, under one transaction lock.
+    ///
+    /// `plan` proposes each member's operations just before it is installed,
+    /// so game policy sees the files of earlier members. Each proposal is
+    /// validated as for a single catalog install, and each member's
+    /// dependencies must be ready when its turn comes. Any failure uninstalls
+    /// the members already installed by this stack, newest first.
+    pub fn install_catalog_stack(
+        &mut self,
+        game: &Path,
+        members: &[StackMember],
+        mut plan: impl FnMut(&StackMember) -> Result<InstallPlan>,
+    ) -> Result<Vec<ManagedPackage>> {
+        let _guard = lock_store(self)?;
+        self.ensure_idle()?;
+        let game = validate_transaction_root(game)?;
+        if members.is_empty() {
+            bail!("installation stack is empty");
+        }
+        let stack_id = self.begin_stack(&game)?;
+        let mut installed = Vec::new();
+        for member in members {
+            let reference = &member.release.reference;
+            let result = plan(member).and_then(|proposal| {
+                self.install_locked(
+                    &game,
+                    &member.archive,
+                    &proposal,
+                    None,
+                    &member.approved_executables,
+                    Some(CatalogInstall {
+                        release: &member.release,
+                        stack_id: Some(&stack_id),
+                    }),
+                )
+            });
+            match result {
+                Ok(package) => installed.push(package),
+                Err(err) => {
+                    let err = err.context(format!("{reference}: installation stack failed"));
+                    return Err(match self.rollback_stack(&stack_id, &game) {
+                        Ok(count) => err.context(format!(
+                            "rolled back {count} package(s) installed by this stack"
+                        )),
+                        Err(rollback) => anyhow!(
+                            "{err:#}; stack rollback incomplete: {rollback:#}; run 'modn recover'"
+                        ),
+                    });
+                }
+            }
+        }
+        self.finish_stack(&stack_id).context(
+            "installation stack not finalized; 'modn recover' rolls back all of its packages",
+        )?;
+        Ok(installed)
+    }
+
+    /// Refuse a new write while a journal or an installation stack is unfinished.
+    pub(super) fn ensure_idle(&self) -> Result<()> {
+        self.ensure_no_pending()?;
+        let stacks: i64 =
+            self.connection
+                .query_row("SELECT COUNT(*) FROM pending_stacks", [], |row| row.get(0))?;
+        if stacks > 0 {
+            bail!(
+                "unfinished installation stack detected; run 'modn recover' before another write"
+            );
+        }
+        Ok(())
+    }
+
+    /// Roll back every unfinished stack. Recover journals before calling this,
+    /// so each member is either fully installed or fully absent.
+    pub(super) fn recover_stacks_locked(&mut self) -> Result<usize> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT id, game_path FROM pending_stacks ORDER BY id")?;
+        let stacks = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        for (id, game) in &stacks {
+            self.rollback_stack(id, Path::new(game))?;
+        }
+        Ok(stacks.len())
+    }
+
+    pub(super) fn begin_stack(&mut self, game: &Path) -> Result<String> {
+        // The marker directory only reserves a unique name, as transactions do.
+        let marker = Builder::new()
+            .prefix("stack-")
+            .tempdir_in(&self.state_root)?;
+        let id = marker
+            .path()
+            .file_name()
+            .context("missing stack id")?
+            .to_string_lossy()
+            .into_owned();
+        self.connection.execute(
+            "INSERT INTO pending_stacks(id,game_path) VALUES (?1,?2)",
+            params![id, game.to_string_lossy().as_ref()],
+        )?;
+        Ok(id)
+    }
+
+    fn finish_stack(&mut self, id: &str) -> Result<()> {
+        let tx = self.connection.transaction()?;
+        tx.execute("DELETE FROM pending_stack_packages WHERE stack_id=?1", [id])?;
+        tx.execute("DELETE FROM pending_stacks WHERE id=?1", [id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Uninstall the stack's members, newest first, then forget the stack.
+    ///
+    /// Each uninstall removes its membership row in its own commit, so an
+    /// interrupted rollback resumes with only the members that remain.
+    fn rollback_stack(&mut self, id: &str, game: &Path) -> Result<usize> {
+        let mut statement = self.connection.prepare(
+            "SELECT package_id FROM pending_stack_packages WHERE stack_id=?1 ORDER BY ord DESC",
+        )?;
+        let members = statement
+            .query_map([id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        for package_id in &members {
+            self.uninstall_locked(game, package_id)
+                .with_context(|| format!("cannot roll back stack package {package_id}"))?;
+        }
+        self.finish_stack(id)?;
+        Ok(members.len())
+    }
+}

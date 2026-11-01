@@ -11,6 +11,12 @@ impl Store {
     /// Uninstall only unchanged manager-owned files, keeping reversible hard-link backups until commit.
     pub fn uninstall(&mut self, game: &Path, package_id: &str) -> Result<()> {
         let _guard = lock_store(self)?;
+        self.ensure_idle()?;
+        self.uninstall_locked(game, package_id)
+    }
+
+    /// Uninstall one package; the caller holds the transaction lock.
+    pub(super) fn uninstall_locked(&mut self, game: &Path, package_id: &str) -> Result<()> {
         self.ensure_no_pending()?;
         let game = validate_transaction_root(game)?;
         let package = self

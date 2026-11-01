@@ -48,13 +48,55 @@ pub(super) fn confirm(
         request.files,
         request.game.display()
     )?;
-    if !request.executables.is_empty() {
+    ask_approval(request.executables, input, output)
+}
+
+/// What the operator approves for a mod installed with its missing dependencies.
+pub(super) struct StackRequest<'a> {
+    pub(super) game: &'a Path,
+    /// `reference version` of each package, in install order.
+    pub(super) packages: &'a [String],
+    pub(super) executables: &'a [String],
+}
+
+/// Asks once for the whole stack, with the same answers as [`confirm`].
+pub(super) fn confirm_stack(
+    request: &StackRequest<'_>,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> io::Result<bool> {
+    writeln!(
+        output,
+        "Modn will install {} package(s) into {}, in this order:",
+        request.packages.len(),
+        request.game.display()
+    )?;
+    for package in request.packages {
+        writeln!(output, "  {package}")?;
+    }
+    writeln!(
+        output,
+        "The game policy plans each package after the packages before it are installed."
+    )?;
+    writeln!(
+        output,
+        "If any package fails, Modn uninstalls the packages this command installed."
+    )?;
+    ask_approval(request.executables, input, output)
+}
+
+fn ask_approval(
+    executables: &[String],
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> io::Result<bool> {
+    if !executables.is_empty() {
         writeln!(
             output,
             "It installs {} executable(s) declared by its catalog manifest:",
-            request.executables.len()
+            executables.len()
         )?;
-        for path in request.executables {
+        for path in executables {
             writeln!(output, "  {path}")?;
         }
         writeln!(
@@ -141,5 +183,27 @@ mod tests {
         assert!(text.contains("engine/tools/a.exe") && text.contains("engine/tools/b.exe"));
         let (_, plain) = ask(&[], "n\n");
         assert!(!plain.contains("executable"), "{plain}");
+    }
+
+    #[test]
+    fn stack_prompt_lists_packages_in_order_and_needs_an_explicit_yes() {
+        let packages = [
+            "main/cyberpunk-2077/red4ext 1.31.0".to_owned(),
+            "main/cyberpunk-2077/cet 1.38.1".to_owned(),
+        ];
+        let request = StackRequest {
+            game: Path::new("game"),
+            packages: &packages,
+            executables: &[],
+        };
+        let mut output = Vec::new();
+        let approved =
+            confirm_stack(&request, &mut Cursor::new("\n"), &mut output).expect("prompt");
+        let text = String::from_utf8(output).expect("UTF-8");
+        assert!(!approved);
+        assert!(text.contains("install 2 package(s)"), "{text}");
+        let red4ext = text.find("red4ext 1.31.0").expect("red4ext");
+        assert!(red4ext < text.find("cet 1.38.1").expect("cet"), "{text}");
+        assert!(text.contains("uninstalls the packages"), "{text}");
     }
 }
