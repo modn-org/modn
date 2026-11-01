@@ -1,11 +1,12 @@
 //! Catalog resolution and manifest-verified local mod installation.
 use crate::commands::InstallArgs;
+use crate::dependency_plan;
 use crate::install_consent::{self, Request};
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::archive::{self, inspect};
-use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore, PackageSource};
+use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore};
 use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
 use modn_core::transactions::{CatalogDependency, CatalogReference, CatalogRelease};
 use std::fmt;
@@ -113,7 +114,7 @@ fn expected_format(format: &ArchiveFormat) -> Option<archive::ArchiveFormat> {
     }
 }
 
-fn reference_of(package: &BucketPackage) -> CatalogReference {
+pub(super) fn reference_of(package: &BucketPackage) -> CatalogReference {
     CatalogReference::new(
         package.bucket.clone(),
         package.package.game.clone(),
@@ -162,30 +163,26 @@ fn install_mod(
     json: bool,
 ) -> Result<()> {
     let reference = reference_of(&selected).to_string();
-    let archive = match args.file.as_deref() {
-        Some(path) => path,
-        None => {
-            let source = match &selected.package.source {
-                PackageSource::Manual { filename } => format!("download {filename:?} manually"),
-                PackageSource::Https { url } => format!("download from {url}"),
-                _ => "unsupported source".to_owned(),
-            };
-            bail!("{reference}: {source}, then use modn install {reference} --file <archive> (automatic downloads are not implemented)");
-        }
-    };
+    let archive = args.file.as_deref();
+    if archive.is_none() && !args.dry_run {
+        let source = dependency_plan::acquisition(&selected.package.source);
+        bail!("{reference}: {source}, then use modn install {reference} --file <archive> (automatic downloads are not implemented)");
+    }
     let interactive = !args.yes && !args.dry_run;
     if interactive && !install_consent::can_prompt(json) {
         bail!("installation writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
     }
-    if !std::fs::symlink_metadata(archive)?.file_type().is_file() {
-        bail!("archive must be a regular file");
-    }
-    let inspected = inspect(archive)?;
-    if Some(inspected.format) != expected_format(&selected.package.archive_format) {
-        bail!("{reference}: archive format does not match catalog manifest");
-    }
-    if inspected.sha256 != selected.package.sha256 {
-        bail!("{reference}: archive SHA-256 does not match catalog manifest");
+    if let Some(archive) = archive {
+        if !std::fs::symlink_metadata(archive)?.file_type().is_file() {
+            bail!("archive must be a regular file");
+        }
+        let inspected = inspect(archive)?;
+        if Some(inspected.format) != expected_format(&selected.package.archive_format) {
+            bail!("{reference}: archive format does not match catalog manifest");
+        }
+        if inspected.sha256 != selected.package.sha256 {
+            bail!("{reference}: archive SHA-256 does not match catalog manifest");
+        }
     }
     let state = ManagerState::load_deferred(state_path)?;
     let (game_id, installation) = selected_installation(
@@ -193,28 +190,35 @@ fn install_mod(
         args.path.clone(),
         Some(&selected.package.game),
     )?;
-    let release = catalog_release(
-        &selected,
-        &BucketStore::new(
-            state_path
-                .parent()
-                .context("invalid manager state directory")?,
-        ),
-    )?;
-    // Preview readiness early; `install_catalog_release` repeats it under the lock.
-    match state.existing() {
-        Some(store) => {
-            store.ready_dependencies(&installation, &release.dependencies)?;
-        }
-        None => {
-            if let Some(dependency) = release.dependencies.first() {
-                bail!(
-                    "dependency not installed or intact: {}; install or restore it first",
-                    dependency.reference
-                );
+    let catalog = BucketStore::new(
+        state_path
+            .parent()
+            .context("invalid manager state directory")?,
+    );
+    let release = catalog_release(&selected, &catalog)?;
+    // A dry run reports every dependency's state instead of failing on the first.
+    let dependencies = if args.dry_run {
+        dependency_plan::plan(&selected, &catalog, state.existing(), &installation)?
+    } else {
+        // Preview readiness early; `install_catalog_release` repeats it under the lock.
+        match state.existing() {
+            Some(store) => {
+                store.ready_dependencies(&installation, &release.dependencies)?;
+            }
+            None => {
+                if let Some(dependency) = release.dependencies.first() {
+                    bail!(
+                        "dependency not installed or intact: {}; install or restore it first",
+                        dependency.reference
+                    );
+                }
             }
         }
-    }
+        Vec::new()
+    };
+    let Some(archive) = archive else {
+        return dependency_plan::report(&reference, &selected, None, &dependencies, json);
+    };
     let preview = |approved: &[String]| -> Result<InstallPlan> {
         let plan =
             preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?;
@@ -250,27 +254,11 @@ fn install_mod(
         install_consent::pending_executables(declared, explicit, &destinations)
     });
     if args.dry_run {
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "package": reference, "plan": plan,
-                    "unapproved_declared_executables": pending,
-                }))?
-            );
-        } else {
-            println!("Dry run for {reference}: {}", plan.status);
-            for operation in &plan.operations {
-                println!("{} => {}", operation.source, operation.destination);
-            }
-            for issue in &plan.blockers {
-                println!("BLOCKER {}: {}", issue.code, issue.message);
-            }
-            for path in &pending {
-                println!("DECLARED EXECUTABLE {path}: needs confirmation or --allow-executable");
-            }
-        }
-        return Ok(());
+        let preview = dependency_plan::ArchivePreview {
+            plan: &plan,
+            unapproved_declared_executables: &pending,
+        };
+        return dependency_plan::report(&reference, &selected, Some(preview), &dependencies, json);
     }
     let mut approved = explicit.clone();
     if interactive && !pending.is_empty() {

@@ -188,6 +188,18 @@ dependency while a dependent managed package remains; uninstall the dependent
 first. Standalone archive installs and packages installed before this record
 existed carry no dependency links.
 
+`modn install <mod> --dry-run` also reports a read-only dependency plan.
+It lists every dependency of the mod, transitively, in install order. The
+plan resolves dependencies in the mod's own bucket and game. A cycle or an
+unknown dependency ID fails the dry run. Each dependency has a state:
+`ready` (managed with the pinned digest and intact), `damaged` (pinned digest
+but drifted content), `other_release` (recorded from the same catalog mod
+with another digest) or `missing`. Missing dependencies name their artifact
+source. Without `--file`, the dry run names the archive to supply, and JSON
+`plan` is `null`. JSON adds `dependencies` and `dependencies_ready`. The plan
+writes nothing and does not install dependencies; install each one first, in
+the listed order.
+
 A catalog manifest may declare the tool executables its archive installs,
 for example redscript's `engine/tools/scc.exe`. A declaration only lets Modn
 name them; it never approves them. The interactive prompt lists each declared

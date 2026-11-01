@@ -1,5 +1,5 @@
 //! Catalog provenance, lock-held dependency readiness and dependent protection.
-use super::{CatalogDependency, CatalogReference, CatalogRelease, ManagedPackage};
+use super::{CatalogDependency, CatalogReference, CatalogRelease, DependencyState, ManagedPackage};
 use crate::archive::inspect;
 use crate::game_modules::with_module_source;
 use crate::planning::{InstallPlan, PlannedFile};
@@ -224,5 +224,82 @@ fn dependency_readiness_needs_no_game_module() {
     assert!(
         drifted.contains("dependency not installed or intact"),
         "{drifted}"
+    );
+}
+
+#[test]
+fn dependency_states_distinguish_ready_damaged_other_release_and_missing() {
+    let mut fixture = Fixture::new();
+    let base_archive = fixture.archive("base");
+    let other_archive = fixture.archive("other");
+    let pinned = dependency_on(&base_archive, "base");
+    let absent = dependency_on(&fixture.archive("absent"), "absent");
+    let states = |fixture: &Fixture| {
+        fixture
+            .store
+            .dependency_states(&fixture.game, &[pinned.clone(), absent.clone()])
+            .unwrap()
+    };
+    assert_eq!(
+        states(&fixture),
+        [DependencyState::Missing, DependencyState::Missing]
+    );
+
+    // A managed package recorded as catalog mod `base`, from another archive.
+    let other = fixture.install(&other_archive, "base", Vec::new()).unwrap();
+    assert_eq!(
+        states(&fixture)[0],
+        DependencyState::OtherRelease {
+            package_ids: vec![other.id.clone()]
+        }
+    );
+    fixture.uninstall(&other.id).unwrap();
+
+    let base = fixture.install(&base_archive, "base", Vec::new()).unwrap();
+    assert_eq!(
+        states(&fixture),
+        [
+            DependencyState::Ready {
+                package_ids: vec![base.id.clone()]
+            },
+            DependencyState::Missing
+        ]
+    );
+    fs::write(fixture.game.join("addons/base.plugin"), b"modified").unwrap();
+    assert_eq!(
+        states(&fixture)[0],
+        DependencyState::Damaged {
+            package_ids: vec![base.id]
+        }
+    );
+    assert_eq!(fixture.count("pending_transactions"), 0);
+}
+
+#[test]
+fn read_only_state_without_provenance_table_reports_missing_dependencies() {
+    let fixture = Fixture::new();
+    let requirement = vec![dependency_on(&fixture.archive("base"), "base")];
+    let path = fixture.dir.path().join("state/state.sqlite");
+    // Simulate state written before catalog provenance existed.
+    fixture
+        .store
+        .connection
+        .execute_batch("DROP TABLE package_dependencies; DROP TABLE catalog_provenance;")
+        .unwrap();
+    let store = Store::open_readonly(&path).unwrap();
+
+    assert_eq!(
+        store
+            .dependency_states(&fixture.game, &requirement)
+            .unwrap(),
+        [DependencyState::Missing]
+    );
+    let error = store
+        .ready_dependencies(&fixture.game, &requirement)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        error,
+        "dependency not installed or intact: deps/test-game/base; install or restore it first"
     );
 }
