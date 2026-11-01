@@ -110,7 +110,7 @@ impl Store {
             .to_string();
         self.begin_staging(&id, &game, &inspection.sha256)?;
         let staged = (|| -> Result<Vec<JournalFile>> {
-            if inspection.format == "7z" {
+            if inspection.format == crate::archive::ArchiveFormat::SevenZ {
                 let files =
                     super::staging::stage_7z(archive, &inspection, proposal, staging.path())?;
                 if inspect(archive)?.sha256 != inspection.sha256 {

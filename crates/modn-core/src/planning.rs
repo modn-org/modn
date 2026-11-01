@@ -2,6 +2,7 @@
 use crate::archive::Inspection;
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,26 @@ pub struct PlanIssue {
     pub message: String,
 }
 
+/// Whether a proposal may be submitted for approved installation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum PlanStatus {
+    /// No blockers; still requires explicit approval.
+    Reviewable,
+    /// At least one blocker prevents installation.
+    Blocked,
+}
+
+impl fmt::Display for PlanStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Reviewable => "reviewable",
+            Self::Blocked => "blocked",
+        })
+    }
+}
+
 /// Read-only installation proposal; not write authorization.
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
@@ -40,8 +61,8 @@ pub struct InstallPlan {
     pub archive_sha256: String,
     /// Target game directory.
     pub game_installation: PathBuf,
-    /// `reviewable` or `blocked`.
-    pub status: String,
+    /// Whether the proposal can be installed after approval.
+    pub status: PlanStatus,
     /// True: file contents have not been verified.
     pub metadata_only: bool,
     /// File operations proposed for review.
@@ -395,11 +416,10 @@ fn resolve_with_permissions(
         archive_sha256: inspection.sha256.clone(),
         game_installation: game,
         status: if blockers.is_empty() {
-            "reviewable"
+            PlanStatus::Reviewable
         } else {
-            "blocked"
-        }
-        .into(),
+            PlanStatus::Blocked
+        },
         metadata_only: true,
         operations,
         blockers,
@@ -426,8 +446,8 @@ pub fn preview_install_zip_with_permissions(
 ) -> anyhow::Result<InstallPlan> {
     let inspection = crate::archive::inspect(archive)?;
     let mut proposal = resolve_with_permissions(game_id, &inspection, game, approved)?;
-    if inspection.format != "zip" && inspection.format != "7z" {
-        proposal.status = "blocked".into();
+    if !inspection.format.is_installable() {
+        proposal.status = PlanStatus::Blocked;
         proposal.blockers.push(PlanIssue {
             code: "NOT_INSTALLABLE".into(),
             message: "Only ZIP and 7z archives can be installed".into(),

@@ -3,9 +3,9 @@ use crate::commands::InstallArgs;
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
-use modn_core::archive::inspect;
+use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketStore, PackageSource};
-use modn_core::planning::preview_install_zip_with_permissions;
+use modn_core::planning::{preview_install_zip_with_permissions, PlanStatus};
 use modn_core::transactions::{CatalogDependency, CatalogReference, CatalogRelease};
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
@@ -103,11 +103,12 @@ fn resolve(
     }
 }
 
-fn expected_format(format: &ArchiveFormat) -> &'static str {
+// Bucket manifests name only installable formats; unknown ones never match.
+fn expected_format(format: &ArchiveFormat) -> Option<archive::ArchiveFormat> {
     match format {
-        ArchiveFormat::Zip => "zip",
-        ArchiveFormat::SevenZ => "7z",
-        _ => "unsupported",
+        ArchiveFormat::Zip => Some(archive::ArchiveFormat::Zip),
+        ArchiveFormat::SevenZ => Some(archive::ArchiveFormat::SevenZ),
+        _ => None,
     }
 }
 
@@ -178,7 +179,7 @@ fn install_mod(
         bail!("archive must be a regular file");
     }
     let inspected = inspect(archive)?;
-    if inspected.format != expected_format(&selected.package.archive_format) {
+    if Some(inspected.format) != expected_format(&selected.package.archive_format) {
         bail!("{reference}: archive format does not match catalog manifest");
     }
     if inspected.sha256 != selected.package.sha256 {
@@ -235,7 +236,7 @@ fn install_mod(
         }
         return Ok(());
     }
-    if plan.status != "reviewable" {
+    if plan.status != PlanStatus::Reviewable {
         bail!("{reference}: installation blocked; inspect with --dry-run first");
     }
     let mut store = state.open_writable(&ProtectedTarget {

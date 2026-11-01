@@ -1,5 +1,5 @@
 //! Reconcile on-disk discovery against manager-owned SQLite records without writing to a game.
-use crate::scan::{self, DoctorReport, OwnedFileCheck, ScanReport};
+use crate::scan::{self, DoctorReport, IntegrityStatus, OwnedFileCheck, ScanReport};
 use crate::state::Store;
 use anyhow::Result;
 use sha2::{Digest, Sha256};
@@ -58,27 +58,32 @@ fn checked_path(root: &Path, relative: &str, expect_directory: bool) -> (PathSta
     (PathState::Present, current)
 }
 
-fn verify_owned(root: &Path, relative: &str, expected_bytes: u64, expected_sha: &str) -> String {
+fn verify_owned(
+    root: &Path,
+    relative: &str,
+    expected_bytes: u64,
+    expected_sha: &str,
+) -> IntegrityStatus {
     let (status, path) = checked_path(root, relative, false);
     match status {
-        PathState::Missing => return "missing".into(),
-        PathState::Unsafe => return "unsafe".into(),
-        PathState::Unreadable => return "unreadable".into(),
+        PathState::Missing => return IntegrityStatus::Missing,
+        PathState::Unsafe => return IntegrityStatus::Unsafe,
+        PathState::Unreadable => return IntegrityStatus::Unreadable,
         PathState::Present => {}
     }
     let metadata = match fs::metadata(&path) {
         Ok(metadata) => metadata,
-        Err(_) => return "unreadable".into(),
+        Err(_) => return IntegrityStatus::Unreadable,
     };
     if !metadata.is_file() {
-        return "unsafe".into();
+        return IntegrityStatus::Unsafe;
     }
     if metadata.len() != expected_bytes {
-        return "modified".into();
+        return IntegrityStatus::Modified;
     }
     let input = match File::open(&path) {
         Ok(file) => file,
-        Err(_) => return "unreadable".into(),
+        Err(_) => return IntegrityStatus::Unreadable,
     };
     let mut hasher = Sha256::new();
     match io::copy(
@@ -87,13 +92,13 @@ fn verify_owned(root: &Path, relative: &str, expected_bytes: u64, expected_sha: 
     ) {
         Ok(read) if read == expected_bytes => {
             if format!("{:x}", hasher.finalize()) == expected_sha {
-                "intact".into()
+                IntegrityStatus::Intact
             } else {
-                "modified".into()
+                IntegrityStatus::Modified
             }
         }
-        Ok(_) => "modified".into(),
-        Err(_) => "unreadable".into(),
+        Ok(_) => IntegrityStatus::Modified,
+        Err(_) => IntegrityStatus::Unreadable,
     }
 }
 
@@ -107,10 +112,10 @@ pub fn original_package_payloads_intact(
     package: &crate::transactions::ManagedPackage,
 ) -> bool {
     !package.files.is_empty()
-        && package
-            .files
-            .iter()
-            .all(|file| verify_owned(game, &file.destination, file.bytes, &file.sha256) == "intact")
+        && package.files.iter().all(|file| {
+            verify_owned(game, &file.destination, file.bytes, &file.sha256)
+                == IntegrityStatus::Intact
+        })
 }
 
 // Non-contextual per-character case folding is only a Windows candidate search.
@@ -142,12 +147,11 @@ pub fn scan_with_ownership_for(
                 PathState::Present
                     if store.verified_managed_directory(&package.id, root, &path) =>
                 {
-                    "present"
+                    IntegrityStatus::Present
                 }
-                PathState::Present => "unsafe",
-                PathState::Missing => "missing",
-                PathState::Unsafe => "unsafe",
-                PathState::Unreadable => "unreadable",
+                PathState::Present | PathState::Unsafe => IntegrityStatus::Unsafe,
+                PathState::Missing => IntegrityStatus::Missing,
+                PathState::Unreadable => IntegrityStatus::Unreadable,
             };
             directory_roots.push((root.clone(), package.id.clone(), status));
         }
@@ -156,7 +160,7 @@ pub fn scan_with_ownership_for(
                 id == &package.id && file.destination.starts_with(&format!("{root}/"))
             });
             let status = match root_status {
-                Some((_, _, status)) => (*status).to_owned(),
+                Some((_, _, status)) => *status,
                 None => verify_owned(&game, &file.destination, file.bytes, &file.sha256),
             };
             report.owned_files.push(OwnedFileCheck {
@@ -188,12 +192,15 @@ pub fn scan_with_ownership_for(
         if let Some(indices) = matched.get(&ownership_key(&relative)) {
             for &owned_index in indices {
                 let owned = &report.owned_files[owned_index];
-                if owned.status == "missing" || owned.status == "unsafe" {
+                if matches!(
+                    owned.status,
+                    IntegrityStatus::Missing | IntegrityStatus::Unsafe
+                ) {
                     continue;
                 }
                 // An unreadable file cannot prove identity, so require exact spelling.
                 // Neither branch may ever infer an intact hash from an unrelated alias.
-                if owned.status == "unreadable" {
+                if owned.status == IntegrityStatus::Unreadable {
                     if relative == owned.relative_path {
                         candidates[owned_index].push(detected_index);
                     }
@@ -227,7 +234,7 @@ pub fn scan_with_ownership_for(
             }
             detected.managed = true;
             detected.package_id = Some(owned.package_id.clone());
-            detected.integrity = Some(owned.status.clone());
+            detected.integrity = Some(owned.status);
         }
     }
     for detected in &mut report.mods {
@@ -236,7 +243,7 @@ pub fn scan_with_ownership_for(
         }
         let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
         let candidate = directory_roots.iter().find(|(root, _, status)| {
-            if *status != "present"
+            if *status != IntegrityStatus::Present
                 || !crate::transactions::directory_candidate_key(&relative).starts_with(&format!(
                     "{}/",
                     crate::transactions::directory_candidate_key(root)
@@ -257,7 +264,7 @@ pub fn scan_with_ownership_for(
             if checked_path(&game, &relative, false).0 == PathState::Present {
                 detected.managed = true;
                 detected.package_id = Some(package_id.clone());
-                detected.integrity = Some("present".into());
+                detected.integrity = Some(IntegrityStatus::Present);
             }
         }
     }
