@@ -21,6 +21,11 @@ they differ from the code, inspect the current revision and active PRs; do not
 present planned behavior as implemented. Use glossary terms consistently in
 code, documentation, CLI and reviews.
 
+Project memory lives in `memory/`. Read
+[memory/CURRENT_STATE.md](memory/CURRENT_STATE.md) before substantive work.
+`memory/events.jsonl` is append-only: revise a record with a supersession that
+gives the reason, and commit new records with the change they describe.
+
 Game-specific Lua modules are first-party source shipped with Modn, not
 distributed by buckets. Buckets catalog mod packages only. Standard Lua 5.4
 is the game-module runtime; earlier releases used Luau.
