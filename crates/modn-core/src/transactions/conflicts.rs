@@ -39,29 +39,34 @@ impl Installed {
 }
 
 impl Store {
-    /// Managed packages in `game` that conflict with `release`, whose archive
-    /// digest is `archive_sha256`, as `package-id (bucket/game/mod)`.
+    /// Managed packages in `game` that conflict with an archive whose digest
+    /// is `archive_sha256`, as `package-id (bucket/game/mod)`.
     ///
     /// A conflict exists when `release` declares an installed package, or an
-    /// installed package declares `release`, by catalog identity or digest.
-    /// This read does not lock; installation repeats it under the lock.
+    /// installed package declares the archive's release, by catalog identity
+    /// or digest. A standalone archive (`release` is `None`) is checked by
+    /// digest against recorded conflicts only. This read does not lock;
+    /// installation repeats it under the lock.
     pub fn conflicting_packages(
         &self,
         game: &Path,
-        release: &CatalogRelease,
+        release: Option<&CatalogRelease>,
         archive_sha256: &str,
     ) -> Result<Vec<String>> {
-        // A read-only database from an older Modn may lack these tables.
-        if !self.has_table("catalog_provenance")? {
-            return Ok(Vec::new());
-        }
         let game = validate_transaction_root(game)?;
         let game_path = game.to_string_lossy().into_owned();
-        let mut statement = self.connection.prepare(
-            "SELECT p.id, p.archive_sha256, c.bucket, c.game_id, c.mod_id
+        // A read-only database from an older Modn may lack the catalog
+        // tables; its packages still match by archive digest.
+        let mut statement = self
+            .connection
+            .prepare(if self.has_table("catalog_provenance")? {
+                "SELECT p.id, p.archive_sha256, c.bucket, c.game_id, c.mod_id
              FROM managed_packages p LEFT JOIN catalog_provenance c ON c.package_id = p.id
-             WHERE p.game_path=?1 ORDER BY p.id",
-        )?;
+             WHERE p.game_path=?1 ORDER BY p.id"
+            } else {
+                "SELECT id, archive_sha256, NULL, NULL, NULL
+             FROM managed_packages WHERE game_path=?1 ORDER BY id"
+            })?;
         let installed = statement
             .query_map([&game_path], |row| {
                 let bucket: Option<String> = row.get(2)?;
@@ -85,27 +90,26 @@ impl Store {
                  WHERE p.game_path=?1
                    AND ((k.bucket=?2 AND k.game_id=?3 AND k.mod_id=?4) OR k.archive_sha256=?5)",
             )?;
-            let reference = &release.reference;
+            // A standalone archive has no catalog identity: NULL never matches.
+            let reference = release.map(|release| &release.reference);
             declaring = statement
                 .query_map(
                     params![
                         game_path,
-                        reference.bucket,
-                        reference.game_id,
-                        reference.mod_id,
+                        reference.map(|r| r.bucket.as_str()),
+                        reference.map(|r| r.game_id.as_str()),
+                        reference.map(|r| r.mod_id.as_str()),
                         archive_sha256
                     ],
                     |row| row.get::<_, String>(0),
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
         }
+        let declared: &[CatalogConflict] = release.map_or(&[], |release| &release.conflicts);
         Ok(installed
             .iter()
             .filter(|package| {
-                release
-                    .conflicts
-                    .iter()
-                    .any(|conflict| package.is(conflict))
+                declared.iter().any(|conflict| package.is(conflict))
                     || declaring.contains(&package.id)
             })
             .map(Installed::label)

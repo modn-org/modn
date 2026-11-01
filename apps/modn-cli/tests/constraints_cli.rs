@@ -218,3 +218,34 @@ fn a_conflict_with_a_skipped_alias_still_blocks() {
     );
     assert!(!fixture.game.join("addons/rival.plugin").exists());
 }
+
+#[test]
+fn a_standalone_archive_meets_recorded_conflicts() {
+    let fixture = Fixture::new();
+    let (a, a_hash) = plugin_archive(&fixture, "a");
+    let (b, b_hash) = plugin_archive(&fixture, "b");
+    fixture.bucket("deps", "test-game", "seed", &"0".repeat(64), &[]);
+    manifest(&fixture, "a", "1.0", &a_hash, json!({"conflicts":["b"]}));
+    manifest(&fixture, "b", "1.0", &b_hash, json!({}));
+    fixture.register();
+    let installed = modn(&fixture, &["install", "a", "--yes"], &[&a]);
+    assert!(installed.status.success(), "{}", error(&installed));
+
+    // `b.zip` installed directly still carries `b`'s pinned digest.
+    let standalone = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .arg("install")
+        .arg(&b)
+        .arg("--yes")
+        .output()
+        .expect("run CLI");
+    assert!(!standalone.status.success());
+    assert!(
+        error(&standalone).contains(&format!("archive {b_hash} conflicts with installed")),
+        "{}",
+        error(&standalone)
+    );
+    assert!(!fixture.game.join("addons/b.plugin").exists());
+}

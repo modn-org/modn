@@ -73,6 +73,10 @@ impl Fixture {
         })
     }
 
+    pub(super) fn state_path(&self) -> PathBuf {
+        self.dir.path().join("state/state.sqlite")
+    }
+
     pub(super) fn count(&self, table: &str) -> i64 {
         self.store
             .connection

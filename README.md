@@ -476,7 +476,9 @@ conflicts again under the transaction lock, and records each package's
 conflicts in the same commit as its ownership. A conflict matches by catalog
 identity or by the pinned archive digest, the same rule that dependency
 readiness uses. So a mod installed through another manifest with the same
-archive is still caught. A shared-archive alias in a stack must declare the same
+archive is still caught. A standalone `modn install <archive>` also meets the
+recorded conflicts, by its digest. On older state without catalog tables,
+installed packages still match by digest. A shared-archive alias in a stack must declare the same
 dependencies and conflicts as the release that installs the archive. A bucket publishes one release
 per mod, so Modn checks requirements rather than choosing between versions.
 Installed packages carry no version, so an `other_release` dependency is

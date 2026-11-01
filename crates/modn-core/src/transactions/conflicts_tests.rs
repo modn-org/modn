@@ -85,3 +85,35 @@ fn a_conflict_also_matches_the_conflicting_release_by_digest() {
     assert!(error.contains(&installed.id), "{error}");
     assert!(!fixture.game.join("addons/shared.plugin").exists());
 }
+
+#[test]
+fn legacy_read_only_state_still_matches_conflicts_by_digest() {
+    let mut fixture = Fixture::new();
+    let shared = fixture.archive("shared");
+    let digest = crate::archive::inspect(&shared).unwrap().sha256;
+    let installed = fixture
+        .install_release(&shared, CatalogRelease::new(reference("a"), Vec::new()))
+        .unwrap();
+    // Simulate state written before catalog provenance and conflicts existed.
+    fixture
+        .store
+        .connection
+        .execute_batch(
+            "DROP TABLE package_dependencies; DROP TABLE package_conflicts;
+             DROP TABLE pending_stack_packages; DROP TABLE catalog_provenance;",
+        )
+        .unwrap();
+    let store = crate::state::Store::open_readonly(&fixture.state_path()).unwrap();
+    let rival = CatalogRelease::new(reference("rival"), Vec::new())
+        .with_conflicts(vec![CatalogConflict::new(reference("b"), Some(digest))]);
+    let found = store
+        .conflicting_packages(&fixture.game, Some(&rival), &"0".repeat(64))
+        .unwrap();
+    assert_eq!(
+        found,
+        [format!(
+            "{} (archive {})",
+            installed.id, installed.archive_sha256
+        )]
+    );
+}

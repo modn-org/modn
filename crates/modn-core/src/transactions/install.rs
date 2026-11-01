@@ -122,19 +122,23 @@ impl Store {
         validate_ownership(self, &game, proposal)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories)?;
+        // Every archive, catalog or standalone, meets the recorded conflicts.
+        let release = catalog.map(|catalog| catalog.release);
+        let conflicts = self.conflicting_packages(&game, release, &inspection.sha256)?;
+        if !conflicts.is_empty() {
+            let subject = release.map_or_else(
+                || format!("archive {}", inspection.sha256),
+                |release| release.reference.to_string(),
+            );
+            bail!(
+                "{subject} conflicts with installed {}; uninstall it first",
+                conflicts.join(", ")
+            );
+        }
         let catalog = catalog
             .map(|catalog| -> Result<CatalogRecord> {
                 let dependency_ids =
                     self.ready_dependencies(&game, &catalog.release.dependencies)?;
-                let conflicts =
-                    self.conflicting_packages(&game, catalog.release, &inspection.sha256)?;
-                if !conflicts.is_empty() {
-                    bail!(
-                        "{} conflicts with installed {}; uninstall it first",
-                        catalog.release.reference,
-                        conflicts.join(", ")
-                    );
-                }
                 Ok(CatalogRecord {
                     release: catalog.release,
                     dependency_ids,

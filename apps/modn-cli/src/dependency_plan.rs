@@ -120,7 +120,7 @@ pub(super) fn conflicts(
         let reference = reference_of(release);
         let catalog_release = catalog_release(release, catalog)?;
         for package in
-            store.conflicting_packages(game, &catalog_release, &release.package.sha256)?
+            store.conflicting_packages(game, Some(&catalog_release), &release.package.sha256)?
         {
             found.push(format!("{reference} conflicts with installed {package}"));
         }
