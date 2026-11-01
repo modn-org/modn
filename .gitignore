@@ -3,3 +3,8 @@ target/
 *.sqlite-shm
 *.sqlite-wal
 .DS_Store
+
+# Rebuildable project-memory runtime files
+/memory/.index/
+/memory/.events.lock
+/memory/.index.lock
