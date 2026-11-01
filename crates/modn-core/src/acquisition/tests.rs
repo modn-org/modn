@@ -44,7 +44,7 @@ fn download_is_verified_then_reused() {
         .unwrap();
     assert_eq!(first.origin, Origin::Download);
     assert_eq!(fs::read(&first.path).unwrap(), body);
-    assert!(!partial_path(&first.path).exists());
+    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 1);
 
     let second = cache
         .acquire(&key(&digest), CacheUse::Reuse, fetch)
@@ -153,7 +153,15 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
             .acquire(&key, CacheUse::Reuse, |_| Ok(Cursor::new(body.to_vec())))
             .unwrap();
     }
-    fs::write(cache.root().join("unrelated.txt"), b"keep").unwrap();
+    // Names that only resemble entries are not cache entries.
+    for name in [
+        "unrelated.txt",
+        "notes#alpha#draft#keep.txt",
+        "test-game#alpha#1.0#XYZ1234.zip",
+        "test-game#alpha#1.0#abcdef0.zip.1234.download",
+    ] {
+        fs::write(cache.root().join(name), b"keep").unwrap();
+    }
     let alpha = cache.entries(Some("alpha")).unwrap();
     assert_eq!(alpha.len(), 1);
     assert_eq!(alpha[0].version, "1.0_beta_2");
@@ -162,5 +170,37 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
 
     assert_eq!(cache.remove(Some("alpha")).unwrap().len(), 1);
     assert_eq!(cache.remove(None).unwrap().len(), 1);
-    assert!(cache.root().join("unrelated.txt").is_file());
+    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 4);
+}
+
+#[test]
+fn another_attempts_partial_file_is_never_touched() {
+    let dir = tempdir().unwrap();
+    let cache = ArchiveCache::new(dir.path().join("cache"));
+    let body = b"verified".to_vec();
+    let digest = sha(&body);
+    fs::create_dir_all(cache.root()).unwrap();
+    let entry = cache.path(&key(&digest));
+    let other = cache.root().join(format!(
+        "{}.download",
+        entry.file_name().unwrap().to_string_lossy()
+    ));
+    fs::write(&other, b"still downloading").unwrap();
+    let acquired = cache
+        .acquire(&key(&digest), CacheUse::Reuse, |_| {
+            Ok(Cursor::new(body.clone()))
+        })
+        .unwrap();
+    assert_eq!(fs::read(&acquired.path).unwrap(), body);
+    assert_eq!(fs::read(&other).unwrap(), b"still downloading");
+    let error = cache
+        .acquire(&key(&digest), CacheUse::Refresh, |_| {
+            Ok(Cursor::new(b"bad".to_vec()))
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("hash check failed"));
+    // A failed attempt removes only its own partial file and keeps the entry.
+    assert_eq!(fs::read(&other).unwrap(), b"still downloading");
+    assert_eq!(fs::read(&acquired.path).unwrap(), body);
+    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 2);
 }

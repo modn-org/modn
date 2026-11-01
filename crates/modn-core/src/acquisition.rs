@@ -9,7 +9,7 @@
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -178,42 +178,36 @@ impl ArchiveCache {
         fs::create_dir_all(&self.root)
             .with_context(|| format!("cannot create cache directory {}", self.root.display()))?;
         let path = self.path(key);
-        let partial = partial_path(&path);
-        // A leftover partial file comes from an interrupted download.
-        if fs::symlink_metadata(&partial).is_ok() {
-            fs::remove_file(&partial)?;
+        // Each attempt writes its own uniquely named partial file, so
+        // concurrent downloads of one entry never touch each other's bytes.
+        // Dropping the file on any error removes it.
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let mut partial = tempfile::Builder::new()
+            .prefix(&format!("{name}."))
+            .suffix(".download")
+            .tempfile_in(&self.root)?;
+        let body = fetch(key.url).with_context(|| format!("download failed: {}", key.url))?;
+        let (bytes, actual) = copy_hashed(body, partial.as_file_mut(), limit)
+            .with_context(|| format!("download failed: {}", key.url))?;
+        if bytes > limit {
+            bail!("download exceeds {limit} bytes: {}", key.url);
         }
-        let result = (|| -> Result<()> {
-            let mut output = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&partial)?;
-            let body = fetch(key.url).with_context(|| format!("download failed: {}", key.url))?;
-            let (bytes, actual) = copy_hashed(body, &mut output, limit)
-                .with_context(|| format!("download failed: {}", key.url))?;
-            if bytes > limit {
-                bail!("download exceeds {limit} bytes: {}", key.url);
-            }
-            output.sync_all()?;
-            drop(output);
-            if actual != key.sha256 {
-                bail!(
-                    "hash check failed for {}/{} {}\nURL:      {}\nExpected: {}\nActual:   {}",
-                    key.game_id,
-                    key.mod_id,
-                    key.version,
-                    key.url,
-                    key.sha256,
-                    actual
-                );
-            }
-            fs::rename(&partial, &path)?;
-            Ok(())
-        })();
-        if let Err(err) = result {
-            let _ = fs::remove_file(&partial);
-            return Err(err);
+        if actual != key.sha256 {
+            bail!(
+                "hash check failed for {}/{} {}\nURL:      {}\nExpected: {}\nActual:   {}",
+                key.game_id,
+                key.mod_id,
+                key.version,
+                key.url,
+                key.sha256,
+                actual
+            );
         }
+        partial.as_file().sync_all()?;
+        // Atomically replace any entry with this attempt's verified file.
+        partial
+            .persist(&path)
+            .with_context(|| format!("cannot store cache entry {}", path.display()))?;
         Ok(Acquired {
             path,
             origin: Origin::Download,
@@ -232,20 +226,19 @@ impl ArchiveCache {
             let item = item?;
             let metadata = item.metadata()?;
             let name = item.file_name().to_string_lossy().into_owned();
-            let parts: Vec<&str> = name.splitn(4, '#').collect();
-            let [game_id, entry_mod, version, rest] = parts.as_slice() else {
+            let Some([game_id, entry_mod, version]) = parse_entry_name(&name) else {
                 continue;
             };
-            if !metadata.is_file() || rest.ends_with(".download") {
+            if !metadata.is_file() {
                 continue;
             }
             if mod_id.is_some_and(|wanted| component(wanted) != *entry_mod) {
                 continue;
             }
             entries.push(CacheEntry {
-                game_id: (*game_id).to_owned(),
-                mod_id: (*entry_mod).to_owned(),
-                version: (*version).to_owned(),
+                game_id: game_id.to_owned(),
+                mod_id: entry_mod.to_owned(),
+                version: version.to_owned(),
                 bytes: metadata.len(),
                 path: item.path(),
             });
@@ -288,10 +281,30 @@ fn extension(url: &str) -> String {
     }
 }
 
-fn partial_path(path: &Path) -> PathBuf {
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".download");
-    path.with_file_name(name)
+/// Split a name that [`ArchiveCache::path`] could have produced into its
+/// game, mod and version. Any other file in the cache directory is ignored.
+fn parse_entry_name(name: &str) -> Option<[&str; 3]> {
+    let parts: Vec<&str> = name.split('#').collect();
+    let [game_id, mod_id, version, rest] = parts.as_slice() else {
+        return None;
+    };
+    let named = |value: &str| {
+        !value.is_empty()
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    };
+    let (url_hash, ext) = rest.split_at_checked(7)?;
+    let valid_ext = ext.is_empty()
+        || ext
+            .strip_prefix('.')
+            .is_some_and(|ext| (1..=8).contains(&ext.len()) && named(ext));
+    (named(game_id)
+        && named(mod_id)
+        && named(version)
+        && url_hash.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+        && valid_ext)
+        .then_some([*game_id, *mod_id, *version])
 }
 
 /// Copy at most one byte beyond the limit, so an oversized body is detected.

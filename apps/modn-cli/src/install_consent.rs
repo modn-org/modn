@@ -105,6 +105,24 @@ fn ask_approval(
         )?;
     }
     write!(output, "Install? [y/N]: ")?;
+    read_yes(input, output)
+}
+
+/// Asks before downloads that must happen ahead of the install prompt.
+pub(super) fn confirm_download(
+    downloads: &[String],
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> io::Result<bool> {
+    writeln!(output, "Modn will download into its cache:")?;
+    for download in downloads {
+        writeln!(output, "  {download}")?;
+    }
+    write!(output, "Download? [y/N]: ")?;
+    read_yes(input, output)
+}
+
+fn read_yes(input: &mut impl BufRead, output: &mut impl Write) -> io::Result<bool> {
     output.flush()?;
     let mut answer = String::new();
     input.read_line(&mut answer)?;
@@ -205,5 +223,23 @@ mod tests {
         let red4ext = text.find("red4ext 1.31.0").expect("red4ext");
         assert!(red4ext < text.find("cet 1.38.1").expect("cet"), "{text}");
         assert!(text.contains("uninstalls the packages"), "{text}");
+    }
+
+    #[test]
+    fn download_prompt_names_each_download_and_needs_an_explicit_yes() {
+        let downloads =
+            ["main/cyberpunk-2077/red4ext 1.31.0 from https://example.invalid/r.zip".to_owned()];
+        for (answer, expected) in [("y", true), ("", false), ("no", false)] {
+            let mut output = Vec::new();
+            let approved = confirm_download(&downloads, &mut Cursor::new(answer), &mut output)
+                .expect("prompt");
+            let text = String::from_utf8(output).expect("UTF-8");
+            assert_eq!(approved, expected, "{answer:?}");
+            assert!(
+                text.contains("red4ext 1.31.0 from https://example.invalid/r.zip"),
+                "{text}"
+            );
+            assert!(text.ends_with("Download? [y/N]: "), "{text}");
+        }
     }
 }

@@ -9,7 +9,7 @@ use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
-use modn_core::buckets::{install_order, ArchiveFormat, BucketPackage, BucketStore};
+use modn_core::buckets::{install_order, ArchiveFormat, BucketPackage, BucketStore, PackageSource};
 use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
 use modn_core::transactions::{CatalogDependency, CatalogReference, CatalogRelease};
 use std::collections::BTreeMap;
@@ -238,6 +238,16 @@ fn install_mod(
         Some(&selected.package.game),
     )?;
     let release = catalog_release(&selected, &catalog)?;
+    if !args.dry_run {
+        // Downloads write the cache before the install opens writable state.
+        state.validate_download(
+            cache.root(),
+            &ProtectedTarget {
+                game: Some(game_id.clone()),
+                root: Some(installation.clone()),
+            },
+        )?;
+    }
     let dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
     // Missing dependencies install with the mod as one stack. A damaged
     // dependency or another installed release keeps the single-install path,
@@ -275,7 +285,22 @@ fn install_mod(
             }
         }
     }
-    if !args.dry_run {
+    if !args.dry_run && !archives.contains_key(&reference) {
+        // The install prompt needs the archive's plan, so a download asks first.
+        if interactive {
+            let url = match &selected.package.source {
+                PackageSource::Https { url } => url.as_str(),
+                _ => "",
+            };
+            let download = format!("{reference} {} from {url}", selected.package.version);
+            if !install_consent::confirm_download(
+                &[download],
+                &mut io::stdin().lock(),
+                &mut io::stderr(),
+            )? {
+                bail!("{reference}: download cancelled");
+            }
+        }
         download::download(&cache, cache_use, &[&selected], &mut archives, json)?;
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {

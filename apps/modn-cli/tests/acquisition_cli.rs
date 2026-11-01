@@ -221,3 +221,26 @@ fn cache_show_and_rm_follow_scoop() {
     assert!(!cache_entry(&fixture, "base").exists());
     assert!(cache_dir(&fixture).join("notes.txt").is_file());
 }
+
+#[test]
+fn a_cache_inside_the_game_is_refused_before_any_download() {
+    let (fixture, _, _) = catalog();
+    let inside = fixture.game.join("modn-cache");
+    let refused = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .env("MODN_CACHE", &inside)
+        .args(["install", "base", "--yes"])
+        .output()
+        .expect("run CLI");
+    assert!(!refused.status.success());
+    let message = error(&refused);
+    assert!(
+        message.contains("cache directory must be outside a game installation"),
+        "{message}"
+    );
+    assert!(!message.contains("download failed"), "{message}");
+    assert!(!inside.exists());
+    assert!(!fixture.game.join("addons").exists());
+}

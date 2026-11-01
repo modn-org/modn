@@ -97,7 +97,9 @@ fn fetch(url: &str) -> Result<impl Read> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
         .timeout_connect(Some(Duration::from_secs(30)))
-        .timeout_recv_body(Some(Duration::from_secs(60)))
+        // An inactivity limit: each read may wait this long, so a large
+        // archive on a slow but steady connection still completes.
+        .timeout_per_read(Some(Duration::from_secs(60)))
         .user_agent(concat!("modn/", env!("CARGO_PKG_VERSION")))
         .build()
         .into();

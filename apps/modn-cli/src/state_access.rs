@@ -100,6 +100,26 @@ impl ManagerState {
             .context("no registered game database for preview")
     }
 
+    /// Before a download, check that the state and cache directories are
+    /// both outside every protected game location.
+    pub(super) fn validate_download(&self, cache: &Path, target: &ProtectedTarget) -> Result<()> {
+        self.validate(target)?;
+        validate_outside_games(
+            "cache directory",
+            cache,
+            target.game.as_deref(),
+            target.root.as_deref(),
+            &self.roots()?,
+        )
+    }
+
+    fn roots(&self) -> Result<Vec<PathBuf>> {
+        match &self.registered_roots {
+            Some(roots) => Ok(roots.clone()),
+            None => registered_roots(self.existing()),
+        }
+    }
+
     fn validate(&self, target: &ProtectedTarget) -> Result<()> {
         let deferred;
         let roots = match &self.registered_roots {
@@ -148,21 +168,39 @@ pub(super) fn validate_state_path(
     selected_path: Option<&Path>,
     registered_roots: &[PathBuf],
 ) -> Result<()> {
-    // A missing component followed by '..' can escape ancestor-by-ancestor
-    // confinement checks before create_dir_all materializes the path.
-    if state_path
-        .components()
-        .any(|component| component == Component::ParentDir)
-    {
-        bail!("state directory must not contain parent-directory components");
-    }
-    let selected_root = selected_path.map(Path::canonicalize).transpose()?;
     if let Ok(metadata) = std::fs::symlink_metadata(state_path) {
         if metadata.file_type().is_symlink() {
             bail!("state database must not be a filesystem link");
         }
     }
     let parent = state_path.parent().context("invalid state path")?;
+    validate_outside_games(
+        "state directory",
+        parent,
+        selected_game,
+        selected_path,
+        registered_roots,
+    )
+}
+
+/// Refuse a manager-owned directory inside the selected game, a registered
+/// game, or any ancestor that the selected game's policy recognizes.
+pub(super) fn validate_outside_games(
+    label: &str,
+    parent: &Path,
+    selected_game: Option<&str>,
+    selected_path: Option<&Path>,
+    registered_roots: &[PathBuf],
+) -> Result<()> {
+    // A missing component followed by '..' can escape ancestor-by-ancestor
+    // confinement checks before create_dir_all materializes the path.
+    if parent
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        bail!("{label} must not contain parent-directory components");
+    }
+    let selected_root = selected_path.map(Path::canonicalize).transpose()?;
     let mut directory = if parent.is_absolute() {
         parent.to_path_buf()
     } else {
@@ -177,12 +215,12 @@ pub(super) fn validate_state_path(
                     .iter()
                     .any(|root| existing.starts_with(root))
             {
-                bail!("state directory must be outside a game installation");
+                bail!("{label} must be outside a game installation");
             }
             if let Some(game) = selected_game {
                 for ancestor in existing.ancestors() {
                     if recognizes_installation_for(game, ancestor)? {
-                        bail!("state directory must be outside a game installation");
+                        bail!("{label} must be outside a game installation");
                     }
                 }
             }
@@ -190,7 +228,7 @@ pub(super) fn validate_state_path(
         }
         directory = directory
             .parent()
-            .context("cannot resolve state directory")?
+            .with_context(|| format!("cannot resolve {label}"))?
             .to_path_buf();
     }
 }
