@@ -47,10 +47,17 @@ impl Fixture {
         mod_id: &str,
         dependencies: Vec<CatalogDependency>,
     ) -> anyhow::Result<ManagedPackage> {
-        let release = CatalogRelease {
-            reference: reference(mod_id),
-            dependencies,
-        };
+        self.install_release(
+            archive,
+            CatalogRelease::new(reference(mod_id), dependencies),
+        )
+    }
+
+    fn install_release(
+        &mut self,
+        archive: &Path,
+        release: CatalogRelease,
+    ) -> anyhow::Result<ManagedPackage> {
         let proposal = plan(&self.game, archive);
         let game = self.game.clone();
         with_module_source(Some(&module_source()), || {
@@ -311,10 +318,7 @@ fn read_only_state_without_provenance_table_reports_missing_dependencies() {
 fn member(archive: &Path, mod_id: &str, dependencies: Vec<CatalogDependency>) -> StackMember {
     StackMember::new(
         archive.to_path_buf(),
-        CatalogRelease {
-            reference: reference(mod_id),
-            dependencies,
-        },
+        CatalogRelease::new(reference(mod_id), dependencies),
         Vec::new(),
     )
 }
@@ -418,10 +422,7 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
     let base = fixture.archive("base");
     let other = fixture.archive("other");
     let game = fixture.game.clone();
-    let release = CatalogRelease {
-        reference: reference("base"),
-        dependencies: Vec::new(),
-    };
+    let release = CatalogRelease::new(reference("base"), Vec::new());
     // Simulate a crash after the first member committed, before the stack did.
     let proposal = plan(&game, &base);
     let stack_id = fixture.store.begin_stack(&game).unwrap();
@@ -464,4 +465,45 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
     assert_eq!(fixture.count("catalog_provenance"), 0);
     assert_eq!(fixture.pending_stack_rows(), 0);
     fixture.install(&other, "other", Vec::new()).unwrap();
+}
+
+#[test]
+fn declared_conflicts_block_installation_in_either_order() {
+    let mut fixture = Fixture::new();
+    let a_archive = fixture.archive("a");
+    let b_archive = fixture.archive("b");
+    let a = || CatalogRelease::new(reference("a"), Vec::new()).with_conflicts(vec![reference("b")]);
+    let b = || CatalogRelease::new(reference("b"), Vec::new());
+
+    // `a` declares the conflict and is installed first: `b` is refused.
+    let installed = fixture.install_release(&a_archive, a()).unwrap();
+    assert_eq!(fixture.count("package_conflicts"), 1);
+    let error = fixture
+        .install_release(&b_archive, b())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains(&format!(
+            "deps/test-game/b conflicts with installed {} (deps/test-game/a)",
+            installed.id
+        )),
+        "{error}"
+    );
+    assert!(!fixture.game.join("addons/b.plugin").exists());
+    fixture.uninstall(&installed.id).unwrap();
+    assert_eq!(fixture.count("package_conflicts"), 0);
+
+    // `b` is installed first: `a`, which declares the conflict, is refused.
+    let installed = fixture.install_release(&b_archive, b()).unwrap();
+    let error = fixture
+        .install_release(&a_archive, a())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("deps/test-game/a conflicts with installed"),
+        "{error}"
+    );
+    assert!(error.contains(&installed.id), "{error}");
+    assert!(!fixture.game.join("addons/a.plugin").exists());
+    assert_eq!(fixture.count("pending_transactions"), 0);
 }

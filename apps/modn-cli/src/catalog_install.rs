@@ -160,7 +160,19 @@ pub(super) fn catalog_release(
             ))
         })
         .collect::<Result<_>>()?;
-    Ok(CatalogRelease::new(reference, dependencies))
+    let conflicts = selected
+        .package
+        .conflicts
+        .iter()
+        .map(|id| {
+            CatalogReference::new(
+                selected.bucket.clone(),
+                selected.package.game.clone(),
+                id.clone(),
+            )
+        })
+        .collect();
+    Ok(CatalogRelease::new(reference, dependencies).with_conflicts(conflicts))
 }
 
 /// Match each supplied archive to the selected release or one of its
@@ -249,6 +261,23 @@ fn install_mod(
         )?;
     }
     let dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+    // Check declared conflicts before any download or write; the Rust core
+    // repeats the check for each package under the transaction lock.
+    let installing: Vec<&BucketPackage> = order
+        .iter()
+        .zip(&dependencies)
+        .filter(|(_, dependency)| dependency.missing())
+        .map(|(release, _)| release)
+        .chain([&selected])
+        .collect();
+    let conflicts =
+        dependency_plan::conflicts(&installing, &catalog, state.existing(), &installation)?;
+    if !args.dry_run && !conflicts.is_empty() {
+        bail!(
+            "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
+            conflicts.join("\n  ")
+        );
+    }
     // Missing dependencies install with the mod as one stack. A damaged
     // dependency or another installed release keeps the single-install path,
     // which fails closed: Modn never replaces or repairs a framework implicitly.
@@ -304,7 +333,14 @@ fn install_mod(
         download::download(&cache, cache_use, &[&selected], &mut archives, json)?;
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
-        return dependency_plan::report(&reference, &selected, None, &dependencies, json);
+        return dependency_plan::report(
+            &reference,
+            &selected,
+            None,
+            &dependencies,
+            &conflicts,
+            json,
+        );
     };
     let preview = |approved: &[String]| -> Result<InstallPlan> {
         let plan =
@@ -345,7 +381,14 @@ fn install_mod(
             plan: &plan,
             unapproved_declared_executables: &pending,
         };
-        return dependency_plan::report(&reference, &selected, Some(preview), &dependencies, json);
+        return dependency_plan::report(
+            &reference,
+            &selected,
+            Some(preview),
+            &dependencies,
+            &conflicts,
+            json,
+        );
     }
     let mut approved = explicit.clone();
     if interactive && !pending.is_empty() {

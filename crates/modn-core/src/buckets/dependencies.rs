@@ -2,7 +2,7 @@
 //!
 //! Resolution reads package manifests only. It never decides readiness or
 //! authorizes writes; callers check installed state separately.
-use super::BucketPackage;
+use super::{BucketPackage, VersionReq};
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 
@@ -16,8 +16,10 @@ enum Visit {
 ///
 /// Dependencies resolve within the selected package's bucket and game, as
 /// catalog installation does. Siblings are visited in declared order, so the
-/// result is the same for the same manifests. A cycle or an ID that the
-/// bucket does not publish is an error, never a partial order.
+/// result is the same for the same manifests. A cycle, an ID that the
+/// bucket does not publish, a release that misses its dependent's version
+/// requirement, or two releases that conflict are errors, never a partial
+/// order.
 pub fn install_order(
     selected: &BucketPackage,
     catalog: &[BucketPackage],
@@ -33,6 +35,20 @@ pub fn install_order(
     let mut path = Vec::new();
     let mut order = Vec::new();
     visit(selected, &releases, &mut visits, &mut path, &mut order)?;
+    for release in &order {
+        if let Some(conflict) = order
+            .iter()
+            .find(|other| release.package.conflicts.contains(&other.package.id))
+        {
+            bail!(
+                "{}/{}/{} conflicts with {}, which this installation also needs",
+                release.bucket,
+                release.package.game,
+                release.package.id,
+                conflict.package.id
+            );
+        }
+    }
     Ok(order)
 }
 
@@ -73,6 +89,16 @@ fn visit<'a>(
                 dependency
             );
         };
+        if let Some(requirement) = package.package.dependency_versions.get(dependency) {
+            let requirement = VersionReq::parse(requirement)?;
+            if !requirement.matches(&release.package.version)? {
+                bail!(
+                    "{id} requires {dependency} {requirement}, but bucket {} publishes {dependency} {}",
+                    package.bucket,
+                    release.package.version
+                );
+            }
+        }
         visit(release, releases, visits, path, order)?;
     }
     path.pop();
@@ -103,6 +129,8 @@ mod tests {
                 dependencies: dependencies.iter().map(|id| (*id).into()).collect(),
                 homepage: None,
                 executables: Vec::new(),
+                dependency_versions: BTreeMap::new(),
+                conflicts: Vec::new(),
             },
         }
     }
@@ -151,6 +179,38 @@ mod tests {
             error
                 .to_string()
                 .contains("dependency cycle in main/test-game: a -> b -> a"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_dependency_release_must_meet_its_version_requirement() {
+        let mut top = release("main", "top", &["base"]);
+        top.package
+            .dependency_versions
+            .insert("base".into(), ">=1.31.0".into());
+        let mut base = release("main", "base", &[]);
+        base.package.version = "1.30.2".into();
+        let catalog = vec![top.clone(), base.clone()];
+        let error = format!("{:#}", install_order(&top, &catalog).unwrap_err());
+        assert!(
+            error.contains("top requires base >=1.31.0, but bucket main publishes base 1.30.2"),
+            "{error}"
+        );
+        base.package.version = "1.31.0".into();
+        let order = install_order(&top, &[top.clone(), base]).expect("satisfied");
+        assert_eq!(ids(&order), ["base", "top"]);
+    }
+
+    #[test]
+    fn conflicting_releases_cannot_share_an_installation() {
+        let top = release("main", "top", &["a", "b"]);
+        let mut a = release("main", "a", &[]);
+        a.package.conflicts.push("b".into());
+        let catalog = vec![top.clone(), a, release("main", "b", &[])];
+        let error = install_order(&top, &catalog).unwrap_err().to_string();
+        assert!(
+            error.contains("main/test-game/a conflicts with b, which this installation also needs"),
             "{error}"
         );
     }

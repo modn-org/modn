@@ -126,6 +126,14 @@ impl Store {
             .map(|catalog| -> Result<CatalogRecord> {
                 let dependency_ids =
                     self.ready_dependencies(&game, &catalog.release.dependencies)?;
+                let conflicts = self.conflicting_packages(&game, catalog.release)?;
+                if !conflicts.is_empty() {
+                    bail!(
+                        "{} conflicts with installed {}; uninstall it first",
+                        catalog.release.reference,
+                        conflicts.join(", ")
+                    );
+                }
                 Ok(CatalogRecord {
                     release: catalog.release,
                     dependency_ids,
