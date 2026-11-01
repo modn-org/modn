@@ -100,7 +100,7 @@ fn official_mod_dry_run_lists_its_dependency_stack_without_an_archive() {
     assert!(text.status.success(), "{}", error(&text));
     let stdout = String::from_utf8_lossy(&text.stdout);
     assert!(
-        stdout.contains("main/cyberpunk-2077/red4ext 1.31.0: missing; download from https://github.com/WopsS/RED4ext/releases/download/v1.31.0/red4ext-1.31.0.zip"),
+        stdout.contains("main/cyberpunk-2077/red4ext 1.31.0: missing; Modn downloads it from https://github.com/WopsS/RED4ext/releases/download/v1.31.0/red4ext-1.31.0.zip"),
         "{stdout}"
     );
     assert!(

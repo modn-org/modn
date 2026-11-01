@@ -2,6 +2,7 @@ mod buckets;
 mod catalog_install;
 mod commands;
 mod dependency_plan;
+mod download;
 mod games;
 mod install;
 mod install_consent;
@@ -37,6 +38,7 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
     let requested = game_id.as_deref();
     match command {
         Command::Bucket { command } => buckets::run(command, state_path, json, requested),
+        Command::Cache { command } => download::run(command, state_path, json),
         Command::Module { command } => modules::run(command, json),
         Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
         Command::Install(args) => install::run(&args, state_path, requested, json),

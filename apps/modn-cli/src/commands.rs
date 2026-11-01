@@ -31,6 +31,11 @@ pub(super) enum Command {
         /// Match mod ID or display name (omit to list all).
         query: Option<String>,
     },
+    /// Show or remove verified archives in the download cache.
+    Cache {
+        #[command(subcommand)]
+        command: CacheCommand,
+    },
     /// Inspect bundled and explicitly registered local package catalogs.
     Bucket {
         #[command(subcommand)]
@@ -107,6 +112,22 @@ pub(super) enum GameCommand {
 }
 
 #[derive(Subcommand)]
+pub(super) enum CacheCommand {
+    /// List cached archives, optionally of one mod.
+    Show {
+        #[arg(value_name = "MOD")]
+        mod_id: Option<String>,
+    },
+    /// Remove the cached archives of one mod, or all of them with --all.
+    Rm {
+        #[arg(value_name = "MOD")]
+        mod_id: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
+}
+
+#[derive(Subcommand)]
 pub(super) enum BucketCommand {
     /// Register a local bucket directory after validating its complete contents.
     Add { name: String, path: PathBuf },
@@ -141,6 +162,9 @@ pub(super) struct InstallArgs {
         conflicts_with = "yes"
     )]
     pub(super) dry_run: bool,
+    /// Download `https` archives again instead of using verified cache entries.
+    #[arg(long)]
+    pub(super) no_cache: bool,
     /// Independently authorize one exact game-relative tool executable in the archive.
     #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
     pub(super) allow_executable: Vec<String>,

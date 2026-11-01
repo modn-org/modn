@@ -7,6 +7,7 @@
     clippy::return_self_not_must_use,
     clippy::missing_panics_doc
 )]
+pub mod acquisition;
 pub mod archive;
 /// Versioned bucket metadata, validation and local registration.
 pub mod buckets;

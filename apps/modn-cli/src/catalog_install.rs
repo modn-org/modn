@@ -1,11 +1,13 @@
 //! Catalog resolution and manifest-verified local mod installation.
 use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
+use crate::download;
 use crate::install_consent::{self, Request};
 use crate::selection::selected_installation;
 use crate::stack_install;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
+use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{install_order, ArchiveFormat, BucketPackage, BucketStore};
 use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
@@ -214,11 +216,17 @@ fn install_mod(
     order.pop(); // The selected release is last; the rest are its dependencies.
     let interactive = !args.yes && !args.dry_run;
     // Archives match releases by digest before any manager state is read.
-    let archives = match_archives(&args.file, &selected, &order)?;
-    let archive = archives.get(&reference).map(PathBuf::as_path);
-    if archive.is_none() && !args.dry_run {
+    let mut archives = match_archives(&args.file, &selected, &order)?;
+    let cache = download::cache_for(state_path)?;
+    let cache_use = if args.no_cache {
+        CacheUse::Refresh
+    } else {
+        download::add_cached(&cache, order.iter().chain([&selected]), &mut archives)?;
+        CacheUse::Reuse
+    };
+    if !archives.contains_key(&reference) && !args.dry_run && !download::downloadable(&selected) {
         let source = dependency_plan::acquisition(&selected.package.source);
-        bail!("{reference}: {source}, then use modn install {reference} --file <archive> (automatic downloads are not implemented)");
+        bail!("{reference}: {source}, then use modn install {reference} --file <archive>");
     }
     if interactive && !install_consent::can_prompt(json) {
         bail!("installation writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
@@ -242,12 +250,14 @@ fn install_mod(
             selected: &selected,
             order: &order,
             dependencies: &dependencies,
-            archives: &archives,
+            archives,
             catalog: &catalog,
+            cache: &cache,
+            cache_use,
             game_id,
             installation,
         };
-        return stack_install::run(&stack, state, args, json);
+        return stack_install::run(stack, state, args, json);
     }
     if !args.dry_run {
         // Preview readiness early; `install_catalog_release` repeats it under the lock.
@@ -265,7 +275,10 @@ fn install_mod(
             }
         }
     }
-    let Some(archive) = archive else {
+    if !args.dry_run {
+        download::download(&cache, cache_use, &[&selected], &mut archives, json)?;
+    }
+    let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
         return dependency_plan::report(&reference, &selected, None, &dependencies, json);
     };
     let preview = |approved: &[String]| -> Result<InstallPlan> {

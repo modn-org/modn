@@ -6,9 +6,11 @@
 use crate::catalog_install::{catalog_release, reference_of};
 use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
+use crate::download;
 use crate::install_consent::{self, StackRequest};
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
+use modn_core::acquisition::{ArchiveCache, CacheUse};
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::planning::{preview_install_zip_with_permissions, PlanStatus};
 use modn_core::transactions::StackMember;
@@ -23,9 +25,11 @@ pub(super) struct Stack<'a> {
     pub(super) order: &'a [BucketPackage],
     /// The state of each release in `order`, at the same index.
     pub(super) dependencies: &'a [PlannedDependency],
-    /// Supplied archives by catalog reference.
-    pub(super) archives: &'a BTreeMap<String, PathBuf>,
+    /// Supplied or cached archives by catalog reference.
+    pub(super) archives: BTreeMap<String, PathBuf>,
     pub(super) catalog: &'a BucketStore,
+    pub(super) cache: &'a ArchiveCache,
+    pub(super) cache_use: CacheUse,
     pub(super) game_id: String,
     pub(super) installation: PathBuf,
 }
@@ -37,7 +41,10 @@ pub(super) struct Stack<'a> {
 /// would only collide with the first. The skipped release must declare the
 /// same dependencies as the installed one. Otherwise its own requirements
 /// would be neither checked under the lock nor recorded as links.
-fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<(&'a BucketPackage, PathBuf)>> {
+///
+/// A release with a manual source and no supplied archive fails here,
+/// before any download. An `https` release without one downloads later.
+fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
     let mut by_digest: BTreeMap<&str, &BucketPackage> = BTreeMap::new();
     let mut needed: Vec<&BucketPackage> = Vec::new();
     let missing = stack
@@ -73,9 +80,10 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<(&'a BucketPackage, PathBuf)>> 
     let absent: Vec<String> = needed
         .iter()
         .filter(|release| {
-            !stack
-                .archives
-                .contains_key(&reference_of(release).to_string())
+            !download::downloadable(release)
+                && !stack
+                    .archives
+                    .contains_key(&reference_of(release).to_string())
         })
         .map(|release| {
             format!(
@@ -88,33 +96,27 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<(&'a BucketPackage, PathBuf)>> 
         .collect();
     if !absent.is_empty() {
         bail!(
-            "archives missing for this installation (automatic downloads are not implemented):\n{}\nPass --file once for each archive.",
+            "archives missing for this installation (manual download required):\n{}\nPass --file once for each archive.",
             absent.join("\n")
         );
     }
-    Ok(needed
-        .into_iter()
-        .map(|release| {
-            let archive = stack.archives[&reference_of(release).to_string()].clone();
-            (release, archive)
-        })
-        .collect())
+    Ok(needed)
 }
 
 /// Install the missing dependencies and the selected mod after one approval.
 pub(super) fn run(
-    stack: &Stack<'_>,
+    mut stack: Stack<'_>,
     state: ManagerState,
     args: &InstallArgs,
     json: bool,
 ) -> Result<()> {
-    let releases = releases(stack)?;
+    let releases = releases(&stack)?;
     let interactive = !args.yes;
     let explicit = &args.allow_executable;
     // Manifests declare executables; only the operator approves them.
     let unapproved: Vec<String> = releases
         .iter()
-        .flat_map(|(release, _)| &release.package.executables)
+        .flat_map(|release| &release.package.executables)
         .filter(|path| !explicit.contains(path))
         .cloned()
         .collect();
@@ -126,7 +128,15 @@ pub(super) fn run(
     }
     let packages: Vec<String> = releases
         .iter()
-        .map(|(release, _)| format!("{} {}", reference_of(release), release.package.version))
+        .map(|release| {
+            let reference = reference_of(release).to_string();
+            let download = if stack.archives.contains_key(&reference) {
+                ""
+            } else {
+                " (downloads its archive)"
+            };
+            format!("{reference} {}{download}", release.package.version)
+        })
         .collect();
     if interactive {
         let request = StackRequest {
@@ -138,10 +148,21 @@ pub(super) fn run(
             bail!("installation cancelled");
         }
     }
+    download::download(
+        stack.cache,
+        stack.cache_use,
+        &releases,
+        &mut stack.archives,
+        json,
+    )?;
     let mut digests = BTreeMap::new();
     let members = releases
         .iter()
-        .map(|(release, archive)| {
+        .map(|release| {
+            let archive = stack
+                .archives
+                .get(&reference_of(release).to_string())
+                .context("every stack member has a supplied, cached or downloaded archive")?;
             let mut approved = explicit.clone();
             if interactive {
                 approved.extend(release.package.executables.iter().cloned());
