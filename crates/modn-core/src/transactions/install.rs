@@ -289,6 +289,7 @@ impl Store {
             game_installation: game,
             archive_sha256: inspection.sha256,
             directories,
+            catalog: catalog.as_ref().map(|c| c.release.reference.clone()),
             files: files
                 .into_iter()
                 .map(|f| OwnedFile {

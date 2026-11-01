@@ -116,7 +116,7 @@ impl Store {
             .collect())
     }
 
-    fn has_table(&self, name: &str) -> Result<bool> {
+    pub(super) fn has_table(&self, name: &str) -> Result<bool> {
         Ok(self.connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
             [name],

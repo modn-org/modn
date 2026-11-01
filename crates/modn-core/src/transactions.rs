@@ -21,6 +21,9 @@ mod staging;
 #[cfg(test)]
 mod tests;
 mod uninstall;
+mod uninstall_plan;
+#[cfg(test)]
+mod uninstall_plan_tests;
 mod validation;
 
 pub use catalog::{
@@ -29,3 +32,4 @@ pub use catalog::{
 pub(crate) use journal::lock_store;
 pub use journal::{ManagedPackage, OwnedFile};
 pub use stack::StackMember;
+pub use uninstall_plan::{PlannedRemoval, UninstallScope};

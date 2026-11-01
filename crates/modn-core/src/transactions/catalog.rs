@@ -6,13 +6,13 @@ use super::validation::validate_transaction_root;
 use crate::integrity::package_intact;
 use crate::state::Store;
 use anyhow::{bail, Result};
-use rusqlite::{params, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde::Serialize;
 use std::fmt;
 use std::path::Path;
 
 /// Qualified catalog identity of one mod: `bucket/game/mod`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct CatalogReference {
     /// Bucket that published the package manifest.
@@ -299,6 +299,27 @@ pub(super) fn forget(tx: &Transaction<'_>, package_id: &str) -> Result<()> {
         [package_id],
     )?;
     Ok(())
+}
+
+/// Catalog identity recorded when `package_id` was installed from a bucket.
+pub(super) fn reference_of(store: &Store, package_id: &str) -> Result<Option<CatalogReference>> {
+    if !store.has_table("catalog_provenance")? {
+        return Ok(None);
+    }
+    Ok(store
+        .connection
+        .query_row(
+            "SELECT bucket, game_id, mod_id FROM catalog_provenance WHERE package_id=?1",
+            [package_id],
+            |row| {
+                Ok(CatalogReference {
+                    bucket: row.get(0)?,
+                    game_id: row.get(1)?,
+                    mod_id: row.get(2)?,
+                })
+            },
+        )
+        .optional()?)
 }
 
 /// Managed packages that recorded `package_id` as a dependency, with their catalog identity.
