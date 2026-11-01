@@ -3,6 +3,8 @@ mod catalog;
 #[cfg(test)]
 mod catalog_tests;
 mod conflicts;
+#[cfg(test)]
+mod conflicts_tests;
 mod directory;
 pub(crate) use directory::case_key as directory_candidate_key;
 mod directory_ledger;

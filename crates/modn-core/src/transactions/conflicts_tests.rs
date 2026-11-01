@@ -1,0 +1,44 @@
+//! Declared conflicts recorded with ownership and checked under the lock.
+use super::catalog_tests::{reference, Fixture};
+use super::CatalogRelease;
+
+#[test]
+fn declared_conflicts_block_installation_in_either_order() {
+    let mut fixture = Fixture::new();
+    let a_archive = fixture.archive("a");
+    let b_archive = fixture.archive("b");
+    let a = || CatalogRelease::new(reference("a"), Vec::new()).with_conflicts(vec![reference("b")]);
+    let b = || CatalogRelease::new(reference("b"), Vec::new());
+
+    // `a` declares the conflict and is installed first: `b` is refused.
+    let installed = fixture.install_release(&a_archive, a()).unwrap();
+    assert_eq!(fixture.count("package_conflicts"), 1);
+    let error = fixture
+        .install_release(&b_archive, b())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains(&format!(
+            "deps/test-game/b conflicts with installed {} (deps/test-game/a)",
+            installed.id
+        )),
+        "{error}"
+    );
+    assert!(!fixture.game.join("addons/b.plugin").exists());
+    fixture.uninstall(&installed.id).unwrap();
+    assert_eq!(fixture.count("package_conflicts"), 0);
+
+    // `b` is installed first: `a`, which declares the conflict, is refused.
+    let installed = fixture.install_release(&b_archive, b()).unwrap();
+    let error = fixture
+        .install_release(&a_archive, a())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("deps/test-game/a conflicts with installed"),
+        "{error}"
+    );
+    assert!(error.contains(&installed.id), "{error}");
+    assert!(!fixture.game.join("addons/a.plugin").exists());
+    assert_eq!(fixture.count("pending_transactions"), 0);
+}

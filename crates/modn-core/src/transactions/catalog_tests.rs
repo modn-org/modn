@@ -14,14 +14,14 @@ use std::path::{Path, PathBuf};
 use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
-struct Fixture {
+pub(super) struct Fixture {
     dir: TempDir,
-    store: Store,
-    game: PathBuf,
+    pub(super) store: Store,
+    pub(super) game: PathBuf,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = tempdir().unwrap();
         let game = dir.path().join("game");
         fs::create_dir_all(game.join("bin")).unwrap();
@@ -31,7 +31,7 @@ impl Fixture {
         Self { dir, store, game }
     }
 
-    fn archive(&self, name: &str) -> PathBuf {
+    pub(super) fn archive(&self, name: &str) -> PathBuf {
         let path = self.dir.path().join(format!("{name}.zip"));
         let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
         zip.start_file(format!("pack/{name}.plugin"), SimpleFileOptions::default())
@@ -53,7 +53,7 @@ impl Fixture {
         )
     }
 
-    fn install_release(
+    pub(super) fn install_release(
         &mut self,
         archive: &Path,
         release: CatalogRelease,
@@ -66,14 +66,14 @@ impl Fixture {
         })
     }
 
-    fn uninstall(&mut self, package_id: &str) -> anyhow::Result<()> {
+    pub(super) fn uninstall(&mut self, package_id: &str) -> anyhow::Result<()> {
         let game = self.game.clone();
         with_module_source(Some(&module_source()), || {
             self.store.uninstall(&game, package_id)
         })
     }
 
-    fn count(&self, table: &str) -> i64 {
+    pub(super) fn count(&self, table: &str) -> i64 {
         self.store
             .connection
             .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
@@ -87,7 +87,7 @@ fn module_source() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game")
 }
 
-fn reference(mod_id: &str) -> CatalogReference {
+pub(super) fn reference(mod_id: &str) -> CatalogReference {
     CatalogReference {
         bucket: "deps".into(),
         game_id: "test-game".into(),
@@ -465,45 +465,4 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
     assert_eq!(fixture.count("catalog_provenance"), 0);
     assert_eq!(fixture.pending_stack_rows(), 0);
     fixture.install(&other, "other", Vec::new()).unwrap();
-}
-
-#[test]
-fn declared_conflicts_block_installation_in_either_order() {
-    let mut fixture = Fixture::new();
-    let a_archive = fixture.archive("a");
-    let b_archive = fixture.archive("b");
-    let a = || CatalogRelease::new(reference("a"), Vec::new()).with_conflicts(vec![reference("b")]);
-    let b = || CatalogRelease::new(reference("b"), Vec::new());
-
-    // `a` declares the conflict and is installed first: `b` is refused.
-    let installed = fixture.install_release(&a_archive, a()).unwrap();
-    assert_eq!(fixture.count("package_conflicts"), 1);
-    let error = fixture
-        .install_release(&b_archive, b())
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains(&format!(
-            "deps/test-game/b conflicts with installed {} (deps/test-game/a)",
-            installed.id
-        )),
-        "{error}"
-    );
-    assert!(!fixture.game.join("addons/b.plugin").exists());
-    fixture.uninstall(&installed.id).unwrap();
-    assert_eq!(fixture.count("package_conflicts"), 0);
-
-    // `b` is installed first: `a`, which declares the conflict, is refused.
-    let installed = fixture.install_release(&b_archive, b()).unwrap();
-    let error = fixture
-        .install_release(&a_archive, a())
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("deps/test-game/a conflicts with installed"),
-        "{error}"
-    );
-    assert!(error.contains(&installed.id), "{error}");
-    assert!(!fixture.game.join("addons/a.plugin").exists());
-    assert_eq!(fixture.count("pending_transactions"), 0);
 }

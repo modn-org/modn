@@ -131,3 +131,52 @@ fn a_declared_conflict_is_reported_and_blocks_before_any_write() {
     let installed = modn(&fixture, &["install", "b", "--yes"], &[&b]);
     assert!(installed.status.success(), "{}", error(&installed));
 }
+
+#[test]
+fn a_shared_archive_alias_cannot_drop_its_declared_conflicts() {
+    let fixture = Fixture::new();
+    let (shared, shared_hash) = plugin_archive(&fixture, "shared");
+    let (top, top_hash) = plugin_archive(&fixture, "top");
+    let (rival, rival_hash) = plugin_archive(&fixture, "rival");
+    fixture.bucket("deps", "test-game", "seed", &"0".repeat(64), &[]);
+    manifest(&fixture, "a", "1.0", &shared_hash, json!({}));
+    manifest(
+        &fixture,
+        "b",
+        "1.0",
+        &shared_hash,
+        json!({"conflicts":["rival"]}),
+    );
+    manifest(&fixture, "rival", "1.0", &rival_hash, json!({}));
+    manifest(
+        &fixture,
+        "top",
+        "1.0",
+        &top_hash,
+        json!({"dependencies":["a", "b"]}),
+    );
+    fixture.register();
+
+    let refused = modn(&fixture, &["install", "top", "--yes"], &[&shared, &top]);
+    assert!(!refused.status.success());
+    assert!(
+        error(&refused).contains(
+            "deps/test-game/a and deps/test-game/b share one archive but declare different dependencies or conflicts"
+        ),
+        "{}",
+        error(&refused)
+    );
+    assert!(!fixture.game.join("addons").exists());
+
+    // Installed directly, `b` records its conflict, so `rival` stays blocked.
+    let b = modn(&fixture, &["install", "b", "--yes"], &[&shared]);
+    assert!(b.status.success(), "{}", error(&b));
+    let blocked = modn(&fixture, &["install", "rival", "--yes"], &[&rival]);
+    assert!(!blocked.status.success());
+    assert!(
+        error(&blocked).contains("installation blocked by declared conflicts"),
+        "{}",
+        error(&blocked)
+    );
+    assert!(!fixture.game.join("addons/rival.plugin").exists());
+}
