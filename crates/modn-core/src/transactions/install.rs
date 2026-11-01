@@ -55,7 +55,23 @@ impl Store {
         proposal: &InstallPlan,
         release: &CatalogRelease,
     ) -> Result<ManagedPackage> {
-        self.install_inner_with_permissions(game, archive, proposal, None, &[], Some(release))
+        self.install_catalog_release_with_permissions(game, archive, proposal, release, &[])
+    }
+
+    /// Install a catalog release with caller-authorized tool executable destinations.
+    ///
+    /// Approval comes from the user's invocation, never from the bucket
+    /// manifest or the module's operation labels; the archive is revalidated
+    /// against the same approvals while the transaction lock is held.
+    pub fn install_catalog_release_with_permissions(
+        &mut self,
+        game: &Path,
+        archive: &Path,
+        proposal: &InstallPlan,
+        release: &CatalogRelease,
+        approved: &[String],
+    ) -> Result<ManagedPackage> {
+        self.install_inner_with_permissions(game, archive, proposal, None, approved, Some(release))
     }
 
     pub(super) fn install_operations_inner(
