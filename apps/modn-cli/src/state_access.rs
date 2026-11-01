@@ -1,7 +1,109 @@
 //! Validate manager-state location without assuming any default game.
+use crate::selection::selected_installation;
 use anyhow::{bail, Context, Result};
 use modn_core::discovery::recognizes_installation_for;
+use modn_core::state::Store;
 use std::path::{Component, Path, PathBuf};
+
+/// Manager state as it exists before a command decides how to use it.
+///
+/// Loading never creates a database. Registrations read here identify game
+/// roots that the state location must stay outside before any writable open.
+pub(super) struct ManagerState {
+    path: PathBuf,
+    existing: Option<Store>,
+    registered_roots: Vec<PathBuf>,
+}
+
+/// Game identity and root that the manager state location must not enter.
+#[derive(Default)]
+pub(super) struct ProtectedTarget {
+    pub(super) game: Option<String>,
+    pub(super) root: Option<PathBuf>,
+}
+
+impl ManagerState {
+    /// Open an existing database read-only, if one exists.
+    pub(super) fn load(path: &Path) -> Result<Self> {
+        let existing = path
+            .is_file()
+            .then(|| Store::open_readonly(path))
+            .transpose()?;
+        let registered_roots = existing
+            .as_ref()
+            .map(Store::list)
+            .transpose()?
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|entry| entry.path.canonicalize().ok())
+            .collect();
+        Ok(Self {
+            path: path.to_path_buf(),
+            existing,
+            registered_roots,
+        })
+    }
+
+    /// Fail with `message` unless a database already exists.
+    pub(super) fn require_existing(self, message: &str) -> Result<Self> {
+        if self.existing.is_none() {
+            bail!("{message}");
+        }
+        Ok(self)
+    }
+
+    pub(super) fn existing(&self) -> Option<&Store> {
+        self.existing.as_ref()
+    }
+
+    pub(super) fn into_existing(self) -> Option<Store> {
+        self.existing
+    }
+
+    /// Protected target for a game-scoped command.
+    ///
+    /// An explicit `--path` is protected as given. Without one, the selection
+    /// comes only from existing registrations, before any writable open.
+    pub(super) fn target_for(
+        &self,
+        path: Option<&Path>,
+        requested: Option<&str>,
+    ) -> Result<ProtectedTarget> {
+        if let Some(path) = path {
+            return Ok(ProtectedTarget {
+                game: requested.map(str::to_owned),
+                root: Some(path.to_path_buf()),
+            });
+        }
+        let (id, root) = selected_installation(self.existing(), None, requested)?;
+        Ok(ProtectedTarget {
+            game: Some(requested.map_or(id, str::to_owned)),
+            root: Some(root),
+        })
+    }
+
+    /// Validate the state location, then open (or create) the writable database.
+    pub(super) fn open_writable(self, target: &ProtectedTarget) -> Result<Store> {
+        self.validate(target)?;
+        Store::open(&self.path)
+    }
+
+    /// Validate the state location, then reuse the existing read-only database.
+    pub(super) fn open_preview(self, target: &ProtectedTarget) -> Result<Store> {
+        self.validate(target)?;
+        self.existing
+            .context("no registered game database for preview")
+    }
+
+    fn validate(&self, target: &ProtectedTarget) -> Result<()> {
+        validate_state_path(
+            &self.path,
+            target.game.as_deref(),
+            target.root.as_deref(),
+            &self.registered_roots,
+        )
+    }
+}
 
 pub(super) fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
     if let Some(dir) = state_dir {

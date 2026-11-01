@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -25,30 +25,7 @@ pub(super) struct Cli {
 #[derive(Subcommand)]
 pub(super) enum Command {
     /// Install a cataloged mod or an explicit local ZIP/7z archive.
-    Install {
-        /// Mod ID, qualified bucket reference, or archive path.
-        target: String,
-        #[arg(long)]
-        path: Option<PathBuf>,
-        /// Manually acquired archive for a cataloged mod.
-        #[arg(long, value_name = "ARCHIVE")]
-        file: Option<PathBuf>,
-        #[arg(
-            long,
-            help = "Confirm writing files into the game",
-            conflicts_with = "dry_run"
-        )]
-        yes: bool,
-        #[arg(
-            long,
-            help = "Preview operations without writing game files",
-            conflicts_with = "yes"
-        )]
-        dry_run: bool,
-        /// Independently authorize one exact game-relative tool executable for local archives.
-        #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
-        allow_executable: Vec<String>,
-    },
+    Install(InstallArgs),
     /// Search mod manifests across configured buckets.
     Search {
         /// Match mod ID or display name (omit to list all).
@@ -139,4 +116,31 @@ pub(super) enum BucketCommand {
     List,
     /// Inspect one exact bucket/game/package reference.
     Show { package: String },
+}
+
+/// Options shared by catalog and standalone archive installation.
+#[derive(Args)]
+pub(super) struct InstallArgs {
+    /// Mod ID, qualified bucket reference, or archive path.
+    pub(super) target: String,
+    #[arg(long)]
+    pub(super) path: Option<PathBuf>,
+    /// Manually acquired archive for a cataloged mod.
+    #[arg(long, value_name = "ARCHIVE")]
+    pub(super) file: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Confirm writing files into the game",
+        conflicts_with = "dry_run"
+    )]
+    pub(super) yes: bool,
+    #[arg(
+        long,
+        help = "Preview operations without writing game files",
+        conflicts_with = "yes"
+    )]
+    pub(super) dry_run: bool,
+    /// Independently authorize one exact game-relative tool executable for local archives.
+    #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
+    pub(super) allow_executable: Vec<String>,
 }
