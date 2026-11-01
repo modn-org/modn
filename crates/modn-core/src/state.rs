@@ -117,6 +117,7 @@ impl Store {
                 bucket TEXT NOT NULL,
                 game_id TEXT NOT NULL,
                 mod_id TEXT NOT NULL,
+                archive_sha256 TEXT,
                 PRIMARY KEY(package_id, bucket, game_id, mod_id)
             );
             CREATE TABLE IF NOT EXISTS pending_stacks (

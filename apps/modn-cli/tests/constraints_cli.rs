@@ -180,3 +180,41 @@ fn a_shared_archive_alias_cannot_drop_its_declared_conflicts() {
     );
     assert!(!fixture.game.join("addons/rival.plugin").exists());
 }
+
+#[test]
+fn a_conflict_with_a_skipped_alias_still_blocks() {
+    let fixture = Fixture::new();
+    let (shared, shared_hash) = plugin_archive(&fixture, "shared");
+    let (top, top_hash) = plugin_archive(&fixture, "top");
+    let (rival, rival_hash) = plugin_archive(&fixture, "rival");
+    fixture.bucket("deps", "test-game", "seed", &"0".repeat(64), &[]);
+    manifest(&fixture, "a", "1.0", &shared_hash, json!({}));
+    manifest(&fixture, "b", "1.0", &shared_hash, json!({}));
+    manifest(
+        &fixture,
+        "rival",
+        "1.0",
+        &rival_hash,
+        json!({"conflicts":["b"]}),
+    );
+    manifest(
+        &fixture,
+        "top",
+        "1.0",
+        &top_hash,
+        json!({"dependencies":["a", "b"]}),
+    );
+    fixture.register();
+
+    // The stack installs the shared archive once, recorded as `a`.
+    let stack = modn(&fixture, &["install", "top", "--yes"], &[&shared, &top]);
+    assert!(stack.status.success(), "{}", error(&stack));
+    let blocked = modn(&fixture, &["install", "rival", "--yes"], &[&rival]);
+    assert!(!blocked.status.success());
+    assert!(
+        error(&blocked).contains("deps/test-game/rival conflicts with installed"),
+        "{}",
+        error(&blocked)
+    );
+    assert!(!fixture.game.join("addons/rival.plugin").exists());
+}

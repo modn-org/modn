@@ -35,6 +35,28 @@ impl CatalogReference {
     }
 }
 
+/// A catalog mod that must not share a game installation with a release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CatalogConflict {
+    /// Catalog identity of the conflicting mod.
+    pub reference: CatalogReference,
+    /// Archive digest the bucket pins for that mod, when it publishes one.
+    /// A managed package with this digest counts as that mod.
+    pub archive_sha256: Option<String>,
+}
+
+impl CatalogConflict {
+    /// Declare a conflict with one catalog mod.
+    #[must_use]
+    pub fn new(reference: CatalogReference, archive_sha256: Option<String>) -> Self {
+        Self {
+            reference,
+            archive_sha256,
+        }
+    }
+}
+
 impl CatalogDependency {
     /// Require the release whose archive digest is pinned by its manifest.
     #[must_use]
@@ -59,7 +81,7 @@ impl CatalogRelease {
 
     /// Add the catalog mods this release must not be installed with.
     #[must_use]
-    pub fn with_conflicts(mut self, conflicts: Vec<CatalogReference>) -> Self {
+    pub fn with_conflicts(mut self, conflicts: Vec<CatalogConflict>) -> Self {
         self.conflicts = conflicts;
         self
     }
@@ -90,7 +112,7 @@ pub struct CatalogRelease {
     /// Releases that must already be managed and intact in the same game installation.
     pub dependencies: Vec<CatalogDependency>,
     /// Catalog mods that must not be managed in the same game installation.
-    pub conflicts: Vec<CatalogReference>,
+    pub conflicts: Vec<CatalogConflict>,
 }
 
 /// A catalog release to install, optionally as one member of a stack.

@@ -19,7 +19,9 @@ mod tests;
 mod uninstall;
 mod validation;
 
-pub use catalog::{CatalogDependency, CatalogReference, CatalogRelease, DependencyState};
+pub use catalog::{
+    CatalogConflict, CatalogDependency, CatalogReference, CatalogRelease, DependencyState,
+};
 pub(crate) use journal::lock_store;
 pub use journal::{ManagedPackage, OwnedFile};
 pub use stack::StackMember;

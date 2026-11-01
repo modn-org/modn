@@ -28,7 +28,9 @@ Two more optional fields describe compatibility:
 - `conflicts` lists up to 32 mod IDs of the same bucket and game that must
   not be installed together with this one. A conflict cannot name the
   package itself or one of its dependencies. Modn records each installed
-  package's conflicts, so the check holds in both directions.
+  package's conflicts, so the check holds in both directions. As with
+  dependencies, a managed package with the archive digest that the bucket
+  pins for a mod counts as that mod.
 
 IDs use lowercase ASCII letters, digits and
 hyphens, beginning with a letter and not ending with a hyphen.

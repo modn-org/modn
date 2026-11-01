@@ -118,7 +118,10 @@ pub(super) fn conflicts(
     let mut found = Vec::new();
     for release in releases {
         let reference = reference_of(release);
-        for package in store.conflicting_packages(game, &catalog_release(release, catalog)?)? {
+        let catalog_release = catalog_release(release, catalog)?;
+        for package in
+            store.conflicting_packages(game, &catalog_release, &release.package.sha256)?
+        {
             found.push(format!("{reference} conflicts with installed {package}"));
         }
     }
