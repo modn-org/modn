@@ -10,6 +10,17 @@ use zip::write::SimpleFileOptions;
 const COMPILER: &str = "engine/tools/scc.exe";
 const REDSCRIPT: &str = "community/cyberpunk-2077/redscript";
 const DEPENDENT: &str = "community/cyberpunk-2077/script-mod";
+const SMUGGLER: &str = "community/cyberpunk-2077/smuggler";
+const EXTRA_TOOL: &str = "engine/tools/extra.exe";
+
+/// A fake game with a local bucket of catalog archives.
+struct Catalog {
+    fixture: Fixture,
+    redscript: PathBuf,
+    dependent: PathBuf,
+    /// A compiler archive that also carries a second, unapproved tool.
+    smuggler: PathBuf,
+}
 
 struct Fixture {
     temp: TempDir,
@@ -117,21 +128,23 @@ fn manifest(id: &str, sha256: &str, dependencies: &[&str]) -> Value {
     })
 }
 
-fn redscript_and_dependent() -> (Fixture, PathBuf, PathBuf) {
+fn catalog() -> Catalog {
     let fixture = Fixture::new();
-    let redscript = fixture.zip(
-        "redscript.zip",
-        &[
-            (COMPILER, b"compiler"),
-            ("engine/tools/scc_lib.dll", b"library"),
-            ("engine/config/base/scripts.ini", b"ini"),
-            ("r6/config/cybercmd/scc.toml", b"config"),
-        ],
-    );
+    let compiler_files: [(&str, &[u8]); 4] = [
+        (COMPILER, b"compiler"),
+        ("engine/tools/scc_lib.dll", b"library"),
+        ("engine/config/base/scripts.ini", b"ini"),
+        ("r6/config/cybercmd/scc.toml", b"config"),
+    ];
+    let redscript = fixture.zip("redscript.zip", &compiler_files);
+    let mut smuggled = compiler_files.to_vec();
+    smuggled.push((EXTRA_TOOL, b"extra"));
+    let smuggler = fixture.zip("smuggler.zip", &smuggled);
     let dependent = fixture.zip("script-mod.zip", &[("r6/scripts/Mod/Mod.reds", b"script")]);
     let packages = [
         manifest("redscript", &fixture.digest(&redscript), &[]),
         manifest("script-mod", &fixture.digest(&dependent), &["redscript"]),
+        manifest("smuggler", &fixture.digest(&smuggler), &[]),
     ];
     fixture.register_bucket(&packages);
     fixture.json(&[
@@ -141,7 +154,12 @@ fn redscript_and_dependent() -> (Fixture, PathBuf, PathBuf) {
         "--path",
         fixture.game.to_str().expect("game"),
     ]);
-    (fixture, redscript, dependent)
+    Catalog {
+        fixture,
+        redscript,
+        dependent,
+        smuggler,
+    }
 }
 
 fn blockers(plan: &Value) -> Vec<&str> {
@@ -155,7 +173,12 @@ fn blockers(plan: &Value) -> Vec<&str> {
 
 #[test]
 fn catalog_compiler_requires_exact_operator_approval() {
-    let (fixture, redscript, _) = redscript_and_dependent();
+    let Catalog {
+        fixture,
+        redscript,
+        smuggler,
+        ..
+    } = catalog();
     let denied = fixture.install(REDSCRIPT, &redscript, &["--dry-run"]);
     let plan: Value = serde_json::from_slice(&denied.stdout).expect("plan JSON");
     assert_eq!(plan["plan"]["status"], "blocked", "{plan}");
@@ -167,11 +190,31 @@ fn catalog_compiler_requires_exact_operator_approval() {
         assert!(!result.status.success(), "{extra:?}");
         assert!(!fixture.game.join(COMPILER).exists(), "{extra:?}");
     }
+
+    // Approving the compiler admits no other executable in the same archive.
+    let approval = ["--allow-executable", COMPILER];
+    let smuggled = fixture.install(
+        SMUGGLER,
+        &smuggler,
+        &[&approval[..], &["--dry-run"]].concat(),
+    );
+    let plan: Value = serde_json::from_slice(&smuggled.stdout).expect("plan JSON");
+    assert_eq!(plan["plan"]["status"], "blocked", "{plan}");
+    assert!(blockers(&plan).contains(&"EXECUTABLE_PAYLOAD"), "{plan}");
+    let smuggled = fixture.install(SMUGGLER, &smuggler, &[&approval[..], &["--yes"]].concat());
+    assert!(!smuggled.status.success());
+    assert!(!fixture.game.join(COMPILER).exists());
+    assert!(!fixture.game.join(EXTRA_TOOL).exists());
 }
 
 #[test]
 fn approved_catalog_compiler_unblocks_dependents_and_uninstalls_cleanly() {
-    let (fixture, redscript, dependent) = redscript_and_dependent();
+    let Catalog {
+        fixture,
+        redscript,
+        dependent,
+        ..
+    } = catalog();
     let approval = ["--allow-executable", COMPILER];
     let plan = fixture.install(
         REDSCRIPT,
@@ -180,6 +223,11 @@ fn approved_catalog_compiler_unblocks_dependents_and_uninstalls_cleanly() {
     );
     let plan: Value = serde_json::from_slice(&plan.stdout).expect("plan JSON");
     assert_eq!(plan["plan"]["status"], "reviewable", "{plan}");
+
+    // An approved preview does not carry over to an unapproved installation.
+    let unapproved = fixture.install(REDSCRIPT, &redscript, &["--yes"]);
+    assert!(!unapproved.status.success());
+    assert!(!fixture.game.join(COMPILER).exists());
 
     let installed = fixture.install(REDSCRIPT, &redscript, &[&approval[..], &["--yes"]].concat());
     assert!(
