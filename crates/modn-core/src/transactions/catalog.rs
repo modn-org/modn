@@ -193,6 +193,17 @@ impl Store {
 }
 
 fn provenance_packages(store: &Store, reference: &CatalogReference) -> Result<Vec<String>> {
+    // A database from before catalog provenance, opened read-only, is not
+    // migrated. It has no table and therefore records no provenance.
+    let recorded: bool = store.connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master
+         WHERE type='table' AND name='catalog_provenance')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !recorded {
+        return Ok(Vec::new());
+    }
     let mut statement = store.connection.prepare(
         "SELECT package_id FROM catalog_provenance
          WHERE bucket=?1 AND game_id=?2 AND mod_id=?3 ORDER BY package_id",

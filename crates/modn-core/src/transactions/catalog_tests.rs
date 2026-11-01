@@ -274,3 +274,32 @@ fn dependency_states_distinguish_ready_damaged_other_release_and_missing() {
     );
     assert_eq!(fixture.count("pending_transactions"), 0);
 }
+
+#[test]
+fn read_only_state_without_provenance_table_reports_missing_dependencies() {
+    let fixture = Fixture::new();
+    let requirement = vec![dependency_on(&fixture.archive("base"), "base")];
+    let path = fixture.dir.path().join("state/state.sqlite");
+    // Simulate state written before catalog provenance existed.
+    fixture
+        .store
+        .connection
+        .execute_batch("DROP TABLE package_dependencies; DROP TABLE catalog_provenance;")
+        .unwrap();
+    let store = Store::open_readonly(&path).unwrap();
+
+    assert_eq!(
+        store
+            .dependency_states(&fixture.game, &requirement)
+            .unwrap(),
+        [DependencyState::Missing]
+    );
+    let error = store
+        .ready_dependencies(&fixture.game, &requirement)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        error,
+        "dependency not installed or intact: deps/test-game/base; install or restore it first"
+    );
+}
