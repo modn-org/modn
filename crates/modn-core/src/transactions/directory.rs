@@ -1,4 +1,3 @@
-//! Game-agnostic exclusive directory identities and recoverable same-volume moves.
 use super::journal::target_path;
 use crate::planning::InstallPlan;
 use anyhow::{bail, Context, Result};
@@ -7,9 +6,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Uppercasing each scalar avoids Rust's contextual lowercasing (Greek final
-/// sigma) when comparing *missing* Windows paths. This is a conservative
-/// collision guard, not proof of identity of an existing directory.
 pub(crate) fn case_key(path: &str) -> String {
     if cfg!(windows) {
         path.chars().flat_map(char::to_uppercase).collect()
@@ -74,8 +70,6 @@ pub(super) fn exclusive_roots(game: &Path, plan: &InstallPlan) -> Result<Vec<Str
     Ok(roots.into_iter().collect())
 }
 
-/// Persist the directory object's native identity, never a file planted inside
-/// it. The identity survives rename and partial recursive deletion.
 #[cfg(windows)]
 pub(super) fn identity(path: &Path) -> Result<String> {
     use std::os::windows::fs::MetadataExt;
@@ -139,9 +133,6 @@ pub(super) fn verify_directory(path: &Path, expected: &str) -> Result<()> {
     Ok(())
 }
 
-/// The same-volume temporary folder is empty until its identity has been
-/// persisted. A crash before recording identity therefore cannot leave an
-/// unverified live mod installation.
 pub(super) fn quarantine_path(
     game: &Path,
     root: &str,
@@ -155,7 +146,6 @@ pub(super) fn quarantine_path(
         .join(format!(".modn-txn-{id}-dir-{ordinal}.tmp")))
 }
 
-/// A same-volume move must never replace a concurrently created directory.
 fn rename_unoccupied(from: &Path, to: &Path) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
@@ -236,8 +226,6 @@ fn present_directory(path: &Path) -> Result<bool> {
     }
 }
 
-/// Committed deletion is retryable: the directory ID persists even when its
-/// contents were partially removed, and a substituted directory is refused.
 pub(super) fn recover_directory(
     game: &Path,
     root: &str,
@@ -281,8 +269,6 @@ pub(super) fn recover_directory(
     Ok(())
 }
 
-/// Only empty nested directories may be removed during an uncommitted install.
-/// Unknown files/links preserve the journal and require manual resolution.
 fn prune_empty(path: &Path) -> Result<()> {
     for entry in fs::read_dir(path)? {
         let child = entry?;
@@ -327,8 +313,6 @@ pub(super) fn recover_install(
             bail!("unproven active directory during recovery: {root}");
         }
         if saved {
-            // There are no game payload writes before recording identity.
-            // Do not recurse into an unproven directory.
             fs::remove_dir(&staged).with_context(|| {
                 format!("unproven staging directory not empty: {}", staged.display())
             })?;

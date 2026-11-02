@@ -24,23 +24,23 @@ pub struct PlannedFile {
 }
 
 /// Blocker that prevents a proposed installation.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct PlanIssue {
     /// Stable machine-readable issue code.
     pub code: String,
-    /// Human-readable reason for the blocker.
     pub message: String,
 }
 
 /// Whether a proposal may be submitted for approved installation.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum PlanStatus {
     /// No blockers; still requires explicit approval.
     Reviewable,
-    /// At least one blocker prevents installation.
     Blocked,
 }
 
@@ -54,20 +54,16 @@ impl fmt::Display for PlanStatus {
 }
 
 /// Read-only installation proposal; not write authorization.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct InstallPlan {
-    /// Archive hash observed during inspection.
     pub archive_sha256: String,
-    /// Target game directory.
     pub game_installation: PathBuf,
-    /// Whether the proposal can be installed after approval.
     pub status: PlanStatus,
     /// True: file contents have not been verified.
     pub metadata_only: bool,
-    /// File operations proposed for review.
     pub operations: Vec<PlannedFile>,
-    /// Issues requiring resolution before installation.
     pub blockers: Vec<PlanIssue>,
     /// Generated outputs intentionally omitted from installation and future ownership.
     pub skipped_generated_files: Vec<String>,
@@ -82,9 +78,6 @@ pub(crate) fn prohibited_payload(path: &str) -> bool {
     .iter()
     .any(|suffix| lower.ends_with(suffix))
 }
-/// An explicit caller permission, never a Lua operation label, can admit a
-/// tool executable. The approval identifies one exact destination and cannot
-/// authorize paths outside a tool directory or other executable formats.
 pub(crate) fn approved_tool_executable(
     source: &str,
     destination: &str,
@@ -120,8 +113,6 @@ pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'
                 // new file below an ancestor addressed through a different name.
                 #[cfg(windows)]
                 {
-                    // Use the same Unicode lowercase keys as SQLite ownership
-                    // reservation, including ordinary Windows case aliases.
                     let key = component.to_lowercase();
                     if !resolved
                         .file_name()
@@ -182,7 +173,6 @@ pub(crate) fn insert_destination(
     None
 }
 
-// Untrusted, versioned Lua file mapping. It carries no installation authority.
 pub(crate) struct RequestedFile {
     pub(crate) source: String,
     pub(crate) destination: String,

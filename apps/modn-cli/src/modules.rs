@@ -1,4 +1,3 @@
-//! Development-only local Lua module validation; no manager state writes.
 use crate::commands::ModuleCommand;
 use anyhow::Result;
 use modn_core::game_modules::check_module_with_roots;

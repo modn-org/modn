@@ -78,8 +78,6 @@ pub(super) fn valid_id(value: &str) -> bool {
 const MAX_EXECUTABLES: usize = 16;
 const MAX_CONFLICTS: usize = 32;
 
-/// Matches the only executables Rust can approve: an exact, normalized
-/// game-relative `.exe` path inside a `tools` directory.
 fn valid_tool_executable(path: &str) -> bool {
     path.len() <= 255
         && path.ends_with(".exe")

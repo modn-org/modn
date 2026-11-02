@@ -1,22 +1,15 @@
-//! Validate manager-state location without assuming any default game.
 use crate::selection::selected_installation;
 use anyhow::{bail, Context, Result};
 use modn_core::discovery::recognizes_installation_for;
 use modn_core::state::Store;
 use std::path::{Component, Path, PathBuf};
 
-/// Manager state as it exists before a command decides how to use it.
-///
-/// Loading never creates a database. Registrations identify game roots that
-/// the state location must stay outside before any writable open.
 pub(super) struct ManagerState {
     path: PathBuf,
     existing: Option<Store>,
-    // `None` defers reading registrations until the state location is validated.
     registered_roots: Option<Vec<PathBuf>>,
 }
 
-/// Game identity and root that the manager state location must not enter.
 #[derive(Default)]
 pub(super) struct ProtectedTarget {
     pub(super) game: Option<String>,
@@ -24,19 +17,12 @@ pub(super) struct ProtectedTarget {
 }
 
 impl ManagerState {
-    /// Open an existing database read-only, if one exists, and read its
-    /// registered game roots immediately.
     pub(super) fn load(path: &Path) -> Result<Self> {
         let mut state = Self::load_deferred(path)?;
         state.registered_roots = Some(registered_roots(state.existing())?);
         Ok(state)
     }
 
-    /// Open an existing database read-only, if one exists, but read registered
-    /// game roots only when the state location is validated.
-    ///
-    /// Catalog installation reads registrations only before its approved
-    /// write, so selection and preview errors keep their precedence.
     pub(super) fn load_deferred(path: &Path) -> Result<Self> {
         let existing = path
             .is_file()
@@ -49,7 +35,6 @@ impl ManagerState {
         })
     }
 
-    /// Fail with `message` unless a database already exists.
     pub(super) fn require_existing(self, message: &str) -> Result<Self> {
         if self.existing.is_none() {
             bail!("{message}");
@@ -65,10 +50,6 @@ impl ManagerState {
         self.existing
     }
 
-    /// Protected target for a game-scoped command.
-    ///
-    /// An explicit `--path` is protected as given. Without one, the selection
-    /// comes only from existing registrations, before any writable open.
     pub(super) fn target_for(
         &self,
         path: Option<&Path>,
@@ -87,21 +68,17 @@ impl ManagerState {
         })
     }
 
-    /// Validate the state location, then open (or create) the writable database.
     pub(super) fn open_writable(self, target: &ProtectedTarget) -> Result<Store> {
         self.validate(target)?;
         Store::open(&self.path)
     }
 
-    /// Validate the state location, then reuse the existing read-only database.
     pub(super) fn open_preview(self, target: &ProtectedTarget) -> Result<Store> {
         self.validate(target)?;
         self.existing
             .context("no registered game database for preview")
     }
 
-    /// Before a download, check that the state and cache directories are
-    /// both outside every protected game location.
     pub(super) fn validate_download(&self, cache: &Path, target: &ProtectedTarget) -> Result<()> {
         self.validate(target)?;
         validate_outside_games(
@@ -183,8 +160,6 @@ pub(super) fn validate_state_path(
     )
 }
 
-/// Refuse a manager-owned directory inside the selected game, a registered
-/// game, or any ancestor that the selected game's policy recognizes.
 pub(super) fn validate_outside_games(
     label: &str,
     parent: &Path,
@@ -192,8 +167,6 @@ pub(super) fn validate_outside_games(
     selected_path: Option<&Path>,
     registered_roots: &[PathBuf],
 ) -> Result<()> {
-    // A missing component followed by '..' can escape ancestor-by-ancestor
-    // confinement checks before create_dir_all materializes the path.
     if parent
         .components()
         .any(|component| component == Component::ParentDir)

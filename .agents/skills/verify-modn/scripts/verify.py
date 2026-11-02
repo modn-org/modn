@@ -127,7 +127,6 @@ def verify(driver):
     require(snapshot(game) == before, "preview modified game")
     require(not (root / "state").exists(), "preview created state")
 
-    # A Lua-only change affects the next preview; there is no Rust rebuild.
     module_file = modules / "test-game/main.lua"
     original_policy = module_file.read_text(encoding="utf-8")
     changed_policy = original_policy.replace(
@@ -187,7 +186,6 @@ def verify(driver):
                 ["install", test_zip, "--yes", "--path", game], success=False)
     require(owned.read_bytes() == b"fixture-plugin", "duplicate mutated owned file")
 
-    # Both distinct Lua policies own files simultaneously in the same database.
     driver.json("register-cyberpunk",
                 ["game", "add", "cyberpunk-2077", "--path", cyberpunk])
     second = driver.json("cyberpunk-dry-run",
@@ -207,7 +205,6 @@ def verify(driver):
                 driver.json("test-game-still-installed", ["list", "--path", game])),
             "installing another game disturbed test-game ownership")
 
-    # Synthetic runtime file presence is a hint, not game-version compatibility.
     for relative in ("engine/tools/scc.exe",
                      "red4ext/plugins/ArchiveXL/ArchiveXL.dll",
                      "red4ext/plugins/TweakXL/TweakXL.dll"):

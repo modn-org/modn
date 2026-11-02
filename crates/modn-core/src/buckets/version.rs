@@ -1,9 +1,3 @@
-//! Version requirements a package manifest declares for its dependencies.
-//!
-//! Mod versions are free-form strings, so Modn compares only dotted numeric
-//! versions such as `1.31.0` or `v0.8`. Missing components count as zero,
-//! so `0.8` equals `0.8.0`. A requirement is one or more comma-separated
-//! comparators, all of which must hold, for example `>=1.28.0, <2`.
 use anyhow::{bail, Context, Result};
 use std::cmp::Ordering;
 use std::fmt;
@@ -86,7 +80,6 @@ impl fmt::Display for VersionReq {
     }
 }
 
-/// Parse `1.2.3` or `v1.2.3` into its numeric components.
 fn numeric(version: &str) -> Result<Vec<u64>> {
     let digits = version.strip_prefix('v').unwrap_or(version);
     let components: Vec<&str> = digits.split('.').collect();

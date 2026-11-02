@@ -1,4 +1,3 @@
-//! Real CLI regressions for Cyberpunk ZIP layouts and generated Input Loader files.
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::Write;
@@ -285,7 +284,6 @@ fn input_loader_generated_outputs_are_unowned_and_survive_uninstall() {
         );
     }
 
-    // The exception is tied to the Input Loader package, never general write access.
     archive(
         &source,
         &[(dll, b"plugin"), ("r6/cache/arbitrary.xml", b"other")],

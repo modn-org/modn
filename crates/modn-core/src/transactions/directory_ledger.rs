@@ -1,4 +1,3 @@
-//! Read-only package and directory ownership lookups.
 use super::journal::{ManagedPackage, OwnedFile};
 use super::validation::validate_transaction_root;
 use crate::state::Store;
@@ -6,8 +5,8 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use std::path::Path;
 
+#[expect(missing_docs, reason = "Method names state their behavior")]
 impl Store {
-    /// List packages installed by this manager for the selected game.
     pub fn installed(&self, game: &Path) -> Result<Vec<ManagedPackage>> {
         let game = validate_transaction_root(game)?;
         let name = game.to_string_lossy().into_owned();
@@ -65,7 +64,6 @@ impl Store {
             .is_ok()
     }
 
-    /// Native identity recorded for a successfully installed exclusive folder.
     pub(super) fn managed_directory_identity(
         &self,
         package_id: &str,

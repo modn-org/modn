@@ -1,9 +1,3 @@
-//! Uninstall by name, with optional removal of dependencies and dependents.
-//!
-//! A selector is a managed-package ID, or the catalog name the package was
-//! installed under: `mod`, `game/mod` or `bucket/game/mod`. The plan lists
-//! every package to remove, dependents first, so each removal keeps the
-//! rule that a package is never removed while another one needs it.
 use super::journal::{lock_store, ManagedPackage};
 use super::validation::validate_transaction_root;
 use super::CatalogReference;
@@ -40,22 +34,18 @@ impl UninstallScope {
 }
 
 /// One package an uninstall removes.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct PlannedRemoval {
-    /// Managed package ID.
     pub id: String,
     /// Catalog identity, when the package was installed from a bucket.
     pub catalog: Option<CatalogReference>,
-    /// Number of files the package owns.
     pub files: usize,
 }
 
-/// Dependency links between the managed packages of one game.
 struct Links {
-    /// Package to the packages it needs.
     needs: BTreeMap<String, BTreeSet<String>>,
-    /// Package to the packages that need it.
     needed_by: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -163,7 +153,6 @@ impl Store {
             }
         }
 
-        // Newest first, and never a package before the ones that need it.
         let mut order = Vec::new();
         while !removal.is_empty() {
             let next = packages
@@ -206,8 +195,6 @@ impl Store {
         let mut removed: Vec<String> = Vec::new();
         for step in &plan {
             if let Err(error) = self.uninstall_locked(&game, &step.id) {
-                // A removal can commit and then fail in cleanup, so ask the
-                // ledger what is gone instead of counting successes.
                 let gone = self.removed_from(&game, &plan).unwrap_or(removed);
                 return Err(error.context(format!(
                     "stopped at {}; removed [{}]; run 'modn list' for the packages still installed",
@@ -222,7 +209,6 @@ impl Store {
 }
 
 impl Store {
-    /// IDs of planned packages that are no longer managed in `game`.
     fn removed_from(&self, game: &Path, plan: &[PlannedRemoval]) -> Result<Vec<String>> {
         let installed: BTreeSet<String> = self.installed(game)?.into_iter().map(|p| p.id).collect();
         Ok(plan
@@ -233,7 +219,6 @@ impl Store {
     }
 }
 
-/// The managed package an ID or catalog name selects.
 fn resolve(packages: &[ManagedPackage], selector: &str) -> Result<String> {
     if let Some(package) = packages.iter().find(|p| p.id == selector) {
         return Ok(package.id.clone());
@@ -256,7 +241,6 @@ fn resolve(packages: &[ManagedPackage], selector: &str) -> Result<String> {
     }
 }
 
-/// Whether `selector` is `mod`, `game/mod` or `bucket/game/mod` of `catalog`.
 fn names(catalog: &CatalogReference, selector: &str) -> bool {
     selector == catalog.mod_id
         || selector == format!("{}/{}", catalog.game_id, catalog.mod_id)

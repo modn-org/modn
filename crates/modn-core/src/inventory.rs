@@ -41,8 +41,6 @@ pub fn scan_with_ownership_for(
             .push(index);
     }
 
-    // Gather actual matching directory entries before choosing a managed attribution.
-    // Distinct hard links may have identical file IDs; the exact recorded name wins.
     let mut candidates = vec![Vec::<usize>::new(); report.owned_files.len()];
     for (detected_index, detected) in report.mods.iter().enumerate() {
         let relative = detected.relative_path.to_string_lossy().replace('\\', "/");
@@ -55,8 +53,6 @@ pub fn scan_with_ownership_for(
                 ) {
                     continue;
                 }
-                // An unreadable file cannot prove identity, so require exact spelling.
-                // Neither branch may ever infer an intact hash from an unrelated alias.
                 if owned.status == IntegrityStatus::Unreadable {
                     if relative == owned.relative_path {
                         candidates[owned_index].push(detected_index);
@@ -82,7 +78,6 @@ pub fn scan_with_ownership_for(
                 .replace('\\', "/")
                 == owned.relative_path
         });
-        // Ambiguous aliases must remain unmanaged rather than claim extra hard links.
         let selected = exact.or_else(|| (entries.len() == 1).then(|| entries[0]));
         if let Some(detected_index) = selected {
             let detected = &mut report.mods[detected_index];

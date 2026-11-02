@@ -1,4 +1,3 @@
-//! Declared dependency version requirements and conflicts through the CLI.
 #[path = "support/catalog.rs"]
 mod support;
 
@@ -106,7 +105,6 @@ fn a_declared_conflict_is_reported_and_blocks_before_any_write() {
     let report: Value = serde_json::from_slice(&installed.stdout).expect("JSON");
     let a_id = report["installed"]["id"].as_str().expect("id").to_owned();
 
-    // `b` declares nothing, but the installed `a` recorded its conflict.
     let preview = modn(&fixture, &["--json", "install", "b", "--dry-run"], &[&b]);
     assert!(preview.status.success(), "{}", error(&preview));
     let plan: Value = serde_json::from_slice(&preview.stdout).expect("JSON");
@@ -168,7 +166,6 @@ fn a_shared_archive_alias_cannot_drop_its_declared_conflicts() {
     );
     assert!(!fixture.game.join("addons").exists());
 
-    // Installed directly, `b` records its conflict, so `rival` stays blocked.
     let b = modn(&fixture, &["install", "b", "--yes"], &[&shared]);
     assert!(b.status.success(), "{}", error(&b));
     let blocked = modn(&fixture, &["install", "rival", "--yes"], &[&rival]);
@@ -206,7 +203,6 @@ fn a_conflict_with_a_skipped_alias_still_blocks() {
     );
     fixture.register();
 
-    // The stack installs the shared archive once, recorded as `a`.
     let stack = modn(&fixture, &["install", "top", "--yes"], &[&shared, &top]);
     assert!(stack.status.success(), "{}", error(&stack));
     let blocked = modn(&fixture, &["install", "rival", "--yes"], &[&rival]);
@@ -231,7 +227,6 @@ fn a_standalone_archive_meets_recorded_conflicts() {
     let installed = modn(&fixture, &["install", "a", "--yes"], &[&a]);
     assert!(installed.status.success(), "{}", error(&installed));
 
-    // `b.zip` installed directly still carries `b`'s pinned digest.
     let standalone = Command::new(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)

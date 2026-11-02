@@ -22,14 +22,12 @@ MAX_ZIP_INDEX_BYTES = 2 * 1024 * 1024
 
 
 def zip_index_within_budget(archive):
-    # zipfile constructs every entry on open; bound the directory first.
     with archive.open("rb") as source:
         source.seek(max(0, archive.stat().st_size - (22 + 65535 + 20)))
         tail = source.read()
     offset = tail.rfind(b"PK\x05\x06")
     if offset < 0 or offset + 22 > len(tail):
         raise zipfile.BadZipFile("Missing ZIP end-of-central-directory record")
-    # A ZIP64 locator overrides these ordinary counts, even without sentinels.
     if offset >= 20 and tail[offset - 20:offset - 16] == b"PK\x06\x07":
         return False
     comment_size = int.from_bytes(tail[offset + 20:offset + 22], "little")
@@ -50,7 +48,6 @@ def run(archive_dir, binary, max_archive_mib):
         executable = game / "bin/x64/Cyberpunk2077.exe"
         executable.parent.mkdir(parents=True)
         executable.write_bytes(b"disposable-marker")
-        # Presence-only synthetic fixtures, never real game/framework installation.
         markers = [executable]
         for relative in ("engine/tools/scc.exe",
                          "red4ext/plugins/ArchiveXL/ArchiveXL.dll",

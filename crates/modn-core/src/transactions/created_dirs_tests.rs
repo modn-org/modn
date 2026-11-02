@@ -1,4 +1,3 @@
-//! Directories Modn creates are recorded and removed only when empty and Modn's.
 use super::catalog_tests::{module_source, plan_into, Fixture};
 use super::ManagedPackage;
 use crate::game_modules::with_module_source;
@@ -6,7 +5,6 @@ use std::fs;
 use std::path::Path;
 
 impl Fixture {
-    /// Install `archive`'s files into `directory`, as a plain archive install.
     fn install_into(&mut self, archive: &Path, directory: &str) -> anyhow::Result<ManagedPackage> {
         let proposal = plan_into(&self.game, archive, directory);
         let game = self.game.clone();
@@ -15,7 +13,6 @@ impl Fixture {
         })
     }
 
-    /// Run an install that is interrupted after its first file.
     fn interrupted_into(&mut self, archive: &Path, directory: &str) -> anyhow::Error {
         let proposal = plan_into(&self.game, archive, directory);
         let game = self.game.clone();
@@ -52,7 +49,6 @@ fn a_directory_that_existed_before_modn_is_never_removed() {
     fs::create_dir_all(fixture.game.join("mods")).unwrap();
     let archive = fixture.archive("inner");
     let package = fixture.install_into(&archive, "mods/inner").unwrap();
-    // Only the directory Modn created is recorded.
     assert_eq!(fixture.count("created_directories"), 1);
     fixture.uninstall(&package.id).unwrap();
     assert!(!fixture.game.join("mods/inner").exists());
@@ -94,6 +90,26 @@ fn user_content_keeps_a_directory_until_recovery_finds_it_empty() {
     assert_eq!(fixture.count("created_directories"), 0);
 }
 
+#[test]
+fn unregistering_a_game_ends_its_directory_records() {
+    let mut fixture = Fixture::new();
+    let archive = fixture.archive("owned");
+    let package = fixture.install_into(&archive, "mods").unwrap();
+    let user_file = fixture.game.join("mods/user.txt");
+    fs::write(&user_file, b"user").unwrap();
+    fixture.uninstall(&package.id).unwrap();
+    assert_eq!(fixture.count("created_directories"), 1);
+
+    let game = fixture.game.clone();
+    with_module_source(Some(&module_source()), || {
+        fixture.store.add_game("test-game", &game, "manual")
+    })
+    .unwrap();
+    fixture.store.remove_game("test-game", Some(&game)).unwrap();
+    assert_eq!(fixture.count("created_directories"), 0);
+    assert_eq!(fs::read(&user_file).unwrap(), b"user");
+}
+
 #[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn a_replaced_directory_is_forgotten_but_never_removed() {
@@ -102,7 +118,6 @@ fn a_replaced_directory_is_forgotten_but_never_removed() {
     let package = fixture.install_into(&archive, "mods").unwrap();
     let file = fixture.game.join("mods/owned.plugin");
     let bytes = fs::read(&file).unwrap();
-    // Another tool deletes the directory and recreates it with the same file.
     fs::remove_dir_all(fixture.game.join("mods")).unwrap();
     fs::create_dir(fixture.game.join("mods")).unwrap();
     fs::write(&file, bytes).unwrap();
@@ -128,8 +143,6 @@ fn an_interrupted_install_removes_the_directories_it_created() {
     assert_eq!(fixture.count("pending_transactions"), 0);
 }
 
-/// Leave the journal a crash leaves: an uncommitted install that recorded
-/// `relative` as a directory it intended to create.
 fn crashed_install(fixture: &Fixture, relative: &str, identity: Option<&str>) {
     let game = fixture.game.to_string_lossy().into_owned();
     let connection = &fixture.store.connection;
@@ -152,7 +165,6 @@ fn crashed_install(fixture: &Fixture, relative: &str, identity: Option<&str>) {
 #[test]
 fn an_unproven_creation_record_never_removes_a_directory() {
     let mut fixture = Fixture::new();
-    // The crash came before `create_dir`; another tool made `mods` since.
     crashed_install(&fixture, "mods", None);
     fs::create_dir(fixture.game.join("mods")).unwrap();
     fixture.recover();
@@ -192,7 +204,6 @@ fn a_recreated_directory_replaces_its_stale_record() {
     fixture.uninstall(&a.id).unwrap();
     assert_eq!(fixture.count("created_directories"), 1);
 
-    // Another tool removes the folder; the next install recreates it.
     fs::remove_dir_all(&mods).unwrap();
     let b = fixture.install_into(&second, "mods").unwrap();
     fixture.uninstall(&b.id).unwrap();

@@ -1,4 +1,3 @@
-//! Generic filesystem discovery plumbing. The bundled game module owns game policy.
 use crate::game_modules::policy;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -67,7 +66,6 @@ fn vdf_value(line: &str, key: &str) -> Option<String> {
     (parts.len() >= 4 && parts[1].eq_ignore_ascii_case(key)).then(|| parts[3].replace("\\\\", "\\"))
 }
 
-/// Collect shared Steam library locations; the app ID and install name belong to Lua.
 fn steam_libraries(root: &Path) -> Vec<PathBuf> {
     let mut libraries = vec![root.to_owned()];
     if let Ok(vdf) = fs::read_to_string(root.join("steamapps/libraryfolders.vdf")) {

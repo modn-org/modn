@@ -1,5 +1,3 @@
--- Fictional game policy. Uses only public, read-only host capabilities.
--- Deliberately unrelated to any real game's installation layout.
 local fs = mods_host.fs
 local directory = mods_host.directory
 
@@ -98,8 +96,6 @@ function policy.doctor(report)
     return result
 end
 
--- Source: [optional wrapper]/package/plugins/<name>.plugin
--- Destination: addons/<name>.plugin. No Rust-side game exceptions.
 function policy.plan(files)
     local operations = {}
     local blockers = {}

@@ -82,7 +82,6 @@ fn read_packages(root: &Path) -> Result<Vec<PackageManifest>> {
     let canonical = root.canonicalize()?;
     let games = root.join("games");
     if !games.exists() {
-        // An empty bucket is valid until package manifests are published.
         match fs::symlink_metadata(&games) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(error.into()),
@@ -153,8 +152,6 @@ impl BucketStore {
         }
     }
 
-    // Refuse redirected manager-state paths, not just linked registry children.
-    // The default state path is real; explicit linked state roots must be refused.
     fn check_registry_root(&self) -> Result<()> {
         if self.root.components().any(|c| c == Component::ParentDir) {
             bail!("bucket registry path must not contain parent components");
@@ -220,7 +217,6 @@ impl BucketStore {
         {
             bail!("bucket name or schema mismatch: {name}");
         }
-        // Buckets contain mod manifests, never executable game modules.
         match fs::symlink_metadata(path.join("modules")) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),

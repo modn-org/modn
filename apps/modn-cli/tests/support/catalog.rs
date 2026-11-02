@@ -1,4 +1,3 @@
-//! Disposable fake game, Lua module copy and local catalog for catalog CLI tests.
 #![allow(
     dead_code,
     reason = "each integration-test crate uses a different subset of this fixture"

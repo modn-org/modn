@@ -254,8 +254,6 @@ fn removing_registration_refuses_pending_recovery_and_preserves_record() {
         .execute("DELETE FROM pending_transactions", [])
         .expect("clear pending");
     fs::remove_dir(&game).expect("simulate missing game");
-    // Persisted Windows paths are verbatim, but users type ordinary drive
-    // paths after deleting or moving the game.
     #[cfg(windows)]
     let removal_path = std::path::PathBuf::from(game.to_string_lossy().trim_start_matches(r"\\?\"));
     #[cfg(not(windows))]

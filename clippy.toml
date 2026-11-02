@@ -1,5 +1,3 @@
-# Google Rust Style Guide: https://google.github.io/styleguide/rustguide.html
-# Check public APIs, not only private code.
 avoid-breaking-exported-api = false
 allow-unwrap-in-tests = true
 

@@ -1,4 +1,3 @@
-//! Exclusive-directory ownership, quarantine and recovery for generic roots.
 use std::fs;
 
 use super::{fixture, plan};
@@ -26,6 +25,33 @@ fn exclusive_directory_owns_runtime_contents_without_file_hash_checks() {
     assert!(game.join("data").is_dir());
     assert!(store.installed(&game).unwrap().is_empty());
     assert_eq!(store.recover().unwrap(), 0);
+}
+
+#[test]
+fn absent_or_replaced_owned_directory_refuses_uninstall_without_a_journal() {
+    let (_tmp, mut store, game, archive) = fixture();
+    fs::create_dir(game.join("data")).unwrap();
+    let mut requested = plan(&game, &archive);
+    for op in &mut requested.operations {
+        op.owned_directory = Some("data/mods".into());
+    }
+    let owned = store
+        .install_operations_zip(&game, &archive, &requested)
+        .unwrap();
+
+    fs::remove_dir_all(game.join("data/mods")).unwrap();
+    assert!(store.uninstall(&game, &owned.id).is_err());
+    assert_eq!(store.recover().unwrap(), 0);
+    assert_eq!(store.installed(&game).unwrap().len(), 1);
+
+    fs::write(game.join("data/mods"), b"not a directory").unwrap();
+    assert!(store.uninstall(&game, &owned.id).is_err());
+    assert_eq!(store.recover().unwrap(), 0);
+    assert_eq!(store.installed(&game).unwrap().len(), 1);
+    assert_eq!(
+        fs::read(game.join("data/mods")).unwrap(),
+        b"not a directory"
+    );
 }
 
 #[test]
@@ -75,7 +101,6 @@ fn refuses_claims_over_preexisting_or_reserved_content() {
     let owned = store
         .install_operations_zip(&game, &archive, &requested)
         .unwrap();
-    // Even a new distinct filename cannot enter a directory claimed by another package.
     let mut second = plan(&game, &archive);
     second.operations[0].destination = "data/mods/new.bin".into();
     second.operations.remove(1);
@@ -214,8 +239,6 @@ fn substituted_quarantine_directory_blocks_committed_recovery() {
     let saved = game.join("data/saved-original");
     fs::rename(&staged, &saved).unwrap();
     fs::create_dir(&staged).unwrap();
-    // A forged directory can hard-link files from the original: file identity
-    // must not authorize deletion of the different containing directory.
     fs::write(saved.join("original-marker"), b"valid marker bytes").unwrap();
     fs::hard_link(
         saved.join("original-marker"),
@@ -339,8 +362,6 @@ fn linux_birth_identity_rejects_reused_inode_generation() {
         6,
         "native directory identity must include birth time"
     );
-    // Model an inode reuse: retain the device and inode but change its birth
-    // timestamp. Rechecking the replacement must fail even with the old inode.
     let previous_birth = identity_parts[4].parse::<i64>().unwrap() - 1;
     identity_parts[4] = previous_birth.to_string();
     let reused = identity_parts.join(":");

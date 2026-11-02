@@ -1,4 +1,3 @@
-//! Catalog dependency readiness and dependent protection through the real CLI.
 #[path = "support/catalog.rs"]
 mod support;
 
@@ -103,7 +102,6 @@ fn exclusive_directory_dependency_requires_original_payload_bytes() {
     .expect("dependent manifest");
     fixture.register();
 
-    // Only this fixture's game policy assigns an exclusive per-mod directory.
     let policy = fixture.modules.join("test-game/main.lua");
     let original = fs::read_to_string(&policy).expect("Lua");
     let exclusive = original
@@ -131,7 +129,6 @@ fn exclusive_directory_dependency_requires_original_payload_bytes() {
     assert!(payload.is_file());
     fs::write(&policy, original).expect("restore default mapping");
 
-    // A healthy exclusive directory may satisfy dependencies.
     let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
@@ -145,8 +142,6 @@ fn exclusive_directory_dependency_requires_original_payload_bytes() {
     assert_eq!(plan["plan"]["status"], "reviewable");
     assert!(!fixture.game.join("addons/example.plugin").exists());
 
-    // The owned folder's native identity is intact, but its original
-    // prerequisite file has disappeared. A ledger "present" is insufficient.
     fs::remove_file(&payload).expect("drifted payload");
     assert!(fixture.game.join("addons/base").is_dir());
     let blocked = Command::new(env!("CARGO_BIN_EXE_modn"))

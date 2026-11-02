@@ -8,14 +8,12 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 /// Installed package and its manager-owned file manifest.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct ManagedPackage {
-    /// Package ID assigned during installation.
     pub id: String,
-    /// Destination game installation.
     pub game_installation: PathBuf,
-    /// Digest of the source archive.
     pub archive_sha256: String,
     /// Exact owned files installed through the recorded source ZIP.
     pub files: Vec<OwnedFile>,
@@ -77,10 +75,6 @@ pub(crate) fn lock_store(store: &Store) -> Result<File> {
         .context("cannot acquire exclusive transaction lock")?;
     Ok(lock)
 }
-/// Validate a game-relative destination and every existing ancestor.
-///
-/// This never creates a directory: an install creates missing parents
-/// through `Store::create_parents`, which journals each one first.
 pub(super) fn target_path(game: &Path, relative: &str) -> Result<PathBuf> {
     let canonical = game.canonicalize()?;
     let mut current = canonical.clone();

@@ -1,7 +1,3 @@
-//! Game-agnostic evidence that managed packages remain in place.
-//!
-//! Ownership claims are checked against the ledger and the filesystem alone,
-//! never through game discovery, so readiness checks do not depend on Lua.
 use crate::scan::{IntegrityStatus, OwnedFileCheck};
 use crate::state::Store;
 use crate::transactions::ManagedPackage;
@@ -18,18 +14,12 @@ pub(crate) enum PathState {
     Unreadable,
 }
 
-/// Integrity of one exclusive directory claimed by a managed package.
 pub(crate) struct DirectoryRootCheck {
-    /// Recorded game-relative directory.
     pub(crate) root: String,
-    /// Package that owns the directory.
     pub(crate) package_id: String,
-    /// `Present` only when the native directory identity still matches.
     pub(crate) status: IntegrityStatus,
 }
 
-// Walk each component without trusting reparse points, symlinks or directory redirects.
-// A failed check is reported as drift, never used to infer or transfer ownership.
 pub(crate) fn checked_path(
     root: &Path,
     relative: &str,
@@ -147,7 +137,6 @@ fn directory_root_checks(
         .collect()
 }
 
-// The first of the package's own exclusive directories containing `destination`.
 fn covering_root<'a>(
     roots: &'a [DirectoryRootCheck],
     destination: &str,
@@ -157,10 +146,6 @@ fn covering_root<'a>(
         .find(|check| destination.starts_with(&format!("{}/", check.root)))
 }
 
-/// Check every owned file and exclusive directory of `packages`.
-///
-/// Files beneath a verified exclusive directory report the directory's status
-/// without hashing, because runtime output inside it stays mutable.
 pub(crate) fn owned_file_checks(
     store: &Store,
     game: &Path,
@@ -188,12 +173,6 @@ pub(crate) fn owned_file_checks(
     (owned_files, directory_roots)
 }
 
-/// Whether a managed package's ownership claims and original payload hold.
-///
-/// Every exclusive directory covering an original file must keep its native
-/// identity, and every original file, including those beneath such a
-/// directory, must keep its recorded size and digest. A package without
-/// recorded files cannot prove anything and is never intact.
 pub(crate) fn package_intact(store: &Store, game: &Path, package: &ManagedPackage) -> bool {
     let roots = directory_root_checks(store, game, package);
     !package.files.is_empty()

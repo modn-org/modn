@@ -1,4 +1,3 @@
-//! Local Lua module validation with bounded, root-scoped reads; no mutation APIs.
 use super::capabilities::{AllowedRoots, ReadProfile};
 use super::runtime;
 use anyhow::{bail, Context, Result};
@@ -14,6 +13,7 @@ pub(super) const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 pub(super) const MAX_SCRIPT_BYTES: u64 = 256 * 1024;
 
 /// Validated identity of one Lua game integration; no installation privileges implied.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct GameModuleInfo {
@@ -21,7 +21,6 @@ pub struct GameModuleInfo {
     pub game_id: String,
     /// Module version for diagnostics; not a host compatibility guarantee.
     pub version: String,
-    /// Host API revision negotiated with the module.
     pub api_version: u32,
 }
 
@@ -183,7 +182,6 @@ impl From<VerifiedModule> for GameModuleInfo {
     }
 }
 
-/// Read and validate the same manifest/source boundary for executable game policies.
 pub(super) fn read_verified_module(directory: &Path) -> Result<(VerifiedModule, String)> {
     let metadata = fs::symlink_metadata(directory)
         .with_context(|| format!("cannot inspect game module {}", directory.display()))?;
@@ -197,10 +195,6 @@ pub(super) fn read_verified_module(directory: &Path) -> Result<(VerifiedModule, 
     verified(manifest, &script)
 }
 
-/// Validate a first-party module compiled into the executable.
-///
-/// Embedded sources pass the same manifest, size and source checks as a
-/// module read from disk; `entrypoint` names the file that was embedded.
 pub(super) fn verify_embedded(
     manifest_bytes: &[u8],
     entrypoint: &str,

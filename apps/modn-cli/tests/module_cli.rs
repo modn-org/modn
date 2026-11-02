@@ -1,4 +1,3 @@
-//! End-to-end CLI checks for local module validation without state or game writes.
 use std::fs;
 use std::process::Command;
 

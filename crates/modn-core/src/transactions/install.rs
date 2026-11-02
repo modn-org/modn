@@ -1,4 +1,3 @@
-//! Game-agnostic, ownership-aware ZIP/7z operation executor.
 use super::catalog::{CatalogInstall, CatalogRecord, CatalogRelease};
 use super::directory::exclusive_roots;
 use super::journal::{
@@ -102,7 +101,6 @@ impl Store {
         self.install_locked(game, archive, proposal, fail_after, approved, catalog)
     }
 
-    /// Install one package; the caller holds the transaction lock.
     pub(super) fn install_locked(
         &mut self,
         game: &Path,
@@ -122,7 +120,6 @@ impl Store {
         validate_ownership(self, &game, proposal)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories)?;
-        // Every archive, catalog or standalone, meets the recorded conflicts.
         let release = catalog.map(|catalog| catalog.release);
         let conflicts = self.conflicting_packages(&game, release, &inspection.sha256)?;
         if !conflicts.is_empty() {
@@ -228,8 +225,6 @@ impl Store {
         }
         let stage_path = staging.keep();
         let attempt = (|| -> Result<()> {
-            // Atomically create each exclusive ownership boundary; a concurrent
-            // creator must never be silently adopted by this transaction.
             for (ordinal, root) in directories.iter().enumerate() {
                 let identity = super::directory::prepare_install(&game, root, &id, ordinal)?;
                 self.record_directory_identity(&id, root, &identity)?;

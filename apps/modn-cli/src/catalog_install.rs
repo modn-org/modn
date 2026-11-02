@@ -1,4 +1,3 @@
-//! Catalog resolution and manifest-verified local mod installation.
 use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
@@ -111,7 +110,6 @@ fn resolve(
     }
 }
 
-// Bucket manifests name only installable formats; unknown ones never match.
 fn expected_format(format: &ArchiveFormat) -> Option<archive::ArchiveFormat> {
     match format {
         ArchiveFormat::Zip => Some(archive::ArchiveFormat::Zip),
@@ -128,8 +126,6 @@ pub(super) fn reference_of(package: &BucketPackage) -> CatalogReference {
     )
 }
 
-// Resolve declared dependencies to manifest-pinned digests in the same bucket.
-// Readiness itself is decided by the Rust core, under the install lock.
 pub(super) fn catalog_release(
     selected: &BucketPackage,
     catalog: &BucketStore,
@@ -168,7 +164,6 @@ pub(super) fn catalog_release(
         .conflicts
         .iter()
         .map(|id| {
-            // A conflicting mod the bucket publishes also matches by digest.
             let published = catalog_packages
                 .iter()
                 .find(|candidate| {
@@ -188,8 +183,6 @@ pub(super) fn catalog_release(
     Ok(CatalogRelease::new(reference, dependencies).with_conflicts(conflicts))
 }
 
-/// Match each supplied archive to the selected release or one of its
-/// dependencies by SHA-256, verifying its format against that manifest.
 fn match_archives(
     files: &[PathBuf],
     selected: &BucketPackage,
@@ -202,7 +195,6 @@ fn match_archives(
             bail!("archive must be a regular file: {}", file.display());
         }
         let inspected = inspect(file)?;
-        // One archive is the verified artifact of every release pinning its digest.
         let matches: Vec<&BucketPackage> = dependencies
             .iter()
             .chain([selected])
@@ -238,9 +230,8 @@ fn install_mod(
             .context("invalid manager state directory")?,
     );
     let mut order = install_order(&selected, &catalog.packages(Some(&selected.package.game))?)?;
-    order.pop(); // The selected release is last; the rest are its dependencies.
+    order.pop();
     let interactive = !args.yes && !args.dry_run;
-    // Archives match releases by digest before any manager state is read.
     let mut archives = match_archives(&args.file, &selected, &order)?;
     let cache = download::cache_for(state_path)?;
     let cache_use = if args.no_cache {
@@ -264,7 +255,6 @@ fn install_mod(
     )?;
     let release = catalog_release(&selected, &catalog)?;
     if !args.dry_run || args.download {
-        // Downloads write the cache before the install opens writable state.
         state.validate_download(
             cache.root(),
             &ProtectedTarget {
@@ -275,8 +265,6 @@ fn install_mod(
     }
     let mut dependencies =
         dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
-    // Check declared conflicts before any download or write; the Rust core
-    // repeats the check for each package under the transaction lock.
     let installing: Vec<&BucketPackage> = order
         .iter()
         .zip(&dependencies)
@@ -285,7 +273,6 @@ fn install_mod(
         .chain([&selected])
         .collect();
     if args.download {
-        // Only the cache changes, so the dry run can plan every file it installs.
         download::download(&cache, cache_use, &installing, &mut archives, json)?;
         dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
     }
@@ -297,9 +284,6 @@ fn install_mod(
             conflicts.join("\n  ")
         );
     }
-    // Missing dependencies install with the mod as one stack. A damaged
-    // dependency or another installed release keeps the single-install path,
-    // which fails closed: Modn never replaces or repairs a framework implicitly.
     let stackable = dependencies
         .iter()
         .all(|dependency| dependency.ready() || dependency.missing());
@@ -318,7 +302,6 @@ fn install_mod(
         return stack_install::run(stack, state, args, json);
     }
     if !args.dry_run {
-        // Preview readiness early; `install_catalog_release` repeats it under the lock.
         match state.existing() {
             Some(store) => {
                 store.ready_dependencies(&installation, &release.dependencies)?;
@@ -334,7 +317,6 @@ fn install_mod(
         }
     }
     if !args.dry_run && !archives.contains_key(&reference) {
-        // The install prompt needs the archive's plan, so a download asks first.
         if interactive {
             let url = match &selected.package.source {
                 PackageSource::Https { url } => url.as_str(),
@@ -372,9 +354,6 @@ fn install_mod(
     let explicit = &args.allow_executable;
     let declared = &selected.package.executables;
     let mut plan = preview(explicit)?;
-    // An unapproved executable is absent from a blocked plan, so find the
-    // declared ones the archive installs from a candidate that includes them.
-    // The candidate is only installed after interactive confirmation.
     let mut candidate_approvals = explicit.clone();
     candidate_approvals.extend(
         declared
@@ -411,7 +390,6 @@ fn install_mod(
     }
     let mut approved = explicit.clone();
     if interactive && !pending.is_empty() {
-        // Declared executables join the approval only after the operator says yes.
         approved.extend(pending.iter().cloned());
         plan = preview(&approved)?;
     }
@@ -462,7 +440,6 @@ fn install_mod(
     Ok(())
 }
 
-/// Install one bucket-resolved release using an explicit, verified local archive.
 pub(super) fn run(
     args: &InstallArgs,
     state_path: &Path,

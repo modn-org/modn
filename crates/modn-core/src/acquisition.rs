@@ -17,23 +17,21 @@ use std::path::{Path, PathBuf};
 pub const MAX_DOWNLOAD_BYTES: u64 = 4 << 30;
 
 /// One release's archive, as the package manifest pins it.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct CacheKey<'a> {
-    /// Game the package manifest targets.
     pub game_id: &'a str,
     /// Package identifier within its bucket and game.
     pub mod_id: &'a str,
-    /// Manifest version string.
     pub version: &'a str,
     /// `https` artifact source.
     pub url: &'a str,
-    /// SHA-256 digest pinned by the package manifest.
     pub sha256: &'a str,
 }
 
+#[expect(missing_docs, reason = "Method names state their behavior")]
 impl<'a> CacheKey<'a> {
-    /// Identify one release's archive by its manifest fields.
     #[must_use]
     pub fn new(
         game_id: &'a str,
@@ -52,7 +50,7 @@ impl<'a> CacheKey<'a> {
     }
 }
 
-/// Whether an existing verified cache entry may be used.
+#[expect(missing_docs, reason = "The name states the item's meaning")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CacheUse {
@@ -62,49 +60,43 @@ pub enum CacheUse {
     Refresh,
 }
 
-/// Where an acquired archive came from.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Origin {
-    /// A verified cache entry was reused.
     Cache,
-    /// The archive was downloaded and verified.
     Download,
 }
 
 /// A verified archive in the cache.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Acquired {
-    /// Cache entry path.
     pub path: PathBuf,
-    /// Whether the entry was reused or downloaded.
     pub origin: Origin,
 }
 
 /// One file in the cache, as `modn cache show` lists it.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct CacheEntry {
-    /// Game component of the entry name.
     pub game_id: String,
-    /// Mod component of the entry name.
     pub mod_id: String,
-    /// Version component of the entry name.
     pub version: String,
-    /// Entry size in bytes.
     pub bytes: u64,
-    /// Entry path.
     pub path: PathBuf,
 }
 
-/// Download cache rooted at one directory.
+#[expect(missing_docs, reason = "The name states the item's meaning")]
 #[derive(Debug, Clone)]
 pub struct ArchiveCache {
     root: PathBuf,
 }
 
+#[expect(missing_docs, reason = "Method names state their behavior")]
 impl ArchiveCache {
     /// Use `root` as the cache directory; it is created on first download.
     #[must_use]
@@ -112,7 +104,6 @@ impl ArchiveCache {
         Self { root }
     }
 
-    /// Cache directory.
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
@@ -178,9 +169,6 @@ impl ArchiveCache {
         fs::create_dir_all(&self.root)
             .with_context(|| format!("cannot create cache directory {}", self.root.display()))?;
         let path = self.path(key);
-        // Each attempt writes its own uniquely named partial file, so
-        // concurrent downloads of one entry never touch each other's bytes.
-        // Dropping the file on any error removes it.
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         let mut partial = tempfile::Builder::new()
             .prefix(&format!("{name}."))
@@ -204,7 +192,6 @@ impl ArchiveCache {
             );
         }
         partial.as_file().sync_all()?;
-        // Atomically replace any entry with this attempt's verified file.
         partial
             .persist(&path)
             .with_context(|| format!("cannot store cache entry {}", path.display()))?;
@@ -258,7 +245,6 @@ impl ArchiveCache {
     }
 }
 
-/// Keep word characters, dots and dashes, as Scoop does for cache names.
 fn component(value: &str) -> String {
     value
         .chars()
@@ -281,8 +267,6 @@ fn extension(url: &str) -> String {
     }
 }
 
-/// Split a name that [`ArchiveCache::path`] could have produced into its
-/// game, mod and version. Any other file in the cache directory is ignored.
 fn parse_entry_name(name: &str) -> Option<[&str; 3]> {
     let parts: Vec<&str> = name.split('#').collect();
     let [game_id, mod_id, version, rest] = parts.as_slice() else {
@@ -295,7 +279,6 @@ fn parse_entry_name(name: &str) -> Option<[&str; 3]> {
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
     };
     let (url_hash, ext) = rest.split_at_checked(7)?;
-    // `extension()` emits one final extension, so it never contains a dot.
     let valid_ext = ext.is_empty()
         || ext.strip_prefix('.').is_some_and(|ext| {
             (1..=8).contains(&ext.len())
@@ -311,7 +294,6 @@ fn parse_entry_name(name: &str) -> Option<[&str; 3]> {
         .then_some([*game_id, *mod_id, *version])
 }
 
-/// Copy at most one byte beyond the limit, so an oversized body is detected.
 fn copy_hashed(body: impl Read, output: &mut File, limit: u64) -> Result<(u64, String)> {
     let mut reader = body.take(limit + 1);
     let mut hasher = Sha256::new();

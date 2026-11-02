@@ -6,14 +6,12 @@ use std::fs::{self, File, OpenOptions};
 use std::path::{Component, Path, PathBuf};
 
 /// Persisted registration for a single game installation.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct GameInstallation {
-    /// Registered game identifier.
     pub game_id: String,
-    /// Registered installation path.
     pub path: PathBuf,
-    /// Registration or discovery origin.
     pub source: String,
 }
 
@@ -197,9 +195,6 @@ impl Store {
     ///
     /// Refuses missing or ambiguous identities and any managed or pending work.
     pub fn remove_game(&mut self, game_id: &str, path: Option<&Path>) -> Result<GameInstallation> {
-        // Use the exact lock held across archive inspection and staging by
-        // installs/uninstalls. SQLite row checks alone miss in-flight writes
-        // before they insert their pending journal.
         let _guard = crate::transactions::lock_store(self)?;
         let registered = self.list()?;
         let chosen = path.map(canonicalize_removal_path).transpose()?;
@@ -235,7 +230,6 @@ impl Store {
         if managed || pending {
             bail!("cannot unregister game with managed packages or pending transactions; uninstall or recover first");
         }
-        // Modn no longer manages anything here, so its directory records end.
         tx.execute(
             "DELETE FROM created_directories WHERE game_path=?1",
             [path_text],
@@ -308,8 +302,6 @@ fn canonicalize_removal_path(path: &Path) -> Result<PathBuf> {
     }
 }
 
-/// Reject old ownership ledgers rather than interpreting manually claimed files
-/// as ZIP-installed packages. A clean installation starts with a fresh state DB.
 fn validate_package_schema(connection: &Connection) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version != 1 {

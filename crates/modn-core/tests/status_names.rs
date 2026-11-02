@@ -1,4 +1,3 @@
-//! Typed statuses keep the exact strings used by JSON output and Lua policies.
 use modn_core::archive::ArchiveFormat;
 use modn_core::planning::PlanStatus;
 use modn_core::scan::IntegrityStatus;

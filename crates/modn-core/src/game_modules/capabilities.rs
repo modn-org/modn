@@ -1,4 +1,3 @@
-//! Narrow, read-only Lua host services scoped to operator-approved directories.
 use crate::archive;
 use anyhow::{bail, Context, Result};
 use mlua::{Lua, Table};
@@ -25,8 +24,6 @@ const MAX_TOTAL_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ONE_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 256;
 
-/// Operator-approved directories, not game installations authenticated by Rust.
-/// A game module decides whether a directory belongs to its game using metadata.
 pub(super) struct AllowedRoots(Vec<PathBuf>);
 
 impl AllowedRoots {
@@ -224,7 +221,6 @@ fn metadata_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> m
                 },
             )?;
             answer.set("bytes", if metadata.is_dir() { 0 } else { metadata.len() })?;
-            // No absolute path or operating-system handle is returned.
             Ok(answer)
         })?,
     )?;
@@ -256,9 +252,6 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
             let (path, metadata) =
                 authorized_path(&roots, &budget, id, &relative).map_err(mlua::Error::external)?;
             regular_file(&metadata).map_err(mlua::Error::external)?;
-            // 7z encoded headers can expand unboundedly inside the native parser,
-            // before its entry-count validation. Do not expose that path to Lua
-            // until decoded-header allocations are demonstrably bounded.
             let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("");
             if !extension.eq_ignore_ascii_case("zip") && !extension.eq_ignore_ascii_case("jar") {
                 return Err(mlua::Error::RuntimeError(
@@ -326,7 +319,6 @@ fn directory_service(
                 let mut unreadable = false;
                 let mut unsafe_names = Vec::new();
                 for entry in fs::read_dir(path).map_err(mlua::Error::external)? {
-                    // Cap the native enumeration before allocating Lua tables.
                     if names.len() + unsafe_names.len() >= max_items {
                         incomplete = true;
                         truncated = true;
@@ -440,7 +432,6 @@ fn directory_service(
     Ok(service)
 }
 
-/// Add only read-only host services to the existing sandbox; never pass raw paths.
 pub(super) fn register(
     lua: &Lua,
     host: &Table,

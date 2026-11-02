@@ -26,16 +26,15 @@ pub struct ArchiveFile {
 }
 
 /// Container format recognized from an archive's file extension.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub enum ArchiveFormat {
-    /// `.zip` archive.
     #[serde(rename = "zip")]
     Zip,
     /// `.jar` archive; inspectable but not installable.
     #[serde(rename = "jar")]
     Jar,
-    /// `.7z` archive.
     #[serde(rename = "7z")]
     SevenZ,
 }
@@ -65,18 +64,15 @@ impl fmt::Display for ArchiveFormat {
 }
 
 /// Read-only archive metadata, not verified contents or compatibility.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct Inspection {
-    /// Source archive path.
     pub archive: PathBuf,
-    /// Detected archive format.
     pub format: ArchiveFormat,
-    /// SHA-256 of the archive at inspection.
     pub sha256: String,
     /// Sum of declared uncompressed sizes.
     pub total_uncompressed_bytes: u64,
-    /// Validated entries in the archive.
     pub files: Vec<ArchiveFile>,
     /// True: no game files are extracted.
     pub metadata_only: bool,
@@ -148,7 +144,7 @@ fn append_file(
     Ok(())
 }
 
-/// ZipArchive deduplicates identical names; inspect raw central records first.
+// ZipArchive deduplicates identical names; inspect raw central records first.
 fn verify_zip_central_records(path: &Path, start: u64) -> Result<()> {
     let mut input = File::open(path)?;
     input.seek(SeekFrom::Start(start))?;

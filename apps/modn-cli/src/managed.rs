@@ -1,4 +1,3 @@
-//! `modn list`, `uninstall` and `recover`: manager-owned packages and journals.
 use crate::commands::UninstallArgs;
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
@@ -38,7 +37,6 @@ pub(super) fn list(
             }
         }
     }
-    // Shared by all packages, and kept while other content remains in them.
     let created = store.created_directories(&game)?;
     if !created.is_empty() {
         println!("Folders Modn created, removed when empty:");

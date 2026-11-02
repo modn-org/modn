@@ -1,4 +1,3 @@
-//! Shared bounded Lua VM for external and bundled game policies.
 use super::capabilities::{self, AllowedRoots, ReadProfile};
 use super::loader::HOST_API_VERSION;
 use anyhow::Result;
@@ -44,8 +43,6 @@ pub(super) fn evaluate<T>(
         let host = lua.create_table()?;
         host.set("api_version", HOST_API_VERSION)?;
         capabilities::register(&lua, &host, roots, profile)?;
-        // Keep ordinary assignments to mods_host from changing the public API.
-        // The proxy is not a sandbox against deliberately trusted code (e.g. rawset).
         let proxy = lua.create_table()?;
         let meta = lua.create_table()?;
         meta.set("__index", host)?;

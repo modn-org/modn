@@ -1,4 +1,3 @@
-//! Regression cases for canonical game identity and manager-state path safety.
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};

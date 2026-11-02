@@ -1,10 +1,3 @@
-//! All-or-nothing installation of a catalog release and its missing dependencies.
-//!
-//! Each member is its own journaled package transaction with its own
-//! ownership record. A pending stack row ties the members together until the
-//! whole stack commits. A failed stack, or one interrupted before it commits,
-//! is rolled back by uninstalling its members in reverse order, so the game
-//! returns to its state before the stack.
 use super::catalog::{CatalogInstall, CatalogRelease};
 use super::journal::{lock_store, ManagedPackage};
 use super::validation::validate_transaction_root;
@@ -16,19 +9,19 @@ use std::path::{Path, PathBuf};
 use tempfile::Builder;
 
 /// One stack member: a verified archive, its catalog release and approvals.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct StackMember {
     /// Archive whose digest the caller verified against the release manifest.
     pub archive: PathBuf,
-    /// Catalog identity and the releases this member requires.
     pub release: CatalogRelease,
     /// Tool executables the user approved for this member.
     pub approved_executables: Vec<String>,
 }
 
+#[expect(missing_docs, reason = "Method names state their behavior")]
 impl StackMember {
-    /// Describe one member of an installation stack.
     #[must_use]
     pub fn new(
         archive: PathBuf,
@@ -101,7 +94,6 @@ impl Store {
         Ok(installed)
     }
 
-    /// Refuse a new write while a journal or an installation stack is unfinished.
     pub(super) fn ensure_idle(&self) -> Result<()> {
         self.ensure_no_pending()?;
         let stacks: i64 =
@@ -115,8 +107,6 @@ impl Store {
         Ok(())
     }
 
-    /// Roll back every unfinished stack. Recover journals before calling this,
-    /// so each member is either fully installed or fully absent.
     pub(super) fn recover_stacks_locked(&mut self) -> Result<usize> {
         let mut statement = self
             .connection
@@ -134,7 +124,6 @@ impl Store {
     }
 
     pub(super) fn begin_stack(&mut self, game: &Path) -> Result<String> {
-        // The marker directory only reserves a unique name, as transactions do.
         let marker = Builder::new()
             .prefix("stack-")
             .tempdir_in(&self.state_root)?;
@@ -159,10 +148,6 @@ impl Store {
         Ok(())
     }
 
-    /// Uninstall the stack's members, newest first, then forget the stack.
-    ///
-    /// Each uninstall removes its membership row in its own commit, so an
-    /// interrupted rollback resumes with only the members that remain.
     fn rollback_stack(&mut self, id: &str, game: &Path) -> Result<usize> {
         let mut statement = self.connection.prepare(
             "SELECT package_id FROM pending_stack_packages WHERE stack_id=?1 ORDER BY ord DESC",

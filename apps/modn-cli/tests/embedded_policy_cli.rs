@@ -1,4 +1,3 @@
-//! First-party Lua policy comes from the executable, not from files beside it.
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -12,8 +11,6 @@ fn policy_beside_the_executable_is_ignored() {
     let copied = bin.join(source.file_name().expect("binary name"));
     fs::copy(source, &copied).expect("copy modn binary");
 
-    // A planted module next to the binary used to be selected before the
-    // reviewed policy. Its manifest is valid; its Lua only reports itself.
     let planted = bin.join("game-modules/cyberpunk-2077");
     fs::create_dir_all(&planted).expect("planted module");
     let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))

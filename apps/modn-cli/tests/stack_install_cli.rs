@@ -1,4 +1,3 @@
-//! Installing a catalog mod with its missing dependencies as one stack.
 #[path = "support/catalog.rs"]
 mod support;
 
@@ -10,7 +9,6 @@ use std::path::{Path, PathBuf};
 use support::{error, Fixture};
 use zip::write::SimpleFileOptions;
 
-/// A ZIP whose plugin the test-game policy installs to `addons/<name>.plugin`.
 fn plugin_archive(fixture: &Fixture, name: &str) -> (PathBuf, String) {
     let path = fixture.temp.path().join(format!("{name}.zip"));
     let mut zip = zip::ZipWriter::new(fs::File::create(&path).expect("archive"));
@@ -52,7 +50,6 @@ struct Stack {
     top: PathBuf,
 }
 
-/// `top` depends on `middle`, which depends on `base`; nothing is installed.
 fn stack(middle_extra: Value) -> Stack {
     let fixture = Fixture::new();
     let (base, base_hash) = plugin_archive(&fixture, "base");
@@ -100,7 +97,6 @@ fn missing_dependencies_install_with_the_mod_in_order_after_one_approval() {
         middle,
         top,
     } = stack(json!({}));
-    // Archives match their releases by digest, in any order.
     let files = [top.as_path(), base.as_path(), middle.as_path()];
     let preview = run(&fixture, &["--json", "install", "top", "--dry-run"], &files);
     assert!(preview.status.success(), "{}", error(&preview));
@@ -132,7 +128,6 @@ fn missing_dependencies_install_with_the_mod_in_order_after_one_approval() {
     }
     assert_eq!(managed(&fixture), 3);
 
-    // Each member is its own managed package with recorded dependency links.
     let base_id = report["stack"][0]["installed"]["id"]
         .as_str()
         .expect("id")
@@ -157,7 +152,6 @@ fn a_failed_member_rolls_back_the_whole_stack() {
         middle,
         top,
     } = stack(json!({}));
-    // An unmanaged file occupies the last member's destination.
     fs::create_dir_all(fixture.game.join("addons")).expect("addons");
     let occupied = fixture.game.join("addons/top.plugin");
     fs::write(&occupied, b"user file").expect("unmanaged file");
@@ -173,7 +167,6 @@ fn a_failed_member_rolls_back_the_whole_stack() {
     assert_eq!(fs::read(&occupied).expect("unmanaged"), b"user file");
     assert_eq!(managed(&fixture), 0);
 
-    // Nothing is left pending: the next write needs no recovery.
     let base_only = run(&fixture, &["install", "base", "--yes"], &[&base]);
     assert!(base_only.status.success(), "{}", error(&base_only));
     assert_eq!(managed(&fixture), 1);
@@ -202,7 +195,6 @@ fn a_missing_dependency_archive_blocks_before_any_write() {
     assert!(!fixture.game.join("addons").exists());
     assert_eq!(fs::read(&state).expect("state"), before);
 
-    // An archive that no release in this installation pins is refused.
     let (other, _) = plugin_archive(&fixture, "other");
     let unknown = run(&fixture, &["install", "top", "--yes"], &[&top, &other]);
     assert!(!unknown.status.success());
@@ -233,7 +225,6 @@ fn declared_executables_need_explicit_approval_before_the_stack_starts() {
     assert!(!fixture.game.join("addons").exists());
     assert_eq!(managed(&fixture), 0);
 
-    // An explicit approval lets the stack proceed; the archive has no executable.
     let approved = run(
         &fixture,
         &[
@@ -275,7 +266,6 @@ fn dependencies_sharing_one_archive_install_it_once() {
     assert_eq!(order, ["deps/test-game/a", "deps/test-game/top"]);
     assert_eq!(managed(&fixture), 2);
 
-    // The mod itself may not share its archive with a missing dependency.
     let fixture = Fixture::new();
     let (archive, hash) = plugin_archive(&fixture, "same");
     fixture.bucket("deps", "test-game", "base", &hash, &[]);
@@ -290,7 +280,6 @@ fn dependencies_sharing_one_archive_install_it_once() {
     );
     assert!(!fixture.game.join("addons").exists());
 
-    // A skipped alias may not drop requirements the kept release lacks.
     let fixture = Fixture::new();
     let (shared, shared_hash) = plugin_archive(&fixture, "shared");
     let (x, x_hash) = plugin_archive(&fixture, "x");
@@ -331,7 +320,6 @@ fn uninstall_takes_catalog_names_and_removes_related_packages_on_request() {
         "{listing}"
     );
 
-    // A preview lists the plan in removal order and changes nothing.
     let preview = fixture.run(&["--json", "uninstall", "top", "--dry-run", "--include-deps"]);
     assert!(preview.status.success(), "{}", error(&preview));
     let report: Value = serde_json::from_slice(&preview.stdout).expect("JSON");
@@ -351,7 +339,6 @@ fn uninstall_takes_catalog_names_and_removes_related_packages_on_request() {
     assert!(!bare.status.success());
     assert!(error(&bare).contains("--dry-run"), "{}", error(&bare));
 
-    // Without --cascade a needed package is refused, by name or by ID.
     let refused = fixture.run(&["uninstall", "middle", "--yes"]);
     assert!(!refused.status.success());
     assert!(

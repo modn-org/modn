@@ -27,7 +27,6 @@ fn run() -> Result<()> {
     with_module_source(module_source.as_deref(), || run_cli(cli, &state_path))
 }
 
-// Each handler decides its own manager-state access through `ManagerState`.
 fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
     let Cli {
         json,
@@ -52,7 +51,6 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
     }
 }
 
-// Inspection reads only the archive; it never opens manager state.
 fn inspect_archive(archive: &Path, json: bool) -> Result<()> {
     let report = inspect(archive)?;
     if json {

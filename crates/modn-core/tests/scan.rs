@@ -1,4 +1,3 @@
-//! Integration checks for scan behavior.
 use modn_core::scan::{doctor_for, scan_for};
 use std::fs;
 use tempfile::tempdir;

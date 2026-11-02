@@ -1,5 +1,3 @@
-//! Versioned, read-only mod-package metadata and local bucket registration.
-//! A manifest never authorizes writes to a game.
 mod dependencies;
 mod manifest;
 mod store;

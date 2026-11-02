@@ -1,8 +1,3 @@
-//! Acquire `https` catalog archives into the verified download cache.
-//!
-//! Like Scoop, the cache lives in the manager state directory unless the
-//! `MODN_CACHE` environment variable names another directory. A manual
-//! source is never downloaded; the user supplies it with `--file`.
 use crate::catalog_install::reference_of;
 use crate::commands::CacheCommand;
 use anyhow::{bail, Context, Result};
@@ -13,7 +8,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Cache directory: `MODN_CACHE`, else `cache` beside the state database.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const READ_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(60);
+
 pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
     let root = match std::env::var_os("MODN_CACHE") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
@@ -38,14 +35,10 @@ fn key(release: &BucketPackage) -> Option<CacheKey<'_>> {
     }
 }
 
-/// Whether Modn can download this release's archive itself.
 pub(super) fn downloadable(release: &BucketPackage) -> bool {
     key(release).is_some()
 }
 
-/// Use verified cache entries for releases that have no supplied archive.
-///
-/// This only reads the cache, so a dry run can report what an install uses.
 pub(super) fn add_cached<'a>(
     cache: &ArchiveCache,
     releases: impl IntoIterator<Item = &'a BucketPackage>,
@@ -67,7 +60,6 @@ pub(super) fn add_cached<'a>(
     Ok(())
 }
 
-/// Download each `https` release that still has no archive.
 pub(super) fn download(
     cache: &ArchiveCache,
     cache_use: CacheUse,
@@ -92,14 +84,11 @@ pub(super) fn download(
     Ok(())
 }
 
-/// Open an HTTPS response body. Redirects must also stay on HTTPS.
 fn fetch(url: &str) -> Result<impl Read> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
-        .timeout_connect(Some(Duration::from_secs(30)))
-        // An inactivity limit: each read may wait this long, so a large
-        // archive on a slow but steady connection still completes.
-        .timeout_per_read(Some(Duration::from_secs(60)))
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_per_read(Some(READ_INACTIVITY_TIMEOUT))
         .user_agent(concat!("modn/", env!("CARGO_PKG_VERSION")))
         .build()
         .into();
@@ -107,7 +96,6 @@ fn fetch(url: &str) -> Result<impl Read> {
     Ok(response.into_body().into_reader())
 }
 
-/// `modn cache show|rm`, after Scoop's `scoop cache`.
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {
     let cache = cache_for(state_path)?;
     let (entries, removed) = match command {
