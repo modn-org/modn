@@ -161,19 +161,7 @@ fn read_packages(root: &Path) -> Result<Releases> {
 
 fn official() -> Result<Vec<PackageManifest>> {
     let mut packages = Vec::new();
-    for source in [
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/archivexl.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/browser-extension.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/cet.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/codeware.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/equipment-ex.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/mod-settings.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/no-intro-videos.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/red4ext.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/redscript.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/tweakxl.json"),
-        include_str!("../../../../buckets/main/games/cyberpunk-2077/virtual-atelier.json"),
-    ] {
+    for source in include!(concat!(env!("OUT_DIR"), "/official_manifests.rs")) {
         let manifest: PackageManifest = serde_json::from_str(source)?;
         manifest.validate(&manifest.game, &manifest.id)?;
         packages.push(manifest);

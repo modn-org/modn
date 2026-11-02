@@ -57,3 +57,10 @@ Bucket operations never download artifacts, execute Lua, install mods or
 modify game files. `modn install` resolves dependencies, checks these
 requirements and conflicts, and downloads `https` artifacts. Git-backed
 catalog synchronization remains future work.
+
+## Adding a package to `main`
+
+Add `buckets/main/games/<game-id>/<package-id>.json` and a row in
+`buckets/main/PROVENANCE.md`. A build script in `modn-core` embeds every
+manifest in that directory, and the catalog tests read the same directory, so
+no Rust file lists packages.
