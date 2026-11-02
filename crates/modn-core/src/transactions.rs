@@ -24,6 +24,9 @@ mod uninstall;
 mod uninstall_plan;
 #[cfg(test)]
 mod uninstall_plan_tests;
+mod update;
+#[cfg(test)]
+mod update_tests;
 mod validation;
 
 pub use catalog::{

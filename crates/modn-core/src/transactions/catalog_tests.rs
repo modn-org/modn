@@ -436,6 +436,7 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
             Some(CatalogInstall {
                 release: &release,
                 stack_id: Some(&stack_id),
+                replacing: None,
             }),
         )
     })

@@ -11,7 +11,8 @@ use std::path::PathBuf;
 impl Store {
     pub(super) fn pending(&self) -> Result<Vec<Journal>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, action, status, game_path FROM pending_transactions ORDER BY id",
+            "SELECT id, action, status, game_path FROM pending_transactions
+             ORDER BY action = 'uninstall', id",
         )?;
         let entries = statement
             .query_map([], |row| {

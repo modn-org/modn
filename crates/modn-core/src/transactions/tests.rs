@@ -213,7 +213,7 @@ fn recovering_crashed_extraction_removes_staging_without_game_writes() {
     let id = "txn-crashed-extraction";
     let stage = store.state_root.join(id);
     fs::create_dir_all(&stage).unwrap();
-    store.begin_staging(id, &game, "sha").unwrap();
+    store.begin_staging(id, &game, "sha", None).unwrap();
     fs::write(stage.join("0.bin"), vec![17u8; 4096]).unwrap();
     assert_eq!(store.recover().unwrap(), 1);
     assert!(!stage.exists());

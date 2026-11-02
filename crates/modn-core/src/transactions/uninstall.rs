@@ -16,18 +16,40 @@ impl Store {
     }
 
     pub(super) fn uninstall_locked(&mut self, game: &Path, package_id: &str) -> Result<()> {
-        self.ensure_no_pending()?;
         let game = validate_transaction_root(game)?;
+        let id = self.withdraw_locked(&game, package_id, Dependents::Refuse)?;
+        if let Err(err) = self.commit_uninstall(&id, package_id) {
+            if let Err(recovery_error) = self.recover_locked() {
+                bail!(
+                    "{err:#}; uninstall recovery incomplete: {recovery_error:#}; run 'modn recover'"
+                );
+            }
+            return Err(err);
+        }
+        self.recover_locked()
+            .context("uninstall committed; cleanup incomplete, run 'modn recover'")?;
+        self.prune_created(&game)
+            .context("uninstall committed; folder cleanup incomplete, run 'modn recover'")?;
+        Ok(())
+    }
+
+    pub(super) fn withdraw_locked(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        dependents: Dependents,
+    ) -> Result<String> {
+        self.ensure_no_pending()?;
         let package = self
-            .installed(&game)?
+            .installed(game)?
             .into_iter()
             .find(|p| p.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
-        let dependents = super::catalog::dependents(self, &package.id)?;
-        if !dependents.is_empty() {
+        let needed_by = super::catalog::dependents(self, &package.id)?;
+        if matches!(dependents, Dependents::Refuse) && !needed_by.is_empty() {
             bail!(
                 "managed package {package_id} is required by {}; uninstall dependents first",
-                dependents.join(", ")
+                needed_by.join(", ")
             );
         }
         let files: Vec<_> = package
@@ -43,7 +65,7 @@ impl Store {
             })
             .collect();
         for f in &files {
-            let target = target_path(&game, &f.destination)?;
+            let target = target_path(game, &f.destination)?;
             if !target.is_file() || digest(&target)? != f.sha256 {
                 bail!(
                     "owned file missing or modified; refusing uninstall: {}",
@@ -52,11 +74,11 @@ impl Store {
             }
         }
         for (index, root) in package.directories.iter().enumerate() {
-            let path = target_path(&game, root)?;
+            let path = target_path(game, root)?;
             let metadata = fs::symlink_metadata(&path)?;
             if !metadata.is_dir()
                 || metadata.file_type().is_symlink()
-                || fs::symlink_metadata(quarantine_path(&game, root, "preflight", index)?).is_ok()
+                || fs::symlink_metadata(quarantine_path(game, root, "preflight", index)?).is_ok()
             {
                 bail!("unsafe owned directory: {}", path.display());
             }
@@ -74,7 +96,7 @@ impl Store {
         self.insert_journal(
             &id,
             "uninstall",
-            &game,
+            game,
             package_id,
             None,
             &files,
@@ -83,10 +105,10 @@ impl Store {
         let attempt = (|| -> Result<()> {
             for (index, root) in package.directories.iter().enumerate() {
                 let identity = self.managed_directory_identity(package_id, root)?;
-                quarantine(&game, root, &id, index, &identity)?;
+                quarantine(game, root, &id, index, &identity)?;
             }
             for f in &files {
-                let target = target_path(&game, &f.destination)?;
+                let target = target_path(game, &f.destination)?;
                 if !target.is_file() || digest(&target)? != f.sha256 {
                     bail!("owned file modified during uninstall: {}", target.display());
                 }
@@ -103,7 +125,7 @@ impl Store {
                 }
                 fs::remove_file(&target)?;
             }
-            self.commit_uninstall(&id, package_id)
+            Ok(())
         })();
         if let Err(err) = attempt {
             if let Err(recovery_error) = self.recover_locked() {
@@ -113,10 +135,12 @@ impl Store {
             }
             return Err(err);
         }
-        self.recover_locked()
-            .context("uninstall committed; cleanup incomplete, run 'modn recover'")?;
-        self.prune_created(&game)
-            .context("uninstall committed; folder cleanup incomplete, run 'modn recover'")?;
-        Ok(())
+        Ok(id)
     }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum Dependents {
+    Refuse,
+    Repoint,
 }

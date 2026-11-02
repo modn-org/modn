@@ -112,12 +112,14 @@ pub struct CatalogRelease {
 pub(super) struct CatalogInstall<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) stack_id: Option<&'a str>,
+    pub(super) replacing: Option<super::update::Replacement<'a>>,
 }
 
 pub(super) struct CatalogRecord<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) dependency_ids: Vec<String>,
     pub(super) stack_id: Option<&'a str>,
+    pub(super) replacing: Option<super::update::Replacement<'a>>,
 }
 
 /// Installed state of one catalog dependency in one game installation.

@@ -70,6 +70,7 @@ impl Store {
                     Some(CatalogInstall {
                         release: &member.release,
                         stack_id: Some(&stack_id),
+                        replacing: None,
                     }),
                 )
             });
