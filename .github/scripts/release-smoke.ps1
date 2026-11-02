@@ -49,7 +49,13 @@ try {
   New-Item -ItemType Directory -Path $mod | Out-Null
   Set-Content -LiteralPath (Join-Path $mod 'smoke.archive') -Value 'fixture'
   Compress-Archive -Path (Join-Path $work 'mod\archive') -DestinationPath 'smoke.zip'
-  $gameBefore = Get-ChildItem -LiteralPath $game -Recurse -Force | ForEach-Object FullName
+  function Get-TreeSnapshot([string] $Root) {
+    Get-ChildItem -LiteralPath $Root -Recurse -Force | ForEach-Object {
+      if ($_.PSIsContainer) { "$($_.FullName)|directory" }
+      else { "$($_.FullName)|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" }
+    }
+  }
+  $gameBefore = Get-TreeSnapshot $game
 
   function Invoke-Modn([string[]] $Arguments) {
     $output = & .\modn.exe --json --state-dir state --game cyberpunk-2077 @Arguments
@@ -76,8 +82,8 @@ try {
     @($doctor.diagnostics | Where-Object code -eq 'REDMOD_NOT_FOUND').Count -eq 1) `
     'doctor reports the bundled policy diagnostic REDMOD_NOT_FOUND'
 
-  $gameAfter = Get-ChildItem -LiteralPath $game -Recurse -Force | ForEach-Object FullName
-  Assert-That (-not (Compare-Object @($gameBefore) @($gameAfter))) 'the fake game directory is unchanged'
+  $gameAfter = Get-TreeSnapshot $game
+  Assert-That (-not (Compare-Object @($gameBefore) @($gameAfter))) 'the fake game directory and file contents are unchanged'
 } finally {
   Pop-Location
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
