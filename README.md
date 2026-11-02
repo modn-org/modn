@@ -2,6 +2,40 @@
 
 A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Lua Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, MCP and a desktop UI are not implemented; see the issues labeled `deferred`.
 
+## Portable Windows release
+
+A release is a single `modn.exe` with a `modn.exe.sha256` checksum file. It
+needs no installer, Rust toolchain or repository. The executable contains the
+first-party Lua game policy and the official `main` bucket catalog. It links
+the C runtime statically, so it does not need the Visual C++ Redistributable.
+Check the download in PowerShell before you run it:
+
+```powershell
+(Get-FileHash .\modn.exe -Algorithm SHA256).Hash
+Get-Content .\modn.exe.sha256
+```
+
+The `Release` workflow publishes only when a maintainer pushes a `v*` tag. The tag
+must equal the `modn-cli` version, for example `v0.1.0`. The workflow builds
+`modn.exe` on Windows and smoke-tests it on a second, clean runner. The smoke
+test runs from an empty directory, with no repository and no `cargo` or `rustc`
+on `PATH`. It checks the checksum, the absence of C runtime DLL imports,
+`search`, `install --dry-run` for a catalog mod and for a local archive, and
+`doctor` on a fake game. It also checks that the fake game's files and their
+contents are unchanged. Only
+then does the workflow publish the GitHub release. A version with a pre-release
+suffix, such as `0.2.0-alpha.1`, becomes a GitHub pre-release. Pull requests
+that change the workflow or the smoke script run the build and smoke jobs, but
+they never publish.
+
+Run the same smoke test locally on a built executable:
+
+```powershell
+$env:RUSTFLAGS = '-C target-feature=+crt-static'
+cargo build --release --locked -p modn-cli
+pwsh -File .github/scripts/release-smoke.ps1 -Binary target/release/modn.exe
+```
+
 ## Development
 
 Requires a current stable Rust toolchain.
