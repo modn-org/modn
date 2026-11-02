@@ -1,5 +1,6 @@
 //! Uninstall by catalog name, with dependencies and dependents.
 use super::catalog_tests::{module_source, reference, Fixture};
+use super::validation::validate_transaction_root;
 use super::{CatalogDependency, CatalogReference, CatalogRelease, UninstallScope};
 use crate::archive::inspect;
 use crate::game_modules::with_module_source;
@@ -186,7 +187,7 @@ fn a_failed_removal_names_what_was_removed_and_keeps_the_rest() {
     let error = lab.uninstall("top", DEPENDENCIES).unwrap_err();
     let message = format!("{error:#}");
     assert!(
-        message.contains(&format!("stopped at {base} after removing [{top}]")),
+        message.contains(&format!("stopped at {base}; removed [{top}]")),
         "{message}"
     );
     assert!(
@@ -195,4 +196,35 @@ fn a_failed_removal_names_what_was_removed_and_keeps_the_rest() {
     );
     assert_eq!(lab.installed(), ["base"]);
     assert_eq!(fs::read(&edited).unwrap(), b"edited");
+}
+
+#[test]
+fn a_removal_that_commits_and_then_fails_cleanup_is_reported_as_removed() {
+    let mut lab = Lab::new();
+    lab.install("base", &[]);
+    let top = lab.install("top", &["base"]);
+    // A corrupt folder record makes the cleanup after the commit fail.
+    let game = validate_transaction_root(&lab.fixture.game).unwrap();
+    lab.fixture
+        .store
+        .connection
+        .execute(
+            "INSERT INTO created_directories(game_path,path_key,relative_path,identity)
+             VALUES (?1,'../b','../b','x')",
+            [game.to_string_lossy().as_ref()],
+        )
+        .unwrap();
+
+    let error = lab.uninstall("top", DEPENDENCIES).unwrap_err();
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(&format!("stopped at {top}; removed [{top}]")),
+        "{message}"
+    );
+    assert!(message.contains("invalid recorded directory"), "{message}");
+    assert_eq!(
+        lab.installed(),
+        ["base"],
+        "the committed removal stays removed"
+    );
 }

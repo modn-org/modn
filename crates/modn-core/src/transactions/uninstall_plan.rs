@@ -191,8 +191,8 @@ impl Store {
     /// a time, under one transaction lock.
     ///
     /// Each removal is its own recoverable transaction. When one fails, the
-    /// packages removed before it stay removed, the rest stay installed, and
-    /// the error names both.
+    /// packages already removed stay removed, the rest of the plan stays
+    /// installed, and the error names the removed packages from the ledger.
     pub fn uninstall_with(
         &mut self,
         game: &Path,
@@ -205,16 +205,31 @@ impl Store {
         let game = validate_transaction_root(game)?;
         let mut removed: Vec<String> = Vec::new();
         for step in &plan {
-            self.uninstall_locked(&game, &step.id).with_context(|| {
-                format!(
-                    "stopped at {} after removing [{}]; the remaining packages are still installed",
+            if let Err(error) = self.uninstall_locked(&game, &step.id) {
+                // A removal can commit and then fail in cleanup, so ask the
+                // ledger what is gone instead of counting successes.
+                let gone = self.removed_from(&game, &plan).unwrap_or(removed);
+                return Err(error.context(format!(
+                    "stopped at {}; removed [{}]; run 'modn list' for the packages still installed",
                     step.id,
-                    removed.join(", ")
-                )
-            })?;
+                    gone.join(", ")
+                )));
+            }
             removed.push(step.id.clone());
         }
         Ok(removed)
+    }
+}
+
+impl Store {
+    /// IDs of planned packages that are no longer managed in `game`.
+    fn removed_from(&self, game: &Path, plan: &[PlannedRemoval]) -> Result<Vec<String>> {
+        let installed: BTreeSet<String> = self.installed(game)?.into_iter().map(|p| p.id).collect();
+        Ok(plan
+            .iter()
+            .filter(|step| !installed.contains(&step.id))
+            .map(|step| step.id.clone())
+            .collect())
     }
 }
 
