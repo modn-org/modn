@@ -207,13 +207,73 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
     .is_err());
 }
 
+/// Leaves a pending install journal with a linked witness, written by a Modn
+/// that predates link records, and reopens the state with the current Modn.
+fn older_linked_install(
+    root: &Path,
+    mut store: Store,
+    game: &Path,
+    id: &str,
+) -> (Store, PathBuf, PathBuf) {
+    let f = prepared_file("archive/pc/mod/older.archive", b"owned");
+    store
+        .insert_journal(
+            id,
+            "install",
+            game,
+            id,
+            Some("archive"),
+            std::slice::from_ref(&f),
+            &[],
+        )
+        .unwrap();
+    store
+        .connection
+        .execute_batch("DROP TABLE pending_links; DROP TABLE link_recorded_journals;")
+        .unwrap();
+    drop(store);
+    let dest = test_target(game, &f.destination);
+    let temp = temp_path(&dest, id, 0).unwrap();
+    fs::write(&temp, b"owned").unwrap();
+    fs::hard_link(&temp, &dest).unwrap();
+    let store = Store::open(&root.join("state/state.sqlite")).unwrap();
+    (store, dest, temp)
+}
+
+#[test]
+fn recovery_keeps_a_changed_sole_witness_from_an_older_journal() {
+    let (dir, store, game) = fixture();
+    let (mut store, dest, temp) = older_linked_install(dir.path(), store, &game, "txn-older-a");
+    fs::write(&dest, b"unique user data").unwrap();
+    fs::remove_file(&dest).unwrap();
+
+    let error = store.recover().unwrap_err();
+    assert!(
+        error.to_string().contains("changed or incomplete witness"),
+        "{error:#}"
+    );
+    assert_eq!(fs::read(&temp).unwrap(), b"unique user data");
+    assert_eq!(store.pending().unwrap().len(), 1);
+}
+
+#[test]
+fn recovery_rolls_back_a_linked_destination_from_an_older_journal() {
+    let (dir, store, game) = fixture();
+    let (mut store, dest, temp) = older_linked_install(dir.path(), store, &game, "txn-older-b");
+
+    assert_eq!(store.recover().unwrap(), 1);
+    assert!(!dest.exists());
+    assert!(!temp.exists());
+    assert!(store.pending().unwrap().is_empty());
+}
+
 #[test]
 fn recovering_crashed_extraction_removes_staging_without_game_writes() {
     let (_dir, mut store, game) = fixture();
     let id = "txn-crashed-extraction";
     let stage = store.state_root.join(id);
     fs::create_dir_all(&stage).unwrap();
-    store.begin_staging(id, &game, "sha").unwrap();
+    store.begin_staging(id, &game, "sha", None).unwrap();
     fs::write(stage.join("0.bin"), vec![17u8; 4096]).unwrap();
     assert_eq!(store.recover().unwrap(), 1);
     assert!(!stage.exists());

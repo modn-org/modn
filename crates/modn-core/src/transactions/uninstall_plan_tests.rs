@@ -36,9 +36,11 @@ impl Lab {
     fn install_from(&mut self, bucket: &str, name: &str, needs: &[&str]) -> String {
         let dependencies = needs
             .iter()
-            .map(|need| CatalogDependency {
-                reference: reference(need),
-                archive_sha256: inspect(&self.archives[*need]).unwrap().sha256,
+            .map(|need| {
+                CatalogDependency::new(
+                    reference(need),
+                    inspect(&self.archives[*need]).unwrap().sha256,
+                )
             })
             .collect();
         let archive = self

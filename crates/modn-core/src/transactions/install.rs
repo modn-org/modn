@@ -17,6 +17,24 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use tempfile::Builder;
 
+/// A test-injected stop after the given number of linked files.
+#[derive(Clone, Copy)]
+pub(super) enum Fault {
+    /// Fail, then roll back automatically.
+    FailAfter(usize),
+    /// Stop as if the process died: no automatic rollback.
+    #[cfg_attr(not(test), expect(dead_code, reason = "only tests simulate a crash"))]
+    CrashAfter(usize),
+}
+
+impl Fault {
+    fn after_files(self) -> usize {
+        match self {
+            Self::FailAfter(files) | Self::CrashAfter(files) => files,
+        }
+    }
+}
+
 impl Store {
     /// Execute a caller-approved proposal, independently checked against the current archive
     /// and filesystem. This is a write API, not exposed to untrusted Lua modules.
@@ -80,7 +98,8 @@ impl Store {
         proposal: &InstallPlan,
         fail_after: Option<usize>,
     ) -> Result<ManagedPackage> {
-        self.install_inner_with_permissions(game, archive, proposal, fail_after, &[], None)
+        let fault = fail_after.map(Fault::FailAfter);
+        self.install_inner_with_permissions(game, archive, proposal, fault, &[], None)
     }
 
     fn install_inner_with_permissions(
@@ -88,7 +107,7 @@ impl Store {
         game: &Path,
         archive: &Path,
         proposal: &InstallPlan,
-        fail_after: Option<usize>,
+        fault: Option<Fault>,
         approved: &[String],
         release: Option<&CatalogRelease>,
     ) -> Result<ManagedPackage> {
@@ -97,8 +116,9 @@ impl Store {
         let catalog = release.map(|release| CatalogInstall {
             release,
             stack_id: None,
+            replacing: None,
         });
-        self.install_locked(game, archive, proposal, fail_after, approved, catalog)
+        self.install_locked(game, archive, proposal, fault, approved, catalog)
     }
 
     pub(super) fn install_locked(
@@ -106,22 +126,28 @@ impl Store {
         game: &Path,
         archive: &Path,
         proposal: &InstallPlan,
-        fail_after: Option<usize>,
+        fault: Option<Fault>,
         approved: &[String],
         catalog: Option<CatalogInstall<'_>>,
     ) -> Result<ManagedPackage> {
-        self.ensure_no_pending()?;
+        let replacing = catalog.and_then(|catalog| catalog.replacing);
+        let replaced_journal = replacing.map(|replaced| replaced.journal_id);
+        let replaced_package = replacing.map(|replaced| replaced.package_id);
+        self.ensure_pending_only(replaced_journal)?;
         let game = validate_transaction_root(game)?;
         if self.state_root.starts_with(&game) || game.starts_with(&self.state_root) {
             bail!("manager state must be separate from the game directory");
         }
         let inspection = inspect(archive)?;
         validate_execution_plan(&inspection, &game, proposal, approved)?;
-        validate_ownership(self, &game, proposal)?;
+        validate_ownership(self, &game, proposal, replaced_package)?;
         let directories = exclusive_roots(&game, proposal)?;
-        validate_directory_reservations(self, &game, &directories)?;
+        validate_directory_reservations(self, &game, &directories, replaced_package)?;
         let release = catalog.map(|catalog| catalog.release);
-        let conflicts = self.conflicting_packages(&game, release, &inspection.sha256)?;
+        let mut conflicts = self.conflicting_packages(&game, release, &inspection.sha256)?;
+        if let Some(replaced) = replaced_package {
+            conflicts.retain(|label| label.split(' ').next() != Some(replaced));
+        }
         if !conflicts.is_empty() {
             let subject = release.map_or_else(
                 || format!("archive {}", inspection.sha256),
@@ -140,6 +166,7 @@ impl Store {
                     release: catalog.release,
                     dependency_ids,
                     stack_id: catalog.stack_id,
+                    replacing: catalog.replacing,
                 })
             })
             .transpose()?;
@@ -150,7 +177,7 @@ impl Store {
             .context("missing transaction id")?
             .to_string_lossy()
             .to_string();
-        self.begin_staging(&id, &game, &inspection.sha256)?;
+        self.begin_staging(&id, &game, &inspection.sha256, replaced_journal)?;
         let staged = (|| -> Result<Vec<JournalFile>> {
             if inspection.format == crate::archive::ArchiveFormat::SevenZ {
                 let files =
@@ -250,13 +277,17 @@ impl Store {
                 if digest(&temp)? != f.sha256 {
                     bail!("staging digest mismatch");
                 }
+                self.connection.execute(
+                    "INSERT INTO pending_links(transaction_id,ord) VALUES (?1,?2)",
+                    rusqlite::params![id, f.ordinal as i64],
+                )?;
                 fs::hard_link(&temp, &dest).with_context(|| {
                     format!(
                         "cannot atomically link destination {}; existing files never overwritten",
                         dest.display()
                     )
                 })?;
-                if fail_after.is_some_and(|limit| f.ordinal + 1 == limit) {
+                if fault.is_some_and(|fault| fault.after_files() == f.ordinal + 1) {
                     bail!("injected interruption after {} files", f.ordinal + 1);
                 }
             }
@@ -270,6 +301,9 @@ impl Store {
             )
         })();
         if let Err(err) = attempt {
+            if matches!(fault, Some(Fault::CrashAfter(_))) {
+                return Err(err);
+            }
             let recover = self.recover_locked();
             if let Err(recovery_error) = recover {
                 bail!(

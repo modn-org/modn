@@ -16,20 +16,30 @@ fn evaluate<T>(
     roots: &[PathBuf],
     action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
-    evaluate_with_profile(game_id, roots, ReadProfile::Standard, action)
+    evaluate_hiding(game_id, roots, &[], action)
+}
+
+fn evaluate_hiding<T>(
+    game_id: &str,
+    roots: &[PathBuf],
+    replaced: &[String],
+    action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
+) -> Result<T> {
+    evaluate_with_profile(game_id, roots, ReadProfile::Standard, replaced, action)
 }
 
 fn evaluate_with_profile<T>(
     game_id: &str,
     roots: &[PathBuf],
     profile: ReadProfile,
+    replaced: &[String],
     action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
     let (manifest, source) = read_policy(game_id)?;
     if manifest.game_id != game_id {
         bail!("game module identity does not match requested game");
     }
-    let roots = AllowedRoots::validate(roots)?;
+    let roots = AllowedRoots::validate(roots)?.hiding_replaced(replaced);
     runtime::evaluate(
         &source,
         &manifest.entrypoint,
@@ -165,6 +175,7 @@ pub(crate) fn scan(game_id: &str, root: &Path, limit: usize) -> Result<ScanRepor
         game_id,
         std::slice::from_ref(&canonical),
         ReadProfile::Scan,
+        &[],
         |_, policy| {
             let scan: Function = policy.get("scan")?;
             let report: Table = scan.call(limit.min(MAX_ITEMS))?;
@@ -246,6 +257,7 @@ pub(crate) fn plan(
     game_id: &str,
     root: &Path,
     inspection: &crate::archive::Inspection,
+    replaced: &[String],
 ) -> Result<RequestedPlan> {
     const MAX_PROPOSALS: usize = 2_048;
     let root = root.canonicalize()?;
@@ -259,7 +271,7 @@ pub(crate) fn plan(
             )],
         });
     }
-    evaluate(game_id, &[root], |lua, policy| {
+    evaluate_hiding(game_id, &[root], replaced, |lua, policy| {
         let input = lua.create_table()?;
         for (index, file) in inspection.files.iter().enumerate() {
             let entry = lua.create_table()?;

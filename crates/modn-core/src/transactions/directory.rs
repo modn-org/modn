@@ -239,7 +239,7 @@ pub(super) fn recover_directory(
     let saved = present_directory(&staged)?;
     let live = present_directory(&active)?;
     if committed {
-        if live {
+        if live && identity(&active)? == expected {
             bail!(
                 "owned directory reappeared after commit: {}",
                 active.display()

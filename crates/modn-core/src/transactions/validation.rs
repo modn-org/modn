@@ -111,7 +111,12 @@ pub(super) fn validate_execution_plan(
     Ok(())
 }
 
-pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallPlan) -> Result<()> {
+pub(super) fn validate_ownership(
+    store: &Store,
+    game: &Path,
+    proposal: &InstallPlan,
+    replaced: Option<&str>,
+) -> Result<()> {
     validate_ownership_paths(
         store,
         game,
@@ -119,13 +124,15 @@ pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallP
             .operations
             .iter()
             .map(|operation| operation.destination.as_str()),
+        replaced,
     )
 }
 
-pub(crate) fn validate_ownership_paths<'a>(
+fn validate_ownership_paths<'a>(
     store: &Store,
     game: &Path,
     paths: impl IntoIterator<Item = &'a str>,
+    replaced: Option<&str>,
 ) -> Result<()> {
     let selected = PathBuf::from(game.to_string_lossy().to_lowercase());
     let mut roots = store
@@ -140,23 +147,17 @@ pub(crate) fn validate_ownership_paths<'a>(
             bail!("installation root overlaps another managed installation");
         }
     }
-    let mut query = store
-        .connection
-        .prepare("SELECT path_key FROM managed_files WHERE game_path=?1")?;
-    let owned = query
-        .query_map(params![game.to_string_lossy().as_ref()], |row| {
-            row.get::<_, String>(0)
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut reserved: BTreeSet<String> = owned.into_iter().collect();
-    let mut q = store
-        .connection
-        .prepare("SELECT relative_path FROM managed_directories WHERE game_path=?1")?;
-    let directories = q
-        .query_map(params![game.to_string_lossy().as_ref()], |row| {
-            row.get::<_, String>(0)
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut reserved: BTreeSet<String> =
+        owned_paths(store, game, "path_key", "managed_files", replaced)?
+            .into_iter()
+            .collect();
+    let directories = owned_paths(
+        store,
+        game,
+        "relative_path",
+        "managed_directories",
+        replaced,
+    )?;
     for destination in paths {
         let folded = super::directory::case_key(destination);
         if directories.iter().any(|root| {
@@ -172,27 +173,38 @@ pub(crate) fn validate_ownership_paths<'a>(
     Ok(())
 }
 
+fn owned_paths(
+    store: &Store,
+    game: &Path,
+    column: &str,
+    table: &str,
+    replaced: Option<&str>,
+) -> Result<Vec<String>> {
+    let mut query = store.connection.prepare(&format!(
+        "SELECT {column} FROM {table} WHERE game_path=?1 AND package_id IS NOT ?2"
+    ))?;
+    let paths = query
+        .query_map(params![game.to_string_lossy().as_ref(), replaced], |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(paths)
+}
+
 pub(super) fn validate_directory_reservations(
     store: &Store,
     game: &Path,
     directories: &[String],
+    replaced: Option<&str>,
 ) -> Result<()> {
-    let mut files = store
-        .connection
-        .prepare("SELECT relative_path FROM managed_files WHERE game_path=?1")?;
-    let occupied = files
-        .query_map(params![game.to_string_lossy().as_ref()], |row| {
-            row.get::<_, String>(0)
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut query = store
-        .connection
-        .prepare("SELECT relative_path FROM managed_directories WHERE game_path=?1")?;
-    let owned_dirs = query
-        .query_map(params![game.to_string_lossy().as_ref()], |row| {
-            row.get::<_, String>(0)
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let occupied = owned_paths(store, game, "relative_path", "managed_files", replaced)?;
+    let owned_dirs = owned_paths(
+        store,
+        game,
+        "relative_path",
+        "managed_directories",
+        replaced,
+    )?;
     for directory in directories {
         let key = super::directory::case_key(directory);
         if occupied.iter().chain(owned_dirs.iter()).any(|owned| {

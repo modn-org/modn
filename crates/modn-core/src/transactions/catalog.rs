@@ -58,8 +58,29 @@ impl CatalogDependency {
         Self {
             reference,
             archive_sha256,
+            requirement: None,
         }
     }
+
+    /// Record the manifest's version requirement, such as `>=1.31.0`, so a
+    /// later update of the dependency can check it.
+    #[must_use]
+    pub fn with_requirement(mut self, requirement: Option<String>) -> Self {
+        self.requirement = requirement;
+        self
+    }
+}
+
+/// A catalog dependency that a managed package recorded at installation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RecordedDependency {
+    /// The catalog mod that the dependent's manifest named.
+    pub reference: CatalogReference,
+    /// The archive digest that the dependency's release pinned at installation.
+    pub archive_sha256: String,
+    /// The manifest's version requirement, if any.
+    pub requirement: Option<String>,
 }
 
 #[expect(missing_docs, reason = "Method names state their behavior")]
@@ -94,6 +115,8 @@ pub struct CatalogDependency {
     /// Catalog identity used in diagnostics.
     pub reference: CatalogReference,
     pub archive_sha256: String,
+    /// The dependent manifest's version requirement for this dependency.
+    pub requirement: Option<String>,
 }
 
 /// Catalog identity and prerequisites for one managed install.
@@ -112,12 +135,14 @@ pub struct CatalogRelease {
 pub(super) struct CatalogInstall<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) stack_id: Option<&'a str>,
+    pub(super) replacing: Option<super::update::Replacement<'a>>,
 }
 
 pub(super) struct CatalogRecord<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) dependency_ids: Vec<String>,
     pub(super) stack_id: Option<&'a str>,
+    pub(super) replacing: Option<super::update::Replacement<'a>>,
 }
 
 /// Installed state of one catalog dependency in one game installation.
@@ -215,6 +240,38 @@ impl Store {
     }
 }
 
+impl Store {
+    /// The catalog dependencies that managed package `package_id` recorded
+    /// when it was installed, or `None` if it predates these records or has
+    /// no catalog dependencies.
+    pub fn recorded_dependencies(
+        &self,
+        package_id: &str,
+    ) -> Result<Option<Vec<RecordedDependency>>> {
+        if !self.has_table("package_requirements")? {
+            return Ok(None);
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT bucket, game_id, mod_id, archive_sha256, requirement
+             FROM package_requirements WHERE package_id=?1 ORDER BY bucket, game_id, mod_id",
+        )?;
+        let recorded = statement
+            .query_map([package_id], |row| {
+                Ok(RecordedDependency {
+                    reference: CatalogReference {
+                        bucket: row.get(0)?,
+                        game_id: row.get(1)?,
+                        mod_id: row.get(2)?,
+                    },
+                    archive_sha256: row.get(3)?,
+                    requirement: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok((!recorded.is_empty()).then_some(recorded))
+    }
+}
+
 fn provenance_packages(store: &Store, reference: &CatalogReference) -> Result<Vec<String>> {
     let recorded: bool = store.connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master
@@ -253,6 +310,22 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
             params![package_id, dependency],
         )?;
     }
+    for dependency in &record.release.dependencies {
+        let reference = &dependency.reference;
+        tx.execute(
+            "INSERT OR REPLACE INTO package_requirements
+                 (package_id,bucket,game_id,mod_id,archive_sha256,requirement)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![
+                package_id,
+                reference.bucket,
+                reference.game_id,
+                reference.mod_id,
+                dependency.archive_sha256,
+                dependency.requirement
+            ],
+        )?;
+    }
     if let Some(stack_id) = record.stack_id {
         tx.execute(
             "INSERT INTO pending_stack_packages(stack_id,ord,package_id)
@@ -266,6 +339,10 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
 
 pub(super) fn forget(tx: &Transaction<'_>, package_id: &str) -> Result<()> {
     super::conflicts::forget(tx, package_id)?;
+    tx.execute(
+        "DELETE FROM package_requirements WHERE package_id=?1",
+        [package_id],
+    )?;
     tx.execute(
         "DELETE FROM pending_stack_packages WHERE package_id=?1",
         [package_id],

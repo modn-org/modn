@@ -37,7 +37,43 @@ pub(super) fn confirm(
         request.files,
         request.game.display()
     )?;
-    ask_approval(request.executables, input, output)
+    ask_approval(request.executables, "Install?", input, output)
+}
+
+pub(super) struct UpdateRequest<'a> {
+    pub(super) reference: &'a str,
+    pub(super) game: &'a Path,
+    pub(super) from: &'a str,
+    pub(super) to: &'a str,
+    pub(super) dependents: &'a [String],
+    pub(super) executables: &'a [String],
+}
+
+pub(super) fn confirm_update(
+    request: &UpdateRequest<'_>,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> io::Result<bool> {
+    writeln!(
+        output,
+        "Modn will replace {} {} with {} in {}.",
+        request.reference,
+        request.from,
+        request.to,
+        request.game.display()
+    )?;
+    if !request.dependents.is_empty() {
+        writeln!(
+            output,
+            "These packages depend on it and will use {}:",
+            request.to
+        )?;
+        for dependent in request.dependents {
+            writeln!(output, "  {dependent}")?;
+        }
+    }
+    writeln!(output, "If any step fails, Modn restores {}.", request.from)?;
+    ask_approval(request.executables, "Update?", input, output)
 }
 
 pub(super) struct StackRequest<'a> {
@@ -68,11 +104,12 @@ pub(super) fn confirm_stack(
         output,
         "If any package fails, Modn uninstalls the packages this command installed."
     )?;
-    ask_approval(request.executables, input, output)
+    ask_approval(request.executables, "Install?", input, output)
 }
 
 fn ask_approval(
     executables: &[String],
+    question: &str,
     input: &mut impl BufRead,
     output: &mut impl Write,
 ) -> io::Result<bool> {
@@ -90,7 +127,7 @@ fn ask_approval(
             "Approving does not certify these executables as trustworthy."
         )?;
     }
-    write!(output, "Install? [y/N]: ")?;
+    write!(output, "{question} [y/N]: ")?;
     read_yes(input, output)
 }
 
@@ -206,6 +243,31 @@ mod tests {
         let red4ext = text.find("red4ext 1.31.0").expect("red4ext");
         assert!(red4ext < text.find("cet 1.38.1").expect("cet"), "{text}");
         assert!(text.contains("uninstalls the packages"), "{text}");
+    }
+
+    #[test]
+    fn update_prompt_names_both_releases_and_each_dependent() {
+        let dependents = ["txn-top deps/test-game/top".to_owned()];
+        let request = UpdateRequest {
+            reference: "deps/test-game/base",
+            game: Path::new("game"),
+            from: "1.0",
+            to: "2.0",
+            dependents: &dependents,
+            executables: &[],
+        };
+        let mut output = Vec::new();
+        let approved =
+            confirm_update(&request, &mut Cursor::new("y\n"), &mut output).expect("prompt");
+        let text = String::from_utf8(output).expect("UTF-8");
+        assert!(approved);
+        assert!(
+            text.contains("replace deps/test-game/base 1.0 with 2.0"),
+            "{text}"
+        );
+        assert!(text.contains("txn-top deps/test-game/top"), "{text}");
+        assert!(text.contains("Modn restores 1.0"), "{text}");
+        assert!(text.ends_with("Update? [y/N]: "), "{text}");
     }
 
     #[test]

@@ -11,7 +11,8 @@ use std::path::PathBuf;
 impl Store {
     pub(super) fn pending(&self) -> Result<Vec<Journal>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, action, status, game_path FROM pending_transactions ORDER BY id",
+            "SELECT id, action, status, game_path FROM pending_transactions
+             ORDER BY action = 'uninstall', id",
         )?;
         let entries = statement
             .query_map([], |row| {
@@ -50,6 +51,18 @@ impl Store {
             .collect()
     }
 
+    /// Returns true only when the journal records link attempts and has no
+    /// attempt for this file. A journal from an older Modn has no marker, so
+    /// missing evidence proves nothing for it.
+    fn never_linked(&self, id: &str, ordinal: usize) -> Result<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM link_recorded_journals WHERE transaction_id=?1)
+               AND NOT EXISTS(SELECT 1 FROM pending_links WHERE transaction_id=?1 AND ord=?2)",
+            rusqlite::params![id, ordinal as i64],
+            |row| row.get(0),
+        )?)
+    }
+
     fn finish_journal(&mut self, id: &str) -> Result<()> {
         let staging = self.state_root.join(id);
         if staging.exists() {
@@ -69,6 +82,11 @@ impl Store {
             "DELETE FROM pending_created_directories WHERE transaction_id=?1",
             [id],
         )?;
+        tx.execute("DELETE FROM pending_links WHERE transaction_id=?1", [id])?;
+        tx.execute(
+            "DELETE FROM link_recorded_journals WHERE transaction_id=?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
@@ -86,8 +104,16 @@ impl Store {
         for f in journal.files.iter().rev() {
             let dest = target_path(&game, &f.destination)?;
             let temp = temp_path(&dest, &journal.id, f.ordinal)?;
+            let present = fs::symlink_metadata(&dest).is_ok();
             let witness = match fs::symlink_metadata(&temp) {
                 Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
+                    let never_linked = journal.action == "install"
+                        && journal.status == "pending"
+                        && self.never_linked(&journal.id, f.ordinal)?;
+                    if never_linked {
+                        fs::remove_file(&temp)?;
+                        continue;
+                    }
                     if digest(&temp)? != f.sha256 {
                         bail!("transaction {} has a changed or incomplete witness {}; preserve it and repair manually",
                             journal.id, temp.display());
@@ -98,7 +124,6 @@ impl Store {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => false,
                 Err(e) => return Err(e.into()),
             };
-            let present = fs::symlink_metadata(&dest).is_ok();
             match (journal.action.as_str(), journal.status.as_str()) {
                 ("install", "pending") => {
                     if witness && present {

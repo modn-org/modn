@@ -197,6 +197,9 @@ modn install cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install main/cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install "./unlisted-mod.zip" --dry-run
 modn install "./unlisted-mod.zip" --yes
+modn update cet --dry-run
+modn update cet --yes
+modn update community/test-game/example --version 1.0 --file "./example-1.0.zip" --yes
 modn list --json
 modn uninstall <managed-package-id> --yes
 modn uninstall cet --dry-run
@@ -262,7 +265,76 @@ parent directories that Modn created, once they are empty. Two
 dependencies that pin the same archive digest install it once. If the process stops before the stack completes,
 other writes are refused until `modn recover --yes` uninstalls the stack's
 packages. A damaged dependency or another installed release is never replaced:
-the install fails until you restore or uninstall it.
+the install fails until you restore or uninstall it, or replace it with
+`modn update`.
+
+### Updating a mod
+
+`modn update <mod>` replaces the installed release of a catalog mod with the
+bucket's current release. `--version <version>` selects another release that
+the bucket publishes. Name the mod as for install: `mod`, `game/mod` or
+`bucket/game/mod`. The installed package must come from that catalog mod.
+
+`modn update <mod> --dry-run` writes nothing. It shows these items:
+- the installed package, its release version (when a release of the bucket
+  has its archive digest) and its exclusive folders
+- the target release
+- the files that the update adds, replaces and removes
+- each managed package that depends on the mod, and whether its installed
+  release accepts the target version
+
+The file list needs the target archive. Without it, the dry run names the
+archive to supply. `--file` and `--download` work as for install. JSON adds
+`up_to_date`, `blockers`, `plan` and `unapproved_declared_executables`.
+
+An update needs `--yes` or an interactive confirmation, as for install. The
+prompt names both releases and each dependent. Declared tool executables need
+the same approval as for install.
+
+Modn updates only the mod that you name. It never updates a dependency or a
+framework as a side effect. The update is blocked in these cases:
+- the target release fails the checks of an install: a dependency that the
+  bucket does not publish, a `dependency_versions` requirement that the
+  bucket's dependency release misses, a cycle or a conflict
+- a dependency of the target release is not ready; update or install it first
+- a dependent's installed release has a `dependency_versions` requirement
+  that the target version does not meet
+- a dependent's requirement is unknown
+- a dependent needs the installed archive under another catalog name (an
+  alias that pins the same digest); Modn cannot show that the new release
+  satisfies that name
+- the new release would depend, directly or through other packages, on a
+  package that depends on the mod
+
+Each catalog install records its dependency requirements with its ownership,
+so an update checks the requirement of the release that is actually
+installed, not of the bucket's current release. A package installed before
+Modn recorded requirements falls back to the bucket release with its archive
+digest. If the bucket no longer publishes that release, the requirement is
+unknown: update or reinstall that dependent first.
+
+The game policy plans the new release as if the old release were already
+removed, so an exclusive folder is claimed again. Rust then validates the
+proposal again on the real disk. The update runs in one recoverable
+transaction under the transaction lock:
+1. Modn moves the old release's files and exclusive folders aside, under a
+   pending uninstall journal. Its ownership stays recorded.
+2. Modn installs the new release with the usual checks. The old release's
+   ownership does not block it. An unmanaged file still blocks it; Modn never
+   overwrites one.
+3. One SQLite commit retires the old package, records the new one, and moves
+   each dependent's recorded dependency to the new package.
+
+If a step fails before that commit, Modn restores the old release under its
+package ID. If the process stops, other writes are refused until
+`modn recover --yes`, which removes the new files and then restores the old
+release. Before Modn links each new file into the game, it records the
+attempt in the journal. Recovery deletes a private copy without checking it
+only when no such record exists, because no game file can then refer to it.
+A copy that Modn may have linked keeps the usual check: if its content
+changed, recovery preserves it and stops. Runtime content in an exclusive folder, such as a log or settings
+file, is part of the old release's folder: a successful update deletes it with
+that folder, exactly like an uninstall. Copy such files first if you need them.
 
 ### Directories Modn creates
 
@@ -450,7 +522,7 @@ The Cyberpunk Lua policy prefers an **exclusive mod folder** for new CET, RED4ex
 
 The transaction executor is game-agnostic: Rust callers may submit an explicitly approved `InstallPlan` to `Store::install_operations_zip` for any real installation root. Under the exclusive store lock it independently re-inspects the archive, verifies archive hashes and all source sizes, validates destinations, collisions, executable payloads, ownership conflicts, and size limits before staging. The ownership ledger, rollback, crash recovery, and uninstall operate on generic installation roots. The CLI now resolves installation operations from Lua; no Cyberpunk-specific Rust installation planner or legacy compatibility adapter remains. ZIP and 7z extraction are supported; REDmod deployment remains unsupported. CET/RED4ext `.dll` plugin files are permitted within the recognized plugin layout, but neither Modn nor its preview executes them or certifies their compatibility; prohibited executable payloads remain blocked unless explicitly approved as an exact tool path by the caller.
 
-Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), package updates, file adoption, migration, or automatic recovery. Always try it on a disposable game fixture before testing against a real game.
+Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), file adoption, migration, or automatic recovery. Package updates use the same journals; see [Updating a mod](#updating-a-mod). Always try it on a disposable game fixture before testing against a real game.
 
 ### Cyberpunk framework ZIP installation
 
@@ -574,7 +646,11 @@ readiness uses. So a mod installed through another manifest with the same
 archive is still caught. A standalone `modn install <archive>` also meets the
 recorded conflicts, by its digest. On older state without catalog tables,
 installed packages still match by digest. A shared-archive alias in a stack must declare the same
-dependencies and conflicts as the release that installs the archive. A bucket publishes one release
-per mod, so Modn checks requirements rather than choosing between versions.
-Installed packages carry no version, so an `other_release` dependency is
-still not replaced or reinterpreted.
+dependencies and conflicts as the release that installs the archive.
+Search, dependency resolution and `modn install` use each mod's current
+release, `games/<game-id>/<mod-id>.json`, so Modn checks requirements rather
+than choosing between versions. A local bucket may also publish other
+releases as `games/<game-id>/<mod-id>@<version>.json`; only
+`modn update --version` selects them. Installed packages carry no version.
+An `other_release` dependency is not replaced by an install; replace it
+explicitly with `modn update`.

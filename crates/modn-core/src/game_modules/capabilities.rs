@@ -24,9 +24,21 @@ const MAX_TOTAL_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ONE_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 256;
 
-pub(super) struct AllowedRoots(Vec<PathBuf>);
+pub(super) struct AllowedRoots {
+    roots: Vec<PathBuf>,
+    replaced: Vec<String>,
+}
 
 impl AllowedRoots {
+    pub(super) fn hiding_replaced(mut self, replaced: &[String]) -> Self {
+        self.replaced = replaced.to_vec();
+        self
+    }
+
+    fn hides(&self, id: u32, relative: &str) -> bool {
+        id == 1 && crate::planning::is_replaced(&self.replaced, relative)
+    }
+
     pub(super) fn validate(requested: &[PathBuf]) -> Result<Self> {
         if requested.len() > MAX_ROOTS {
             bail!("too many authorized roots; maximum is {MAX_ROOTS}");
@@ -44,7 +56,10 @@ impl AllowedRoots {
             }
             roots.push(canonical);
         }
-        Ok(Self(roots))
+        Ok(Self {
+            roots,
+            replaced: Vec::new(),
+        })
     }
 }
 
@@ -157,7 +172,7 @@ fn selected_root(roots: &AllowedRoots, id: u32) -> Result<&Path> {
         bail!("invalid authorized root identifier");
     }
     roots
-        .0
+        .roots
         .get((id - 1) as usize)
         .map(PathBuf::as_path)
         .context("unknown authorized root identifier")
@@ -171,6 +186,9 @@ fn authorized_path(
 ) -> Result<(PathBuf, fs::Metadata)> {
     budget.operation()?;
     let root = selected_root(roots, root_id)?;
+    if roots.hides(root_id, relative) {
+        bail!("cannot inspect requested path {relative:?}: the update replaces it");
+    }
     safe_target(root, relative)
 }
 
@@ -343,6 +361,9 @@ fn directory_service(
                         unreadable = true;
                         continue;
                     }
+                    if read_roots.hides(id, &relative_entry) {
+                        continue;
+                    }
                     let Ok((_, metadata)) = safe_target(root, &relative_entry) else {
                         incomplete = true;
                         match fs::symlink_metadata(root.join(&relative_entry)) {
@@ -448,7 +469,7 @@ pub(super) fn register(
         lua.create_function(move |lua, ()| {
             limit.operation().map_err(mlua::Error::external)?;
             let result = lua.create_table()?;
-            for index in 0..allowed.0.len() {
+            for index in 0..allowed.roots.len() {
                 let item = lua.create_table()?;
                 item.set("id", index + 1)?;
                 result.set(index + 1, item)?;

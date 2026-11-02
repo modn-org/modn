@@ -116,11 +116,16 @@ pub(super) fn temp_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> {
 
 impl Store {
     pub(crate) fn ensure_no_pending(&self) -> Result<()> {
-        let count: i64 =
-            self.connection
-                .query_row("SELECT COUNT(*) FROM pending_transactions", [], |row| {
-                    row.get(0)
-                })?;
+        self.ensure_pending_only(None)
+    }
+
+    /// Refuse to continue while any journal other than `allowed` is pending.
+    pub(super) fn ensure_pending_only(&self, allowed: Option<&str>) -> Result<()> {
+        let count: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM pending_transactions WHERE id IS NOT ?1",
+            [allowed],
+            |row| row.get(0),
+        )?;
         if count > 0 {
             bail!("unfinished transaction detected; run 'modn recover' before another write");
         }
@@ -185,13 +190,27 @@ impl Store {
         Ok(())
     }
 
-    pub(super) fn begin_staging(&mut self, id: &str, game: &Path, hash: &str) -> Result<()> {
-        self.ensure_no_pending()?;
-        self.connection.execute(
+    pub(super) fn begin_staging(
+        &mut self,
+        id: &str,
+        game: &Path,
+        hash: &str,
+        allowed: Option<&str>,
+    ) -> Result<()> {
+        self.ensure_pending_only(allowed)?;
+        let tx = self.connection.transaction()?;
+        tx.execute(
             "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
              VALUES (?1,'install','staging',?2,?1,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
+        // Recovery may treat a missing `pending_links` row as proof that no
+        // link exists only for a journal that carries this marker.
+        tx.execute(
+            "INSERT INTO link_recorded_journals(transaction_id) VALUES (?1)",
+            [id],
+        )?;
+        tx.commit()?;
         Ok(())
     }
     pub(super) fn stage_ready(
@@ -254,6 +273,10 @@ impl Store {
         catalog: Option<&super::catalog::CatalogRecord>,
     ) -> Result<()> {
         let tx = self.connection.transaction()?;
+        let replaced = catalog.and_then(|catalog| catalog.replacing);
+        if let Some(replaced) = replaced {
+            super::update::vacate(&tx, replaced)?;
+        }
         tx.execute(
             "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES (?1,?2,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
@@ -278,6 +301,9 @@ impl Store {
         }
         if let Some(catalog) = catalog {
             super::catalog::record(&tx, id, catalog)?;
+        }
+        if let Some(replaced) = replaced {
+            super::update::retire(&tx, replaced, id)?;
         }
         super::created_dirs::commit(&tx, id, game)?;
         tx.execute(

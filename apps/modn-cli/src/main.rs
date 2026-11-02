@@ -12,6 +12,8 @@ mod modules;
 mod selection;
 mod stack_install;
 mod state_access;
+mod update;
+mod update_report;
 use anyhow::Result;
 use clap::Parser;
 use commands::{Cli, Command};
@@ -41,6 +43,7 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
         Command::Module { command } => modules::run(command, json),
         Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
         Command::Install(args) => install::run(&args, state_path, requested, json),
+        Command::Update(args) => update::run(&args, state_path, requested, json),
         Command::Inspect { archive } => inspect_archive(&archive, json),
         Command::Game { command } => games::run(command, state_path, requested, json),
         Command::List { path } => managed::list(path, state_path, requested, json),
