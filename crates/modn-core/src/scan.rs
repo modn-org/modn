@@ -141,6 +141,9 @@ pub struct DoctorReport {
     pub scan: ScanReport,
     /// Warnings and informational findings.
     pub diagnostics: Vec<Diagnostic>,
+    /// Folders Modn created for its packages, removed when empty. Empty
+    /// when the report was made without manager state.
+    pub created_directories: Vec<String>,
 }
 
 /// Scan using a runtime-selected game's Lua module.
@@ -173,6 +176,7 @@ pub(crate) fn diagnose_checked(report: ScanReport) -> Result<DoctorReport> {
     Ok(DoctorReport {
         scan: report,
         diagnostics,
+        created_directories: Vec::new(),
     })
 }
 
@@ -181,6 +185,7 @@ pub(crate) fn diagnose(report: ScanReport) -> DoctorReport {
         Ok(diagnostics) => DoctorReport {
             scan: report,
             diagnostics,
+            created_directories: Vec::new(),
         },
         Err(_) => DoctorReport {
             scan: ScanReport {
@@ -192,6 +197,7 @@ pub(crate) fn diagnose(report: ScanReport) -> DoctorReport {
                 severity: "warning".into(),
                 message: "Game diagnostic policy failed; scan results are incomplete.".into(),
             }],
+            created_directories: Vec::new(),
         },
     }
 }

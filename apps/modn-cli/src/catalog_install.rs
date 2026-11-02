@@ -263,7 +263,7 @@ fn install_mod(
         Some(&selected.package.game),
     )?;
     let release = catalog_release(&selected, &catalog)?;
-    if !args.dry_run {
+    if !args.dry_run || args.download {
         // Downloads write the cache before the install opens writable state.
         state.validate_download(
             cache.root(),
@@ -273,7 +273,8 @@ fn install_mod(
             },
         )?;
     }
-    let dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+    let mut dependencies =
+        dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
     // Check declared conflicts before any download or write; the Rust core
     // repeats the check for each package under the transaction lock.
     let installing: Vec<&BucketPackage> = order
@@ -283,6 +284,11 @@ fn install_mod(
         .map(|(release, _)| release)
         .chain([&selected])
         .collect();
+    if args.download {
+        // Only the cache changes, so the dry run can plan every file it installs.
+        download::download(&cache, cache_use, &installing, &mut archives, json)?;
+        dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+    }
     let conflicts =
         dependency_plan::conflicts(&installing, &catalog, state.existing(), &installation)?;
     if !args.dry_run && !conflicts.is_empty() {

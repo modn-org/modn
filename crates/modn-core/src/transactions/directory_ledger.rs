@@ -37,6 +37,23 @@ impl Store {
         }).collect()
     }
 
+    /// Game-relative folders Modn created for its packages in `game`.
+    ///
+    /// These are the parents of owned files that did not exist before an
+    /// install. They belong to no single package: an uninstall removes each
+    /// one when it is empty, and keeps it while other content remains.
+    pub fn created_directories(&self, game: &Path) -> Result<Vec<String>> {
+        let game = validate_transaction_root(game)?;
+        let mut query = self.connection.prepare(
+            "SELECT relative_path FROM created_directories
+             WHERE game_path=?1 ORDER BY path_key",
+        )?;
+        let directories = query
+            .query_map([game.to_string_lossy().as_ref()], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(directories)
+    }
+
     pub(crate) fn verified_managed_directory(
         &self,
         package_id: &str,

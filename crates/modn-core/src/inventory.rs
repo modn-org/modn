@@ -135,5 +135,8 @@ pub fn doctor_with_ownership_for(
     game_id: &str,
     installation: &Path,
 ) -> Result<DoctorReport> {
-    scan::diagnose_checked(scan_with_ownership_for(store, game_id, installation)?)
+    let mut report =
+        scan::diagnose_checked(scan_with_ownership_for(store, game_id, installation)?)?;
+    report.created_directories = store.created_directories(installation)?;
+    Ok(report)
 }

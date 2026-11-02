@@ -206,6 +206,13 @@ source. Without `--file`, the dry run names the archive to supply, and JSON
 dependency also shows the supplied `archive`, if one matches. The plan
 writes nothing.
 
+A dry run never downloads by default. Add `--download` to fetch the missing
+`https` archives of the mod and its missing dependencies into the verified
+download cache first. The dry run then shows the file plan, and a later
+install reuses the cached archives. `--download` writes only to the cache,
+never to the game, and applies only with `--dry-run`. `manual` sources still
+need `--file`.
+
 To install a mod with its missing dependencies, pass `--file` once for each
 `manual` archive, in any order. Modn downloads or reuses the `https` ones.
 Modn matches each archive to a release by SHA-256 and refuses an archive that
@@ -295,6 +302,14 @@ accepts the managed-package ID shown by `modn list`, or the catalog name the
 package was installed under: `mod`, `game/mod` or `bucket/game/mod`. `modn list`
 shows that name beside each ID. A name that matches several packages is refused.
 Packages from a standalone archive have no catalog name, only an ID.
+
+A package's `directories` are its exclusive folders, which it owns entirely.
+Modn also records each folder it creates for owned files, such as
+`red4ext/plugins`. These folders belong to the game installation, not to one
+package. An uninstall removes each one when it is empty and keeps it while
+other content, such as a runtime log, remains. `modn list` prints these
+folders after the packages, and `doctor --json` reports them as
+`created_directories`. `list --json` stays an array of packages.
 
 `modn uninstall <package> --dry-run` lists the packages it would remove, in
 order, and writes nothing. `--include-deps` also removes each dependency that
