@@ -21,6 +21,8 @@ pub struct ManagedPackage {
     pub files: Vec<OwnedFile>,
     /// Exclusive game-relative directory roots, owned in their entirety.
     pub directories: Vec<String>,
+    /// Catalog identity, when the package was installed from a bucket.
+    pub catalog: Option<super::CatalogReference>,
 }
 
 /// Manifest record for a file owned by a managed package.

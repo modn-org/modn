@@ -312,3 +312,68 @@ fn dependencies_sharing_one_archive_install_it_once() {
     assert!(!fixture.game.join("addons").exists());
     assert_eq!(managed(&fixture), 0);
 }
+
+#[test]
+fn uninstall_takes_catalog_names_and_removes_related_packages_on_request() {
+    let Stack {
+        fixture,
+        base,
+        middle,
+        top,
+    } = stack(json!({}));
+    let files = [base.as_path(), middle.as_path(), top.as_path()];
+    let installed = run(&fixture, &["install", "top", "--yes"], &files);
+    assert!(installed.status.success(), "{}", error(&installed));
+    let listed = fixture.run(&["list"]);
+    let listing = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        listing.contains("deps/test-game/middle, 1 owned files"),
+        "{listing}"
+    );
+
+    // A preview lists the plan in removal order and changes nothing.
+    let preview = fixture.run(&["--json", "uninstall", "top", "--dry-run", "--include-deps"]);
+    assert!(preview.status.success(), "{}", error(&preview));
+    let report: Value = serde_json::from_slice(&preview.stdout).expect("JSON");
+    assert_eq!(report["dry_run"], json!(true));
+    let order: Vec<&str> = report["packages"]
+        .as_array()
+        .expect("packages")
+        .iter()
+        .map(|package| package["catalog"]["mod_id"].as_str().expect("mod"))
+        .collect();
+    assert_eq!(order, ["top", "middle", "base"]);
+    assert_eq!(managed(&fixture), 3);
+
+    let both = fixture.run(&["uninstall", "top", "--dry-run", "--yes"]);
+    assert!(!both.status.success());
+    let bare = fixture.run(&["uninstall", "top"]);
+    assert!(!bare.status.success());
+    assert!(error(&bare).contains("--dry-run"), "{}", error(&bare));
+
+    // Without --cascade a needed package is refused, by name or by ID.
+    let refused = fixture.run(&["uninstall", "middle", "--yes"]);
+    assert!(!refused.status.success());
+    assert!(
+        error(&refused).contains("is required by"),
+        "{}",
+        error(&refused)
+    );
+    assert_eq!(managed(&fixture), 3);
+
+    let cascade = fixture.run(&["--json", "uninstall", "middle", "--cascade", "--yes"]);
+    assert!(cascade.status.success(), "{}", error(&cascade));
+    let report: Value = serde_json::from_slice(&cascade.stdout).expect("JSON");
+    assert_eq!(report["uninstalled"], json!("middle"));
+    assert_eq!(report["packages"].as_array().expect("packages").len(), 2);
+    assert!(!fixture.game.join("addons/top.plugin").exists());
+    assert!(!fixture.game.join("addons/middle.plugin").exists());
+    assert!(fixture.game.join("addons/base.plugin").is_file());
+
+    let last = fixture.run(&["uninstall", "deps/test-game/base", "--yes"]);
+    assert!(last.status.success(), "{}", error(&last));
+    assert_eq!(managed(&fixture), 0);
+    assert!(!fixture.game.join("addons").exists());
+    let unknown = fixture.run(&["uninstall", "base", "--yes"]);
+    assert!(error(&unknown).contains("no managed package matches base"));
+}

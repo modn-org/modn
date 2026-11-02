@@ -32,7 +32,8 @@ impl Store {
             let directories = query
                 .query_map([&id], |row| row.get(0))?
                 .collect::<rusqlite::Result<Vec<String>>>()?;
-            Ok(ManagedPackage { id, game_installation: game.clone(), archive_sha256, files, directories })
+            let catalog = super::catalog::reference_of(self, &id)?;
+            Ok(ManagedPackage { id, game_installation: game.clone(), archive_sha256, files, directories, catalog })
         }).collect()
     }
 
