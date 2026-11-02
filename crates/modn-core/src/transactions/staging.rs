@@ -1,4 +1,3 @@
-//! Stream validated 7z members into the same private transaction staging area as ZIP.
 use super::journal::{digest, JournalFile};
 use crate::archive::Inspection;
 use crate::planning::InstallPlan;
@@ -8,10 +7,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
 
-/// The locked sevenz decoder walks each solid block using its stream count,
-/// but parsed 7z headers can interleave streamless directories/empty files.
-/// Group the data-bearing entries in compressed-stream order so that decoder
-/// iteration cannot silently omit members after a streamless entry.
 fn decoder_order(mut archive: sevenz_rust2::Archive) -> Result<sevenz_rust2::Archive> {
     let mut groups = vec![Vec::new(); archive.blocks.len()];
     let mut streamless = Vec::new();
@@ -50,8 +45,6 @@ fn decoder_order(mut archive: sevenz_rust2::Archive) -> Result<sevenz_rust2::Arc
     Ok(archive)
 }
 
-/// Decode solid and non-solid 7z archives once, without buffering file payloads
-/// in memory or extracting any unselected entries to the filesystem.
 pub(super) fn stage_7z(
     archive: &Path,
     inspection: &Inspection,

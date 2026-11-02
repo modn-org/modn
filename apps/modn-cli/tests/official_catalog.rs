@@ -1,5 +1,3 @@
-//! Consistency checks for the bundled official `main` package catalog.
-
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs;
@@ -21,7 +19,6 @@ const PREREQUISITES: [&str; 11] = [
     "virtual-atelier",
 ];
 
-/// Copies the checked-in `buckets/main` manifests under a registrable name.
 fn checkout_copy(destination: &Path) -> PathBuf {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games");
     let bucket = destination.join("checkout");

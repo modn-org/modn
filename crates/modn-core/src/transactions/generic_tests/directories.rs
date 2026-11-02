@@ -1,4 +1,3 @@
-//! Exclusive-directory ownership, quarantine and recovery for generic roots.
 use std::fs;
 
 use super::{fixture, plan};
@@ -75,7 +74,6 @@ fn refuses_claims_over_preexisting_or_reserved_content() {
     let owned = store
         .install_operations_zip(&game, &archive, &requested)
         .unwrap();
-    // Even a new distinct filename cannot enter a directory claimed by another package.
     let mut second = plan(&game, &archive);
     second.operations[0].destination = "data/mods/new.bin".into();
     second.operations.remove(1);
@@ -214,8 +212,6 @@ fn substituted_quarantine_directory_blocks_committed_recovery() {
     let saved = game.join("data/saved-original");
     fs::rename(&staged, &saved).unwrap();
     fs::create_dir(&staged).unwrap();
-    // A forged directory can hard-link files from the original: file identity
-    // must not authorize deletion of the different containing directory.
     fs::write(saved.join("original-marker"), b"valid marker bytes").unwrap();
     fs::hard_link(
         saved.join("original-marker"),
@@ -339,8 +335,6 @@ fn linux_birth_identity_rejects_reused_inode_generation() {
         6,
         "native directory identity must include birth time"
     );
-    // Model an inode reuse: retain the device and inode but change its birth
-    // timestamp. Rechecking the replacement must fail even with the old inode.
     let previous_birth = identity_parts[4].parse::<i64>().unwrap() - 1;
     identity_parts[4] = previous_birth.to_string();
     let reused = identity_parts.join(":");

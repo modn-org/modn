@@ -1,4 +1,3 @@
-//! Route `modn install` to catalog resolution or standalone archive installation.
 use crate::catalog_install;
 use crate::commands::InstallArgs;
 use crate::selection::selected_installation;
@@ -7,8 +6,6 @@ use anyhow::{bail, Result};
 use modn_core::planning::preview_install_zip_with_permissions;
 use std::path::{Path, PathBuf};
 
-/// Bare catalog IDs win over same-named files in the working directory.
-/// A standalone archive is explicit through its extension or path syntax.
 fn is_standalone_archive(args: &InstallArgs) -> bool {
     let source = Path::new(&args.target);
     let archive_extension = source
@@ -50,7 +47,6 @@ fn install_archive(
     json: bool,
 ) -> Result<()> {
     let state = ManagerState::load(state_path)?;
-    // An explicit-path preview needs no manager state; it never creates one.
     let mut store = if args.dry_run && args.path.is_some() && state.existing().is_none() {
         None
     } else {

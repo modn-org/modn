@@ -1,4 +1,3 @@
-//! Acceptance and hostile fixtures for explicitly authorized Lua read-only roots.
 use modn_core::game_modules::{check_module, check_module_with_roots};
 use std::fs;
 use std::io::Write;
@@ -195,7 +194,6 @@ fn oversized_files_and_excessive_operations_are_rejected() {
 #[test]
 fn encoded_7z_headers_are_never_passed_to_unbounded_native_parser() {
     let (_temp, module, game) = fixture();
-    // Even an apparently tiny 7z is rejected before attempting header decode.
     fs::write(game.join("packages/encoded.7z"), b"7z\xbc\xaf\x27\x1c").expect("7z fixture");
     let error = failure(
         "mods_host.archive.inspect(1, 'packages/encoded.7z'); return {}",
@@ -203,7 +201,6 @@ fn encoded_7z_headers_are_never_passed_to_unbounded_native_parser() {
         &module,
     );
     assert!(error.contains("ZIP/JAR only"), "{error}");
-    // The shared standalone archive inspector remains unchanged.
     fs::copy(
         game.join("packages/test.zip"),
         game.join("packages/test.jar"),

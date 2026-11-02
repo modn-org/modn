@@ -1,4 +1,3 @@
-//! Policy-level scan contract for inaccessible but already discovered plugin roots.
 use mlua::{Function, Lua, Table, Value};
 use std::fs;
 use std::path::Path;

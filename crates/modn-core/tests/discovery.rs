@@ -1,4 +1,3 @@
-//! Integration checks for discovery behavior.
 use modn_core::discovery::{discover_in_for, validate_installation_for};
 use modn_core::state::Store;
 use std::fs;

@@ -1,7 +1,3 @@
-//! Deterministic install order for a mod release and its declared dependencies.
-//!
-//! Resolution reads package manifests only. It never decides readiness or
-//! authorizes writes; callers check installed state separately.
 use super::{BucketPackage, VersionReq};
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;

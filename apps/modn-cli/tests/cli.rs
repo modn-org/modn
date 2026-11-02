@@ -145,8 +145,6 @@ fn modn_name_and_default_state_directory() {
         "{:?}",
         String::from_utf8_lossy(&output.stderr)
     );
-    // An empty selector-free listing must never initialize SQLite inside
-    // an unrecognized game root (or any other caller-provided directory).
     assert!(!temp.path().join("modn/state.sqlite").exists());
     let game = temp.path().join("fixture-game");
     let marker = game.join("bin/x64/Cyberpunk2077.exe");

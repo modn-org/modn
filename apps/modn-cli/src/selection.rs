@@ -1,4 +1,3 @@
-//! Resolve runtime-selected Lua games without encoding game-specific layouts.
 use anyhow::{bail, Result};
 use modn_core::discovery::{discover_for, validate_installation_for, Candidate};
 use modn_core::state::Store;
@@ -19,8 +18,6 @@ pub(crate) fn choose_candidate(game: &str, path: Option<PathBuf>) -> Result<Cand
     }
 }
 
-/// Select by explicit ID or persisted identity; never silently reinterpret a
-/// registered path as another game when names or markers overlap.
 pub(crate) fn selected_installation(
     store: Option<&Store>,
     path: Option<PathBuf>,

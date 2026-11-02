@@ -85,7 +85,6 @@ fn hash_mismatch_leaves_no_cache_entry() {
     assert!(cache.entries(None).unwrap().is_empty());
     assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 0);
 
-    // A failed fetch also leaves nothing behind.
     let error = cache
         .acquire(
             &key(&expected),
@@ -153,7 +152,6 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
             .acquire(&key, CacheUse::Reuse, |_| Ok(Cursor::new(body.to_vec())))
             .unwrap();
     }
-    // Names that only resemble entries are not cache entries.
     for name in [
         "unrelated.txt",
         "notes#alpha#draft#keep.txt",
@@ -201,7 +199,6 @@ fn another_attempts_partial_file_is_never_touched() {
         })
         .unwrap_err();
     assert!(error.to_string().contains("hash check failed"));
-    // A failed attempt removes only its own partial file and keeps the entry.
     assert_eq!(fs::read(&other).unwrap(), b"still downloading");
     assert_eq!(fs::read(&acquired.path).unwrap(), body);
     assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 2);

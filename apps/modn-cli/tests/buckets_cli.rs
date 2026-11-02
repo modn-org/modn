@@ -299,7 +299,6 @@ fn bucket_registration_does_not_write_into_detected_game_root() {
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("marker parent")).expect("game");
     fs::write(&marker, b"unmodified game marker").expect("marker");
-    // No explicit --game: the built-in bucket metadata supplies the game ID.
     let result = run(&game, &["add", "community", bucket.to_str().expect("path")]);
     assert!(
         !result.status.success(),
@@ -443,7 +442,6 @@ fn invalid_development_source_cannot_redirect_bucket_registry_into_game() {
         assert!(!game.join("state.sqlite").exists());
         assert_eq!(fs::read(&marker).expect("marker"), b"unchanged");
     }
-    // A valid first-party policy still detects this game and denies the write.
     let normal = run(
         &game,
         &["add", "community", bucket.to_str().expect("bucket")],

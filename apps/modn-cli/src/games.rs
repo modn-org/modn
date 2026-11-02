@@ -1,4 +1,3 @@
-//! `modn game add/list/remove`: game registrations only; never game files.
 use crate::commands::GameCommand;
 use crate::selection::choose_candidate;
 use crate::state_access::{ManagerState, ProtectedTarget};
@@ -60,7 +59,6 @@ fn remove(game: &str, path: Option<&Path>, state_path: &Path, json: bool) -> Res
     Ok(())
 }
 
-// Listing reads existing registrations and never creates a database.
 fn list(state_path: &Path, json: bool) -> Result<()> {
     let entries = ManagerState::load(state_path)?
         .into_existing()

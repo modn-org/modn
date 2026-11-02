@@ -1,7 +1,3 @@
-//! Catalog provenance and dependency links recorded with managed packages.
-//!
-//! Callers resolve bucket manifests; this module only sees verified archive
-//! digests, so readiness and uninstall protection stay game- and bucket-agnostic.
 use super::validation::validate_transaction_root;
 use crate::integrity::package_intact;
 use crate::state::Store;
@@ -12,19 +8,17 @@ use std::fmt;
 use std::path::Path;
 
 /// Qualified catalog identity of one mod: `bucket/game/mod`.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct CatalogReference {
-    /// Bucket that published the package manifest.
     pub bucket: String,
-    /// Game identifier the package manifest targets.
     pub game_id: String,
-    /// Package identifier within the bucket and game.
     pub mod_id: String,
 }
 
+#[expect(missing_docs, reason = "Method names state their behavior")]
 impl CatalogReference {
-    /// Identify one package manifest by bucket, game and package ID.
     #[must_use]
     pub fn new(bucket: String, game_id: String, mod_id: String) -> Self {
         Self {
@@ -36,18 +30,18 @@ impl CatalogReference {
 }
 
 /// A catalog mod that must not share a game installation with a release.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CatalogConflict {
-    /// Catalog identity of the conflicting mod.
     pub reference: CatalogReference,
     /// Archive digest the bucket pins for that mod, when it publishes one.
     /// A managed package with this digest counts as that mod.
     pub archive_sha256: Option<String>,
 }
 
+#[expect(missing_docs, reason = "Method names state their behavior")]
 impl CatalogConflict {
-    /// Declare a conflict with one catalog mod.
     #[must_use]
     pub fn new(reference: CatalogReference, archive_sha256: Option<String>) -> Self {
         Self {
@@ -68,8 +62,8 @@ impl CatalogDependency {
     }
 }
 
+#[expect(missing_docs, reason = "Method names state their behavior")]
 impl CatalogRelease {
-    /// Describe one catalog release and the releases it requires.
     #[must_use]
     pub fn new(reference: CatalogReference, dependencies: Vec<CatalogDependency>) -> Self {
         Self {
@@ -79,7 +73,6 @@ impl CatalogRelease {
         }
     }
 
-    /// Add the catalog mods this release must not be installed with.
     #[must_use]
     pub fn with_conflicts(mut self, conflicts: Vec<CatalogConflict>) -> Self {
         self.conflicts = conflicts;
@@ -94,12 +87,12 @@ impl fmt::Display for CatalogReference {
 }
 
 /// One required catalog release, identified by its manifest-pinned archive digest.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CatalogDependency {
     /// Catalog identity used in diagnostics.
     pub reference: CatalogReference,
-    /// SHA-256 digest pinned by the dependency's package manifest.
     pub archive_sha256: String,
 }
 
@@ -115,41 +108,30 @@ pub struct CatalogRelease {
     pub conflicts: Vec<CatalogConflict>,
 }
 
-/// A catalog release to install, optionally as one member of a stack.
 #[derive(Clone, Copy)]
 pub(super) struct CatalogInstall<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) stack_id: Option<&'a str>,
 }
 
-/// Provenance and dependency links written in the same commit as ownership.
 pub(super) struct CatalogRecord<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) dependency_ids: Vec<String>,
-    /// Uncommitted stack that rolls this package back if the stack fails.
     pub(super) stack_id: Option<&'a str>,
 }
 
 /// Installed state of one catalog dependency in one game installation.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum DependencyState {
     /// Managed packages with the pinned digest whose content is intact.
-    Ready {
-        /// Managed package IDs that satisfy the dependency.
-        package_ids: Vec<String>,
-    },
+    Ready { package_ids: Vec<String> },
     /// Managed packages with the pinned digest whose content has drifted.
-    Damaged {
-        /// Managed package IDs to restore or uninstall.
-        package_ids: Vec<String>,
-    },
+    Damaged { package_ids: Vec<String> },
     /// Managed packages from the same catalog mod with a different digest.
-    OtherRelease {
-        /// Managed package IDs installed from another release of the mod.
-        package_ids: Vec<String>,
-    },
+    OtherRelease { package_ids: Vec<String> },
     /// No managed package matches the dependency.
     Missing,
 }
@@ -234,8 +216,6 @@ impl Store {
 }
 
 fn provenance_packages(store: &Store, reference: &CatalogReference) -> Result<Vec<String>> {
-    // A database from before catalog provenance, opened read-only, is not
-    // migrated. It has no table and therefore records no provenance.
     let recorded: bool = store.connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master
          WHERE type='table' AND name='catalog_provenance')",
@@ -301,7 +281,6 @@ pub(super) fn forget(tx: &Transaction<'_>, package_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Catalog identity recorded when `package_id` was installed from a bucket.
 pub(super) fn reference_of(store: &Store, package_id: &str) -> Result<Option<CatalogReference>> {
     if !store.has_table("catalog_provenance")? {
         return Ok(None);
@@ -322,7 +301,6 @@ pub(super) fn reference_of(store: &Store, package_id: &str) -> Result<Option<Cat
         .optional()?)
 }
 
-/// Managed packages that recorded `package_id` as a dependency, with their catalog identity.
 pub(super) fn dependents(store: &Store, package_id: &str) -> Result<Vec<String>> {
     let mut statement = store.connection.prepare(
         "SELECT d.package_id, c.bucket, c.game_id, c.mod_id

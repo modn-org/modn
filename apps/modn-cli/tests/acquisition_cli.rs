@@ -1,7 +1,3 @@
-//! Catalog installs from the verified download cache, without network access.
-//!
-//! Each `https` source points at a closed loopback port, so any attempted
-//! download fails at once. A pre-populated cache entry must avoid that.
 #[path = "support/catalog.rs"]
 mod support;
 
@@ -36,7 +32,6 @@ fn plugin_archive(fixture: &Fixture, name: &str) -> (PathBuf, String) {
     (path, digest)
 }
 
-/// Write a manifest with an `https` source into the `deps` bucket.
 fn https_manifest(fixture: &Fixture, id: &str, hash: &str, dependencies: &[&str]) {
     let manifest = json!({
         "schema_version":1, "id":id, "game":"test-game", "name":id,
@@ -57,7 +52,6 @@ fn cache_dir(fixture: &Fixture) -> PathBuf {
     fixture.temp.path().join("cache")
 }
 
-/// The entry name `modn` uses: `<game>#<mod>#<version>#<url hash>.zip`.
 fn cache_entry(fixture: &Fixture, id: &str) -> PathBuf {
     let url_hash = &sha(url(id).as_bytes())[..7];
     cache_dir(fixture).join(format!("test-game#{id}#1.0#{url_hash}.zip"))
@@ -79,7 +73,6 @@ fn modn(fixture: &Fixture, args: &[&str]) -> Output {
         .expect("run CLI")
 }
 
-/// `top` (https) depends on `base` (https); neither is installed.
 fn catalog() -> (Fixture, PathBuf, PathBuf) {
     let fixture = Fixture::new();
     let (base, base_hash) = plugin_archive(&fixture, "base");
@@ -97,7 +90,6 @@ fn verified_cache_entries_install_a_stack_without_downloading() {
     seed(&fixture, "base", &base);
     seed(&fixture, "top", &top);
 
-    // A dry run reports the cached archives and creates nothing.
     let preview = modn(&fixture, &["--json", "install", "top", "--dry-run"]);
     assert!(preview.status.success(), "{}", error(&preview));
     let plan: Value = serde_json::from_slice(&preview.stdout).expect("JSON");
@@ -115,7 +107,6 @@ fn verified_cache_entries_install_a_stack_without_downloading() {
     assert_eq!(report["stack"][1]["package"], "deps/test-game/top");
     assert!(fixture.game.join("addons/base.plugin").is_file());
     assert!(fixture.game.join("addons/top.plugin").is_file());
-    // Cache entries are kept for a later reinstall, as Scoop keeps them.
     assert!(cache_entry(&fixture, "base").is_file());
 }
 
@@ -126,7 +117,6 @@ fn a_tampered_cache_entry_is_not_used() {
     seed(&fixture, "base", &base);
     fs::write(&entry, b"tampered").expect("tamper");
 
-    // The entry fails verification, so Modn tries to download and fails.
     let failed = modn(&fixture, &["install", "base", "--yes"]);
     assert!(!failed.status.success());
     let message = error(&failed);
@@ -249,14 +239,12 @@ fn a_cache_inside_the_game_is_refused_before_any_download() {
 fn a_dry_run_downloads_missing_archives_only_on_request() {
     let (fixture, base, top) = catalog();
 
-    // Without `--download`, a dry run names the source and fetches nothing.
     let plain = modn(&fixture, &["--json", "install", "top", "--dry-run"]);
     assert!(plain.status.success(), "{}", error(&plain));
     let report: Value = serde_json::from_slice(&plain.stdout).expect("JSON");
     assert_eq!(report["plan"], Value::Null);
     assert!(!cache_dir(&fixture).exists());
 
-    // With it, the dry run fetches the missing archives into the cache.
     let fetched = modn(&fixture, &["install", "top", "--dry-run", "--download"]);
     assert!(!fetched.status.success());
     let message = error(&fetched);
@@ -266,7 +254,6 @@ fn a_dry_run_downloads_missing_archives_only_on_request() {
     );
     assert!(!fixture.game.join("addons").exists());
 
-    // Cached archives need no download, and the preview lists their files.
     seed(&fixture, "base", &base);
     seed(&fixture, "top", &top);
     let cached = modn(
@@ -326,7 +313,6 @@ fn list_and_doctor_show_the_folders_modn_created() {
         text.contains("Folders Modn created, removed when empty:\n  addons\n"),
         "{text}"
     );
-    // The JSON list stays an array of packages.
     let packages: Value =
         serde_json::from_slice(&modn(&fixture, &["--json", "list"]).stdout).expect("JSON");
     assert!(packages.is_array());

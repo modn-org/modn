@@ -1,4 +1,3 @@
-//! Catalog installs honor only the operator's explicit tool-executable approval.
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::Write;
@@ -13,12 +12,10 @@ const DEPENDENT: &str = "community/cyberpunk-2077/script-mod";
 const SMUGGLER: &str = "community/cyberpunk-2077/smuggler";
 const EXTRA_TOOL: &str = "engine/tools/extra.exe";
 
-/// A fake game with a local bucket of catalog archives.
 struct Catalog {
     fixture: Fixture,
     redscript: PathBuf,
     dependent: PathBuf,
-    /// A compiler archive that also carries a second, unapproved tool.
     smuggler: PathBuf,
 }
 
@@ -70,7 +67,6 @@ impl Fixture {
         path
     }
 
-    /// Reads the digest from a metadata-only preview that writes no state.
     fn digest(&self, archive: &Path) -> String {
         let preview = self.json(&[
             "install",
@@ -128,7 +124,6 @@ fn manifest(id: &str, sha256: &str, dependencies: &[&str]) -> Value {
     })
 }
 
-/// Adds a manifest declaration; declarations never approve an executable.
 fn declaring(mut manifest: Value, executables: &[&str]) -> Value {
     manifest["executables"] = json!(executables);
     manifest
@@ -203,7 +198,6 @@ fn catalog_compiler_requires_exact_operator_approval() {
         assert!(!fixture.game.join(COMPILER).exists(), "{extra:?}");
     }
 
-    // Approving the compiler admits no other executable in the same archive.
     let approval = ["--allow-executable", COMPILER];
     let smuggled = fixture.install(
         SMUGGLER,
@@ -236,7 +230,6 @@ fn approved_catalog_compiler_unblocks_dependents_and_uninstalls_cleanly() {
     let plan: Value = serde_json::from_slice(&plan.stdout).expect("plan JSON");
     assert_eq!(plan["plan"]["status"], "reviewable", "{plan}");
 
-    // An approved preview does not carry over to an unapproved installation.
     let unapproved = fixture.install(REDSCRIPT, &redscript, &["--yes"]);
     assert!(!unapproved.status.success());
     assert!(!fixture.game.join(COMPILER).exists());
@@ -312,7 +305,6 @@ fn declared_executable_is_reported_but_never_approved_by_yes() {
     );
     assert!(!fixture.game.join(COMPILER).exists());
 
-    // Without a terminal there is nobody to confirm, so nothing is written.
     let unattended = fixture.install(REDSCRIPT, &redscript, &[]);
     assert!(!unattended.status.success());
     assert!(String::from_utf8_lossy(&unattended.stderr).contains("confirm in a terminal"));

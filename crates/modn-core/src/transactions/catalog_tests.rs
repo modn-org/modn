@@ -1,4 +1,3 @@
-//! Catalog provenance, lock-held dependency readiness and dependent protection.
 use super::catalog::CatalogInstall;
 use super::{
     CatalogDependency, CatalogReference, CatalogRelease, DependencyState, ManagedPackage,
@@ -110,7 +109,6 @@ fn plan(game: &Path, archive: &Path) -> InstallPlan {
     plan_into(game, archive, "addons")
 }
 
-/// A reviewable plan that copies each archive file into `directory`.
 pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> InstallPlan {
     let checked = inspect(archive).unwrap();
     InstallPlan {
@@ -228,7 +226,6 @@ fn dependency_readiness_needs_no_game_module() {
     let base = fixture.install(&base_archive, "base", Vec::new()).unwrap();
     let requirement = vec![dependency_on(&base_archive, "base")];
 
-    // No module source is selected here, so any Lua discovery would fail.
     let ready = fixture
         .store
         .ready_dependencies(&fixture.game, &requirement)
@@ -265,7 +262,6 @@ fn dependency_states_distinguish_ready_damaged_other_release_and_missing() {
         [DependencyState::Missing, DependencyState::Missing]
     );
 
-    // A managed package recorded as catalog mod `base`, from another archive.
     let other = fixture.install(&other_archive, "base", Vec::new()).unwrap();
     assert_eq!(
         states(&fixture)[0],
@@ -300,7 +296,6 @@ fn read_only_state_without_provenance_table_reports_missing_dependencies() {
     let fixture = Fixture::new();
     let requirement = vec![dependency_on(&fixture.archive("base"), "base")];
     let path = fixture.dir.path().join("state/state.sqlite");
-    // Simulate state written before catalog provenance existed.
     fixture
         .store
         .connection
@@ -369,7 +364,6 @@ fn stack_installs_members_in_order_as_separate_packages() {
         fixture
             .store
             .install_catalog_stack(&game, &members, |member| {
-                // Each plan is made after the earlier members are installed.
                 if member.release.reference.mod_id == "top" {
                     assert!(game.join("addons/base.plugin").is_file());
                 }
@@ -382,7 +376,6 @@ fn stack_installs_members_in_order_as_separate_packages() {
     assert_eq!(fixture.count("catalog_provenance"), 2);
     assert_eq!(fixture.count("package_dependencies"), 1);
     assert_eq!(fixture.pending_stack_rows(), 0);
-    // Recorded links still protect the dependency after the stack commits.
     let blocked = fixture.uninstall(&packages[0].id).unwrap_err().to_string();
     assert!(blocked.contains("required by"), "{blocked}");
 }
@@ -411,7 +404,6 @@ fn failed_member_rolls_back_every_earlier_member() {
     assert_eq!(fixture.count("pending_transactions"), 0);
     assert_eq!(fixture.pending_stack_rows(), 0);
 
-    // A member whose dependency is not ready also rolls the stack back.
     let unready = [
         member(&base, "base", Vec::new()),
         member(&top, "top", vec![dependency_on(&middle, "middle")]),
@@ -432,7 +424,6 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
     let other = fixture.archive("other");
     let game = fixture.game.clone();
     let release = CatalogRelease::new(reference("base"), Vec::new());
-    // Simulate a crash after the first member committed, before the stack did.
     let proposal = plan(&game, &base);
     let stack_id = fixture.store.begin_stack(&game).unwrap();
     with_module_source(Some(&module_source()), || {

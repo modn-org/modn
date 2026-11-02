@@ -1,4 +1,3 @@
-//! End-to-end catalog installation coverage with disposable fake games and local catalogs.
 #[path = "support/catalog.rs"]
 mod support;
 
@@ -24,7 +23,6 @@ fn adds_first_party_game_and_supports_development_source() {
         b"game-exe"
     );
 
-    // Explicit --src takes a single directory rather than an external module package.
     let other = Fixture::new();
     let source = other.modules.join("test-game");
     let result = Command::new(env!("CARGO_BIN_EXE_modn"))
@@ -166,8 +164,6 @@ fn incorrect_hash_and_unresolved_dependencies_do_not_touch_game() {
     assert!(!fixture.state.join("state.sqlite").exists());
     assert!(!fixture.game.join("addons").exists());
 
-    // Cross-manifest dependency exists but has not been installed. Its own
-    // archive differs, so the dependent's archive cannot stand in for it.
     fixture.bucket("deps", "test-game", "dependent", &digest, &["base"]);
     let base = json!({
         "schema_version":1, "id":"base","game":"test-game","name":"Base",
@@ -389,9 +385,6 @@ fn catalog_selection_errors_precede_registered_root_reads() {
     let (archive, hash) = fixture.archive();
     fixture.bucket("deps", "test-game", "base", &hash, &[]);
     fixture.register();
-    // A ledger that still passes read-only schema checks but cannot list
-    // registrations. Catalog installation reads registrations only before an
-    // approved write, so the missing --path is reported first.
     let connection =
         rusqlite::Connection::open(fixture.state.join("state.sqlite")).expect("state database");
     connection

@@ -1,18 +1,3 @@
-//! Milestone 3 exit gate: reproducible disposable full-stack
-//! installation and rollback.
-//!
-//! The synthetic gate runs offline in CI. It mirrors the official Cyberpunk
-//! prerequisite graph and version requirements with the test-game policy.
-//!
-//! The real gate installs the official eleven-mod stack into a disposable
-//! fake Cyberpunk directory, never a real game. It downloads the `https`
-//! archives and needs the four Nexus archives locally:
-//!
-//! ```text
-//! MODN_GATE_ARCHIVES=~/Downloads/CP77 cargo test -p modn-cli --test milestone_gate -- --ignored
-//! ```
-//!
-//! `MODN_GATE_CACHE` optionally reuses a download cache between runs.
 #[path = "support/catalog.rs"]
 mod support;
 #[path = "support/tree.rs"]
@@ -29,7 +14,6 @@ use support::{error, Fixture};
 use tree::{file_count, sha, snapshot};
 use zip::write::SimpleFileOptions;
 
-/// One official prerequisite release and its declared requirements.
 struct Release {
     id: &'static str,
     version: &'static str,
@@ -37,7 +21,6 @@ struct Release {
     versions: &'static [(&'static str, &'static str)],
 }
 
-/// The official prerequisite graph, with its version requirements.
 const STACK: [Release; 11] = [
     Release {
         id: "red4ext",
@@ -107,7 +90,6 @@ const STACK: [Release; 11] = [
     },
 ];
 
-/// Mods that pull in the whole stack, in the order the gate installs them.
 const TOPS: [&str; 5] = [
     "virtual-atelier",
     "equipment-ex",
@@ -120,9 +102,7 @@ struct Gate {
     fixture: Fixture,
     game: PathBuf,
     cache: PathBuf,
-    /// Supplied archive for each mod that needs one, by mod ID.
     archives: BTreeMap<String, PathBuf>,
-    /// `bucket/game/` prefix that makes each mod reference unambiguous.
     prefix: &'static str,
 }
 
@@ -141,7 +121,6 @@ impl Gate {
         command.output().expect("run CLI")
     }
 
-    /// Supplied archives for `top` and every mod it depends on.
     fn files_for(&self, top: &str) -> Vec<&Path> {
         let mut needed = vec![top];
         let mut index = 0;
@@ -163,8 +142,6 @@ impl Gate {
             .collect()
     }
 
-    /// Install `top` with its missing dependencies; return package IDs in
-    /// install order.
     fn install(&self, top: &str, extra: &[&str]) -> Result<Vec<String>, String> {
         let target = format!("{}{top}", self.prefix);
         let mut args = vec!["--json", "install", target.as_str(), "--yes"];
@@ -197,16 +174,12 @@ impl Gate {
         assert!(output.status.success(), "{id}: {}", error(&output));
     }
 
-    /// Run the gate: rollback, interrupted recovery, then full install and
-    /// reverse uninstall. Returns the owned file count of the full stack.
     fn run(&self, planted: &str, extra: &[&str]) -> usize {
         let before = snapshot(&self.game);
 
-        // 1. A failure in the last member rolls the whole stack back.
         let occupied = self.game.join(planted);
         fs::create_dir_all(occupied.parent().expect("parent")).expect("planted dir");
         fs::write(&occupied, b"unmanaged user file").expect("planted file");
-        // Captured before the install, so a changed planted file fails.
         let expected = snapshot(&self.game);
         assert_eq!(file_count(&expected), file_count(&before) + 1);
         let message = self
@@ -216,7 +189,6 @@ impl Gate {
         assert!(self.managed().is_empty());
         assert_eq!(snapshot(&self.game), expected);
         fs::remove_file(&occupied).expect("remove planted file");
-        // The test, not Modn, created the planted file's missing parents.
         let mut parent = Path::new(planted).parent();
         while let Some(directory) = parent.filter(|p| !p.as_os_str().is_empty()) {
             let key = format!("{}/", directory.to_string_lossy().replace('\\', "/"));
@@ -227,7 +199,6 @@ impl Gate {
         }
         assert_eq!(snapshot(&self.game), before);
 
-        // 2. A stack interrupted before it commits is rolled back by recovery.
         let ids = self.install("codeware", extra).expect("codeware stack");
         self.interrupt(&ids);
         let blocked = self
@@ -242,7 +213,6 @@ impl Gate {
         assert!(self.managed().is_empty());
         assert_eq!(snapshot(&self.game), before);
 
-        // 3. The full stack installs, then uninstalls in reverse order.
         let mut order = Vec::new();
         for top in TOPS {
             order.extend(
@@ -269,8 +239,6 @@ impl Gate {
         owned
     }
 
-    /// Recreate the state a crash leaves after `ids` committed as members of
-    /// a stack that never finished.
     fn interrupt(&self, ids: &[String]) {
         let connection = Connection::open(self.fixture.state.join("state.sqlite")).expect("db");
         let game: String = connection
@@ -357,7 +325,6 @@ fn synthetic_gate() -> Gate {
 
 #[test]
 fn synthetic_full_stack_installs_and_rolls_back_reproducibly() {
-    // The synthetic graph must stay the official one.
     let catalog =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
     let mut official: Vec<String> = fs::read_dir(&catalog)
@@ -423,7 +390,6 @@ fn real_cyberpunk_stack_installs_and_rolls_back_in_a_disposable_directory() {
     )
     .expect("marker");
 
-    // Pick each manual archive by the digest its official manifest pins.
     let catalog =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
     let mut digests = BTreeMap::new();

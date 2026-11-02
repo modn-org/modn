@@ -1,4 +1,3 @@
-//! Real CLI regression for dense framework inventories.
 use serde_json::Value;
 use std::fs;
 use std::process::Command;

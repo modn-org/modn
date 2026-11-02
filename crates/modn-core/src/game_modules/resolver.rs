@@ -1,4 +1,3 @@
-//! Per-command development overrides and embedded first-party Lua policies.
 use super::bundled::read_bundled;
 use super::loader::{self, VerifiedModule};
 use anyhow::{bail, Result};
@@ -31,8 +30,6 @@ pub(super) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     if !loader::valid_game_id(game) {
         bail!("invalid game module identifier");
     }
-    // An explicit development source wins and never falls back; otherwise use
-    // the reviewed module compiled into this executable.
     let source = MODULE_SOURCE.with(|slot| slot.borrow().clone());
     let directory = source.or_else(|| {
         std::env::var_os("MODN_GAME_MODULES_DIR").map(|base| PathBuf::from(base).join(game))

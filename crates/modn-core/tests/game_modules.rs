@@ -1,4 +1,3 @@
-//! Disposable-fixture acceptance tests for the local, untrusted Lua module boundary.
 use modn_core::game_modules::{check_module, HOST_API_VERSION};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -42,7 +41,6 @@ fn local_fixture_is_loaded_without_host_rebuild() {
     assert_eq!(first.version, "1.2.3");
     assert_eq!(first.api_version, HOST_API_VERSION);
 
-    // The same compiled host sees policy edits to an external script.
     write_script(
         &directory,
         "return {game_id='other-game', api_version=mods_host.api_version}",

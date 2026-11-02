@@ -1,5 +1,3 @@
-//! Core-side validation before any approved ZIP operation is staged.
-//! Game policy never authorizes filesystem writes by itself.
 use crate::archive::{validated_name, Inspection};
 use crate::planning::{
     approved_tool_executable, existing_destination_issue, insert_destination, prohibited_payload,
@@ -15,7 +13,6 @@ use std::path::{Path, PathBuf};
 const MAX_FILE: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_TOTAL: u64 = 8 * 1024 * 1024 * 1024;
 
-/// Require an existing real directory; no game-specific executable or layout checks.
 pub(crate) fn validate_transaction_root(game: &Path) -> Result<PathBuf> {
     let metadata = fs::symlink_metadata(game)?;
     if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
@@ -24,8 +21,6 @@ pub(crate) fn validate_transaction_root(game: &Path) -> Result<PathBuf> {
     Ok(game.canonicalize()?)
 }
 
-/// Revalidate a caller-approved proposal independently of its origin and
-/// against fresh archive headers and live target paths under the store lock.
 pub(super) fn validate_execution_plan(
     inspection: &Inspection,
     game: &Path,
@@ -116,8 +111,6 @@ pub(super) fn validate_execution_plan(
     Ok(())
 }
 
-/// Reserve even missing owned destinations before staging. SQLite ownership
-/// must not be silently replaced if a managed file has disappeared on disk.
 pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallPlan) -> Result<()> {
     validate_ownership_paths(
         store,
@@ -129,7 +122,6 @@ pub(super) fn validate_ownership(store: &Store, game: &Path, proposal: &InstallP
     )
 }
 
-/// Reject overlapping installation roots, owned destinations and aliases.
 pub(crate) fn validate_ownership_paths<'a>(
     store: &Store,
     game: &Path,
@@ -180,8 +172,6 @@ pub(crate) fn validate_ownership_paths<'a>(
     Ok(())
 }
 
-/// Directory claims must not cover an existing package's reserved paths, even
-/// when its files have been removed from disk. This prevents ownership theft.
 pub(super) fn validate_directory_reservations(
     store: &Store,
     game: &Path,

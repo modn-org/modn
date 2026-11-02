@@ -1,4 +1,3 @@
-//! First-party Lua game-module loader and read-only host capability boundary.
 mod bundled;
 mod capabilities;
 mod loader;

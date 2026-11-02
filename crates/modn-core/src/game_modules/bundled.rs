@@ -1,8 +1,3 @@
-//! First-party game modules compiled into the executable.
-//!
-//! The reviewed sources under `crates/modn-core/game-modules/<game-id>/` are
-//! embedded at build time, so a release binary never reads policy from a
-//! directory beside it or from the build machine's source tree.
 use super::loader::{self, VerifiedModule};
 use anyhow::{Context, Result};
 
@@ -20,7 +15,6 @@ const BUNDLED: &[BundledModule] = &[BundledModule {
     script: include_str!("../../game-modules/cyberpunk-2077/main.lua"),
 }];
 
-/// Load the embedded first-party module for `game`.
 pub(super) fn read_bundled(game: &str) -> Result<(VerifiedModule, String)> {
     let module = BUNDLED
         .iter()

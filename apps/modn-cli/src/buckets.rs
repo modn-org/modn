@@ -20,10 +20,6 @@ pub(super) fn run(
         &command,
         BucketCommand::Add { .. } | BucketCommand::Remove { .. }
     ) {
-        // Keep catalog mutations outside known game roots, even when the
-        // operator supplies --state-dir without --game. Game identities come
-        // from data and registered state, not game-specific Rust adapters.
-        // Registered paths are used as stored, not canonicalized, as before.
         let state = ManagerState::load_deferred(state_path)?;
         let registered = state
             .existing()
@@ -40,8 +36,6 @@ pub(super) fn run(
         }
         games.sort();
         games.dedup();
-        // Validate the actual registry write location, not just its state
-        // parent: a game may itself reside in <state-dir>/buckets.
         let registry_target = root.join("buckets/registrations/.bucket-entry.json");
         if games.is_empty() {
             validate_state_path(&registry_target, None, None, &roots)?;
@@ -108,7 +102,6 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
     )
 }
 
-/// Search all registered catalogs without writing manager state.
 pub(super) fn search(
     query: Option<&str>,
     state_path: &Path,

@@ -1,4 +1,3 @@
-//! Read-only dependency plans from `modn install <mod> --dry-run`.
 #[path = "support/catalog.rs"]
 mod support;
 
@@ -147,7 +146,6 @@ fn dry_run_reports_ready_damaged_and_other_release_dependencies() {
     let package_id = ready["dependencies"][0]["package_ids"][0].clone();
     assert!(package_id.is_string());
 
-    // Drifted content is reported instead of failing the dry run.
     let owned = fixture.game.join("addons/example.plugin");
     fs::write(&owned, b"modified").expect("drift");
     let damaged = plan();
@@ -156,7 +154,6 @@ fn dry_run_reports_ready_damaged_and_other_release_dependencies() {
     assert_eq!(damaged["dependencies_ready"], false);
     assert_eq!(fs::read(&owned).expect("owned"), b"modified");
 
-    // The catalog moved to another release of `base` after it was installed.
     let mut base: Value =
         serde_json::from_slice(&fs::read(manifests.join("base.json")).expect("base"))
             .expect("JSON");

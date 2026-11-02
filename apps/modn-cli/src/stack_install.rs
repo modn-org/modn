@@ -1,8 +1,3 @@
-//! Install a catalog mod together with its missing dependencies, as one stack.
-//!
-//! The Rust core installs the stack under one transaction lock and uninstalls
-//! every package it installed if any package fails. Each package keeps its own
-//! ownership record, provenance and dependency links.
 use crate::catalog_install::{catalog_release, reference_of};
 use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
@@ -18,14 +13,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::PathBuf;
 
-/// A selected mod whose dependencies are not all ready.
 pub(super) struct Stack<'a> {
     pub(super) selected: &'a BucketPackage,
-    /// Dependencies of `selected`, in install order.
     pub(super) order: &'a [BucketPackage],
-    /// The state of each release in `order`, at the same index.
     pub(super) dependencies: &'a [PlannedDependency],
-    /// Supplied or cached archives by catalog reference.
     pub(super) archives: BTreeMap<String, PathBuf>,
     pub(super) catalog: &'a BucketStore,
     pub(super) cache: &'a ArchiveCache,
@@ -34,16 +25,6 @@ pub(super) struct Stack<'a> {
     pub(super) installation: PathBuf,
 }
 
-/// Releases to install, in order: every missing dependency, then the mod.
-///
-/// One managed package satisfies every release that pins its archive digest,
-/// so each digest installs once: a second release with the same archive
-/// would only collide with the first. The skipped release must declare the
-/// same dependencies as the installed one. Otherwise its own requirements
-/// would be neither checked under the lock nor recorded as links.
-///
-/// A release with a manual source and no supplied archive fails here,
-/// before any download. An `https` release without one downloads later.
 fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
     let mut by_digest: BTreeMap<&str, &BucketPackage> = BTreeMap::new();
     let mut needed: Vec<&BucketPackage> = Vec::new();
@@ -59,8 +40,6 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
             needed.push(release);
             continue;
         };
-        // Only the kept release's requirements are checked under the lock
-        // and recorded, so a skipped alias must declare the same ones.
         let declared = |release: &BucketPackage| -> (BTreeSet<String>, BTreeSet<String>) {
             let set = |ids: &[String]| ids.iter().cloned().collect();
             (
@@ -109,7 +88,6 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
     Ok(needed)
 }
 
-/// Install the missing dependencies and the selected mod after one approval.
 pub(super) fn run(
     mut stack: Stack<'_>,
     state: ManagerState,
@@ -119,7 +97,6 @@ pub(super) fn run(
     let releases = releases(&stack)?;
     let interactive = !args.yes;
     let explicit = &args.allow_executable;
-    // Manifests declare executables; only the operator approves them.
     let unapproved: Vec<String> = releases
         .iter()
         .flat_map(|release| &release.package.executables)

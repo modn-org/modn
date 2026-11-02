@@ -1,15 +1,3 @@
-//! Declared conflicts between catalog releases, checked under the install lock.
-//!
-//! A package manifest may declare that its mod must not be installed with
-//! another mod of the same bucket and game. Each managed catalog package
-//! records its declared conflicts in the same commit as its ownership, so the
-//! check holds in both directions even after the catalog changes.
-//!
-//! Dependency readiness treats a managed package with a release's pinned
-//! archive digest as that release. Conflicts use the same rule: a conflict
-//! matches by catalog identity or by the conflicting release's pinned digest,
-//! so a release installed through another manifest with the same archive
-//! cannot escape a conflict.
 use super::catalog::{CatalogConflict, CatalogReference, CatalogRelease};
 use super::validation::validate_transaction_root;
 use crate::state::Store;
@@ -17,7 +5,6 @@ use anyhow::Result;
 use rusqlite::{params, Transaction};
 use std::path::Path;
 
-/// One managed package as conflict checks see it.
 struct Installed {
     id: String,
     archive_sha256: String,
@@ -55,8 +42,6 @@ impl Store {
     ) -> Result<Vec<String>> {
         let game = validate_transaction_root(game)?;
         let game_path = game.to_string_lossy().into_owned();
-        // A read-only database from an older Modn may lack the catalog
-        // tables; its packages still match by archive digest.
         let mut statement = self
             .connection
             .prepare(if self.has_table("catalog_provenance")? {
@@ -90,7 +75,6 @@ impl Store {
                  WHERE p.game_path=?1
                    AND ((k.bucket=?2 AND k.game_id=?3 AND k.mod_id=?4) OR k.archive_sha256=?5)",
             )?;
-            // A standalone archive has no catalog identity: NULL never matches.
             let reference = release.map(|release| &release.reference);
             declaring = statement
                 .query_map(

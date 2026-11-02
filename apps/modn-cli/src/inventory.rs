@@ -1,4 +1,3 @@
-//! `modn scan` and `doctor`: read-only reconciliation of game content and ownership.
 use crate::selection::selected_installation;
 use crate::state_access::ManagerState;
 use anyhow::Result;
@@ -7,8 +6,6 @@ use modn_core::scan::IntegrityStatus;
 use modn_core::state::Store;
 use std::path::{Path, PathBuf};
 
-// Scan and doctor never write game files; they still open (or create) manager
-// state after validating its location, as before.
 fn selected_store(
     path: Option<PathBuf>,
     state_path: &Path,

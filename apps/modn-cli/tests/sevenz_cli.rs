@@ -1,4 +1,3 @@
-//! End-to-end 7z execution, including a Browser Extension redscript layout.
 use serde_json::Value;
 use sevenz_rust2::{ArchiveEntry, ArchiveWriter, SourceReader};
 use std::fs;
@@ -279,9 +278,8 @@ fn damaged_7z_stream_does_not_publish_game_files() {
     );
     let mut bytes = fs::read(&archive).expect("7z bytes");
     assert!(bytes.len() > 50, "valid 7z header and payload");
-    // First packed data byte begins immediately after the 32-byte 7z signature
-    // header. Alter the compressed body, not the parseable metadata headers.
-    bytes[34] ^= 0x40;
+    let compressed_body_byte = 34;
+    bytes[compressed_body_byte] ^= 0x40;
     fs::write(&archive, bytes).expect("tamper compressed stream");
     let report = preview(&game, &state, &archive);
     assert_eq!(report["status"], "reviewable", "{report}");

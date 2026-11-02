@@ -7,24 +7,23 @@ use std::path::{Path, PathBuf};
 const MAX_ENTRIES: usize = 20_000;
 
 /// Detected mod entry and optional ownership attribution.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DetectedMod {
-    /// Detected layout category.
     pub kind: String,
     /// Game-relative file or directory path.
     pub relative_path: PathBuf,
     /// Whether a recorded manager-owned file matched.
     pub managed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// Owning package ID, if managed.
     pub package_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// Recorded owned-file integrity status, if available.
     pub integrity: Option<IntegrityStatus>,
 }
 
 /// Read-only inventory of a game installation.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct ScanReport {
@@ -32,13 +31,9 @@ pub struct ScanReport {
     pub incomplete: bool,
     /// Bounded reasons for skipped, unsafe, or truncated directory entries.
     pub scan_issues: Vec<String>,
-    /// Identifier of the scanned game.
     pub game_id: String,
-    /// Scanned game installation path.
     pub installation: PathBuf,
-    /// Whether REDmod tooling was found.
     pub redmod_available: bool,
-    /// Detected mod content and ownership attribution.
     pub mods: Vec<DetectedMod>,
     /// Owned-file checks, including absent files.
     pub owned_files: Vec<OwnedFileCheck>,
@@ -47,6 +42,7 @@ pub struct ScanReport {
 }
 
 /// Integrity of a manager-owned file, as observed on disk.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
@@ -57,11 +53,9 @@ pub enum IntegrityStatus {
     Present,
     /// Present but with a different size or digest.
     Modified,
-    /// Not present at its recorded path.
     Missing,
     /// Linked, redirected or not the expected kind of filesystem entry.
     Unsafe,
-    /// Could not be read to verify.
     Unreadable,
 }
 
@@ -94,26 +88,23 @@ impl fmt::Display for IntegrityStatus {
 }
 
 /// Integrity result for a manager-owned file.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct OwnedFileCheck {
-    /// Package that owns the file.
     pub package_id: String,
     /// Recorded game-relative destination.
     pub relative_path: String,
-    /// Observed integrity of the recorded file.
     pub status: IntegrityStatus,
-    /// SHA-256 recorded during installation.
     pub expected_sha256: String,
-    /// Size recorded during installation.
     pub expected_bytes: u64,
 }
 
 /// Presence hint for a possible mod framework, not a health check.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FrameworkSignal {
-    /// Framework name.
     pub name: String,
     /// Path supporting the presence hint.
     pub relative_path: String,
@@ -122,24 +113,22 @@ pub struct FrameworkSignal {
 }
 
 /// Non-mutating diagnostic finding.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct Diagnostic {
-    /// Machine-readable diagnostic identifier.
     pub code: String,
     /// Severity such as `info` or `warning`.
     pub severity: String,
-    /// Description of the finding.
     pub message: String,
 }
 
 /// Read-only inventory and its diagnostic messages.
+#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct DoctorReport {
-    /// Underlying inventory report.
     pub scan: ScanReport,
-    /// Warnings and informational findings.
     pub diagnostics: Vec<Diagnostic>,
     /// Folders Modn created for its packages, removed when empty. Empty
     /// when the report was made without manager state.

@@ -1,4 +1,3 @@
-//! End-to-end real CLI tests for Cyberpunk CET and RED4ext ZIP packages.
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::Write;

@@ -1,4 +1,3 @@
-//! Integration checks for inventory behavior.
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::scan::IntegrityStatus;
 use modn_core::state::Store;
@@ -130,7 +129,7 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
     let (_root, mut store, game, archive) = fixture();
     install_zip(&mut store, &game, &archive);
     let file = game.join("archive/pc/mod/managed.archive");
-    fs::write(&file, b"changed!").unwrap(); // same byte length tests actual SHA-256, not only size.
+    fs::write(&file, b"changed!").unwrap();
     let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     assert_eq!(owned(&report, "archive/pc/mod/managed.archive"), "modified");
     assert!(report
@@ -260,7 +259,6 @@ fn unicode_casefold_collision_does_not_adopt_unmanaged_file() {
     let package = install_zip(&mut store, &game, &zip_path);
 
     let lookalike = game.join("archive/pc/mod/\u{212A}.archive");
-    // Skip on a filesystem that really aliases these names: never overwrite a fixture's owned file.
     if lookalike.exists() {
         return;
     }
@@ -475,7 +473,7 @@ fn final_sigma_directory_rename_retains_managed_scan_attribution() {
     fs::rename(&intermediate, &renamed).unwrap();
     if !original.exists() {
         return;
-    } // filesystem explicitly case-sensitive
+    }
     fs::write(renamed.join("generated.dll"), b"runtime").unwrap();
     let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
     for file in ["plugin.dll", "generated.dll"] {

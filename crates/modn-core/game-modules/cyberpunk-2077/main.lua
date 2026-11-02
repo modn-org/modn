@@ -1,5 +1,3 @@
--- Cyberpunk 2077 discovery, scan layout and diagnostics policy.
--- All I/O is mediated by Rust's read-only, root-scoped host services.
 local fs = mods_host.fs
 local dir = mods_host.directory
 local policy = {
@@ -52,7 +50,6 @@ end
 local function listing(folder, required, max_items)
     local ok, response = pcall(dir.list, 1, folder, max_items)
     if ok then return response end
-    -- Missing layout roots are optional; discovered descendants must be readable.
     if required then return { items = {}, incomplete = true } end
     return nil
 end
@@ -72,7 +69,6 @@ function policy.scan(limit)
         for _, entry in ipairs(response.unsafe_names or {}) do
             local name = entry.name
             if entry.file_symlink and string.match(folder, "^red4ext/plugins/[^/]+$") and string.match(string.lower(name), "%.log$") then
-                -- Generated log is not mod content; never follow its link.
                 issues.SCAN_IGNORED_GENERATED_LOG = true
             else
                 incomplete = true
@@ -105,7 +101,6 @@ function policy.scan(limit)
         while #stack > 0 do
             local current = table.remove(stack)
             if framework and framework_remaining <= 0 then
-                -- Bounded peeks: uncertainty must be reported as incomplete.
                 empty_peeks = empty_peeks + 1
                 if empty_peeks > 32 then
                     mark_limit()
@@ -157,14 +152,12 @@ function policy.scan(limit)
             if entry.kind == "directory" then
                 local subfolder = folder .. "/" .. entry.name
                 if scan_files then
-                    -- Emit individual files for CET/RED4ext ownership.
                     local start = #mods
                     collect_files(subfolder, nil, kind, true)
                     if #mods == start and framework_remaining > 0 then
                         push(subfolder, kind)
                     end
                 else
-                    -- REDmod remains a directory-only presence signal.
                     push(subfolder, kind)
                 end
             end
@@ -377,7 +370,6 @@ function policy.plan(files)
             end
         end
     end
-    -- Mandatory members must come from this ZIP, not an existing game install.
     local required = {
         ["cet-runtime"] = { "bin/x64/version.dll", "bin/x64/plugins/cyber_engine_tweaks.asi", "bin/x64/global.ini", "bin/x64/plugins/cyber_engine_tweaks/scripts/json/json.lua", "bin/x64/plugins/cyber_engine_tweaks/tweakdb/tweakdbstr.kark" },
         ["red4ext-runtime"] = { "bin/x64/winmm.dll", "red4ext/RED4ext.dll", "red4ext/LICENSE.txt", "red4ext/THIRD_PARTY_LICENSES.txt" },

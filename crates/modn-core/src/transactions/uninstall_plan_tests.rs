@@ -1,4 +1,3 @@
-//! Uninstall by catalog name, with dependencies and dependents.
 use super::catalog_tests::{module_source, reference, Fixture};
 use super::validation::validate_transaction_root;
 use super::{CatalogDependency, CatalogReference, CatalogRelease, UninstallScope};
@@ -21,8 +20,6 @@ const NEITHER: UninstallScope = UninstallScope {
     dependents: false,
 };
 
-/// A game fixture whose mods each have one archive, built once so that
-/// dependency digests match the archive that was installed.
 struct Lab {
     fixture: Fixture,
     archives: HashMap<String, PathBuf>,
@@ -36,7 +33,6 @@ impl Lab {
         }
     }
 
-    /// Install `name` from `bucket`, needing the already-installed mods in `needs`.
     fn install_from(&mut self, bucket: &str, name: &str, needs: &[&str]) -> String {
         let dependencies = needs
             .iter()
@@ -67,7 +63,6 @@ impl Lab {
         })
     }
 
-    /// Mod names still installed, sorted: packages made in one second have no stable order.
     fn installed(&self) -> Vec<String> {
         let packages = self.fixture.store.installed(&self.fixture.game).unwrap();
         let mut names: Vec<String> = packages
@@ -114,7 +109,6 @@ fn a_name_that_matches_several_packages_is_refused() {
     let mut lab = Lab::new();
     let first = lab.install_from("deps", "twin", &[]);
     let second = lab.install_from("alt", "twin-two", &[]);
-    // Give the second package the same mod name in another bucket.
     lab.fixture
         .store
         .connection
@@ -157,7 +151,6 @@ fn dependencies_leave_only_when_no_remaining_package_needs_them() {
     let first = lab.install("first", &["base"]);
     let second = lab.install("second", &["base"]);
 
-    // `second` still needs `base`, so only `first` goes.
     assert_eq!(lab.uninstall("first", DEPENDENCIES).unwrap(), [first]);
     assert_eq!(lab.installed(), ["base", "second"]);
     assert_eq!(
@@ -203,7 +196,6 @@ fn a_removal_that_commits_and_then_fails_cleanup_is_reported_as_removed() {
     let mut lab = Lab::new();
     lab.install("base", &[]);
     let top = lab.install("top", &["base"]);
-    // A corrupt folder record makes the cleanup after the commit fail.
     let game = validate_transaction_root(&lab.fixture.game).unwrap();
     lab.fixture
         .store

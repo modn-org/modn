@@ -367,7 +367,6 @@ fn redscript_archivexl_mixed_failure_preserves_manual_files_and_recovers() {
     }
 }
 
-/// Simulated crash states need the destination's parent directories.
 fn test_target(game: &Path, relative: &str) -> PathBuf {
     fs::create_dir_all(game.join(relative).parent().unwrap()).unwrap();
     target_path(game, relative).unwrap()

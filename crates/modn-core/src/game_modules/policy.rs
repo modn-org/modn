@@ -1,4 +1,3 @@
-//! Generic adapter for runtime-loaded, game-specific Lua policies.
 use super::capabilities::{AllowedRoots, ReadProfile};
 use super::loader::HOST_API_VERSION;
 use super::resolver::read_policy;
@@ -53,7 +52,6 @@ fn evaluate_with_profile<T>(
     )
 }
 
-/// Validate a selected installation by its game policy, not a hardcoded Rust executable path.
 pub(crate) fn validate(game_id: &str, root: &Path) -> Result<(bool, String)> {
     evaluate(game_id, &[root.to_path_buf()], |_, policy| {
         let valid: bool = policy.get::<Function>("validate")?.call(())?;
@@ -62,21 +60,18 @@ pub(crate) fn validate(game_id: &str, root: &Path) -> Result<(bool, String)> {
     })
 }
 
-/// Determine the Steam installation folder from game-specific manifest policy.
 pub(crate) fn steam_name(game_id: &str, root: &Path) -> Result<String> {
     evaluate(game_id, &[root.to_path_buf()], |_, policy| {
         policy.get::<Function>("steam_name")?.call(())
     })
 }
 
-/// Decide which Epic display name identifies the bundled game.
 pub(crate) fn epic_match(game_id: &str, display_name: &str) -> Result<bool> {
     evaluate(game_id, &[], |_, policy| {
         policy.get::<Function>("is_epic")?.call(display_name)
     })
 }
 
-/// Game-specific common installation directory hints relative to system game roots.
 pub(crate) fn common_paths(game_id: &str) -> Result<Vec<String>> {
     evaluate(game_id, &[], |_, policy| {
         let paths: Table = policy.get("common_paths")?;
@@ -164,7 +159,6 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
     })
 }
 
-/// Obtain game-specific inventory policy through a bounded read-only Lua VM.
 pub(crate) fn scan(game_id: &str, root: &Path, limit: usize) -> Result<ScanReport> {
     let canonical = root.canonicalize()?;
     evaluate_with_profile(
@@ -179,7 +173,6 @@ pub(crate) fn scan(game_id: &str, root: &Path, limit: usize) -> Result<ScanRepor
     )
 }
 
-/// Game-specific diagnostic policy receives only a sanitized inventory summary.
 pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
     evaluate(&report.game_id, &[], |lua, policy| {
         let input = lua.create_table()?;
@@ -249,7 +242,6 @@ fn plan_field(
     Ok(value.to_str()?.to_string())
 }
 
-/// Decode a game module's versioned, metadata-only proposal. No host mutation is exposed.
 pub(crate) fn plan(
     game_id: &str,
     root: &Path,

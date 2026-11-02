@@ -1,18 +1,10 @@
-//! Operator confirmation for catalog installs and their declared executables.
-//!
-//! A bucket manifest may *declare* tool executables, but only the operator
-//! approves them: interactively at this prompt, or with an explicit
-//! `--allow-executable` flag naming each path. `--yes` alone never approves a
-//! declared executable.
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::Path;
 
-/// Whether this invocation can ask the operator a question.
 pub(super) fn can_prompt(json: bool) -> bool {
     !json && io::stdin().is_terminal() && io::stderr().is_terminal()
 }
 
-/// Declared executables among a plan's destinations that no flag approved.
 pub(super) fn pending_executables(
     declared: &[String],
     explicit: &[String],
@@ -26,7 +18,6 @@ pub(super) fn pending_executables(
         .collect()
 }
 
-/// What the operator is asked to approve in one confirmation.
 pub(super) struct Request<'a> {
     pub(super) reference: &'a str,
     pub(super) game: &'a Path,
@@ -34,8 +25,6 @@ pub(super) struct Request<'a> {
     pub(super) executables: &'a [String],
 }
 
-/// Asks once; only `y` or `yes` approves. Anything else, including EOF,
-/// declines.
 pub(super) fn confirm(
     request: &Request<'_>,
     input: &mut impl BufRead,
@@ -51,15 +40,12 @@ pub(super) fn confirm(
     ask_approval(request.executables, input, output)
 }
 
-/// What the operator approves for a mod installed with its missing dependencies.
 pub(super) struct StackRequest<'a> {
     pub(super) game: &'a Path,
-    /// `reference version` of each package, in install order.
     pub(super) packages: &'a [String],
     pub(super) executables: &'a [String],
 }
 
-/// Asks once for the whole stack, with the same answers as [`confirm`].
 pub(super) fn confirm_stack(
     request: &StackRequest<'_>,
     input: &mut impl BufRead,
@@ -108,7 +94,6 @@ fn ask_approval(
     read_yes(input, output)
 }
 
-/// Asks before downloads that must happen ahead of the install prompt.
 pub(super) fn confirm_download(
     downloads: &[String],
     input: &mut impl BufRead,
@@ -181,8 +166,6 @@ mod tests {
             "engine/tools/other.exe",
             "r6/scripts/mod.reds",
         ];
-        // a: already approved by flag; absent: not installed; undeclared and
-        // other: never approvable by the manifest.
         assert_eq!(
             pending_executables(&declared, &explicit, &destinations),
             ["engine/tools/b.exe"]

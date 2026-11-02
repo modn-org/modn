@@ -1,7 +1,3 @@
-//! Recovery of interrupted journaled transactions.
-//!
-//! Recovery reads each pending journal and either completes it or rolls it
-//! back. It never deletes a file whose digest it cannot verify.
 use super::journal::{
     digest, lock_store, target_path, temp_path, Journal, JournalDirectory, JournalFile,
 };

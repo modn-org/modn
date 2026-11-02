@@ -1,4 +1,3 @@
-//! Read-only dependency plan shown by `modn install <mod> --dry-run`.
 use crate::catalog_install::{catalog_release, reference_of};
 use anyhow::Result;
 use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
@@ -8,19 +7,16 @@ use modn_core::transactions::{CatalogDependency, DependencyState};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// One release the selected mod needs, with its installed state.
 pub(super) struct PlannedDependency {
     reference: String,
     version: String,
     sha256: String,
     source: PackageSource,
     state: DependencyState,
-    /// A supplied archive whose digest matches this release.
     archive: Option<PathBuf>,
 }
 
 impl PlannedDependency {
-    /// JSON record: the release fields plus the tagged `state` fields.
     fn as_json(&self) -> Result<serde_json::Value> {
         let mut record = serde_json::json!({
             "reference": self.reference,
@@ -45,7 +41,6 @@ impl PlannedDependency {
         matches!(self.state, DependencyState::Missing)
     }
 
-    /// The state as one line, with what the user can do about it.
     pub(super) fn describe(&self) -> String {
         let state = match &self.state {
             DependencyState::Ready { package_ids } => format!("ready ({})", package_ids.join(", ")),
@@ -68,10 +63,6 @@ impl PlannedDependency {
     }
 }
 
-/// The installed state of each dependency in `order`, the dependencies of
-/// the selected release in install order.
-///
-/// Without manager state nothing is managed, so every dependency is missing.
 pub(super) fn plan(
     order: &[BucketPackage],
     archives: &BTreeMap<String, PathBuf>,
@@ -105,7 +96,6 @@ pub(super) fn plan(
         .collect())
 }
 
-/// Installed packages that conflict with any release this command installs.
 pub(super) fn conflicts(
     releases: &[&BucketPackage],
     catalog: &BucketStore,
@@ -128,7 +118,6 @@ pub(super) fn conflicts(
     Ok(found)
 }
 
-/// How to obtain an archive, as a short instruction.
 pub(super) fn acquisition(source: &PackageSource) -> String {
     match source {
         PackageSource::Manual { filename } => format!("download {filename:?} manually"),
@@ -137,16 +126,11 @@ pub(super) fn acquisition(source: &PackageSource) -> String {
     }
 }
 
-/// The selected archive's file operations, when the user supplied it.
 pub(super) struct ArchivePreview<'a> {
     pub(super) plan: &'a InstallPlan,
     pub(super) unapproved_declared_executables: &'a [String],
 }
 
-/// Print a catalog dry run: dependencies first, then the selected archive.
-///
-/// Without `--file` the archive section names the archive to supply, and
-/// `plan` and `unapproved_declared_executables` are `null` in JSON.
 pub(super) fn report(
     reference: &str,
     selected: &BucketPackage,
@@ -203,7 +187,6 @@ pub(super) fn report(
     Ok(())
 }
 
-/// Print the plan for a terminal, one dependency per line.
 fn print(dependencies: &[PlannedDependency]) {
     if dependencies.is_empty() {
         return;

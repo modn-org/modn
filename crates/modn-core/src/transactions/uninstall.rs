@@ -15,7 +15,6 @@ impl Store {
         self.uninstall_locked(game, package_id)
     }
 
-    /// Uninstall one package; the caller holds the transaction lock.
     pub(super) fn uninstall_locked(&mut self, game: &Path, package_id: &str) -> Result<()> {
         self.ensure_no_pending()?;
         let game = validate_transaction_root(game)?;
@@ -52,8 +51,6 @@ impl Store {
                 );
             }
         }
-        // Refuse absent, linked or replaced directories before recording a
-        // persistent transaction; recovery must never need to guess ownership.
         for (index, root) in package.directories.iter().enumerate() {
             let path = target_path(&game, root)?;
             let metadata = fs::symlink_metadata(&path)?;

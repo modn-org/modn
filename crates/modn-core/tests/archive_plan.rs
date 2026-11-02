@@ -1,4 +1,3 @@
-//! Integration checks for archive plan behavior.
 use modn_core::archive::inspect;
 use modn_core::archive::ArchiveFormat;
 use modn_core::planning::resolve;
