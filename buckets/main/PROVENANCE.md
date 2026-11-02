@@ -62,7 +62,9 @@ were read by the reviewer of this snapshot.
 - `browser-extension`: its Nexus page requires redscript, RED4ext and
   Codeware. Its Mod Settings support is conditional.
 - `no-intro-videos`: one redscript source file.
-- `input-loader`: its README says to install RED4ext first.
+- `input-loader`: its README says to install RED4ext first, and its release
+  requirements list RED4ext 1.31.0+, which the manifest declares as a
+  `dependency_version`.
 - `better-loot-markers`: its README requires Cyber Engine Tweaks 1.34.1+, which
   its manifest declares as a `dependency_version`.
 
