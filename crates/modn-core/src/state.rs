@@ -132,6 +132,14 @@ impl Store {
                 archive_sha256 TEXT,
                 PRIMARY KEY(package_id, bucket, game_id, mod_id)
             );
+            CREATE TABLE IF NOT EXISTS package_requirements (
+                package_id TEXT NOT NULL REFERENCES managed_packages(id),
+                bucket TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                mod_id TEXT NOT NULL,
+                requirement TEXT,
+                PRIMARY KEY(package_id, bucket, game_id, mod_id)
+            );
             CREATE TABLE IF NOT EXISTS pending_stacks (
                 id TEXT PRIMARY KEY,
                 game_path TEXT NOT NULL

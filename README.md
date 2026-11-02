@@ -280,8 +280,8 @@ the bucket publishes. Name the mod as for install: `mod`, `game/mod` or
   has its archive digest) and its exclusive folders
 - the target release
 - the files that the update adds, replaces and removes
-- each managed package that depends on the mod, and whether its current
-  manifest accepts the target version
+- each managed package that depends on the mod, and whether its installed
+  release accepts the target version
 
 The file list needs the target archive. Without it, the dry run names the
 archive to supply. `--file` and `--download` work as for install. JSON adds
@@ -293,9 +293,22 @@ the same approval as for install.
 
 Modn updates only the mod that you name. It never updates a dependency or a
 framework as a side effect. The update is blocked in these cases:
+- the target release fails the checks of an install: a dependency that the
+  bucket does not publish, a `dependency_versions` requirement that the
+  bucket's dependency release misses, a cycle or a conflict
 - a dependency of the target release is not ready; update or install it first
-- a dependent's current manifest has a `dependency_versions` requirement that
-  the target version does not meet
+- a dependent's installed release has a `dependency_versions` requirement
+  that the target version does not meet
+- a dependent's requirement is unknown
+- the new release would depend, directly or through other packages, on a
+  package that depends on the mod
+
+Each catalog install records its dependency requirements with its ownership,
+so an update checks the requirement of the release that is actually
+installed, not of the bucket's current release. A package installed before
+Modn recorded requirements falls back to the bucket release with its archive
+digest. If the bucket no longer publishes that release, the requirement is
+unknown: update or reinstall that dependent first.
 
 The game policy plans the new release as if the old release were already
 removed, so an exclusive folder is claimed again. Rust then validates the
@@ -312,7 +325,8 @@ transaction under the transaction lock:
 If a step fails before that commit, Modn restores the old release under its
 package ID. If the process stops, other writes are refused until
 `modn recover --yes`, which removes the new files and then restores the old
-release. Runtime content in an exclusive folder, such as a log or settings
+release. A partial copy that Modn had not yet linked into the game is
+deleted, because no game file refers to it. Runtime content in an exclusive folder, such as a log or settings
 file, is part of the old release's folder: a successful update deletes it with
 that folder, exactly like an uninstall. Copy such files first if you need them.
 

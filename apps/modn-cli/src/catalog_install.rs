@@ -153,10 +153,10 @@ pub(super) fn catalog_release(
                         selected.bucket, selected.package.game, id
                     )
                 })?;
-            Ok(CatalogDependency::new(
-                reference_of(dependency),
-                dependency.package.sha256.clone(),
-            ))
+            Ok(
+                CatalogDependency::new(reference_of(dependency), dependency.package.sha256.clone())
+                    .with_requirement(selected.package.dependency_versions.get(id).cloned()),
+            )
         })
         .collect::<Result<_>>()?;
     let conflicts = selected

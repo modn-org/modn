@@ -99,10 +99,7 @@ pub(super) fn reference(mod_id: &str) -> CatalogReference {
 }
 
 fn dependency_on(archive: &Path, mod_id: &str) -> CatalogDependency {
-    CatalogDependency {
-        reference: reference(mod_id),
-        archive_sha256: inspect(archive).unwrap().sha256,
-    }
+    CatalogDependency::new(reference(mod_id), inspect(archive).unwrap().sha256)
 }
 
 fn plan(game: &Path, archive: &Path) -> InstallPlan {

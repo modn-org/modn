@@ -75,20 +75,36 @@ impl Catalog {
         fs::read_to_string(self.fixture.game.join("addons").join(file)).ok()
     }
 
-    fn requirement(&self, requirement: &str) {
-        let (_, top_hash) = plugins(&self.fixture, "top", &[("top.plugin", "top")]);
+    fn top_release(&self, file: &str, version: &str, contents: &str, requirement: &str) -> PathBuf {
+        let (path, hash) = plugins(
+            &self.fixture,
+            &format!("top-{version}"),
+            &[("top.plugin", contents)],
+        );
         manifest(
             &self.fixture,
-            "top.json",
+            file,
             "top",
-            "1.0",
-            &top_hash,
+            version,
+            &hash,
             json!({"dependencies": ["base"], "dependency_versions": {"base": requirement}}),
         );
+        path
+    }
+
+    fn blocked_update_to_2(&self, expected: &str) {
+        let blocked = run(&self.fixture, &["update", "base", "--yes"], Some(&self.v2));
+        assert!(!blocked.status.success());
+        assert!(error(&blocked).contains(expected), "{}", error(&blocked));
+        assert_eq!(self.addon("base.plugin").as_deref(), Some("v1"));
     }
 }
 
 fn installed_with_dependent() -> Catalog {
+    installed_with_dependent_requiring(">=1.0")
+}
+
+fn installed_with_dependent_requiring(requirement: &str) -> Catalog {
     let fixture = Fixture::new();
     let (v1, v1_hash) = plugins(
         &fixture,
@@ -100,7 +116,6 @@ fn installed_with_dependent() -> Catalog {
         "base-2",
         &[("base.plugin", "v2"), ("added.plugin", "new only")],
     );
-    let (top, _) = plugins(&fixture, "top", &[("top.plugin", "top")]);
     fixture.bucket("deps", "test-game", "base", &v1_hash, &[]);
     let catalog = Catalog {
         fixture,
@@ -109,7 +124,7 @@ fn installed_with_dependent() -> Catalog {
         v2,
         v2_hash,
     };
-    catalog.requirement(">=1.0");
+    let top = catalog.top_release("top.json", "1.0", "top", requirement);
     catalog.fixture.register();
     let mut install = std::process::Command::new(env!("CARGO_BIN_EXE_modn"));
     let installed = install
@@ -224,31 +239,57 @@ fn update_applies_a_release_and_can_choose_an_older_one() {
 }
 
 #[test]
-fn a_dependent_requirement_blocks_the_update_without_writing() {
-    let catalog = installed_with_dependent();
-    catalog.requirement(">=2.0");
+fn the_installed_dependent_requirement_blocks_the_update_without_writing() {
+    let catalog = installed_with_dependent_requiring("<2.0");
     let report = json_of(&run(
         &catalog.fixture,
-        &["--json", "update", "base", "--version", "1.0", "--dry-run"],
-        Some(&catalog.v1),
-    ));
-    assert_eq!(report["up_to_date"], true);
-
-    json_of(&run(
-        &catalog.fixture,
-        &["--json", "update", "base", "--yes"],
+        &["--json", "update", "base", "--dry-run"],
         Some(&catalog.v2),
     ));
-    let blocked = run(
+    assert_eq!(report["dependents"][0]["requirement"], "<2.0");
+    assert_eq!(report["dependents"][0]["satisfied"], false);
+    catalog.blocked_update_to_2("requires base <2.0");
+
+    catalog.top_release("top@1.0.json", "1.0", "top", "<2.0");
+    catalog.top_release("top.json", "2.0", "top 2", ">=2.0");
+    catalog.blocked_update_to_2("requires base <2.0");
+
+    let database = rusqlite::Connection::open(catalog.fixture.state.join("state.sqlite"))
+        .expect("state database");
+    database
+        .execute("DELETE FROM package_requirements", [])
+        .expect("forget recorded requirements");
+    drop(database);
+    catalog.blocked_update_to_2("requires base <2.0");
+
+    fs::remove_file(
+        catalog
+            .fixture
+            .temp
+            .path()
+            .join("deps/games/test-game/top@1.0.json"),
+    )
+    .expect("retire the installed release");
+    catalog.blocked_update_to_2("requirement on base is unknown");
+}
+
+#[test]
+fn the_target_release_requirements_block_the_update() {
+    let catalog = installed_with_dependent();
+    let top_2 = catalog.top_release("top.json", "2.0", "top 2", ">=3.0");
+    let report = json_of(&run(
         &catalog.fixture,
-        &["update", "base", "--version", "1.0", "--yes"],
-        Some(&catalog.v1),
-    );
-    assert!(!blocked.status.success());
+        &["--json", "update", "top", "--dry-run"],
+        Some(&top_2),
+    ));
+    let expected = "top requires base >=3.0, but bucket deps publishes base 2.0";
     assert!(
-        error(&blocked).contains("requires base >=2.0"),
-        "{}",
-        error(&blocked)
+        report["blockers"]
+            .as_array()
+            .is_some_and(|blockers| blockers.iter().any(|b| b == expected)),
+        "{report}"
     );
-    assert_eq!(catalog.addon("base.plugin").as_deref(), Some("v2"));
+    let blocked = run(&catalog.fixture, &["update", "top", "--yes"], Some(&top_2));
+    assert!(error(&blocked).contains(expected), "{}", error(&blocked));
+    assert_eq!(catalog.addon("top.plugin").as_deref(), Some("top"));
 }

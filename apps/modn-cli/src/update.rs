@@ -9,7 +9,7 @@ use crate::update_report::{self, DependentCheck, FileChanges, Preview};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::inspect;
-use modn_core::buckets::{BucketPackage, BucketStore};
+use modn_core::buckets::{install_order, BucketPackage, BucketStore};
 use modn_core::planning::{preview_update_with_permissions, InstallPlan, PlanStatus};
 use modn_core::transactions::ManagedPackage;
 use std::collections::BTreeMap;
@@ -167,13 +167,17 @@ pub(super) fn run(
         .iter()
         .find(|(sha256, _)| *sha256 == old.archive_sha256)
         .map(|(_, version)| version.as_str());
+    let mut blockers = Vec::new();
+    if let Err(error) = install_order(&target, &catalog.packages(Some(&target.package.game))?) {
+        blockers.push(format!("{error:#}"));
+    }
     let release = catalog_release(&target, &catalog)?;
     let dependents: Vec<DependentCheck> =
         update_report::dependent_checks(store, &game, &old.id, &catalog, &target)?;
-    let mut blockers = update_report::dependency_blockers(
+    blockers.extend(update_report::dependency_blockers(
         &release,
         &store.dependency_states(&game, &release.dependencies)?,
-    );
+    ));
     blockers.extend(update_report::dependent_blockers(
         &dependents,
         &current.package.id,

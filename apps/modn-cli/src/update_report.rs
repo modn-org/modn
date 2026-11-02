@@ -1,8 +1,11 @@
+use crate::catalog_install::reference_of;
 use anyhow::Result;
 use modn_core::buckets::{BucketPackage, BucketStore, VersionReq};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
-use modn_core::transactions::{CatalogRelease, DependencyState, ManagedPackage};
+use modn_core::transactions::{
+    CatalogRelease, DependencyState, ManagedPackage, RecordedRequirement,
+};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -50,14 +53,54 @@ impl FileChanges {
 pub(super) struct DependentCheck {
     package_id: String,
     package: String,
-    requirement: Option<String>,
+    requirement: Requirement,
     satisfied: bool,
+}
+
+enum Requirement {
+    Unknown,
+    Unrestricted,
+    Requires(String),
 }
 
 impl DependentCheck {
     pub(super) fn package_id_label(&self) -> String {
         format!("{} {}", self.package_id, self.package)
     }
+}
+
+fn installed_requirement(
+    store: &Store,
+    catalog: &BucketStore,
+    dependent: &ManagedPackage,
+    target: &BucketPackage,
+) -> Result<Requirement> {
+    let Some(reference) = &dependent.catalog else {
+        return Ok(Requirement::Unknown);
+    };
+    let dependency = reference_of(target);
+    Ok(
+        match store.recorded_requirement(&dependent.id, &dependency)? {
+            RecordedRequirement::Requires(text) => Requirement::Requires(text),
+            RecordedRequirement::Unrestricted => Requirement::Unrestricted,
+            _ => catalog
+                .releases(&reference.bucket, &reference.game_id, &reference.mod_id)
+                .ok()
+                .and_then(|releases| {
+                    releases
+                        .into_iter()
+                        .find(|release| release.package.sha256 == dependent.archive_sha256)
+                })
+                .map_or(Requirement::Unknown, |release| {
+                    release
+                        .package
+                        .dependency_versions
+                        .get(&target.package.id)
+                        .cloned()
+                        .map_or(Requirement::Unrestricted, Requirement::Requires)
+                }),
+        },
+    )
 }
 
 pub(super) fn dependent_checks(
@@ -67,27 +110,23 @@ pub(super) fn dependent_checks(
     catalog: &BucketStore,
     target: &BucketPackage,
 ) -> Result<Vec<DependentCheck>> {
-    let manifests = catalog.packages(Some(&target.package.game))?;
     store
         .dependents_of(game, package_id)?
         .into_iter()
         .map(|dependent| {
-            let reference = dependent.catalog.clone();
-            let requirement = reference.as_ref().and_then(|reference| {
-                manifests
-                    .iter()
-                    .find(|m| m.bucket == reference.bucket && m.package.id == reference.mod_id)
-                    .and_then(|m| m.package.dependency_versions.get(&target.package.id))
-                    .cloned()
-            });
+            let requirement = installed_requirement(store, catalog, &dependent, target)?;
             let satisfied = match &requirement {
-                Some(text) => VersionReq::parse(text)?
+                Requirement::Requires(text) => VersionReq::parse(text)?
                     .matches(&target.package.version)
                     .unwrap_or(false),
-                None => true,
+                Requirement::Unrestricted => true,
+                Requirement::Unknown => false,
             };
             Ok(DependentCheck {
-                package: reference.map_or_else(String::new, |r| r.to_string()),
+                package: dependent
+                    .catalog
+                    .as_ref()
+                    .map_or_else(String::new, ToString::to_string),
                 package_id: dependent.id,
                 requirement,
                 satisfied,
@@ -124,13 +163,15 @@ pub(super) fn dependent_blockers(checks: &[DependentCheck], mod_id: &str) -> Vec
     checks
         .iter()
         .filter(|check| !check.satisfied)
-        .map(|check| {
-            format!(
-                "{} {} requires {mod_id} {}",
-                check.package_id,
-                check.package,
-                check.requirement.as_deref().unwrap_or("")
-            )
+        .map(|check| match &check.requirement {
+            Requirement::Requires(text) => format!(
+                "{} {} requires {mod_id} {text}",
+                check.package_id, check.package
+            ),
+            _ => format!(
+                "{} {}: the catalog no longer has its installed release, so its requirement on {mod_id} is unknown; update or reinstall it first",
+                check.package_id, check.package
+            ),
         })
         .collect()
 }
@@ -220,7 +261,11 @@ impl Preview<'_> {
             "dependents": self.dependents.iter().map(|check| json!({
                 "package_id": check.package_id,
                 "package": check.package,
-                "requirement": check.requirement,
+                "requirement": match &check.requirement {
+                    Requirement::Requires(text) => Some(text.as_str()),
+                    _ => None,
+                },
+                "requirement_known": !matches!(check.requirement, Requirement::Unknown),
                 "satisfied": check.satisfied,
             })).collect::<Vec<_>>(),
             "blockers": self.blockers,
