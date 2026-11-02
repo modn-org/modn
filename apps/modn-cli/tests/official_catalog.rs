@@ -5,19 +5,25 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 
-const PREREQUISITES: [&str; 11] = [
-    "archivexl",
-    "browser-extension",
-    "cet",
-    "codeware",
-    "equipment-ex",
-    "mod-settings",
-    "no-intro-videos",
-    "red4ext",
-    "redscript",
-    "tweakxl",
-    "virtual-atelier",
-];
+fn checked_in_manifests() -> Vec<Value> {
+    let games = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games");
+    let mut manifests = Vec::new();
+    for game in fs::read_dir(games).expect("games directory") {
+        for package in fs::read_dir(game.expect("game entry").path()).expect("game packages") {
+            let bytes = fs::read(package.expect("package entry").path()).expect("manifest");
+            manifests.push(serde_json::from_slice(&bytes).expect("manifest JSON"));
+        }
+    }
+    manifests.sort_by_key(|manifest: &Value| manifest["id"].as_str().map(str::to_owned));
+    manifests
+}
+
+fn checked_in_ids() -> Vec<String> {
+    checked_in_manifests()
+        .iter()
+        .map(|manifest| manifest["id"].as_str().expect("id").to_owned())
+        .collect()
+}
 
 fn checkout_copy(destination: &Path) -> PathBuf {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games");
@@ -73,7 +79,7 @@ fn entries_in(search: &Value, bucket: &str) -> Vec<Value> {
 }
 
 #[test]
-fn bundled_snapshot_lists_the_full_prerequisite_stack() {
+fn bundled_snapshot_lists_every_official_package() {
     let temp = TempDir::new().expect("fixture");
     let search = modn(&temp.path().join("state"), &["search"]);
     let main = entries_in(&search, "main");
@@ -81,7 +87,7 @@ fn bundled_snapshot_lists_the_full_prerequisite_stack() {
         .iter()
         .map(|entry| entry["id"].as_str().expect("id"))
         .collect();
-    assert_eq!(ids, PREREQUISITES);
+    assert_eq!(ids, checked_in_ids());
     let known: BTreeSet<&str> = ids.iter().copied().collect();
     for entry in &main {
         assert_eq!(entry["game"], "cyberpunk-2077");
@@ -122,8 +128,8 @@ fn every_official_mod_resolves_with_its_version_requirements() {
     fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").expect("marker");
     let state = temp.path().join("state");
     let game_path = game.to_str().expect("UTF-8 game path");
-    for id in PREREQUISITES {
-        let plan = modn(&state, &["install", id, "--dry-run", "--path", game_path]);
+    for id in checked_in_ids() {
+        let plan = modn(&state, &["install", &id, "--dry-run", "--path", game_path]);
         assert_eq!(plan["package"], format!("main/cyberpunk-2077/{id}"));
     }
     let constrained = modn(&state, &["search"])
@@ -132,5 +138,9 @@ fn every_official_mod_resolves_with_its_version_requirements() {
         .iter()
         .filter(|entry| entry["dependency_versions"].is_object())
         .count();
-    assert_eq!(constrained, 4);
+    let expected = checked_in_manifests()
+        .iter()
+        .filter(|manifest| manifest["dependency_versions"].is_object())
+        .count();
+    assert_eq!(constrained, expected);
 }
