@@ -244,3 +244,100 @@ fn a_cache_inside_the_game_is_refused_before_any_download() {
     assert!(!inside.exists());
     assert!(!fixture.game.join("addons").exists());
 }
+
+#[test]
+fn a_dry_run_downloads_missing_archives_only_on_request() {
+    let (fixture, base, top) = catalog();
+
+    // Without `--download`, a dry run names the source and fetches nothing.
+    let plain = modn(&fixture, &["--json", "install", "top", "--dry-run"]);
+    assert!(plain.status.success(), "{}", error(&plain));
+    let report: Value = serde_json::from_slice(&plain.stdout).expect("JSON");
+    assert_eq!(report["plan"], Value::Null);
+    assert!(!cache_dir(&fixture).exists());
+
+    // With it, the dry run fetches the missing archives into the cache.
+    let fetched = modn(&fixture, &["install", "top", "--dry-run", "--download"]);
+    assert!(!fetched.status.success());
+    let message = error(&fetched);
+    assert!(
+        message.contains("download failed: https://127.0.0.1:9/releases/base"),
+        "{message}"
+    );
+    assert!(!fixture.game.join("addons").exists());
+
+    // Cached archives need no download, and the preview lists their files.
+    seed(&fixture, "base", &base);
+    seed(&fixture, "top", &top);
+    let cached = modn(
+        &fixture,
+        &["--json", "install", "top", "--dry-run", "--download"],
+    );
+    assert!(cached.status.success(), "{}", error(&cached));
+    let report: Value = serde_json::from_slice(&cached.stdout).expect("JSON");
+    assert_eq!(report["plan"]["status"], "reviewable");
+    assert_eq!(
+        report["plan"]["operations"][0]["destination"],
+        "addons/top.plugin"
+    );
+    assert!(!fixture.game.join("addons").exists());
+
+    let unpaired = modn(&fixture, &["install", "top", "--yes", "--download"]);
+    assert!(!unpaired.status.success());
+    assert!(
+        error(&unpaired).contains("--dry-run"),
+        "{}",
+        error(&unpaired)
+    );
+}
+
+#[test]
+fn a_dry_run_download_refuses_a_cache_inside_the_game() {
+    let (fixture, _, _) = catalog();
+    let inside = fixture.game.join("modn-cache");
+    let refused = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .env("MODN_CACHE", &inside)
+        .args(["install", "top", "--dry-run", "--download"])
+        .output()
+        .expect("run CLI");
+    assert!(!refused.status.success());
+    let message = error(&refused);
+    assert!(
+        message.contains("cache directory must be outside a game installation"),
+        "{message}"
+    );
+    assert!(!inside.exists());
+}
+
+#[test]
+fn list_and_doctor_show_the_folders_modn_created() {
+    let (fixture, base, _) = catalog();
+    seed(&fixture, "base", &base);
+    let installed = modn(&fixture, &["install", "base", "--yes"]);
+    assert!(installed.status.success(), "{}", error(&installed));
+
+    let list = modn(&fixture, &["list"]);
+    assert!(list.status.success(), "{}", error(&list));
+    let text = String::from_utf8_lossy(&list.stdout);
+    assert!(
+        text.contains("Folders Modn created, removed when empty:\n  addons\n"),
+        "{text}"
+    );
+    // The JSON list stays an array of packages.
+    let packages: Value =
+        serde_json::from_slice(&modn(&fixture, &["--json", "list"]).stdout).expect("JSON");
+    assert!(packages.is_array());
+
+    let doctor = modn(&fixture, &["--json", "doctor"]);
+    assert!(doctor.status.success(), "{}", error(&doctor));
+    let report: Value = serde_json::from_slice(&doctor.stdout).expect("JSON");
+    assert_eq!(report["created_directories"], json!(["addons"]));
+
+    let removed = modn(&fixture, &["uninstall", "base", "--yes"]);
+    assert!(removed.status.success(), "{}", error(&removed));
+    let list = modn(&fixture, &["list"]);
+    assert!(!String::from_utf8_lossy(&list.stdout).contains("Folders Modn created"));
+}

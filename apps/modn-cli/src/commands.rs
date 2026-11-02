@@ -159,6 +159,10 @@ pub(super) struct InstallArgs {
     /// Download `https` archives again instead of using verified cache entries.
     #[arg(long)]
     pub(super) no_cache: bool,
+    /// With --dry-run, download missing `https` archives into the verified
+    /// cache, so the preview can list their files. Game files stay unchanged.
+    #[arg(long)]
+    pub(super) download: bool,
     /// Independently authorize one exact game-relative tool executable in the archive.
     #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
     pub(super) allow_executable: Vec<String>,

@@ -95,6 +95,7 @@ pub(super) fn doctor(
             .count()
     );
     println!("Owned files checked: {}", report.scan.owned_files.len());
+    println!("Folders Modn created: {}", report.created_directories.len());
     for diagnostic in report.diagnostics {
         println!(
             "{} [{}]: {}",

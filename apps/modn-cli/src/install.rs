@@ -28,11 +28,17 @@ pub(super) fn run(
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
+    if args.download && !args.dry_run {
+        bail!("--download only prepares a --dry-run; an install downloads what it needs");
+    }
     if !is_standalone_archive(args) {
         return catalog_install::run(args, state_path, requested, json);
     }
     if !args.file.is_empty() {
         bail!("--file applies only to cataloged mods, not standalone archives");
+    }
+    if args.download {
+        bail!("--download applies only to cataloged mods, not standalone archives");
     }
     install_archive(args, state_path, requested, json)
 }

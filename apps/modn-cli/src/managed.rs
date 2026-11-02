@@ -19,7 +19,9 @@ pub(super) fn list(
     let packages = store.installed(&game)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&packages)?);
-    } else if packages.is_empty() {
+        return Ok(());
+    }
+    if packages.is_empty() {
         println!("No manager-owned packages installed.");
     } else {
         for package in packages {
@@ -31,6 +33,17 @@ pub(super) fn list(
                 ),
                 None => println!("{}: {} owned files", package.id, package.files.len()),
             }
+            for directory in &package.directories {
+                println!("  exclusive folder: {directory}");
+            }
+        }
+    }
+    // Shared by all packages, and kept while other content remains in them.
+    let created = store.created_directories(&game)?;
+    if !created.is_empty() {
+        println!("Folders Modn created, removed when empty:");
+        for directory in created {
+            println!("  {directory}");
         }
     }
     Ok(())
