@@ -88,6 +88,14 @@ pub(crate) fn approved_tool_executable(
         && approved.iter().any(|path| path == destination)
         && (source == destination || source.ends_with(&format!("/{destination}")))
 }
+pub(crate) fn is_replaced(replaced: &[String], relative: &str) -> bool {
+    let key = crate::transactions::directory_candidate_key(relative);
+    replaced.iter().any(|path| {
+        let path = crate::transactions::directory_candidate_key(path);
+        key == path || key.starts_with(&format!("{path}/"))
+    })
+}
+
 pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str> {
     let mut current = game.to_path_buf();
     let canonical_game = game.canonicalize().ok()?;
@@ -194,7 +202,7 @@ fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
 /// Resolve untrusted module mappings into a read-only preview. Tool
 /// executable permissions must come from a trusted caller, never from Lua.
 pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::Result<InstallPlan> {
-    resolve_with_permissions(game_id, inspection, game, &[])
+    resolve_with_permissions(game_id, inspection, game, &[], &[])
 }
 
 fn resolve_with_permissions(
@@ -202,13 +210,14 @@ fn resolve_with_permissions(
     inspection: &Inspection,
     game: &Path,
     approved: &[String],
+    replaced: &[String],
 ) -> anyhow::Result<InstallPlan> {
     use anyhow::bail;
     if !fs::symlink_metadata(game)?.file_type().is_dir() {
         bail!("installation root must be a real directory, not a link");
     }
     let game = game.canonicalize()?;
-    let proposed = crate::game_modules::policy::plan(game_id, &game, inspection)?;
+    let proposed = crate::game_modules::policy::plan(game_id, &game, inspection, replaced)?;
     let mut blockers = Vec::new();
     let mut sources = HashMap::new();
     let approved_sources: HashSet<_> = proposed
@@ -375,7 +384,9 @@ fn resolve_with_permissions(
             );
             continue;
         }
-        if let Some(code) = existing_destination_issue(&game, &request.destination) {
+        if let Some(code) = existing_destination_issue(&game, &request.destination)
+            .filter(|&code| code != "EXISTING_FILE" || !is_replaced(replaced, &request.destination))
+        {
             issue(
                 &mut blockers,
                 code,
@@ -434,8 +445,22 @@ pub fn preview_install_zip_with_permissions(
     archive: &Path,
     approved: &[String],
 ) -> anyhow::Result<InstallPlan> {
+    preview_update_with_permissions(game_id, game, archive, approved, &[])
+}
+
+/// Preview `archive` as an update that replaces `replaced`: the game-relative
+/// files and exclusive folders of the installed release. The game policy
+/// plans as if those paths were already removed. Installation revalidates
+/// the proposal against the real disk after it removes them.
+pub fn preview_update_with_permissions(
+    game_id: &str,
+    game: &Path,
+    archive: &Path,
+    approved: &[String],
+    replaced: &[String],
+) -> anyhow::Result<InstallPlan> {
     let inspection = crate::archive::inspect(archive)?;
-    let mut proposal = resolve_with_permissions(game_id, &inspection, game, approved)?;
+    let mut proposal = resolve_with_permissions(game_id, &inspection, game, approved, replaced)?;
     if !inspection.format.is_installable() {
         proposal.status = PlanStatus::Blocked;
         proposal.blockers.push(PlanIssue {
