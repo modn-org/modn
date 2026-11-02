@@ -78,18 +78,27 @@ fn real_directory(path: &Path, root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn read_packages(root: &Path) -> Result<Vec<PackageManifest>> {
+#[derive(Default)]
+struct Releases {
+    current: Vec<PackageManifest>,
+    other: Vec<PackageManifest>,
+}
+
+fn read_packages(root: &Path) -> Result<Releases> {
     let canonical = root.canonicalize()?;
     let games = root.join("games");
     if !games.exists() {
         match fs::symlink_metadata(&games) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Releases::default())
+            }
             Err(error) => return Err(error.into()),
             Ok(_) => {}
         }
     }
     real_directory(&games, &canonical)?;
-    let mut packages = Vec::new();
+    let mut releases = Releases::default();
+    let mut count = 0;
     for game in fs::read_dir(&games)? {
         let game = game?;
         let game_id = game.file_name().to_string_lossy().into_owned();
@@ -102,23 +111,52 @@ fn read_packages(root: &Path) -> Result<Vec<PackageManifest>> {
             if path.extension().is_none_or(|e| e != "json") {
                 bail!("unexpected bucket package entry");
             }
-            let id = path
+            let stem = path
                 .file_stem()
                 .context("invalid package path")?
-                .to_string_lossy();
-            if !valid_id(&id) {
+                .to_string_lossy()
+                .into_owned();
+            let (id, version) = match stem.split_once('@') {
+                Some((id, version)) => (id, Some(version)),
+                None => (stem.as_str(), None),
+            };
+            if !valid_id(id) {
                 bail!("invalid package filename");
             }
-            if packages.len() >= MAX_PACKAGES {
+            count += 1;
+            if count > MAX_PACKAGES {
                 bail!("bucket package limit exceeded");
             }
             let manifest: PackageManifest = bounded_json(&path)?;
-            manifest.validate(&game_id, &id)?;
-            packages.push(manifest);
+            manifest.validate(&game_id, id)?;
+            match version {
+                None => releases.current.push(manifest),
+                Some(version) if version == manifest.version => releases.other.push(manifest),
+                Some(_) => bail!("release filename disagrees with its version: {stem}"),
+            }
         }
     }
-    packages.sort_by(|a, b| (&a.game, &a.id).cmp(&(&b.game, &b.id)));
-    Ok(packages)
+    let key = |p: &PackageManifest| (p.game.clone(), p.id.clone());
+    releases.current.sort_by_key(key);
+    releases
+        .other
+        .sort_by_key(|p| (p.game.clone(), p.id.clone(), p.version.clone()));
+    for other in &releases.other {
+        let current = releases
+            .current
+            .iter()
+            .find(|current| key(current) == key(other))
+            .with_context(|| {
+                format!(
+                    "release {}@{} has no current release",
+                    other.id, other.version
+                )
+            })?;
+        if current.version == other.version {
+            bail!("duplicate release {}@{}", other.id, other.version);
+        }
+    }
+    Ok(releases)
 }
 
 fn official() -> Result<Vec<PackageManifest>> {
@@ -204,7 +242,7 @@ impl BucketStore {
         Ok(registered)
     }
 
-    fn load(&self, name: &str, path: &Path) -> Result<(BucketInfo, Vec<PackageManifest>)> {
+    fn load(&self, name: &str, path: &Path) -> Result<(BucketInfo, Releases)> {
         if fs::symlink_metadata(path)?.file_type().is_symlink() {
             bail!("linked bucket root refused");
         }
@@ -306,7 +344,7 @@ impl BucketStore {
         }
         for (id, path) in self.registrations()? {
             let (_, content) = self.load(&id, &path)?;
-            for package in content {
+            for package in content.current {
                 packages.push(BucketPackage {
                     bucket: id.clone(),
                     package,
@@ -322,6 +360,34 @@ impl BucketStore {
             ))
         });
         Ok(packages)
+    }
+
+    /// Every release that `bucket` publishes for one mod: the current release
+    /// first, then other releases by version string. Only the current release
+    /// takes part in search, dependency resolution and plain installs.
+    pub fn releases(&self, bucket: &str, game: &str, id: &str) -> Result<Vec<BucketPackage>> {
+        let mut releases: Vec<BucketPackage> = self
+            .packages(Some(game))?
+            .into_iter()
+            .filter(|p| p.bucket == bucket && p.package.id == id)
+            .collect();
+        if releases.is_empty() {
+            bail!("bucket package not found: {bucket}/{game}/{id}");
+        }
+        if let Some(path) = self.registrations()?.remove(bucket) {
+            let (_, content) = self.load(bucket, &path)?;
+            releases.extend(
+                content
+                    .other
+                    .into_iter()
+                    .filter(|p| p.game == game && p.id == id)
+                    .map(|package| BucketPackage {
+                        bucket: bucket.into(),
+                        package,
+                    }),
+            );
+        }
+        Ok(releases)
     }
 
     /// Resolve a complete bucket/game/mod reference without ambiguity.
