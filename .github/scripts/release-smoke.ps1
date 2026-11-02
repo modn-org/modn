@@ -1,5 +1,3 @@
-# Smoke-tests a portable modn.exe away from any repository or Rust toolchain.
-# Usage: pwsh -File release-smoke.ps1 -Binary <modn.exe> [-Checksum <modn.exe.sha256>]
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string] $Binary,
