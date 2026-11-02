@@ -49,7 +49,9 @@ until there is a real requirement.
   back. The second is that recovery rolls back an interrupted stack. The third
   is that all 11 packages (137 owned files) install and uninstall in reverse
   order to the original tree, directories included. A synthetic copy of the graph runs in CI. The
-  real run needs the four Nexus archives. Nothing is verified in the live game.
+  real run needs the four Nexus archives.
+- Milestone 4 passed on a real Steam Cyberpunk 2077 installation, 2026-11-02;
+  see milestone 4 below.
 - `modn game add/list/remove` registers games; `modn install` handles standalone archives and verified catalog mods; `modn search` lists catalog entries; `modn list` shows managed packages.
 - `modn install <mod> --dry-run` shows a read-only dependency plan: install
   order and the state of each dependency. `modn install <mod> --file ...`
@@ -105,6 +107,40 @@ Only after explicit authorization for each live scope, begin with a clean
 verified game installation and backups. Install the prerequisite stack through
 the user-facing path, launch the game at meaningful checkpoints, validate
 runtime behavior and uninstall in reverse order.
+
+**Exit gate:** each checkpoint installs and launches without errors, and the
+full uninstall leaves only runtime files the game created.
+
+**Met on 2026-11-02** on a Steam installation that reports game version
+3.0.88.46235. The user authorized each live step separately and launched
+the game; the agent never launched it. The backup was a SHA-256 manifest of
+the game tree, so Steam file verification was the only restore path. The
+user checked Steam integrity before the run.
+
+| Checkpoint | Packages added through `modn install` |
+|---|---|
+| a | red4ext 1.31.0, cet 1.38.1 |
+| b | redscript 0.5.32, codeware 1.21.2 |
+| c | virtual-atelier 1.6.4, with archivexl 1.28.6 and mod-settings 0.2.28 |
+| d | equipment-ex 1.2.10 with tweakxl 1.12.0, then browser-extension 0.9.7, then no-intro-videos 0.8 |
+
+- After every install, a diff against the manifest showed only owned files
+  added. No vanilla file was modified or removed.
+- After checkpoint a, the user reported that the CET overlay opened and a
+  save loaded. After b, the user reached the main menu. After c and d, the
+  user reported that everything looked fine, but no specific in-game feature
+  checks. For a and b, runtime logs showed RED4ext, CET, redscript and
+  Codeware loading without errors.
+- The full stack held 11 packages and 137 owned files, as in the milestone 3
+  gate. `modn uninstall` removed them in reverse order.
+- Afterwards the diff showed only runtime files: 21 added files, 7 added
+  folders, a rewritten `r6/logs/redscript_rCURRENT.log`, and 4 older
+  redscript logs that redscript's own rotation deleted. The user chose to keep
+  these files. Modn keeps the `red4ext` and `bin/x64/plugins/cyber_engine_tweaks`
+  folder records while runtime files remain in them.
+- The run found three Modn gaps: uninstall by catalog name and its preview,
+  the hidden created-folder ledger, and dry runs that could not plan
+  uncached `https` archives. PRs #45 and #46 fixed them.
 
 ### 5. Windows-first alpha and package lifecycle
 
