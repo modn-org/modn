@@ -90,6 +90,26 @@ fn user_content_keeps_a_directory_until_recovery_finds_it_empty() {
     assert_eq!(fixture.count("created_directories"), 0);
 }
 
+#[test]
+fn unregistering_a_game_ends_its_directory_records() {
+    let mut fixture = Fixture::new();
+    let archive = fixture.archive("owned");
+    let package = fixture.install_into(&archive, "mods").unwrap();
+    let user_file = fixture.game.join("mods/user.txt");
+    fs::write(&user_file, b"user").unwrap();
+    fixture.uninstall(&package.id).unwrap();
+    assert_eq!(fixture.count("created_directories"), 1);
+
+    let game = fixture.game.clone();
+    with_module_source(Some(&module_source()), || {
+        fixture.store.add_game("test-game", &game, "manual")
+    })
+    .unwrap();
+    fixture.store.remove_game("test-game", Some(&game)).unwrap();
+    assert_eq!(fixture.count("created_directories"), 0);
+    assert_eq!(fs::read(&user_file).unwrap(), b"user");
+}
+
 #[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn a_replaced_directory_is_forgotten_but_never_removed() {

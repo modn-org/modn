@@ -28,6 +28,33 @@ fn exclusive_directory_owns_runtime_contents_without_file_hash_checks() {
 }
 
 #[test]
+fn absent_or_replaced_owned_directory_refuses_uninstall_without_a_journal() {
+    let (_tmp, mut store, game, archive) = fixture();
+    fs::create_dir(game.join("data")).unwrap();
+    let mut requested = plan(&game, &archive);
+    for op in &mut requested.operations {
+        op.owned_directory = Some("data/mods".into());
+    }
+    let owned = store
+        .install_operations_zip(&game, &archive, &requested)
+        .unwrap();
+
+    fs::remove_dir_all(game.join("data/mods")).unwrap();
+    assert!(store.uninstall(&game, &owned.id).is_err());
+    assert_eq!(store.recover().unwrap(), 0);
+    assert_eq!(store.installed(&game).unwrap().len(), 1);
+
+    fs::write(game.join("data/mods"), b"not a directory").unwrap();
+    assert!(store.uninstall(&game, &owned.id).is_err());
+    assert_eq!(store.recover().unwrap(), 0);
+    assert_eq!(store.installed(&game).unwrap().len(), 1);
+    assert_eq!(
+        fs::read(game.join("data/mods")).unwrap(),
+        b"not a directory"
+    );
+}
+
+#[test]
 fn mixed_directory_and_shared_file_preserves_modified_shared_file() {
     let (_tmp, mut store, game, archive) = fixture();
     fs::create_dir(game.join("data")).unwrap();

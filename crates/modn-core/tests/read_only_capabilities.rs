@@ -330,3 +330,44 @@ fn bounded_directory_listing_and_utf8_text_reads_are_root_scoped() {
     )
     .expect("read-only directory and UTF-8 metadata");
 }
+
+#[test]
+fn host_answers_carry_no_host_path_or_handle() {
+    let (base, module, game) = fixture();
+    let game_path = game.to_string_lossy().into_owned();
+    let temp_name = base
+        .path()
+        .file_name()
+        .expect("temporary directory name")
+        .to_string_lossy()
+        .into_owned();
+    let script = format!(
+        r#"
+        local forbidden = {{ {game_path:?}, {temp_name:?} }}
+        local function check(value)
+            local kind = type(value)
+            if kind == "table" then
+                for key, inner in pairs(value) do
+                    check(key)
+                    check(inner)
+                end
+            elseif kind == "string" then
+                for _, needle in ipairs(forbidden) do
+                    assert(not value:find(needle, 1, true), "host path leaked: " .. value)
+                end
+            else
+                assert(kind == "number" or kind == "boolean", "host handle leaked: " .. kind)
+            end
+        end
+        check(mods_host.discovery.roots())
+        check(mods_host.fs.metadata(1, "game.marker"))
+        check(mods_host.fs.metadata(1, "packages"))
+        check(mods_host.hash.sha256(1, "game.marker"))
+        check(mods_host.archive.inspect(1, "packages/test.zip"))
+        check(mods_host.directory.list(1, "packages"))
+        check(mods_host.directory.read_text(1, "game.marker"))
+        return {{ game_id='example-game', api_version=mods_host.api_version }}
+    "#
+    );
+    run(&script, &game, &module).expect("host answers expose only names, sizes and digests");
+}
