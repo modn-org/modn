@@ -65,8 +65,10 @@ declares `conflicts`.
 ## Compatibility
 
 The ArchiveXL, TweakXL and Codeware READMEs target Cyberpunk 2077 2.5. The CET
-and Mod Settings Nexus files are labeled for game 2.5/2.50. No package has
-been validated in the live game yet; that is roadmap milestone 4.
+and Mod Settings Nexus files are labeled for game 2.5/2.50. On 2026-11-02 all
+eleven packages installed, launched and uninstalled on a live Steam
+installation that reports game version 3.0.88.46235 (project memory
+finding `PM-20261102-ade7fa3a`).
 
 In a disposable fixture, all eleven archives install as standalone archives
 through the first-party Cyberpunk policy in dependency order: 137 owned files.

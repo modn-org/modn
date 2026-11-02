@@ -12,13 +12,17 @@
 Read these documents before substantive changes:
 
 1. [README.md](README.md)  - implemented features, commands, tested behavior and current limitations.
-2. [roadmap.md](roadmap.md)  - approved bucket-first product direction, milestones and explicit deferrals.
+2. [VISION.md](VISION.md)  - approved bucket-first product direction and where planned work is tracked.
 3. [glossary.md](glossary.md)  - canonical names for bucket, module, mod, archive and ownership concepts.
 4. [data-model.md](data-model.md)  - conceptual entities, trust/selection/ownership boundaries and mapping to existing persistence.
 
-The roadmap and data model distinguish **planned** capabilities from shipped code. When
-they differ from the code, inspect the current revision and active PRs; do not
-present planned behavior as implemented. Use glossary terms consistently in
+Planned work lives in GitHub milestones and issues (`gh issue list`,
+`gh api repos/sooskca/modn/milestones`); each milestone description holds its
+exit gate, and the `deferred` label marks out-of-scope work. Close an issue
+from its PR with `Fixes #n`. When a milestone closes, record its result and
+evidence in project memory. The data model and issues describe **planned**
+capabilities; when they differ from the code, inspect the current revision
+and active PRs, and do not present planned behavior as implemented. Use glossary terms consistently in
 code, documentation, CLI and reviews.
 
 Project memory lives in `memory/`. At the start of substantive work, call
@@ -35,7 +39,7 @@ distributed by buckets. Buckets catalog mod packages only. Standard Lua 5.4
 is the game-module runtime; earlier releases used Luau.
 A trusted module may be powerful, but Rust-owned managed transactions,
 ownership and recoverability are separate correctness guarantees. No
-roadmap item authorizes modifying a user's real game or merging a PR.
+milestone or issue authorizes modifying a user's real game or merging a PR.
 
 ## Rust implementation
 

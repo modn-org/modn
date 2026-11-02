@@ -1,6 +1,6 @@
 # modn
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Lua Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, version-constrained dependency resolution, MCP, and desktop UI remain future milestones.
+A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Lua Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, MCP and a desktop UI are not implemented; see the issues labeled `deferred`.
 
 ## Development
 
@@ -480,7 +480,7 @@ do not delete game files or personal saves to reset manager state.
 
 ## Scope
 
-Windows first. Minecraft, additional transaction types, game-specific Lua integrations and a package browser remain future milestones.
+Windows first. Additional games, additional transaction types and a package browser are not implemented. Planned work is in GitHub milestones and issues; see [VISION.md](VISION.md).
 
 All first-party code is MIT licensed.
 

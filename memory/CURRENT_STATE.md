@@ -6,7 +6,8 @@ Keep it short; put details in memory events or in the canonical documents.
 ## Canonical documents
 
 - `README.md`: shipped features, commands, tested behavior and limitations.
-- `roadmap.md`: approved direction, milestones and deferrals.
+- `VISION.md`: approved product direction. Planned work is in GitHub
+  milestones and issues; deferred work has the `deferred` label.
 - `glossary.md`: canonical terms. Use them in memory records too.
 - `data-model.md`: entities and trust, selection and ownership boundaries.
 

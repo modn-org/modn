@@ -1,4 +1,4 @@
-//! Roadmap milestone 3 exit gate: reproducible disposable full-stack
+//! Milestone 3 exit gate: reproducible disposable full-stack
 //! installation and rollback.
 //!
 //! The synthetic gate runs offline in CI. It mirrors the official Cyberpunk

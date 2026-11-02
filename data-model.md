@@ -3,7 +3,8 @@
 This document describes the **target** bucket-first domain model and maps it to
 Modn's existing implementation. It is a design contract, not a database
 migration or a claim that the target is shipped. See [glossary.md](glossary.md)
-for preferred terms and [roadmap.md](roadmap.md) for milestone order.
+for preferred terms and [VISION.md](VISION.md) for product direction and
+where planned work is tracked.
 
 ## Domain boundaries
 
