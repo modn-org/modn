@@ -48,7 +48,7 @@ impl fmt::Display for AmbiguousTarget {
 
 impl std::error::Error for AmbiguousTarget {}
 
-fn resolve(
+pub(super) fn resolve(
     query: &str,
     catalog: &BucketStore,
     game_filter: Option<&str>,
@@ -110,7 +110,7 @@ fn resolve(
     }
 }
 
-fn expected_format(format: &ArchiveFormat) -> Option<archive::ArchiveFormat> {
+pub(super) fn expected_format(format: &ArchiveFormat) -> Option<archive::ArchiveFormat> {
     match format {
         ArchiveFormat::Zip => Some(archive::ArchiveFormat::Zip),
         ArchiveFormat::SevenZ => Some(archive::ArchiveFormat::SevenZ),

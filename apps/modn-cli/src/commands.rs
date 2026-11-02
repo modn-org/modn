@@ -26,6 +26,8 @@ pub(super) struct Cli {
 pub(super) enum Command {
     /// Install a cataloged mod or an explicit local ZIP/7z archive.
     Install(InstallArgs),
+    /// Replace an installed catalog mod with another release, recoverably.
+    Update(UpdateArgs),
     /// Search mod manifests across configured buckets.
     Search {
         /// Match mod ID or display name (omit to list all).
@@ -161,6 +163,42 @@ pub(super) struct InstallArgs {
     pub(super) no_cache: bool,
     /// With --dry-run, download missing `https` archives into the verified
     /// cache, so the preview can list their files. Game files stay unchanged.
+    #[arg(long)]
+    pub(super) download: bool,
+    /// Independently authorize one exact game-relative tool executable in the archive.
+    #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
+    pub(super) allow_executable: Vec<String>,
+}
+
+/// Options for replacing an installed catalog mod with another release.
+#[derive(Args)]
+pub(super) struct UpdateArgs {
+    /// Catalog name of the installed mod: `mod`, `game/mod` or `bucket/game/mod`.
+    pub(super) target: String,
+    /// Release to install; defaults to the bucket's current release.
+    #[arg(long)]
+    pub(super) version: Option<String>,
+    #[arg(long)]
+    pub(super) path: Option<PathBuf>,
+    /// Manually acquired archive of the target release.
+    #[arg(long, value_name = "ARCHIVE")]
+    pub(super) file: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Confirm replacing the installed release in the game",
+        conflicts_with = "dry_run"
+    )]
+    pub(super) yes: bool,
+    #[arg(
+        long,
+        help = "Show the installed and target releases and the files that change, without writing",
+        conflicts_with = "yes"
+    )]
+    pub(super) dry_run: bool,
+    /// Download `https` archives again instead of using verified cache entries.
+    #[arg(long)]
+    pub(super) no_cache: bool,
+    /// With --dry-run, download the target archive into the verified cache.
     #[arg(long)]
     pub(super) download: bool,
     /// Independently authorize one exact game-relative tool executable in the archive.
