@@ -521,11 +521,11 @@ All first-party code is MIT licensed.
 
 ## Local buckets (metadata contract v1)
 
-Modn includes a read-only `main` bucket snapshot of the eleven Cyberpunk
-prerequisite packages: RED4ext, redscript, Cyber Engine Tweaks, ArchiveXL,
-TweakXL, Codeware, Mod Settings, Equipment-EX, Browser Extension, No Intro
-Videos and Virtual Atelier. Each SHA-256 was checked against the original
-distribution. GitHub-hosted packages record their release URL as an `https`
+Modn includes a read-only `main` bucket snapshot of thirteen Cyberpunk
+packages: RED4ext, redscript, Cyber Engine Tweaks, ArchiveXL, TweakXL,
+Codeware, Mod Settings, Equipment-EX, Browser Extension, No Intro Videos,
+Virtual Atelier, Input Loader and BetterLootMarkers. Each SHA-256 was checked
+against the original distribution. GitHub-hosted packages record their release URL as an `https`
 source. Nexus-only packages are `manual` sources naming the original file.
 Modn does not mirror these archives. It downloads an `https` source from its
 original URL when you install it. The snapshot does not assert compatibility with every game
