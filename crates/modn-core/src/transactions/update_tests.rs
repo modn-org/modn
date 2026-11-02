@@ -1,5 +1,6 @@
 use super::catalog_tests::{plan_into, reference, Fixture};
 use super::install::Fault;
+use super::journal::{target_path, temp_path};
 use super::{CatalogDependency, CatalogRelease, ManagedPackage};
 use crate::archive::inspect;
 use std::fs::{self, File};
@@ -66,9 +67,16 @@ fn base_with_dependent() -> Installed {
 
 impl Installed {
     fn update(&mut self, fault: Option<Fault>) -> anyhow::Result<ManagedPackage> {
+        self.update_to(CatalogRelease::new(reference("base"), Vec::new()), fault)
+    }
+
+    fn update_to(
+        &mut self,
+        release: CatalogRelease,
+        fault: Option<Fault>,
+    ) -> anyhow::Result<ManagedPackage> {
         let game = self.fixture.game.clone();
         let proposal = plan_into(&game, &self.new_base, "addons");
-        let release = CatalogRelease::new(reference("base"), Vec::new());
         self.fixture.store.update_inner(
             &game,
             &self.base.id,
@@ -179,6 +187,43 @@ fn recovery_restores_the_old_release_after_an_interrupted_update() {
     );
 
     assert_eq!(installed.fixture.store.recover().unwrap(), 2);
+    installed.assert_old_release_intact(&before);
+}
+
+#[test]
+fn recovery_restores_the_old_release_after_an_interrupted_copy() {
+    let mut installed = base_with_dependent();
+    let before = installed.package_ids();
+    installed.update(Some(Fault::CrashAfter(1))).unwrap_err();
+    let pending = installed.fixture.store.pending().unwrap();
+    let copy = pending
+        .iter()
+        .find(|journal| journal.action == "install")
+        .unwrap();
+    let game = installed.fixture.game.clone();
+    let unlinked = &copy.files[1];
+    let destination = target_path(&game, &unlinked.destination).unwrap();
+    assert!(!destination.exists());
+    let partial = temp_path(&destination, &copy.id, unlinked.ordinal).unwrap();
+    fs::write(&partial, "v").unwrap();
+
+    assert_eq!(installed.fixture.store.recover().unwrap(), 2);
+    assert!(!partial.exists());
+    installed.assert_old_release_intact(&before);
+}
+
+#[test]
+fn update_refuses_a_release_that_depends_on_its_own_dependent() {
+    let mut installed = base_with_dependent();
+    let before = installed.package_ids();
+    let needs_top = CatalogDependency::new(reference("top"), installed.top.archive_sha256.clone());
+    let error = installed
+        .update_to(
+            CatalogRelease::new(reference("base"), vec![needs_top]),
+            None,
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("dependency cycle"), "{error:#}");
     installed.assert_old_release_intact(&before);
 }
 

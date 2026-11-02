@@ -7,7 +7,14 @@ use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{params, Transaction};
+use std::collections::BTreeSet;
 use std::path::Path;
+
+#[derive(Clone, Copy)]
+enum Link {
+    Dependencies,
+    Dependents,
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct Replacement<'a> {
@@ -73,6 +80,18 @@ impl Store {
                 release.reference
             );
         }
+        let needs = self.ready_dependencies(&game, &release.dependencies)?;
+        let needs_old = self.linked(vec![package_id.to_owned()], Link::Dependents)?;
+        if let Some(cycle) = self
+            .linked(needs, Link::Dependencies)?
+            .into_iter()
+            .find(|id| needs_old.contains(id))
+        {
+            bail!(
+                "{} would depend on {cycle}, which needs {package_id}: a dependency cycle",
+                release.reference
+            );
+        }
         let journal_id = self.withdraw_locked(&game, package_id, Dependents::Repoint)?;
         let catalog = CatalogInstall {
             release,
@@ -102,6 +121,29 @@ impl Store {
                 }
             }
         }
+    }
+
+    fn linked(&self, start: Vec<String>, link: Link) -> Result<BTreeSet<String>> {
+        let query = match link {
+            Link::Dependencies => {
+                "SELECT dependency_id FROM package_dependencies WHERE package_id=?1"
+            }
+            Link::Dependents => {
+                "SELECT package_id FROM package_dependencies WHERE dependency_id=?1"
+            }
+        };
+        let mut statement = self.connection.prepare(query)?;
+        let mut found = BTreeSet::new();
+        let mut queue = start;
+        while let Some(id) = queue.pop() {
+            if !found.insert(id.clone()) {
+                continue;
+            }
+            for next in statement.query_map([&id], |row| row.get::<_, String>(0))? {
+                queue.push(next?);
+            }
+        }
+        Ok(found)
     }
 
     /// Managed packages whose recorded dependencies include `package_id`.

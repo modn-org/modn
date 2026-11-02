@@ -87,8 +87,15 @@ impl Store {
         for f in journal.files.iter().rev() {
             let dest = target_path(&game, &f.destination)?;
             let temp = temp_path(&dest, &journal.id, f.ordinal)?;
+            let present = fs::symlink_metadata(&dest).is_ok();
             let witness = match fs::symlink_metadata(&temp) {
                 Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
+                    let unlinked_copy =
+                        journal.action == "install" && journal.status == "pending" && !present;
+                    if unlinked_copy {
+                        fs::remove_file(&temp)?;
+                        continue;
+                    }
                     if digest(&temp)? != f.sha256 {
                         bail!("transaction {} has a changed or incomplete witness {}; preserve it and repair manually",
                             journal.id, temp.display());
@@ -99,7 +106,6 @@ impl Store {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => false,
                 Err(e) => return Err(e.into()),
             };
-            let present = fs::symlink_metadata(&dest).is_ok();
             match (journal.action.as_str(), journal.status.as_str()) {
                 ("install", "pending") => {
                     if witness && present {
