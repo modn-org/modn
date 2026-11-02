@@ -159,9 +159,12 @@ fixture exercises game-agnostic support.
 | Development override | In-memory per-invocation `--module-src` / `--src` |
 | Bucket packages | Embedded `main` snapshot and explicitly registered local directories |
 
-The existing bucket v1 contract validates packages at
-`games/<game-id>/<package-id>.json`. It does not publish, execute or
-select Lua modules. Remote catalog sync, dependency resolution and
+The existing bucket v1 contract validates current releases at
+`games/<game-id>/<package-id>.json` and other releases at
+`games/<game-id>/<package-id>@<version>.json`. It does not publish, execute or
+select Lua modules. An update is a pending uninstall journal and a pending
+install journal; one commit retires the old managed package and moves its
+dependency links to the new one. Remote catalog sync, dependency resolution and
 artifact acquisition remain unimplemented.
 
 ## Invariants for future changes

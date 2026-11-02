@@ -34,8 +34,15 @@ Two more optional fields describe compatibility:
 
 IDs use lowercase ASCII letters, digits and
 hyphens, beginning with a letter and not ending with a hyphen.
-Package identity is `bucket/game-id/package-id`; one version per ID is
-published in each bucket snapshot. See `buckets/main/games/` for examples.
+Package identity is `bucket/game-id/package-id`. `<package-id>.json` is the
+current release: search, dependency resolution and `modn install` use it. A
+bucket may also publish other releases of the same package as
+`games/<game-id>/<package-id>@<version>.json`. The `version` field must equal
+the file name's version, the current release must exist, and each version may
+appear once. Only `modn update <package> --version <version>` selects another
+release. Modn versions before this rule reject such files. The bundled `main`
+snapshot publishes current releases only. See `buckets/main/games/` for
+examples.
 
 Buckets containing a `modules/` directory are rejected; it is not an
 extension point. Registered local buckets are read-only and revalidated before
