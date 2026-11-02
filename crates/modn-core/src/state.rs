@@ -146,6 +146,9 @@ impl Store {
                 ord INTEGER NOT NULL,
                 PRIMARY KEY(transaction_id, ord)
             );
+            CREATE TABLE IF NOT EXISTS link_recorded_journals (
+                transaction_id TEXT PRIMARY KEY REFERENCES pending_transactions(id)
+            );
             CREATE TABLE IF NOT EXISTS pending_stacks (
                 id TEXT PRIMARY KEY,
                 game_path TEXT NOT NULL

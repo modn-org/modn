@@ -51,9 +51,13 @@ impl Store {
             .collect()
     }
 
-    fn link_attempted(&self, id: &str, ordinal: usize) -> Result<bool> {
+    /// Returns true only when the journal records link attempts and has no
+    /// attempt for this file. A journal from an older Modn has no marker, so
+    /// missing evidence proves nothing for it.
+    fn never_linked(&self, id: &str, ordinal: usize) -> Result<bool> {
         Ok(self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM pending_links WHERE transaction_id=?1 AND ord=?2)",
+            "SELECT EXISTS(SELECT 1 FROM link_recorded_journals WHERE transaction_id=?1)
+               AND NOT EXISTS(SELECT 1 FROM pending_links WHERE transaction_id=?1 AND ord=?2)",
             rusqlite::params![id, ordinal as i64],
             |row| row.get(0),
         )?)
@@ -79,6 +83,10 @@ impl Store {
             [id],
         )?;
         tx.execute("DELETE FROM pending_links WHERE transaction_id=?1", [id])?;
+        tx.execute(
+            "DELETE FROM link_recorded_journals WHERE transaction_id=?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
@@ -101,7 +109,7 @@ impl Store {
                 Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
                     let never_linked = journal.action == "install"
                         && journal.status == "pending"
-                        && !self.link_attempted(&journal.id, f.ordinal)?;
+                        && self.never_linked(&journal.id, f.ordinal)?;
                     if never_linked {
                         fs::remove_file(&temp)?;
                         continue;

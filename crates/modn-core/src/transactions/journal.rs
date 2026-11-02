@@ -198,11 +198,19 @@ impl Store {
         allowed: Option<&str>,
     ) -> Result<()> {
         self.ensure_pending_only(allowed)?;
-        self.connection.execute(
+        let tx = self.connection.transaction()?;
+        tx.execute(
             "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
              VALUES (?1,'install','staging',?2,?1,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
+        // Recovery may treat a missing `pending_links` row as proof that no
+        // link exists only for a journal that carries this marker.
+        tx.execute(
+            "INSERT INTO link_recorded_journals(transaction_id) VALUES (?1)",
+            [id],
+        )?;
+        tx.commit()?;
         Ok(())
     }
     pub(super) fn stage_ready(

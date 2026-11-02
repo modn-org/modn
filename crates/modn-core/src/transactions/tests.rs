@@ -38,16 +38,6 @@ fn archive(root: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
     path
 }
 
-fn record_link(store: &Store, id: &str) {
-    store
-        .connection
-        .execute(
-            "INSERT INTO pending_links(transaction_id,ord) VALUES (?1,0)",
-            [id],
-        )
-        .unwrap();
-}
-
 fn prepared_file(dest: &str, data: &[u8]) -> JournalFile {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -153,7 +143,6 @@ fn recovering_crashed_install_removes_only_proven_hardlinks() {
     let dest = test_target(&game, &f.destination);
     let temp = temp_path(&dest, id, 0).unwrap();
     fs::write(&temp, b"owned").unwrap();
-    record_link(&store, id);
     fs::hard_link(&temp, &dest).unwrap();
     assert_eq!(store.recover().unwrap(), 1);
     assert!(!dest.exists());
@@ -206,7 +195,6 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
     let dest = test_target(&game, &f.destination);
     let temp = temp_path(&dest, id, 0).unwrap();
     fs::write(&temp, b"owned").unwrap();
-    record_link(&store, id);
     fs::hard_link(&temp, &dest).unwrap();
     fs::write(&dest, b"changed").unwrap();
     assert!(store.recover().is_err());
@@ -217,6 +205,66 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
         &archive(_dir.path(), &[("archive/pc/mod/other.archive", b"x")])
     )
     .is_err());
+}
+
+/// Leaves a pending install journal with a linked witness, written by a Modn
+/// that predates link records, and reopens the state with the current Modn.
+fn older_linked_install(
+    root: &Path,
+    mut store: Store,
+    game: &Path,
+    id: &str,
+) -> (Store, PathBuf, PathBuf) {
+    let f = prepared_file("archive/pc/mod/older.archive", b"owned");
+    store
+        .insert_journal(
+            id,
+            "install",
+            game,
+            id,
+            Some("archive"),
+            std::slice::from_ref(&f),
+            &[],
+        )
+        .unwrap();
+    store
+        .connection
+        .execute_batch("DROP TABLE pending_links; DROP TABLE link_recorded_journals;")
+        .unwrap();
+    drop(store);
+    let dest = test_target(game, &f.destination);
+    let temp = temp_path(&dest, id, 0).unwrap();
+    fs::write(&temp, b"owned").unwrap();
+    fs::hard_link(&temp, &dest).unwrap();
+    let store = Store::open(&root.join("state/state.sqlite")).unwrap();
+    (store, dest, temp)
+}
+
+#[test]
+fn recovery_keeps_a_changed_sole_witness_from_an_older_journal() {
+    let (dir, store, game) = fixture();
+    let (mut store, dest, temp) = older_linked_install(dir.path(), store, &game, "txn-older-a");
+    fs::write(&dest, b"unique user data").unwrap();
+    fs::remove_file(&dest).unwrap();
+
+    let error = store.recover().unwrap_err();
+    assert!(
+        error.to_string().contains("changed or incomplete witness"),
+        "{error:#}"
+    );
+    assert_eq!(fs::read(&temp).unwrap(), b"unique user data");
+    assert_eq!(store.pending().unwrap().len(), 1);
+}
+
+#[test]
+fn recovery_rolls_back_a_linked_destination_from_an_older_journal() {
+    let (dir, store, game) = fixture();
+    let (mut store, dest, temp) = older_linked_install(dir.path(), store, &game, "txn-older-b");
+
+    assert_eq!(store.recover().unwrap(), 1);
+    assert!(!dest.exists());
+    assert!(!temp.exists());
+    assert!(store.pending().unwrap().is_empty());
 }
 
 #[test]
