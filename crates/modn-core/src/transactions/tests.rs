@@ -38,6 +38,16 @@ fn archive(root: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
     path
 }
 
+fn record_link(store: &Store, id: &str) {
+    store
+        .connection
+        .execute(
+            "INSERT INTO pending_links(transaction_id,ord) VALUES (?1,0)",
+            [id],
+        )
+        .unwrap();
+}
+
 fn prepared_file(dest: &str, data: &[u8]) -> JournalFile {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -143,6 +153,7 @@ fn recovering_crashed_install_removes_only_proven_hardlinks() {
     let dest = test_target(&game, &f.destination);
     let temp = temp_path(&dest, id, 0).unwrap();
     fs::write(&temp, b"owned").unwrap();
+    record_link(&store, id);
     fs::hard_link(&temp, &dest).unwrap();
     assert_eq!(store.recover().unwrap(), 1);
     assert!(!dest.exists());
@@ -195,6 +206,7 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
     let dest = test_target(&game, &f.destination);
     let temp = temp_path(&dest, id, 0).unwrap();
     fs::write(&temp, b"owned").unwrap();
+    record_link(&store, id);
     fs::hard_link(&temp, &dest).unwrap();
     fs::write(&dest, b"changed").unwrap();
     assert!(store.recover().is_err());

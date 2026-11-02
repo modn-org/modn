@@ -300,6 +300,9 @@ framework as a side effect. The update is blocked in these cases:
 - a dependent's installed release has a `dependency_versions` requirement
   that the target version does not meet
 - a dependent's requirement is unknown
+- a dependent needs the installed archive under another catalog name (an
+  alias that pins the same digest); Modn cannot show that the new release
+  satisfies that name
 - the new release would depend, directly or through other packages, on a
   package that depends on the mod
 
@@ -325,8 +328,11 @@ transaction under the transaction lock:
 If a step fails before that commit, Modn restores the old release under its
 package ID. If the process stops, other writes are refused until
 `modn recover --yes`, which removes the new files and then restores the old
-release. A partial copy that Modn had not yet linked into the game is
-deleted, because no game file refers to it. Runtime content in an exclusive folder, such as a log or settings
+release. Before Modn links each new file into the game, it records the
+attempt in the journal. Recovery deletes a private copy without checking it
+only when no such record exists, because no game file can then refer to it.
+A copy that Modn may have linked keeps the usual check: if its content
+changed, recovery preserves it and stops. Runtime content in an exclusive folder, such as a log or settings
 file, is part of the old release's folder: a successful update deletes it with
 that folder, exactly like an uninstall. Copy such files first if you need them.
 

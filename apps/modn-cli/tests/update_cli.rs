@@ -274,6 +274,60 @@ fn the_installed_dependent_requirement_blocks_the_update_without_writing() {
 }
 
 #[test]
+fn a_dependent_that_needs_the_archive_under_an_alias_blocks_the_update() {
+    let fixture = Fixture::new();
+    let (v1, v1_hash) = plugins(&fixture, "base-1", &[("base.plugin", "v1")]);
+    let (v2, v2_hash) = plugins(&fixture, "base-2", &[("base.plugin", "v2")]);
+    let (top, top_hash) = plugins(&fixture, "top", &[("top.plugin", "top")]);
+    fixture.bucket("deps", "test-game", "base", &v1_hash, &[]);
+    manifest(&fixture, "alias.json", "alias", "1.0", &v1_hash, json!({}));
+    manifest(
+        &fixture,
+        "top.json",
+        "top",
+        "1.0",
+        &top_hash,
+        json!({"dependencies": ["alias"], "dependency_versions": {"alias": "<2.0"}}),
+    );
+    fixture.register();
+    json_of(&run(
+        &fixture,
+        &["--json", "install", "base", "--yes"],
+        Some(&v1),
+    ));
+    json_of(&run(
+        &fixture,
+        &["--json", "install", "top", "--yes"],
+        Some(&top),
+    ));
+    manifest(&fixture, "base.json", "base", "2.0", &v2_hash, json!({}));
+    manifest(
+        &fixture,
+        "base@1.0.json",
+        "base",
+        "1.0",
+        &v1_hash,
+        json!({}),
+    );
+
+    let report = json_of(&run(
+        &fixture,
+        &["--json", "update", "base", "--dry-run"],
+        Some(&v2),
+    ));
+    assert_eq!(report["dependents"][0]["alias"], "deps/test-game/alias");
+    assert_eq!(report["dependents"][0]["satisfied"], false);
+    let blocked = run(&fixture, &["update", "base", "--yes"], Some(&v2));
+    assert!(
+        error(&blocked).contains("needs this archive as deps/test-game/alias"),
+        "{}",
+        error(&blocked)
+    );
+    let installed = fs::read_to_string(fixture.game.join("addons/base.plugin"));
+    assert_eq!(installed.ok().as_deref(), Some("v1"));
+}
+
+#[test]
 fn the_target_release_requirements_block_the_update() {
     let catalog = installed_with_dependent();
     let top_2 = catalog.top_release("top.json", "2.0", "top 2", ">=3.0");

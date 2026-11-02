@@ -4,7 +4,7 @@ use modn_core::buckets::{BucketPackage, BucketStore, VersionReq};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
 use modn_core::transactions::{
-    CatalogRelease, DependencyState, ManagedPackage, RecordedRequirement,
+    CatalogRelease, DependencyState, ManagedPackage, RecordedDependency,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -61,6 +61,7 @@ enum Requirement {
     Unknown,
     Unrestricted,
     Requires(String),
+    Alias(String),
 }
 
 impl DependentCheck {
@@ -69,58 +70,82 @@ impl DependentCheck {
     }
 }
 
-fn installed_requirement(
-    store: &Store,
+fn of_dependency(requirement: Option<String>) -> Requirement {
+    requirement.map_or(Requirement::Unrestricted, Requirement::Requires)
+}
+
+fn recorded_requirement(
+    recorded: Vec<RecordedDependency>,
+    old: &ManagedPackage,
+    target: &BucketPackage,
+) -> Requirement {
+    let updated = reference_of(target);
+    if let Some(alias) = recorded
+        .iter()
+        .find(|row| row.reference != updated && row.archive_sha256 == old.archive_sha256)
+    {
+        return Requirement::Alias(alias.reference.to_string());
+    }
+    recorded
+        .into_iter()
+        .find(|row| row.reference == updated)
+        .map_or(Requirement::Unknown, |row| of_dependency(row.requirement))
+}
+
+fn legacy_requirement(
     catalog: &BucketStore,
     dependent: &ManagedPackage,
     target: &BucketPackage,
-) -> Result<Requirement> {
+) -> Requirement {
     let Some(reference) = &dependent.catalog else {
-        return Ok(Requirement::Unknown);
+        return Requirement::Unknown;
     };
-    let dependency = reference_of(target);
-    Ok(
-        match store.recorded_requirement(&dependent.id, &dependency)? {
-            RecordedRequirement::Requires(text) => Requirement::Requires(text),
-            RecordedRequirement::Unrestricted => Requirement::Unrestricted,
-            _ => catalog
-                .releases(&reference.bucket, &reference.game_id, &reference.mod_id)
-                .ok()
-                .and_then(|releases| {
-                    releases
-                        .into_iter()
-                        .find(|release| release.package.sha256 == dependent.archive_sha256)
-                })
-                .map_or(Requirement::Unknown, |release| {
-                    release
-                        .package
-                        .dependency_versions
-                        .get(&target.package.id)
-                        .cloned()
-                        .map_or(Requirement::Unrestricted, Requirement::Requires)
-                }),
-        },
-    )
+    let installed = catalog
+        .releases(&reference.bucket, &reference.game_id, &reference.mod_id)
+        .ok()
+        .and_then(|releases| {
+            releases
+                .into_iter()
+                .find(|release| release.package.sha256 == dependent.archive_sha256)
+        });
+    match installed {
+        Some(release)
+            if reference.bucket == target.bucket
+                && release.package.dependencies.contains(&target.package.id) =>
+        {
+            of_dependency(
+                release
+                    .package
+                    .dependency_versions
+                    .get(&target.package.id)
+                    .cloned(),
+            )
+        }
+        _ => Requirement::Unknown,
+    }
 }
 
 pub(super) fn dependent_checks(
     store: &Store,
     game: &Path,
-    package_id: &str,
+    old: &ManagedPackage,
     catalog: &BucketStore,
     target: &BucketPackage,
 ) -> Result<Vec<DependentCheck>> {
     store
-        .dependents_of(game, package_id)?
+        .dependents_of(game, &old.id)?
         .into_iter()
         .map(|dependent| {
-            let requirement = installed_requirement(store, catalog, &dependent, target)?;
+            let requirement = match store.recorded_dependencies(&dependent.id)? {
+                Some(recorded) => recorded_requirement(recorded, old, target),
+                None => legacy_requirement(catalog, &dependent, target),
+            };
             let satisfied = match &requirement {
                 Requirement::Requires(text) => VersionReq::parse(text)?
                     .matches(&target.package.version)
                     .unwrap_or(false),
                 Requirement::Unrestricted => true,
-                Requirement::Unknown => false,
+                Requirement::Unknown | Requirement::Alias(_) => false,
             };
             Ok(DependentCheck {
                 package: dependent
@@ -168,8 +193,12 @@ pub(super) fn dependent_blockers(checks: &[DependentCheck], mod_id: &str) -> Vec
                 "{} {} requires {mod_id} {text}",
                 check.package_id, check.package
             ),
+            Requirement::Alias(alias) => format!(
+                "{} {} needs this archive as {alias}, not as {mod_id}; Modn cannot show that it accepts the update, so update or reinstall it first",
+                check.package_id, check.package
+            ),
             _ => format!(
-                "{} {}: the catalog no longer has its installed release, so its requirement on {mod_id} is unknown; update or reinstall it first",
+                "{} {}: its requirement on {mod_id} is unknown; update or reinstall it first",
                 check.package_id, check.package
             ),
         })
@@ -265,7 +294,14 @@ impl Preview<'_> {
                     Requirement::Requires(text) => Some(text.as_str()),
                     _ => None,
                 },
-                "requirement_known": !matches!(check.requirement, Requirement::Unknown),
+                "requirement_known": matches!(
+                    check.requirement,
+                    Requirement::Requires(_) | Requirement::Unrestricted
+                ),
+                "alias": match &check.requirement {
+                    Requirement::Alias(alias) => Some(alias.as_str()),
+                    _ => None,
+                },
                 "satisfied": check.satisfied,
             })).collect::<Vec<_>>(),
             "blockers": self.blockers,

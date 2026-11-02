@@ -277,6 +277,10 @@ impl Store {
                 if digest(&temp)? != f.sha256 {
                     bail!("staging digest mismatch");
                 }
+                self.connection.execute(
+                    "INSERT INTO pending_links(transaction_id,ord) VALUES (?1,?2)",
+                    rusqlite::params![id, f.ordinal as i64],
+                )?;
                 fs::hard_link(&temp, &dest).with_context(|| {
                     format!(
                         "cannot atomically link destination {}; existing files never overwritten",

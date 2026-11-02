@@ -173,7 +173,7 @@ pub(super) fn run(
     }
     let release = catalog_release(&target, &catalog)?;
     let dependents: Vec<DependentCheck> =
-        update_report::dependent_checks(store, &game, &old.id, &catalog, &target)?;
+        update_report::dependent_checks(store, &game, &old, &catalog, &target)?;
     blockers.extend(update_report::dependency_blockers(
         &release,
         &store.dependency_states(&game, &release.dependencies)?,

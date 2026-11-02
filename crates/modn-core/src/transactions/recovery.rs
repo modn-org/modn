@@ -51,6 +51,14 @@ impl Store {
             .collect()
     }
 
+    fn link_attempted(&self, id: &str, ordinal: usize) -> Result<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pending_links WHERE transaction_id=?1 AND ord=?2)",
+            rusqlite::params![id, ordinal as i64],
+            |row| row.get(0),
+        )?)
+    }
+
     fn finish_journal(&mut self, id: &str) -> Result<()> {
         let staging = self.state_root.join(id);
         if staging.exists() {
@@ -70,6 +78,7 @@ impl Store {
             "DELETE FROM pending_created_directories WHERE transaction_id=?1",
             [id],
         )?;
+        tx.execute("DELETE FROM pending_links WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
@@ -90,9 +99,10 @@ impl Store {
             let present = fs::symlink_metadata(&dest).is_ok();
             let witness = match fs::symlink_metadata(&temp) {
                 Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
-                    let unlinked_copy =
-                        journal.action == "install" && journal.status == "pending" && !present;
-                    if unlinked_copy {
+                    let never_linked = journal.action == "install"
+                        && journal.status == "pending"
+                        && !self.link_attempted(&journal.id, f.ordinal)?;
+                    if never_linked {
                         fs::remove_file(&temp)?;
                         continue;
                     }

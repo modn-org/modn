@@ -31,7 +31,7 @@ mod validation;
 
 pub use catalog::{
     CatalogConflict, CatalogDependency, CatalogReference, CatalogRelease, DependencyState,
-    RecordedRequirement,
+    RecordedDependency,
 };
 pub(crate) use journal::lock_store;
 pub use journal::{ManagedPackage, OwnedFile};

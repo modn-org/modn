@@ -213,6 +213,30 @@ fn recovery_restores_the_old_release_after_an_interrupted_copy() {
 }
 
 #[test]
+fn recovery_keeps_a_linked_witness_that_another_process_changed() {
+    let mut installed = base_with_dependent();
+    installed.update(Some(Fault::CrashAfter(1))).unwrap_err();
+    let pending = installed.fixture.store.pending().unwrap();
+    let copy = pending
+        .iter()
+        .find(|journal| journal.action == "install")
+        .unwrap();
+    let linked = &copy.files[0];
+    let game = installed.fixture.game.clone();
+    let destination = target_path(&game, &linked.destination).unwrap();
+    let witness = temp_path(&destination, &copy.id, linked.ordinal).unwrap();
+    fs::write(&destination, "user data").unwrap();
+    fs::remove_file(&destination).unwrap();
+
+    let error = installed.fixture.store.recover().unwrap_err();
+    assert!(
+        error.to_string().contains("changed or incomplete witness"),
+        "{error:#}"
+    );
+    assert_eq!(fs::read_to_string(&witness).unwrap(), "user data");
+}
+
+#[test]
 fn update_refuses_a_release_that_depends_on_its_own_dependent() {
     let mut installed = base_with_dependent();
     let before = installed.package_ids();

@@ -71,17 +71,16 @@ impl CatalogDependency {
     }
 }
 
-/// The version requirement that a managed package recorded at installation
-/// for one of its catalog dependencies.
+/// A catalog dependency that a managed package recorded at installation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum RecordedRequirement {
-    /// Installed before Modn recorded requirements, or not a dependency.
-    Unrecorded,
-    /// A recorded dependency without a version requirement.
-    Unrestricted,
-    /// A recorded version requirement.
-    Requires(String),
+pub struct RecordedDependency {
+    /// The catalog mod that the dependent's manifest named.
+    pub reference: CatalogReference,
+    /// The archive digest that the dependency's release pinned at installation.
+    pub archive_sha256: String,
+    /// The manifest's version requirement, if any.
+    pub requirement: Option<String>,
 }
 
 #[expect(missing_docs, reason = "Method names state their behavior")]
@@ -242,35 +241,34 @@ impl Store {
 }
 
 impl Store {
-    /// The version requirement that managed package `package_id` recorded
-    /// for catalog mod `dependency` when it was installed.
-    pub fn recorded_requirement(
+    /// The catalog dependencies that managed package `package_id` recorded
+    /// when it was installed, or `None` if it predates these records or has
+    /// no catalog dependencies.
+    pub fn recorded_dependencies(
         &self,
         package_id: &str,
-        dependency: &CatalogReference,
-    ) -> Result<RecordedRequirement> {
+    ) -> Result<Option<Vec<RecordedDependency>>> {
         if !self.has_table("package_requirements")? {
-            return Ok(RecordedRequirement::Unrecorded);
+            return Ok(None);
         }
-        let recorded: Option<Option<String>> = self
-            .connection
-            .query_row(
-                "SELECT requirement FROM package_requirements
-                 WHERE package_id=?1 AND bucket=?2 AND game_id=?3 AND mod_id=?4",
-                params![
-                    package_id,
-                    dependency.bucket,
-                    dependency.game_id,
-                    dependency.mod_id
-                ],
-                |row| row.get(0),
-            )
-            .optional()?;
-        Ok(match recorded {
-            None => RecordedRequirement::Unrecorded,
-            Some(None) => RecordedRequirement::Unrestricted,
-            Some(Some(requirement)) => RecordedRequirement::Requires(requirement),
-        })
+        let mut statement = self.connection.prepare(
+            "SELECT bucket, game_id, mod_id, archive_sha256, requirement
+             FROM package_requirements WHERE package_id=?1 ORDER BY bucket, game_id, mod_id",
+        )?;
+        let recorded = statement
+            .query_map([package_id], |row| {
+                Ok(RecordedDependency {
+                    reference: CatalogReference {
+                        bucket: row.get(0)?,
+                        game_id: row.get(1)?,
+                        mod_id: row.get(2)?,
+                    },
+                    archive_sha256: row.get(3)?,
+                    requirement: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok((!recorded.is_empty()).then_some(recorded))
     }
 }
 
@@ -316,13 +314,14 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
         let reference = &dependency.reference;
         tx.execute(
             "INSERT OR REPLACE INTO package_requirements
-                 (package_id,bucket,game_id,mod_id,requirement)
-             VALUES (?1,?2,?3,?4,?5)",
+                 (package_id,bucket,game_id,mod_id,archive_sha256,requirement)
+             VALUES (?1,?2,?3,?4,?5,?6)",
             params![
                 package_id,
                 reference.bucket,
                 reference.game_id,
                 reference.mod_id,
+                dependency.archive_sha256,
                 dependency.requirement
             ],
         )?;
