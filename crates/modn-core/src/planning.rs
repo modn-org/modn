@@ -7,7 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Proposed metadata-only file operation.
-#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct PlannedFile {
@@ -15,6 +14,7 @@ pub struct PlannedFile {
     pub source: String,
     /// Game-relative destination path.
     pub destination: String,
+    /// Declared uncompressed size.
     pub bytes: u64,
     /// Recognized mod layout category.
     pub kind: String,

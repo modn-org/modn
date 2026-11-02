@@ -16,6 +16,7 @@ pub struct StackMember {
     /// Archive whose digest the caller verified against the release manifest.
     pub archive: PathBuf,
     pub release: CatalogRelease,
+    /// Tool executables the user approved for this member.
     pub approved_executables: Vec<String>,
 }
 

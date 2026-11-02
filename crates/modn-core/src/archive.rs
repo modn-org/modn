@@ -13,7 +13,6 @@ const MAX_UNPACKED: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE: u64 = 16 * 1024 * 1024 * 1024;
 
 /// Sanitized archive entry and declared size.
-#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct ArchiveFile {
@@ -22,6 +21,7 @@ pub struct ArchiveFile {
     /// Original entry spelling, when ZIP separators required normalization.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_entry: Option<String>,
+    /// Declared uncompressed size in bytes.
     pub bytes: u64,
 }
 
@@ -71,6 +71,7 @@ pub struct Inspection {
     pub archive: PathBuf,
     pub format: ArchiveFormat,
     pub sha256: String,
+    /// Sum of declared uncompressed sizes.
     pub total_uncompressed_bytes: u64,
     pub files: Vec<ArchiveFile>,
     /// True: no game files are extracted.
@@ -143,6 +144,7 @@ fn append_file(
     Ok(())
 }
 
+// ZipArchive deduplicates identical names; inspect raw central records first.
 fn verify_zip_central_records(path: &Path, start: u64) -> Result<()> {
     let mut input = File::open(path)?;
     input.seek(SeekFrom::Start(start))?;

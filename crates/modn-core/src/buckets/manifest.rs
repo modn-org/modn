@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
+/// One immutable package version, independent of installer policy.
 #[expect(
     missing_docs,
     reason = "Serialized schema fields directly specify their purpose"
@@ -23,14 +24,21 @@ pub struct PackageManifest {
     pub dependencies: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
+    /// Game-relative tool executables the archive installs. A declaration
+    /// lets Modn name them in its confirmation prompt; it never approves them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub executables: Vec<String>,
+    /// Version requirement for each listed dependency that needs one, such
+    /// as `{"red4ext": ">=1.31.0"}`. The bucket's release must satisfy it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dependency_versions: BTreeMap<String, String>,
+    /// Mods in the same bucket and game that must not be installed together
+    /// with this one, in either order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<String>,
 }
 
+/// Format of the original, unextracted download.
 #[expect(
     missing_docs,
     reason = "Serialized schema fields directly specify their purpose"
@@ -44,6 +52,7 @@ pub enum ArchiveFormat {
     SevenZ,
 }
 
+/// Metadata only: no URLs are fetched by the bucket foundation.
 #[expect(
     missing_docs,
     reason = "Serialized schema fields directly specify their purpose"

@@ -96,7 +96,9 @@ pub struct OwnedFileCheck {
     /// Recorded game-relative destination.
     pub relative_path: String,
     pub status: IntegrityStatus,
+    /// SHA-256 recorded during installation.
     pub expected_sha256: String,
+    /// Size recorded during installation.
     pub expected_bytes: u64,
 }
 

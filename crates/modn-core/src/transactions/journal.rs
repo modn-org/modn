@@ -24,12 +24,14 @@ pub struct ManagedPackage {
 }
 
 /// Manifest record for a file owned by a managed package.
-#[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct OwnedFile {
+    /// Game-relative destination path.
     pub destination: String,
+    /// Verified installed SHA-256 digest.
     pub sha256: String,
+    /// Verified installed file size.
     pub bytes: u64,
 }
 

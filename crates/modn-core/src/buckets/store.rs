@@ -18,6 +18,7 @@ const MAX_PACKAGES: usize = 1024;
 pub struct BucketInfo {
     pub name: String,
     pub title: String,
+    /// None indicates the built-in, read-only main snapshot.
     pub path: Option<PathBuf>,
 }
 
