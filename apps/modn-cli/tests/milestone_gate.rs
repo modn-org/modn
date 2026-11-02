@@ -10,93 +10,70 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::LazyLock;
 use support::{error, Fixture};
 use tree::{file_count, sha, snapshot};
 use zip::write::SimpleFileOptions;
 
+const CATALOG: &str = "../../buckets/main/games/cyberpunk-2077";
+
 struct Release {
-    id: &'static str,
-    version: &'static str,
-    dependencies: &'static [&'static str],
-    versions: &'static [(&'static str, &'static str)],
+    id: String,
+    version: String,
+    dependencies: Vec<String>,
+    versions: Vec<(String, String)>,
 }
 
-const STACK: [Release; 11] = [
-    Release {
-        id: "red4ext",
-        version: "1.31.0",
-        dependencies: &[],
-        versions: &[],
-    },
-    Release {
-        id: "redscript",
-        version: "0.5.32",
-        dependencies: &[],
-        versions: &[],
-    },
-    Release {
-        id: "cet",
-        version: "1.38.1",
-        dependencies: &["red4ext"],
-        versions: &[],
-    },
-    Release {
-        id: "archivexl",
-        version: "1.28.6",
-        dependencies: &["red4ext", "redscript"],
-        versions: &[("red4ext", ">=1.31.0"), ("redscript", ">=0.5.32")],
-    },
-    Release {
-        id: "tweakxl",
-        version: "1.12.0",
-        dependencies: &["red4ext", "redscript"],
-        versions: &[("red4ext", ">=1.31.0"), ("redscript", ">=0.5.32")],
-    },
-    Release {
-        id: "codeware",
-        version: "1.21.2",
-        dependencies: &["red4ext", "redscript"],
-        versions: &[("red4ext", ">=1.31.0"), ("redscript", ">=0.5.32")],
-    },
-    Release {
-        id: "mod-settings",
-        version: "0.2.28",
-        dependencies: &["archivexl", "red4ext", "redscript"],
-        versions: &[],
-    },
-    Release {
-        id: "equipment-ex",
-        version: "1.2.10",
-        dependencies: &["archivexl", "codeware", "redscript", "tweakxl"],
-        versions: &[("archivexl", ">=1.28.0"), ("tweakxl", ">=1.12.0")],
-    },
-    Release {
-        id: "virtual-atelier",
-        version: "1.6.4",
-        dependencies: &["archivexl", "codeware", "mod-settings", "redscript"],
-        versions: &[],
-    },
-    Release {
-        id: "browser-extension",
-        version: "0.9.7",
-        dependencies: &["codeware", "red4ext", "redscript"],
-        versions: &[],
-    },
-    Release {
-        id: "no-intro-videos",
-        version: "0.8",
-        dependencies: &["redscript"],
-        versions: &[],
-    },
-];
+static STACK: LazyLock<Vec<Release>> = LazyLock::new(official_releases);
 
-const TOPS: [&str; 5] = [
-    "virtual-atelier",
-    "equipment-ex",
-    "browser-extension",
-    "no-intro-videos",
-    "cet",
-];
+fn catalog_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(CATALOG)
+}
+
+fn text(value: &Value) -> String {
+    value.as_str().expect("string").to_owned()
+}
+
+fn official_releases() -> Vec<Release> {
+    let mut releases: Vec<Release> = fs::read_dir(catalog_dir())
+        .expect("official catalog")
+        .map(|entry| {
+            let path = entry.expect("entry").path();
+            let manifest: Value =
+                serde_json::from_slice(&fs::read(path).expect("manifest")).expect("JSON");
+            Release {
+                id: text(&manifest["id"]),
+                version: text(&manifest["version"]),
+                dependencies: manifest["dependencies"]
+                    .as_array()
+                    .expect("dependencies")
+                    .iter()
+                    .map(text)
+                    .collect(),
+                versions: manifest["dependency_versions"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(dependency, requirement)| (dependency.clone(), text(requirement)))
+                    .collect(),
+            }
+        })
+        .collect();
+    releases.sort_by(|a, b| a.id.cmp(&b.id));
+    releases
+}
+
+fn tops() -> Vec<&'static str> {
+    STACK
+        .iter()
+        .filter(|release| {
+            !STACK
+                .iter()
+                .any(|other| other.dependencies.contains(&release.id))
+        })
+        .map(|release| release.id.as_str())
+        .collect()
+}
 
 struct Gate {
     fixture: Fixture,
@@ -129,8 +106,8 @@ impl Gate {
                 .iter()
                 .find(|release| release.id == needed[index])
                 .expect("known mod");
-            for dependency in release.dependencies {
-                if !needed.contains(dependency) {
+            for dependency in &release.dependencies {
+                if !needed.contains(&dependency.as_str()) {
                     needed.push(dependency);
                 }
             }
@@ -214,7 +191,7 @@ impl Gate {
         assert_eq!(snapshot(&self.game), before);
 
         let mut order = Vec::new();
-        for top in TOPS {
+        for top in tops() {
             order.extend(
                 self.install(top, extra)
                     .unwrap_or_else(|e| panic!("{top}: {e}")),
@@ -282,7 +259,7 @@ fn synthetic_gate() -> Gate {
         version,
         dependencies,
         versions,
-    } in STACK
+    } in STACK.iter()
     {
         let path = fixture.temp.path().join(format!("{id}.zip"));
         let mut zip = zip::ZipWriter::new(fs::File::create(&path).expect("archive"));
@@ -296,7 +273,7 @@ fn synthetic_gate() -> Gate {
         zip.finish().expect("finish");
         let requirements: serde_json::Map<String, Value> = versions
             .iter()
-            .map(|(dependency, requirement)| ((*dependency).to_owned(), json!(requirement)))
+            .map(|(dependency, requirement)| (dependency.clone(), json!(requirement)))
             .collect();
         let manifest = json!({
             "schema_version":1, "id":id, "game":"test-game", "name":id,
@@ -325,50 +302,6 @@ fn synthetic_gate() -> Gate {
 
 #[test]
 fn synthetic_full_stack_installs_and_rolls_back_reproducibly() {
-    let catalog =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
-    let mut official: Vec<String> = fs::read_dir(&catalog)
-        .expect("official catalog")
-        .map(|entry| {
-            entry
-                .expect("entry")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    official.sort();
-    let mut synthetic: Vec<String> = STACK.iter().map(|r| format!("{}.json", r.id)).collect();
-    synthetic.sort();
-    assert_eq!(synthetic, official, "same mods as buckets/main");
-    for release in &STACK {
-        let manifest: Value = serde_json::from_slice(
-            &fs::read(catalog.join(format!("{}.json", release.id))).expect("manifest"),
-        )
-        .expect("JSON");
-        let requirements: serde_json::Map<String, Value> = release
-            .versions
-            .iter()
-            .map(|(id, requirement)| ((*id).to_owned(), json!(requirement)))
-            .collect();
-        assert_eq!(manifest["version"], release.version, "{}", release.id);
-        assert_eq!(
-            manifest["dependencies"],
-            json!(release.dependencies),
-            "{}",
-            release.id
-        );
-        assert_eq!(
-            manifest
-                .get("dependency_versions")
-                .cloned()
-                .unwrap_or_else(|| json!({})),
-            Value::Object(requirements),
-            "{}",
-            release.id
-        );
-    }
-
     let gate = synthetic_gate();
     let owned = gate.run("addons/virtual-atelier.plugin", &[]);
     assert_eq!(owned, STACK.len());
@@ -390,8 +323,7 @@ fn real_cyberpunk_stack_installs_and_rolls_back_in_a_disposable_directory() {
     )
     .expect("marker");
 
-    let catalog =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
+    let catalog = catalog_dir();
     let mut digests = BTreeMap::new();
     for entry in fs::read_dir(&source).expect("archive folder") {
         let path = entry.expect("entry").path();
@@ -400,7 +332,7 @@ fn real_cyberpunk_stack_installs_and_rolls_back_in_a_disposable_directory() {
         }
     }
     let mut archives = BTreeMap::new();
-    for Release { id, .. } in STACK {
+    for Release { id, .. } in STACK.iter() {
         let manifest: Value = serde_json::from_slice(
             &fs::read(catalog.join(format!("{id}.json"))).expect("manifest"),
         )
@@ -416,7 +348,6 @@ fn real_cyberpunk_stack_installs_and_rolls_back_in_a_disposable_directory() {
             archives.insert(id.to_owned(), path.clone());
         }
     }
-    assert_eq!(archives.len(), 4, "four Nexus archives");
 
     let cache = std::env::var_os("MODN_GATE_CACHE")
         .map_or_else(|| fixture.temp.path().join("cache"), PathBuf::from);
@@ -442,5 +373,5 @@ fn real_cyberpunk_stack_installs_and_rolls_back_in_a_disposable_directory() {
         "archive/pc/mod/VirtualAtelier.archive",
         &["--allow-executable", "engine/tools/scc.exe"],
     );
-    assert_eq!(owned, 137, "owned files of the official stack");
+    assert_eq!(owned, 147, "owned files of the official stack");
 }

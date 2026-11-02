@@ -16,6 +16,18 @@ fn run(state: &Path, args: &[&str]) -> Output {
         .expect("test fixture invariant")
 }
 
+fn official_count() -> usize {
+    let games = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games");
+    fs::read_dir(games)
+        .expect("games directory")
+        .map(|game| {
+            fs::read_dir(game.expect("game entry").path())
+                .expect("packages")
+                .count()
+        })
+        .sum()
+}
+
 fn catalog_search(state: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
@@ -91,7 +103,7 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
         serde_json::from_slice(&search.stdout).expect("test fixture invariant");
     assert_eq!(
         entries.as_array().expect("test fixture invariant").len(),
-        12
+        official_count() + 1
     );
     let show = run(&state, &["show", "community/test-game/example"]);
     assert!(show.status.success(), "{}", output(&show));
@@ -117,7 +129,7 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
     assert!(search.status.success(), "{}", output(&search));
     let after: serde_json::Value =
         serde_json::from_slice(&search.stdout).expect("test fixture invariant");
-    assert_eq!(after.as_array().expect("array").len(), 11);
+    assert_eq!(after.as_array().expect("array").len(), official_count());
     assert!(!run(&state, &["remove", "main"]).status.success());
     assert!(!state.join("state.sqlite").exists());
 }
@@ -225,7 +237,7 @@ fn leftover_temp_files_outside_registry_do_not_block_reads() {
             .as_array()
             .expect("array")
             .len(),
-        12
+        official_count() + 1
     );
     assert!(run(&state, &["remove", "community"]).status.success());
     assert!(
