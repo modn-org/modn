@@ -221,22 +221,27 @@ pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
         let mut messages = Vec::new();
         for entry in entries.sequence_values::<Table>() {
             let entry = entry?;
-            let code: String = entry.get("code")?;
-            let action = match code.as_str() {
-                "OWNED_FILE_MODIFIED" | "OWNED_FILE_MISSING" => Some("Inspect `modn scan` ownership details, then restore the original package files from the installation archive or use `modn uninstall <package>` if safe."),
-                "OWNED_FILE_UNSAFE" => Some("Inspect `modn scan` ownership details and resolve the unsafe path or redirect manually before retrying."),
-                "OWNED_FILE_UNREADABLE" => Some("Inspect `modn scan` ownership details, restore access to the path, then run `modn doctor` again."),
-                "UNMANAGED_CONTENT" => Some("Inspect the listed paths and follow their original uninstall instructions before a clean install."),
-                _ => None,
-            };
-            messages.push(Diagnostic {
-                code,
-                severity: entry.get("severity")?,
-                message: entry.get("message")?,
-                action: action.map(str::to_owned),
-            });
+            messages.push(diagnostic(&entry)?);
         }
         Ok(messages)
+    })
+}
+
+fn diagnostic(entry: &Table) -> mlua::Result<Diagnostic> {
+    let action = match entry.get::<mlua::Value>("action")? {
+        mlua::Value::Nil => None,
+        mlua::Value::String(value) => Some(value.to_str()?.to_owned()),
+        _ => {
+            return Err(mlua::Error::RuntimeError(
+                "diagnostic action must be a string".into(),
+            ))
+        }
+    };
+    Ok(Diagnostic {
+        code: entry.get("code")?,
+        severity: entry.get("severity")?,
+        message: entry.get("message")?,
+        action,
     })
 }
 
@@ -363,4 +368,21 @@ pub(crate) fn plan(
             skipped_generated_files,
         })
     })
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::diagnostic;
+
+    #[test]
+    fn rejects_non_string_action() {
+        let lua = mlua::Lua::new();
+        for action in ["{}", "42", "true"] {
+            let entry: mlua::Table = lua
+                .load(format!("return {{code = 'TEST', severity = 'warning', message = 'test', action = {action}}}"))
+                .eval()
+                .expect("valid Lua fixture");
+            assert!(diagnostic(&entry).is_err());
+        }
+    }
 }

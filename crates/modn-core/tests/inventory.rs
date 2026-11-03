@@ -144,7 +144,11 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
         .diagnostics
         .iter()
         .any(|d| d.code == "OWNED_FILE_MODIFIED"
-            && d.action.as_deref().is_some_and(|a| a.contains("restore"))));
+            && d.action
+                .as_deref()
+                .is_some_and(|a| a.contains("back up the current file")
+                    && a.contains("before restoring")
+                    && !a.contains("uninstall"))));
     assert_eq!(fs::read(&file).unwrap(), b"changed!");
 
     fs::remove_file(&file).unwrap();
@@ -155,7 +159,11 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
         .diagnostics
         .iter()
         .any(|d| d.code == "OWNED_FILE_MISSING"
-            && d.action.as_deref().is_some_and(|a| a.contains("restore"))));
+            && d.action
+                .as_deref()
+                .is_some_and(|a| a.contains("back up the current file")
+                    && a.contains("before restoring")
+                    && !a.contains("uninstall"))));
     assert!(!file.exists());
 
     fs::write(&file, b"expected").unwrap();

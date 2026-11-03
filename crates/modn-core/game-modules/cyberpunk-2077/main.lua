@@ -205,8 +205,8 @@ function policy.scan(limit)
 end
 function policy.doctor(report)
     local findings = {}
-    local function add(code, severity, message)
-        table.insert(findings, {code = code, severity = severity, message = message})
+    local function add(code, severity, message, action)
+        table.insert(findings, {code = code, severity = severity, message = message, action = action})
     end
     for _, code in ipairs(report.scan_issues or {}) do
         if code == "SCAN_INCOMPLETE" then
@@ -254,7 +254,13 @@ function policy.doctor(report)
     if needs_archivexl and not has_signal("red4ext/plugins/ArchiveXL/ArchiveXL.dll") then add("ARCHIVEXL_NOT_INSTALLED", "warning", "ArchiveXL plugin not detected; XL content loading is not verified.") end
     if needs_tweakxl and not has_signal("red4ext/plugins/TweakXL/TweakXL.dll") then add("TWEAKXL_NOT_INSTALLED", "warning", "TweakXL plugin not detected; tweak loading is not verified.") end
     if not report.redmod_available and redmod_content then add("REDMOD_CONTENT_WITHOUT_TOOLS", "warning", "REDmod-style directories exist, but redMod.exe was not found.") end
-    if unmanaged then add("UNMANAGED_CONTENT", "warning", "Some detected mods are not owned by this manager; no changes will be made.") end
+    if unmanaged then add("UNMANAGED_CONTENT", "warning", "Some detected mods are not owned by this manager; no changes will be made.", "Inspect the listed paths and follow their original uninstall instructions before a clean install.") end
+    local actions = {
+        missing = "Inspect `modn scan` ownership details and back up the current file, if present, before restoring the original package files from the installation archive.",
+        modified = "Inspect `modn scan` ownership details and back up the current file, if present, before restoring the original package files from the installation archive.",
+        unsafe = "Inspect `modn scan` ownership details and resolve the unsafe path or redirect manually before retrying.",
+        unreadable = "Inspect `modn scan` ownership details, restore access to the path, then run `modn doctor` again.",
+    }
     for _, status in ipairs({"missing", "modified", "unsafe", "unreadable"}) do
         local count = 0
         for _, file in ipairs(report.owned_files) do
@@ -262,7 +268,7 @@ function policy.doctor(report)
         end
         if count > 0 then
             add("OWNED_FILE_" .. string.upper(status), "warning",
-                string.format("%d manager-owned file(s) are %s; inspect scan ownership details before uninstalling.", count, status))
+                string.format("%d manager-owned file(s) are %s; inspect scan ownership details.", count, status), actions[status])
         end
     end
     return findings
