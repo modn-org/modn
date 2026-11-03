@@ -71,8 +71,9 @@ its floor.
 
 ## Expected result at the sync commit
 
-All six checks pass. Ownership keys use one shared helper.
-It uses per-character lowercase on Windows and exact paths elsewhere.
+All six checks pass. File and directory ownership keys use `ownership_key`:
+per-character lowercase on Windows and exact paths elsewhere. Created-directory
+keys use `case_key`: per-character uppercase on Windows and exact paths elsewhere.
 Writable state opens migrate stored file, directory and created-directory
 keys in one transaction. Exact keys require no updates.
 A collision refuses the open and
