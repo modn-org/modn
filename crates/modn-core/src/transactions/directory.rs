@@ -6,6 +6,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+pub(crate) fn ownership_key(path: &str) -> String {
+    path.chars().flat_map(char::to_lowercase).collect()
+}
+
 pub(crate) fn case_key(path: &str) -> String {
     if cfg!(windows) {
         path.chars().flat_map(char::to_uppercase).collect()

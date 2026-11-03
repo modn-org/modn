@@ -134,7 +134,7 @@ fn validate_ownership_paths<'a>(
     paths: impl IntoIterator<Item = &'a str>,
     replaced: Option<&str>,
 ) -> Result<()> {
-    let selected = PathBuf::from(game.to_string_lossy().to_lowercase());
+    let selected = PathBuf::from(super::ownership_key(&game.to_string_lossy()));
     let mut roots = store
         .connection
         .prepare("SELECT DISTINCT game_path FROM managed_packages")?;
@@ -142,14 +142,15 @@ fn validate_ownership_paths<'a>(
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for recorded in roots {
-        let other = PathBuf::from(recorded.to_lowercase());
+        let other = PathBuf::from(super::ownership_key(&recorded));
         if other != selected && (other.starts_with(&selected) || selected.starts_with(&other)) {
             bail!("installation root overlaps another managed installation");
         }
     }
     let mut reserved: BTreeSet<String> =
-        owned_paths(store, game, "path_key", "managed_files", replaced)?
+        owned_paths(store, game, "relative_path", "managed_files", replaced)?
             .into_iter()
+            .map(|path| super::ownership_key(&path))
             .collect();
     let directories = owned_paths(
         store,

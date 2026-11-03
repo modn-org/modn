@@ -6,15 +6,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
 
-// Non-contextual per-character case folding is only a Windows candidate search.
-// Different names can fold identically on NTFS; actual file identity still decides ownership.
-fn ownership_key(relative: &str) -> String {
-    if cfg!(windows) {
-        relative.chars().flat_map(char::to_lowercase).collect()
-    } else {
-        relative.to_owned()
-    }
-}
+use crate::transactions::ownership_key;
 
 /// Reconcile owned files using the selected game's ordinary Lua scan policy.
 pub fn scan_with_ownership_for(
