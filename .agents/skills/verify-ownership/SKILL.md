@@ -33,7 +33,7 @@ than its floor fails, so a vacuous pass cannot happen.
 
 ## Coverage record
 
-Last confirmed against commit `2152ea0`.
+Last confirmed against commit `41d6639`.
 
 | Check | Covered code |
 |---|---|
@@ -44,7 +44,7 @@ Last confirmed against commit `2152ea0`.
 To see whether the covered code changed after the sync commit, run:
 
 ```sh
-git diff --stat 2152ea0 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/state.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
+git diff --stat 41d6639 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/state.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
 ```
 
 When that diff is not empty, read it against the table and the generators.
