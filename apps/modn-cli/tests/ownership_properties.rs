@@ -454,7 +454,6 @@ fn dry_run_install_and_uninstall_keep_ownership_promises() {
 }
 
 #[test]
-#[ignore = "finding: a reviewable dry run can disagree with the install; run with --include-ignored"]
 fn reviewable_dry_run_predicts_the_install() {
     let installs = run_cases(256, |observed| {
         prop_assert!(

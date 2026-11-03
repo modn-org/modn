@@ -284,7 +284,7 @@ impl Store {
         for f in files {
             tx.execute("INSERT INTO managed_files(game_path,path_key,relative_path,package_id,sha256,bytes)
                 VALUES (?1,?2,?3,?4,?5,?6)",
-                params![game.to_string_lossy().as_ref(), f.destination.to_lowercase(),
+                params![game.to_string_lossy().as_ref(), super::ownership_key(&f.destination),
                     f.destination, id, f.sha256, f.bytes as i64])?;
         }
         for root in directories {
@@ -296,7 +296,7 @@ impl Store {
             tx.execute(
                 "INSERT INTO managed_directories(game_path,path_key,relative_path,package_id,identity)
                  VALUES (?1,?2,?3,?4,?5)",
-                params![game.to_string_lossy().as_ref(), root.to_lowercase(), root, id, identity],
+                params![game.to_string_lossy().as_ref(), super::ownership_key(root), root, id, identity],
             )?;
         }
         if let Some(catalog) = catalog {

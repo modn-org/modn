@@ -4,6 +4,90 @@ use std::fs;
 use tempfile::tempdir;
 
 #[test]
+fn ownership_key_migration_rewrites_old_keys_and_reopening_is_a_noop() {
+    let temp = tempdir().expect("fixture");
+    let db = temp.path().join("state.sqlite");
+    let store = Store::open(&db).expect("state");
+    store.connection.execute_batch(
+        "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES ('pkg','game','hash');"
+    ).expect("package");
+    for table in [
+        "managed_files",
+        "managed_directories",
+        "created_directories",
+    ] {
+        let extra = match table {
+            "managed_files" => ",package_id,sha256,bytes",
+            "managed_directories" => ",package_id",
+            _ => "",
+        };
+        let values = match table {
+            "managed_files" => ",'pkg','digest',7",
+            "managed_directories" => ",'pkg'",
+            _ => "",
+        };
+        store.connection.execute(&format!(
+            "INSERT INTO {table}(game_path,path_key,relative_path{extra}) VALUES ('game',?1,?2{values})"
+        ), rusqlite::params!["archive/pc/modς/x.archive", "archive/pc/modΣ/x.archive"])
+            .expect("old key");
+    }
+    drop(store);
+    let migrated = Store::open(&db).expect("migration");
+    for table in [
+        "managed_files",
+        "managed_directories",
+        "created_directories",
+    ] {
+        let key: String = migrated
+            .connection
+            .query_row(&format!("SELECT path_key FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("key");
+        assert_eq!(key, "archive/pc/modσ/x.archive", "{table}");
+    }
+    drop(migrated);
+    let before = fs::read(&db).expect("database bytes");
+    drop(Store::open(&db).expect("reopen"));
+    assert_eq!(fs::read(&db).expect("database bytes"), before);
+}
+
+#[test]
+fn ownership_key_migration_collision_preserves_every_row() {
+    for table in [
+        "managed_files",
+        "managed_directories",
+        "created_directories",
+    ] {
+        let temp = tempdir().expect("fixture");
+        let db = temp.path().join("state.sqlite");
+        let store = Store::open(&db).expect("state");
+        store.connection.execute_batch(
+            "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES ('pkg','game','hash');"
+        ).expect("package");
+        let (extra, values) = match table {
+            "managed_files" => (",package_id,sha256,bytes", ",'pkg','digest',7"),
+            "managed_directories" => (",package_id", ",'pkg'"),
+            _ => ("", ""),
+        };
+        for path in ["archive/pc/modΣ/x.archive", "archive/pc/modσ/x.archive"] {
+            store.connection.execute(&format!(
+                "INSERT INTO {table}(game_path,path_key,relative_path{extra}) VALUES ('game',?1,?2{values})"
+            ), rusqlite::params![path.to_lowercase(), path]).expect("old rows");
+        }
+        drop(store);
+        let before = fs::read(&db).expect("database bytes");
+        let error = Store::open(&db)
+            .err()
+            .expect("collision must refuse open")
+            .to_string();
+        assert!(error.contains("archive/pc/modΣ/x.archive"), "{error}");
+        assert!(error.contains("archive/pc/modσ/x.archive"), "{error}");
+        assert_eq!(fs::read(&db).expect("database bytes"), before, "{table}");
+    }
+}
+
+#[test]
 fn fresh_packages_require_archive_provenance() {
     let temp = tempdir().unwrap();
     let db = temp.path().join("state.sqlite");

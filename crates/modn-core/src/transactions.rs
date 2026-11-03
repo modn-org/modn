@@ -10,6 +10,7 @@ mod created_dirs;
 mod created_dirs_tests;
 mod directory;
 pub(crate) use directory::case_key as directory_candidate_key;
+pub(crate) use directory::ownership_key;
 mod directory_ledger;
 #[cfg(test)]
 mod generic_tests;

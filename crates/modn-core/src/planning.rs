@@ -121,11 +121,11 @@ pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'
                 // new file below an ancestor addressed through a different name.
                 #[cfg(windows)]
                 {
-                    let key = component.to_lowercase();
+                    let key = crate::transactions::ownership_key(component);
                     if !resolved
                         .file_name()
                         .and_then(|name| name.to_str())
-                        .is_some_and(|actual| actual.to_lowercase() == key)
+                        .is_some_and(|actual| crate::transactions::ownership_key(actual) == key)
                     {
                         return Some("ALIASED_DESTINATION");
                     }
@@ -133,10 +133,9 @@ pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'
                         && !current.parent().is_some_and(|parent| {
                             fs::read_dir(parent).is_ok_and(|entries| {
                                 entries.flatten().any(|entry| {
-                                    entry
-                                        .file_name()
-                                        .to_str()
-                                        .is_some_and(|actual| actual.to_lowercase() == key)
+                                    entry.file_name().to_str().is_some_and(|actual| {
+                                        crate::transactions::ownership_key(actual) == key
+                                    })
                                 })
                             })
                         })
@@ -159,7 +158,7 @@ pub(crate) fn insert_destination(
     targets: &mut BTreeSet<String>,
     destination: &str,
 ) -> Option<&'static str> {
-    let key = destination.to_lowercase();
+    let key = crate::transactions::ownership_key(destination);
     let mut ancestor = key.as_str();
     while let Some((parent, _)) = ancestor.rsplit_once('/') {
         if targets.contains(parent) {

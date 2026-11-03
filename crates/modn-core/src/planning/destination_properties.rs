@@ -290,7 +290,6 @@ fn spelling_of(destination: &str, choices: &[u8]) -> String {
 }
 
 #[test]
-#[ignore = "finding: the ownership key folds case differently from Windows; run with --include-ignored"]
 fn same_file_spellings_share_one_ownership_key() {
     let same_file_pairs = std::cell::Cell::new(0usize);
     let strategy = (destination(), prop::collection::vec(any::<u8>(), 1..16));
