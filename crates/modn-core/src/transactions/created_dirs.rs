@@ -1,5 +1,5 @@
+use super::directory::case_key;
 use super::journal::target_path;
-use super::ownership_key;
 use super::validation::validate_transaction_root;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
@@ -107,7 +107,7 @@ impl Store {
                 self.connection.execute(
                     "INSERT OR REPLACE INTO created_directories
                          (game_path,path_key,relative_path,identity) VALUES (?1,?2,?3,?4)",
-                    params![game_path, ownership_key(relative), relative, identity],
+                    params![game_path, case_key(relative), relative, identity],
                 )?;
             }
         }
@@ -190,12 +190,7 @@ pub(super) fn commit(tx: &Transaction<'_>, transaction_id: &str, game: &Path) ->
         tx.execute(
             "INSERT OR REPLACE INTO created_directories(game_path,path_key,relative_path,identity)
              VALUES (?1,?2,?3,?4)",
-            params![
-                game_path.as_ref(),
-                ownership_key(relative),
-                relative,
-                identity
-            ],
+            params![game_path.as_ref(), case_key(relative), relative, identity],
         )?;
     }
     Ok(())
