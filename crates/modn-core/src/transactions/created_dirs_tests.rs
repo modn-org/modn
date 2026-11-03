@@ -211,7 +211,7 @@ fn a_recreated_directory_replaces_its_stale_record() {
     assert_eq!(fixture.count("created_directories"), 0);
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(windows))]
 #[test]
 fn directories_differing_only_in_case_are_separate_on_linux() {
     let mut fixture = Fixture::new();

@@ -328,6 +328,11 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
         "managed_directories",
         "created_directories",
     ] {
+        let path_key = if table == "created_directories" {
+            crate::transactions::directory_candidate_key
+        } else {
+            crate::transactions::ownership_key
+        };
         let mut query = connection.prepare(&format!(
             "SELECT game_path, path_key, relative_path FROM {table} ORDER BY game_path, path_key"
         ))?;
@@ -342,13 +347,13 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut keys = BTreeMap::new();
         for (game, _, relative) in &rows {
-            let key = crate::transactions::ownership_key(relative);
+            let key = path_key(relative);
             if let Some(previous) = keys.insert((game, key), relative) {
                 bail!("ownership key migration collision in {table} for game {game}: {previous:?} and {relative:?}; state unchanged");
             }
         }
         for (game, old_key, relative) in rows {
-            let key = crate::transactions::ownership_key(&relative);
+            let key = path_key(&relative);
             if key != old_key {
                 connection.execute(
                     &format!("UPDATE {table} SET path_key=?1 WHERE game_path=?2 AND path_key=?3"),

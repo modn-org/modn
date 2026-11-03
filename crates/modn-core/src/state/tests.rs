@@ -44,7 +44,12 @@ fn ownership_key_migration_rewrites_old_keys_and_reopening_is_a_noop() {
                 row.get(0)
             })
             .expect("key");
-        assert_eq!(key, "archive/pc/modσ/x.archive", "{table}");
+        let expected = if table == "created_directories" {
+            crate::transactions::directory_candidate_key("archive/pc/modΣ/x.archive")
+        } else {
+            "archive/pc/modσ/x.archive".to_owned()
+        };
+        assert_eq!(key, expected, "{table}");
     }
     drop(migrated);
     let before = fs::read(&db).expect("database bytes");
@@ -59,6 +64,9 @@ fn ownership_key_migration_collision_preserves_every_row() {
         "managed_directories",
         "created_directories",
     ] {
+        if table == "created_directories" && !cfg!(windows) {
+            continue;
+        }
         let temp = tempdir().expect("fixture");
         let db = temp.path().join("state.sqlite");
         let store = Store::open(&db).expect("state");
@@ -85,6 +93,38 @@ fn ownership_key_migration_collision_preserves_every_row() {
         assert!(error.contains("archive/pc/modσ/x.archive"), "{error}");
         assert_eq!(fs::read(&db).expect("database bytes"), before, "{table}");
     }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn created_directory_migration_preserves_case_distinct_keys_without_writes() {
+    let temp = tempdir().expect("fixture");
+    let db = temp.path().join("state.sqlite");
+    let store = Store::open(&db).expect("state");
+    for path in ["r6", "R6", "r6/scripts", "R6/Scripts"] {
+        store
+            .connection
+            .execute(
+                "INSERT INTO created_directories(game_path,path_key,relative_path)
+             VALUES ('game',?1,?1)",
+                [path],
+            )
+            .expect("case-distinct directory");
+    }
+    drop(store);
+    let before = fs::read(&db).expect("database bytes");
+    let reopened = Store::open(&db).expect("case-distinct migration");
+    let count: i64 = reopened
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM created_directories WHERE path_key=relative_path",
+            [],
+            |row| row.get(0),
+        )
+        .expect("directory count");
+    assert_eq!(count, 4);
+    drop(reopened);
+    assert_eq!(fs::read(&db).expect("database bytes"), before);
 }
 
 #[test]
