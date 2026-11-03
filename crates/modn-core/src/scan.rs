@@ -123,6 +123,9 @@ pub struct Diagnostic {
     /// Severity such as `info` or `warning`.
     pub severity: String,
     pub message: String,
+    /// Recommended next safe action, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
 }
 
 /// Read-only inventory and its diagnostic messages.
@@ -187,6 +190,7 @@ pub(crate) fn diagnose(report: ScanReport) -> DoctorReport {
                 code: "MODULE_POLICY_ERROR".into(),
                 severity: "warning".into(),
                 message: "Game diagnostic policy failed; scan results are incomplete.".into(),
+                action: None,
             }],
             created_directories: Vec::new(),
         },
