@@ -59,4 +59,5 @@ milestone or issue authorizes modifying a user's real game or merging a PR.
 
 - Do not introduce unrelated refactors for style-only changes. Apply conventions to new or touched code without changing unrelated behavior.
 - Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, and `cargo test --workspace --locked` for Rust changes.
+- For changes to destination validation, ownership keys, install, uninstall or `install --dry-run` (files listed in its coverage record), follow `.agents/skills/verify-ownership/SKILL.md`: run `cargo test -p modn-core --locked --lib destination_properties -- --include-ignored` and `cargo test -p modn-cli --locked --test ownership_properties -- --include-ignored`.
 - Inspect the Git state before editing and use an isolated worktree for changes; preserve unrelated changes and other worktrees. Do not merge without authorization.

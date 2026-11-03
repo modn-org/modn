@@ -21,6 +21,7 @@ same-file = "1"
 tempfile = "3"
 
 [dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile = "3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
 
