@@ -470,3 +470,6 @@ pub fn preview_update_with_permissions(
     }
     Ok(proposal)
 }
+
+#[cfg(test)]
+mod destination_properties;
