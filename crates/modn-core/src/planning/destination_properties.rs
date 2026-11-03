@@ -254,7 +254,6 @@ fn accepted_destinations_follow_documented_windows_names() {
 }
 
 #[test]
-#[ignore = "finding: superscript COM and LPT device names are accepted; run with --include-ignored"]
 fn accepted_destinations_avoid_superscript_device_names() {
     check_documented_names("superscript device names", &['\u{b9}', '\u{b2}', '\u{b3}']);
 }

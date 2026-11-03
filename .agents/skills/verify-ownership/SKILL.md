@@ -64,7 +64,7 @@ The first command takes about a second and the second about 30 seconds. The
 seed is fixed, so a rerun checks the same cases. To explore new cases, set
 `PROPTEST_RNG_SEED` to any integer. To check more cases, set `PROPTEST_CASES`.
 `cargo test --workspace` runs the passing checks with their default case
-counts. The three checks marked `#[ignore = "finding: ..."]` run only with
+counts. The two checks marked `#[ignore = "finding: ..."]` run only with
 `--include-ignored`.
 
 The ownership-key property is meaningful on Windows, where NTFS folds case.
@@ -73,20 +73,15 @@ its floor.
 
 ## Expected result at the sync commit
 
-Three checks pass and three fail, each on a known finding:
+Four checks pass and two fail, each on a known finding:
 
-- `accepted_destinations_avoid_superscript_device_names` fails with
-  `"COM¹/archive" is accepted, but Microsoft's naming rules forbid "COM¹"`.
-  `validated_name` checks only a 4-byte stem that ends in an ASCII digit, and
-  `COM¹` is 5 bytes. This is a documented-rule finding: on this repository's
-  Windows 11 test machine, the name creates an ordinary file.
 - `same_file_spellings_share_one_ownership_key` fails with
   `"modΣ/archive" and "modσ/archive" are one file, but the ownership keys are "modς/archive" and "modσ/archive"`.
 - `reviewable_dry_run_predicts_the_install` fails with the minimal case
   `first: ["archive/pc/modΣ/x.archive", "archive/pc/modσ/x.archive"]` and
   `existing unmanaged destination`.
 
-The last two have one cause. `str::to_lowercase` maps a capital sigma at the end of a
+Both have one cause. `str::to_lowercase` maps a capital sigma at the end of a
 word to final sigma `ς`, but NTFS maps it to medial `σ`. The steps are:
 
 1. A module proposes `archive/pc/modΣ/x.archive` and `archive/pc/modσ/x.archive`.

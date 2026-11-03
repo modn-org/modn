@@ -102,10 +102,11 @@ pub(crate) fn validated_name(name: &str) -> Result<String> {
             .unwrap_or("")
             .to_ascii_uppercase();
         if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-            || (stem.len() == 4
-                && (stem.starts_with("COM") || stem.starts_with("LPT"))
-                && stem.as_bytes()[3].is_ascii_digit()
-                && stem.as_bytes()[3] != b'0')
+            || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+                && stem.chars().count() == 4
+                && stem.chars().last().is_some_and(|digit| {
+                    matches!(digit, '1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}')
+                }))
         {
             bail!("Windows reserved archive path: {name:?}");
         }
