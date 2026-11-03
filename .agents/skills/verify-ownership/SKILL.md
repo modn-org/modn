@@ -33,18 +33,18 @@ than its floor fails, so a vacuous pass cannot happen.
 
 ## Coverage record
 
-Last confirmed against commit `00a475a` (the product code is unchanged since).
+Last confirmed against commit `78b2885`.
 
 | Check | Covered code |
 |---|---|
 | containment, documented names, superscript device names | `crates/modn-core/src/archive.rs` `validated_name`; the destination gate in `crates/modn-core/src/planning.rs` `resolve_with_permissions` and `crates/modn-core/src/transactions/validation.rs` `validate_execution_plan`. The test function `accepted` in `crates/modn-core/src/planning/destination_properties.rs` copies that gate and must match both call sites. |
-| ownership key | `planning.rs` `insert_destination`; `transactions/journal.rs` `commit_install` (`path_key`); `transactions/directory.rs` `case_key`; `transactions/validation.rs` `validate_ownership_paths`. |
+| ownership key | `transactions/directory.rs` `ownership_key` and `case_key`; `planning.rs` `insert_destination`; `transactions/journal.rs` `commit_install` (`path_key`); `transactions/created_dirs.rs`; `inventory.rs`; `transactions/validation.rs` `validate_ownership_paths`; `state.rs` `migrate_ownership_keys` and its migration and collision tests in `state/tests.rs`. |
 | end to end, agreement | `apps/modn-cli/src/install.rs` `install_archive`; `apps/modn-cli/src/state_access.rs`; `planning.rs` `resolve_with_permissions`, `existing_destination_issue`; `crates/modn-core/src/transactions/` `install.rs`, `uninstall.rs`, `journal.rs`, `recovery.rs`, `created_dirs.rs`, `validation.rs`. |
 
 To see whether the covered code changed after the sync commit, run:
 
 ```sh
-git diff --stat 00a475a -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
+git diff --stat 78b2885 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/state.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
 ```
 
 When that diff is not empty, read it against the table and the generators.
@@ -63,9 +63,7 @@ cargo test -p modn-cli --locked --test ownership_properties -- --include-ignored
 The first command takes about a second and the second about 30 seconds. The
 seed is fixed, so a rerun checks the same cases. To explore new cases, set
 `PROPTEST_RNG_SEED` to any integer. To check more cases, set `PROPTEST_CASES`.
-`cargo test --workspace` runs the passing checks with their default case
-counts. The three checks marked `#[ignore = "finding: ..."]` run only with
-`--include-ignored`.
+`cargo test --workspace` runs all six checks with their default case counts.
 
 The ownership-key property is meaningful on Windows, where NTFS folds case.
 On a case-sensitive file system it finds no same-file pairs, and it then skips
@@ -73,35 +71,13 @@ its floor.
 
 ## Expected result at the sync commit
 
-Three checks pass and three fail, each on a known finding:
-
-- `accepted_destinations_avoid_superscript_device_names` fails with
-  `"COM¹/archive" is accepted, but Microsoft's naming rules forbid "COM¹"`.
-  `validated_name` checks only a 4-byte stem that ends in an ASCII digit, and
-  `COM¹` is 5 bytes. This is a documented-rule finding: on this repository's
-  Windows 11 test machine, the name creates an ordinary file.
-- `same_file_spellings_share_one_ownership_key` fails with
-  `"modΣ/archive" and "modσ/archive" are one file, but the ownership keys are "modς/archive" and "modσ/archive"`.
-- `reviewable_dry_run_predicts_the_install` fails with the minimal case
-  `first: ["archive/pc/modΣ/x.archive", "archive/pc/modσ/x.archive"]` and
-  `existing unmanaged destination`.
-
-The last two have one cause. `str::to_lowercase` maps a capital sigma at the end of a
-word to final sigma `ς`, but NTFS maps it to medial `σ`. The steps are:
-
-1. A module proposes `archive/pc/modΣ/x.archive` and `archive/pc/modσ/x.archive`.
-2. `insert_destination` gives them the keys `modς/...` and `modσ/...`, so the dry run reports `reviewable`.
-3. NTFS treats both as one file. `install --yes` publishes the first, then refuses the second as `existing unmanaged destination` and rolls back.
-
-An exhaustive scan of the BMP found 973 character pairs that NTFS treats as one
-name. `to_lowercase` disagrees with NTFS only on this sigma pair, and only at
-the end of a word. Per-character `to_uppercase` (`case_key`) disagrees on none.
-The scan checked one-character spellings inside a name, at the end of a name,
-and before a `/`.
-
-When a fix lands, remove the `#[ignore]` from its checks, confirm that they
-pass, and delete its entry here. A fix to the ownership key must also migrate
-the `path_key` values already stored in `managed_files` and `managed_directories`.
+All six checks pass. File and directory ownership keys use `ownership_key`:
+per-character lowercase on Windows and exact paths elsewhere. Created-directory
+keys use `case_key`: per-character uppercase on Windows and exact paths elsewhere.
+Writable state opens migrate stored file, directory and created-directory
+keys in one transaction. Exact keys require no updates.
+A collision refuses the open and
+preserves every ownership record. Read-only opens do not migrate state.
 
 ## Read a failure
 

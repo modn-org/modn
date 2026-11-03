@@ -254,7 +254,6 @@ fn accepted_destinations_follow_documented_windows_names() {
 }
 
 #[test]
-#[ignore = "finding: superscript COM and LPT device names are accepted; run with --include-ignored"]
 fn accepted_destinations_avoid_superscript_device_names() {
     check_documented_names("superscript device names", &['\u{b9}', '\u{b2}', '\u{b3}']);
 }
@@ -291,7 +290,6 @@ fn spelling_of(destination: &str, choices: &[u8]) -> String {
 }
 
 #[test]
-#[ignore = "finding: the ownership key folds case differently from Windows; run with --include-ignored"]
 fn same_file_spellings_share_one_ownership_key() {
     let same_file_pairs = std::cell::Cell::new(0usize);
     let strategy = (destination(), prop::collection::vec(any::<u8>(), 1..16));
