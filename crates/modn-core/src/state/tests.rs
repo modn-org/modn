@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use std::fs;
 use tempfile::tempdir;
 
+#[cfg(windows)]
 #[test]
 fn ownership_key_migration_rewrites_old_keys_and_reopening_is_a_noop() {
     let temp = tempdir().expect("fixture");
@@ -57,6 +58,7 @@ fn ownership_key_migration_rewrites_old_keys_and_reopening_is_a_noop() {
     assert_eq!(fs::read(&db).expect("database bytes"), before);
 }
 
+#[cfg(windows)]
 #[test]
 fn ownership_key_migration_collision_preserves_every_row() {
     for table in [
@@ -64,9 +66,6 @@ fn ownership_key_migration_collision_preserves_every_row() {
         "managed_directories",
         "created_directories",
     ] {
-        if table == "created_directories" && !cfg!(windows) {
-            continue;
-        }
         let temp = tempdir().expect("fixture");
         let db = temp.path().join("state.sqlite");
         let store = Store::open(&db).expect("state");
@@ -125,6 +124,54 @@ fn created_directory_migration_preserves_case_distinct_keys_without_writes() {
     assert_eq!(count, 4);
     drop(reopened);
     assert_eq!(fs::read(&db).expect("database bytes"), before);
+}
+
+#[cfg(not(windows))]
+#[test]
+fn managed_ownership_migration_preserves_exact_keys_without_writes() {
+    let temp = tempdir().expect("fixture");
+    let db = temp.path().join("state.sqlite");
+    let store = Store::open(&db).expect("state");
+    for (package, path) in [
+        ("lower", "r6/scripts/one.reds"),
+        ("mixed", "R6/Scripts/one.reds"),
+    ] {
+        store.connection.execute(
+            "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES (?1,'game','hash')",
+            [package],
+        ).expect("package");
+        store.connection.execute(
+            "INSERT INTO managed_files(game_path,path_key,relative_path,package_id,sha256,bytes)
+             VALUES ('game',?1,?1,?2,'digest',7)",
+            rusqlite::params![path, package],
+        ).expect("case-distinct file");
+        store
+            .connection
+            .execute(
+                "INSERT INTO managed_directories(game_path,path_key,relative_path,package_id)
+             VALUES ('game',?1,?1,?2)",
+                rusqlite::params![path.rsplit_once('/').expect("parent").0, package],
+            )
+            .expect("case-distinct directory");
+    }
+    drop(store);
+    let before = fs::read(&db).expect("database bytes");
+    for _ in 0..2 {
+        let reopened = Store::open(&db).expect("exact-key migration");
+        for table in ["managed_files", "managed_directories"] {
+            let count: i64 = reopened
+                .connection
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE path_key=relative_path"),
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("exact key count");
+            assert_eq!(count, 2, "{table}");
+        }
+        drop(reopened);
+        assert_eq!(fs::read(&db).expect("database bytes"), before);
+    }
 }
 
 #[test]

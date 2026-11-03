@@ -71,9 +71,11 @@ its floor.
 
 ## Expected result at the sync commit
 
-All six checks pass. Ownership keys use per-character lowercase through one
-shared helper. Writable state opens migrate stored file, directory and
-created-directory keys in one transaction. A collision refuses the open and
+All six checks pass. Ownership keys use one shared helper.
+It uses per-character lowercase on Windows and exact paths elsewhere.
+Writable state opens migrate stored file, directory and created-directory
+keys in one transaction. Exact keys require no updates.
+A collision refuses the open and
 preserves every ownership record. Read-only opens do not migrate state.
 
 ## Read a failure

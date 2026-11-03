@@ -7,7 +7,21 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn ownership_key(path: &str) -> String {
-    path.chars().flat_map(char::to_lowercase).collect()
+    if cfg!(windows) {
+        path.chars().flat_map(char::to_lowercase).collect()
+    } else {
+        path.to_owned()
+    }
+}
+
+#[cfg(all(test, not(windows)))]
+#[test]
+fn ownership_keys_preserve_case_distinct_paths() {
+    let lower = "r6/scripts/one.reds";
+    let mixed = "R6/Scripts/one.reds";
+    assert_eq!(ownership_key(lower), lower);
+    assert_eq!(ownership_key(mixed), mixed);
+    assert_ne!(ownership_key(lower), ownership_key(mixed));
 }
 
 pub(crate) fn case_key(path: &str) -> String {
