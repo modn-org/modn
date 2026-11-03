@@ -93,11 +93,21 @@ pub(super) fn doctor(
     );
     println!("Owned files checked: {}", report.scan.owned_files.len());
     println!("Folders Modn created: {}", report.created_directories.len());
+    for entry in report.scan.mods.iter().filter(|entry| !entry.managed) {
+        println!(
+            "UNMANAGED {}: {}",
+            entry.kind,
+            entry.relative_path.display()
+        );
+    }
     for diagnostic in report.diagnostics {
         println!(
             "{} [{}]: {}",
             diagnostic.severity, diagnostic.code, diagnostic.message
         );
+        if let Some(action) = diagnostic.action {
+            println!("  Next: {action}");
+        }
     }
     Ok(())
 }

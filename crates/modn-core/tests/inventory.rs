@@ -113,7 +113,10 @@ fn discovers_unmanaged_frameworks_and_owned_legacy_archives() {
     assert!(doctor
         .diagnostics
         .iter()
-        .any(|d| d.code == "UNMANAGED_CONTENT"));
+        .any(|d| d.code == "UNMANAGED_CONTENT"
+            && d.action
+                .as_deref()
+                .is_some_and(|a| a.contains("uninstall instructions"))));
     assert!(!doctor
         .diagnostics
         .iter()
@@ -140,7 +143,12 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
         .unwrap()
         .diagnostics
         .iter()
-        .any(|d| d.code == "OWNED_FILE_MODIFIED"));
+        .any(|d| d.code == "OWNED_FILE_MODIFIED"
+            && d.action
+                .as_deref()
+                .is_some_and(|a| a.contains("back up the current file")
+                    && a.contains("before restoring")
+                    && !a.contains("uninstall"))));
     assert_eq!(fs::read(&file).unwrap(), b"changed!");
 
     fs::remove_file(&file).unwrap();
@@ -150,7 +158,12 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
         .unwrap()
         .diagnostics
         .iter()
-        .any(|d| d.code == "OWNED_FILE_MISSING"));
+        .any(|d| d.code == "OWNED_FILE_MISSING"
+            && d.action
+                .as_deref()
+                .is_some_and(|a| a.contains("back up the current file")
+                    && a.contains("before restoring")
+                    && !a.contains("uninstall"))));
     assert!(!file.exists());
 
     fs::write(&file, b"expected").unwrap();
@@ -208,7 +221,8 @@ fn redirects_away_from_game_are_never_marked_intact() {
         .unwrap()
         .diagnostics
         .iter()
-        .any(|d| d.code == "OWNED_FILE_UNSAFE"));
+        .any(|d| d.code == "OWNED_FILE_UNSAFE"
+            && d.action.as_deref().is_some_and(|a| a.contains("redirect"))));
     assert_eq!(
         fs::read(outside.join("managed.archive")).unwrap(),
         b"expected"
@@ -235,7 +249,8 @@ fn locked_managed_file_is_unreadable_not_unmanaged() {
         .unwrap()
         .diagnostics
         .iter()
-        .any(|d| d.code == "OWNED_FILE_UNREADABLE"));
+        .any(|d| d.code == "OWNED_FILE_UNREADABLE"
+            && d.action.as_deref().is_some_and(|a| a.contains("access"))));
     drop(lock);
     assert_eq!(
         owned(

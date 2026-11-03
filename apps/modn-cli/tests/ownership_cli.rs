@@ -65,7 +65,109 @@ fn scan_and_doctor_reconcile_ownership_without_game_writes() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|d| d["code"] == "OWNED_FILE_MODIFIED"));
+        .any(|d| d["code"] == "OWNED_FILE_MODIFIED"
+            && d["action"].as_str().unwrap().contains("before restoring")));
+    let action = doctor["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["code"] == "OWNED_FILE_MODIFIED")
+        .unwrap()["action"]
+        .as_str()
+        .unwrap();
+    let human = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args([
+            "--game",
+            "cyberpunk-2077",
+            "--state-dir",
+            state.to_str().unwrap(),
+            "doctor",
+            "--path",
+            game_text,
+        ])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    assert!(String::from_utf8(human.stdout)
+        .unwrap()
+        .contains(&format!("  Next: {action}")));
     assert_eq!(doctor["scan"]["owned_files"][0]["status"], "modified");
     assert_eq!(fs::read(&target).unwrap(), b"other bytes");
+}
+
+#[test]
+fn doctor_checks_first_install_setup_without_changing_leftovers() {
+    let root = tempdir().unwrap();
+    let game = root.path().join("game");
+    let state = root.path().join("state");
+    let files = [
+        "bin/x64/Cyberpunk2077.exe",
+        "archive/pc/mod/leftover.archive",
+        "r6/scripts/manual.reds",
+    ];
+    for file in files {
+        let path = game.join(file);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"unchanged").unwrap();
+    }
+    let game_text = game.to_str().unwrap();
+    let report = output_json(call(&state, &["doctor", "--path", game_text]));
+    assert!(report["scan"]["owned_files"].as_array().unwrap().is_empty());
+    assert!(report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|d| d["code"] == "UNMANAGED_CONTENT"
+            && d["action"]
+                .as_str()
+                .unwrap()
+                .contains("uninstall instructions")));
+    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args([
+            "--game",
+            "cyberpunk-2077",
+            "--state-dir",
+            state.to_str().unwrap(),
+            "doctor",
+            "--path",
+            game_text,
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("archive/pc/mod/leftover.archive"));
+    assert!(text.contains("r6/scripts/manual.reds"));
+    assert!(text.contains("Next: Inspect the listed paths"));
+    for file in files {
+        assert_eq!(fs::read(game.join(file)).unwrap(), b"unchanged");
+    }
+}
+
+#[test]
+fn doctor_omits_absent_action_from_json_and_human_output() {
+    let root = tempdir().unwrap();
+    let game = root.path().join("game");
+    let state = root.path().join("state");
+    fs::create_dir_all(game.join("bin/x64")).unwrap();
+    fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"fixture").unwrap();
+    let game_text = game.to_str().unwrap();
+    let report = output_json(call(&state, &["doctor", "--path", game_text]));
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+    assert!(!diagnostics.is_empty());
+    assert!(diagnostics.iter().all(|d| d.get("action").is_none()));
+    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        .args([
+            "--game",
+            "cyberpunk-2077",
+            "--state-dir",
+            state.to_str().unwrap(),
+            "doctor",
+            "--path",
+            game_text,
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(!String::from_utf8(output.stdout).unwrap().contains("Next:"));
 }
