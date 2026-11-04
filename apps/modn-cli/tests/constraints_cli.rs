@@ -1,12 +1,14 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use support::{error, Fixture};
 use zip::write::SimpleFileOptions;
 
@@ -42,7 +44,7 @@ fn manifest(fixture: &Fixture, id: &str, version: &str, hash: &str, extra: Value
 }
 
 fn modn(fixture: &Fixture, args: &[&str], files: &[&Path]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_modn"));
+    let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     command
         .arg("--state-dir")
         .arg(&fixture.state)
@@ -227,7 +229,7 @@ fn a_standalone_archive_meets_recorded_conflicts() {
     let installed = modn(&fixture, &["install", "a", "--yes"], &[&a]);
     assert!(installed.status.success(), "{}", error(&installed));
 
-    let standalone = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let standalone = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)

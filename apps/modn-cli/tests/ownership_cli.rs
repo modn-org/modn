@@ -1,14 +1,16 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
 #[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
 fn call(state: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_modn"))
+    main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir", state.to_str().unwrap(), "--json"])
         .args(args)
@@ -75,7 +77,7 @@ fn scan_and_doctor_reconcile_ownership_without_game_writes() {
         .unwrap()["action"]
         .as_str()
         .unwrap();
-    let human = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let human = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args([
             "--game",
             "cyberpunk-2077",
@@ -122,7 +124,7 @@ fn doctor_checks_first_install_setup_without_changing_leftovers() {
                 .as_str()
                 .unwrap()
                 .contains("uninstall instructions")));
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args([
             "--game",
             "cyberpunk-2077",
@@ -156,7 +158,7 @@ fn doctor_omits_absent_action_from_json_and_human_output() {
     let diagnostics = report["diagnostics"].as_array().unwrap();
     assert!(!diagnostics.is_empty());
     assert!(diagnostics.iter().all(|d| d.get("action").is_none()));
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args([
             "--game",
             "cyberpunk-2077",

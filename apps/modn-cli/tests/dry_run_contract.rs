@@ -1,8 +1,10 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
@@ -35,16 +37,16 @@ fn module_with(temp: &Path, implementation: &str) -> PathBuf {
     let parent = temp.join("modules");
     let module = parent.join("cyberpunk-2077");
     fs::create_dir_all(&module).unwrap();
-    let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/modn-core/game-modules/cyberpunk-2077");
+    let bundled =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
     fs::copy(bundled.join("module.json"), module.join("module.json")).unwrap();
-    let code = fs::read_to_string(bundled.join("main.lua")).unwrap();
+    let code = fs::read_to_string(bundled.join("module.lua")).unwrap();
     let before = code
         .strip_suffix("return policy\r\n")
         .or_else(|| code.strip_suffix("return policy\n"))
         .unwrap();
     fs::write(
-        module.join("main.lua"),
+        module.join("module.lua"),
         format!("{before}\nfunction policy.plan(files)\n{implementation}\nend\nreturn policy\n"),
     )
     .unwrap();
@@ -53,7 +55,7 @@ fn module_with(temp: &Path, implementation: &str) -> PathBuf {
 
 #[expect(clippy::unwrap_used, reason = "Test process setup may fail fast")]
 fn run(game: &Path, archive: &Path, state: &Path, module: Option<&Path>) -> Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_modn"));
+    let mut cmd = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     cmd.args(["--game", "cyberpunk-2077"]);
     cmd.args(["--state-dir", state.to_str().unwrap(), "--json"]);
     cmd.args([
@@ -228,7 +230,7 @@ fn changed_module_mapping_is_the_actual_install_mapping() {
     );
     assert!(!game.join("r6").exists());
     assert!(!state.exists());
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -325,7 +327,7 @@ fn approved_install_rejects_untrusted_lua_mappings_without_game_writes() {
         "return { schema_version = 1, operations = {}, blockers = { { code = 'BLOCKED', message = 'not approved' } } }".into(),
     ] {
         let module = module_with(temp.path(), &implementation);
-        let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+        let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
             .args([
                 "--state-dir", state.to_str().unwrap(),
@@ -345,7 +347,7 @@ fn approved_install_rejects_untrusted_lua_mappings_without_game_writes() {
 #[test]
 fn bundled_lua_policy_rejects_expanded_layouts_until_enabled() {
     let (_temp, game, archive, state) = fixture(&["r6/scripts/hello.reds"]);
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -366,7 +368,7 @@ fn bundled_lua_policy_rejects_expanded_layouts_until_enabled() {
 fn lua_mapped_install_can_be_uninstalled_without_original_mapping() {
     let (temp, game, archive, state) = fixture(&["archive/pc/mod/a.archive"]);
     let module = module_with(temp.path(), &single_operation("r6/scripts/new.reds"));
-    let install = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let install = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -391,7 +393,7 @@ fn lua_mapped_install_can_be_uninstalled_without_original_mapping() {
         fs::read(game.join("r6/scripts/new.reds")).unwrap(),
         b"payload"
     );
-    let remove = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let remove = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -429,7 +431,7 @@ fn hostile_lua_cannot_grant_tool_executable_permission() {
             .any(|issue| issue["code"] == "EXECUTABLE_PAYLOAD"),
         "{denied}"
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--state-dir"])
         .arg(&state)
         .arg("install")

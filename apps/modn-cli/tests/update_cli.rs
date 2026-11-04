@@ -1,6 +1,8 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -45,7 +47,7 @@ fn manifest(fixture: &Fixture, file: &str, id: &str, version: &str, hash: &str, 
 }
 
 fn run(fixture: &Fixture, args: &[&str], file: Option<&Path>) -> Output {
-    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_modn"));
+    let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     command
         .arg("--state-dir")
         .arg(&fixture.state)
@@ -126,7 +128,7 @@ fn installed_with_dependent_requiring(requirement: &str) -> Catalog {
     };
     let top = catalog.top_release("top.json", "1.0", "top", requirement);
     catalog.fixture.register();
-    let mut install = std::process::Command::new(env!("CARGO_BIN_EXE_modn"));
+    let mut install = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     let installed = install
         .arg("--state-dir")
         .arg(&catalog.fixture.state)

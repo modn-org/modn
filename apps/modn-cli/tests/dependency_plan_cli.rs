@@ -1,3 +1,5 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 #[path = "support/catalog.rs"]
 mod support;
 

@@ -1,12 +1,14 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use support::{error, Fixture};
 use zip::write::SimpleFileOptions;
 
@@ -63,7 +65,7 @@ fn seed(fixture: &Fixture, id: &str, archive: &Path) {
 }
 
 fn modn(fixture: &Fixture, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_modn"))
+    main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -216,7 +218,7 @@ fn cache_show_and_rm_follow_scoop() {
 fn a_cache_inside_the_game_is_refused_before_any_download() {
     let (fixture, _, _) = catalog();
     let inside = fixture.game.join("modn-cache");
-    let refused = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let refused = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -282,7 +284,7 @@ fn a_dry_run_downloads_missing_archives_only_on_request() {
 fn a_dry_run_download_refuses_a_cache_inside_the_game() {
     let (fixture, _, _) = catalog();
     let inside = fixture.game.join("modn-cache");
-    let refused = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let refused = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
