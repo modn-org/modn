@@ -24,6 +24,10 @@ fn pack(source: &Path, zip: &Path, extra: Option<(&str, &[u8])>) {
     }
     let mut entries = Vec::new();
     files(source, source, &mut entries);
+    if let Some((name, bytes)) = extra {
+        entries.retain(|(existing, _)| existing != name);
+        entries.push((name.into(), bytes.to_vec()));
+    }
     entries.sort();
     let mut writer = zip::ZipWriter::new(fs::File::create(zip).expect("fixture ZIP"));
     for (name, bytes) in entries {
@@ -31,12 +35,6 @@ fn pack(source: &Path, zip: &Path, extra: Option<(&str, &[u8])>) {
             .start_file(name, zip::write::SimpleFileOptions::default())
             .expect("fixture ZIP entry");
         writer.write_all(&bytes).expect("fixture ZIP bytes");
-    }
-    if let Some((name, bytes)) = extra {
-        writer
-            .start_file(name, zip::write::SimpleFileOptions::default())
-            .expect("fixture extra entry");
-        writer.write_all(bytes).expect("fixture extra bytes");
     }
     writer.finish().expect("fixture ZIP complete");
     sidecar(zip);
@@ -119,11 +117,16 @@ fn rejected_updates_keep_previous_bucket_unchanged() {
     success(run(data.path(), source, &["bucket", "update"]));
     let main = data.path().join("modn/buckets/main");
     let original = modn_core::bucket_digest::directory_digest(&main).unwrap();
-    for failure in ["checksum", "traversal", "module", "http", "name"] {
+    let module = "games/cyberpunk-2077/module.json";
+    let current = fs::read_to_string(repository().join(module)).unwrap();
+    let future = current.replace("\"api_version\":1", "\"api_version\":2");
+    assert_ne!(future, current, "fixture module declares host API 1");
+    for failure in ["checksum", "traversal", "module", "api", "http", "name"] {
         pack(&repository(), &zip, None);
         match failure {
             "checksum" => fs::write(format!("{source}.sha256"), "0".repeat(64)).unwrap(),
             "traversal" => pack(&repository(), &zip, Some(("../escaped", b"hostile"))),
+            "api" => pack(&repository(), &zip, Some((module, future.as_bytes()))),
             "module" => {
                 let mut writer = zip::ZipWriter::new_append(
                     fs::OpenOptions::new()
@@ -170,6 +173,13 @@ fn rejected_updates_keep_previous_bucket_unchanged() {
             },
         );
         assert!(!output.status.success(), "{failure}");
+        if failure == "api" {
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("incompatible host API"),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         assert_eq!(
             modn_core::bucket_digest::directory_digest(&main).unwrap(),
             original,
@@ -223,24 +233,4 @@ fn interrupted_swaps_restore_or_clean_before_failed_update() {
         .success());
     assert!(root.join("main/marker").is_file());
     assert!(!root.join(".main-aside").exists());
-}
-
-#[test]
-fn release_packer_is_deterministic() {
-    let data = tempfile::tempdir().unwrap();
-    let script =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/scripts/pack-main-bucket.py");
-    for name in ["first.zip", "second.zip"] {
-        assert!(Command::new("python")
-            .arg(&script)
-            .arg(repository())
-            .arg(data.path().join(name))
-            .status()
-            .unwrap()
-            .success());
-    }
-    assert_eq!(
-        fs::read(data.path().join("first.zip")).unwrap(),
-        fs::read(data.path().join("second.zip")).unwrap()
-    );
 }

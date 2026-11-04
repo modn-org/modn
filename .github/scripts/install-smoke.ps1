@@ -66,7 +66,7 @@ try {
   Copy-Item (Join-Path $root 'target/release/modn.exe') (Join-Path $assets 'modn.exe')
   $hash = (Get-FileHash (Join-Path $assets 'modn.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
   [IO.File]::WriteAllText((Join-Path $assets 'modn.exe.sha256'), "$hash *modn.exe`n")
-  python (Join-Path $root '.github/scripts/pack-main-bucket.py') (Join-Path $root 'buckets/main') (Join-Path $assets 'main-bucket.zip')
+  python (Join-Path $root 'buckets/main/.github/scripts/pack.py') (Join-Path $root 'buckets/main') (Join-Path $assets 'main-bucket.zip')
   if ($LASTEXITCODE -ne 0) { throw 'bucket packing failed' }
   $env:LOCALAPPDATA = Join-Path $work 'data'
   $env:MODN_MAIN_BUCKET_SOURCE = $null

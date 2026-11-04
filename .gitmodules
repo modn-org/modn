@@ -1,0 +1,3 @@
+[submodule "buckets/main"]
+	path = buckets/main
+	url = https://github.com/modn-org/main.git
