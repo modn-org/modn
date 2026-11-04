@@ -11,13 +11,13 @@ where planned work is tracked.
 Modn separates **first-party executable game support**, **catalog metadata**,
 and **managed installation state**.
 
-First-party Lua 5.4 modules are reviewed with Modn, sourced at
-`crates/modn-core/game-modules/<game-id>/` and compiled into the executable.
-They are not bucket entries or independently installable artifacts. The
-development-only `--module-src` flag selects a local source for one command;
+First-party Lua 5.4 modules live at `buckets/main/games/<game-id>/` as
+`module.json` and `module.lua`. Modn embeds no bucket manifests or modules.
+The development-only `--module-src` flag selects a local source for one command;
 it does not change any persistent selection or stored installation record.
 
-Buckets contain only mod-package manifests and source metadata. A bucket
+Buckets contain mod-package manifests and source metadata. Only the official
+`main` bucket may also contain game modules. A bucket
 record is not evidence of installed content; an archive hash proves exact
 bytes, not harmlessness. Catalog updates cannot modify game files.
 Rust owns managed transactions, file and directory ownership, rollback,
@@ -44,12 +44,13 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 | Field | Meaning |
 | --- | --- |
 | `bucket_id` | Registered catalog name, for example `main`. |
-| `source` | Built-in snapshot, local directory or future Git source. |
+| `source` | Verified local `main` copy, registered local directory or future Git source. |
 | `revision` | Selected catalog snapshot/revision. |
 | `title` | Human-readable catalog name. |
 
-The official `main` bucket is bundled for offline use. Community buckets
-are catalog data, not sources of Lua executable code. Registering a bucket
+Modn bootstraps the official `main` bucket on first use. Its local copy works
+offline afterward and changes only on explicit update. Community buckets
+cannot contain game modules. Registering a bucket
 never authorizes modification of a game installation.
 
 ### Game and game installation
@@ -61,9 +62,9 @@ first-party Lua policy. Do not confuse an identity with a physical installation.
 
 ### First-party game module
 
-Each supported game has one embedded `module.json` and Lua entrypoint.
+Each supported game has one `module.json` and `module.lua` in `main`.
 The manifest declares `game_id`, `version`, `api_version` and
-`entrypoint`. Modn releases carry changes to supported game policies.
+`entrypoint`. Explicit bucket updates can change supported game policies.
 A caller can explicitly provide a temporary alternative source for tests;
 a missing or mismatched override fails without falling back.
 
@@ -140,10 +141,10 @@ Lua modules may invoke powerful game-specific integrations. Do not represent
 those external effects as a committed managed Rust transaction unless they
 actually used Modn's managed-install path.
 
-## Current implementation mapping (2026-10-31)
+## Current implementation mapping
 
 The host runs Lua 5.4 through `mlua`. First-party Cyberpunk source is
-`crates/modn-core/game-modules/cyberpunk-2077/`. The synthetic module
+`buckets/main/games/cyberpunk-2077/`. The synthetic module
 fixture exercises game-agnostic support.
 
 | Domain concept | Current data |
@@ -155,23 +156,22 @@ fixture exercises game-agnostic support.
 | File ownership | `state.sqlite / managed_files(...)` |
 | Directory ownership | `state.sqlite / managed_directories(...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
-| Game module | First-party `game-modules/<game-id>/module.json` + Lua, embedded with `include_str!` |
+| Game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
 | Development override | In-memory per-invocation `--module-src` / `--src` |
-| Bucket packages | Embedded `main` snapshot and explicitly registered local directories |
+| Bucket packages | Local `main` copy and explicitly registered local directories |
 
 The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>.json` and other releases at
-`games/<game-id>/<package-id>@<version>.json`. It does not publish, execute or
-select Lua modules. An update is a pending uninstall journal and a pending
+`games/<game-id>/<package-id>@<version>.json`. Only `main` publishes game
+modules. A mod update is a pending uninstall journal and a pending
 install journal; one commit retires the old managed package and moves its
-dependency links to the new one. Remote catalog sync, dependency resolution and
-artifact acquisition remain unimplemented.
+dependency links to the new one. Git-backed catalog sync remains deferred (#53).
 
 ## Invariants for future changes
 
 1. Preserve game ownership and pending-transaction evidence.
 2. A catalog update cannot silently install, uninstall or update mods.
-3. Game-specific Lua policy remains first-party application source.
+3. Game-specific Lua policy remains first-party source in `main`.
 4. Development override paths never persist or silently fall back.
 5. Package manifests and Lua proposals cannot claim pre-existing files.
 6. Failed installation and recovery preserve unmanaged game content.
