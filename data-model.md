@@ -192,7 +192,17 @@ dependency links to the new one. Explicit `bucket sync` publishes a validated Gi
 2. A catalog update cannot silently install, uninstall or update mods.
 3. Official Lua policy remains in `main`; trusted third-party snapshots use the separate registry.
 4. Development override paths never persist or silently fall back.
-5. Package manifests and Lua proposals cannot claim pre-existing files.
+5. Package manifests and Lua proposals cannot authorize adoption of pre-existing files.
 6. Failed installation and recovery preserve unmanaged game content.
 7. Never add a per-game Rust core adapter.
 8. Keep manager state outside game installations.
+
+## Explicit lifecycle commands
+
+`adopt <archive> --acknowledge --yes` records matching manual files in the existing managed-package and file-ownership tables.
+It records archive provenance without catalog identity or dependency links. No schema field distinguishes adoption from installation.
+The read-only preview reports pending byte, content, and ownership verification.
+`uninstall <selector> --force --yes` resolves one managed package and removes only its recorded files.
+It preserves unrecorded descendants and retains exclusive directories. Normal uninstall remains strict.
+The cleanup journal records current bytes for rollback and recovery.
+See [lifecycle contracts](docs/mvp/lifecycle.md) and [MCP startup](docs/mvp/mcp.md).

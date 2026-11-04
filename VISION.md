@@ -38,7 +38,11 @@ of manually installed mods.
 
 Windows comes first.
 Read-only DDS and RDAR v12 structural inspection is available through `modn asset inspect`.
-MCP, desktop UI, asset conversion, REDmod deployment and automatic cleanup remain pending.
+The CLI supports explicit adoption, confirmed owned cleanup, and REDmod content installation.
+The local MCP companion supports scoped previews and approved ordinary installs and uninstalls.
+The Windows desktop MVP supports local archive review and confirmed ordinary lifecycle operations through the CLI backend.
+Native picker selection, desktop 7z coverage, and cross-platform desktop coverage remain unverified.
+Asset conversion, REDmod deployment and automatic cleanup remain pending.
 Skyrim support has synthetic fixture coverage, without real-game validation.
 
 ## Where things live
