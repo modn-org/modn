@@ -6,6 +6,50 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+function Add-ModnUserPath([string] $RegistryKeyPath, [string] $InstallDir) {
+  if (-not $RegistryKeyPath.StartsWith('HKCU:\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'PATH registry key must be under HKCU.'
+  }
+  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($RegistryKeyPath.Substring(6), $true)
+  if ($null -eq $key) { throw 'PATH registry key does not exist.' }
+  try {
+    $userPath = $key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    $normalized = $InstallDir.TrimEnd('\')
+    foreach ($entry in ($userPath -split ';')) {
+      if ($entry.TrimEnd('\') -ieq $normalized -or
+          [Environment]::ExpandEnvironmentVariables($entry).TrimEnd('\') -ieq $normalized) {
+        return
+      }
+    }
+    $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+    if ($key.GetValueNames() -icontains 'Path') { $kind = $key.GetValueKind('Path') }
+    $separator = ''
+    if ($userPath.Length -gt 0 -and -not $userPath.EndsWith(';')) { $separator = ';' }
+    $key.SetValue('Path', ($userPath + $separator + $InstallDir), $kind)
+  } finally { $key.Dispose() }
+  if (-not ('Modn.EnvironmentBroadcast' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace Modn {
+    public static class EnvironmentBroadcast {
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr SendMessageTimeout(
+            IntPtr window, uint message, UIntPtr wParam, string lParam,
+            uint flags, uint timeout, out UIntPtr result);
+    }
+}
+'@
+  }
+  $result = [UIntPtr]::Zero
+  [void] [Modn.EnvironmentBroadcast]::SendMessageTimeout(
+    [IntPtr] 0xffff, 0x001a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref] $result)
+  $processSeparator = ''
+  if ($env:Path -and -not $env:Path.EndsWith(';')) { $processSeparator = ';' }
+  $env:Path = $env:Path + $processSeparator + $InstallDir
+  Write-Host "Added $InstallDir to the user PATH."
+}
+
 $local = Test-Path -LiteralPath $ReleaseBase -PathType Container
 if (-not $local) {
   $uri = $null
@@ -42,13 +86,7 @@ try {
   } finally { if (Test-Path -LiteralPath $staged) { Remove-Item -LiteralPath $staged -Force } }
   Write-Host "Installed modn.exe to $target"
   if (-not $NoModifyPath) {
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $entries = @($userPath -split ';' | Where-Object { $_ })
-    $normalized = $InstallDir.TrimEnd('\', '/')
-    if (-not @($entries | Where-Object { $_.Trim().TrimEnd('\', '/') -ieq $normalized }).Count) {
-      [Environment]::SetEnvironmentVariable('Path', (($entries + $InstallDir) -join ';'), 'User')
-      Write-Host "Added $InstallDir to the user PATH."
-    }
+    Add-ModnUserPath -RegistryKeyPath 'HKCU:\Environment' -InstallDir $InstallDir
   }
   $previousSource = $env:MODN_MAIN_BUCKET_SOURCE
   try {
