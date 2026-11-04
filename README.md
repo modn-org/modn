@@ -56,6 +56,7 @@ cargo run --bin modn -- game list
 cargo run --bin modn -- scan --json
 cargo run --bin modn -- doctor --json
 cargo run --bin modn -- inspect "./downloaded-mod.zip" --json
+cargo run --bin modn -- asset inspect "./texture.dds" --json
 cargo run --bin modn -- install "./downloaded-mod.zip" --dry-run --path "/path/to/Cyberpunk 2077" --json
 ```
 
@@ -88,6 +89,14 @@ guaranteed protection against another process changing paths concurrently.
 Avoid redirected game/mod directories where practical; use dedicated game
 installations and do not run another mod manager against the same files
 at the same time.
+
+## Read-only asset inspection
+
+`modn asset inspect <path> [--json]` reads DDS headers or the supported REDengine RDAR v12 structural subset.
+It selects formats from bytes and does not select a game, open manager state, fetch network content, or write the input.
+It does not decode payloads or verify game compatibility and integrity.
+Reads are limited to 148 DDS bytes or 44 header bytes plus 16 MiB of RDAR index metadata.
+See [asset formats and limits](docs/mvp/assets.md).
 
 ## First-party Lua game modules
 

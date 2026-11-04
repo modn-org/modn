@@ -42,7 +42,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: CacheCommand,
     },
-    /// Inspect bundled and explicitly registered local package catalogs.
+    /// Inspect the local official bucket and registered community catalogs.
     Bucket {
         #[command(subcommand)]
         command: BucketCommand,
@@ -61,6 +61,11 @@ pub(super) enum Command {
     },
     /// Inspect ZIP, JAR, or 7z metadata without extracting files.
     Inspect { archive: PathBuf },
+    /// Inspect asset structures without selecting a game or opening manager state.
+    Asset {
+        #[command(subcommand)]
+        command: AssetCommand,
+    },
     /// Check local Lua policy or manage explicitly trusted module snapshots.
     Module {
         #[command(subcommand)]
@@ -75,11 +80,17 @@ pub(super) enum Command {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// Check REDmod availability and report unmanaged content.
+    /// Run the selected game module's diagnostics and report managed-file drift.
     Doctor {
         #[arg(long)]
         path: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub(super) enum AssetCommand {
+    /// Inspect DDS or RDAR v12 structural metadata without decoding payloads.
+    Inspect { path: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -153,7 +164,7 @@ pub(super) enum BucketCommand {
     Add { name: String, path: PathBuf },
     /// Forget a local bucket registration without changing its files.
     Remove { name: String },
-    /// List the bundled official bucket and registered local buckets.
+    /// List the local official bucket and registered community buckets.
     List,
     /// Inspect one exact bucket/game/package reference.
     Show { package: String },

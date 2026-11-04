@@ -152,15 +152,15 @@ It does not verify CRC64, SHA1, timestamp meaning, duplicate hashes, shared segm
 It does not resolve resource names or validate decompressed lengths.
 It does not claim support for all RDAR variants or other REDengine asset formats.
 
-## Proposed CLI integration
+## CLI inspection
 
-The proposed command is `modn asset inspect <path> [--json]`.
-Command registration belongs to the later CLI integration change.
-This change adds no CLI command or private CLI implementation.
-The handler should call `assets::inspect` directly, without selecting a game or opening manager state.
-JSON output should serialize `Inspection` without inventing compatibility fields.
-Human output should show the format, file length, supported metadata, and structural-only limitation.
-Errors should exit unsuccessfully and retain the parser's reason.
+Run `modn asset inspect <path> [--json]` for read-only structural metadata.
+The handler calls `assets::inspect` directly, without selecting a game or opening manager state.
+It does not load modules, fetch network content, or write the input.
+JSON output serializes `Inspection` with the fields shown above.
+Human output shows the format, file length, dimensions or index counts, and structural-only limitation.
+Errors exit unsuccessfully and retain the parser's reason.
+Asset conversion, payload decoding, MCP, and desktop UI integration remain pending.
 
 ## Format references
 

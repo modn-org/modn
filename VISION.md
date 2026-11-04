@@ -37,7 +37,8 @@ install transaction guarantees. Prefer clean installs, not automatic adoption
 of manually installed mods.
 
 Windows comes first.
-MCP, desktop UI, asset workflows, REDmod deployment and automatic cleanup remain pending.
+Read-only DDS and RDAR v12 structural inspection is available through `modn asset inspect`.
+MCP, desktop UI, asset conversion, REDmod deployment and automatic cleanup remain pending.
 Skyrim support has synthetic fixture coverage, without real-game validation.
 
 ## Where things live
