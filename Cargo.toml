@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/modn-core", "apps/modn-cli"]
+members = ["crates/modn-core", "apps/modn-cli", "apps/modn-mcp"]
 resolver = "2"
 
 [workspace.package]
