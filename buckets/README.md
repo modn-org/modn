@@ -52,7 +52,7 @@ revalidated before catalog lookup. Third-party game modules remain deferred (#51
 
 When `<data dir>/buckets/main/` is missing, the first command needing the
 catalog or a game module bootstraps it. Modn downloads `main-bucket.zip` from
-`https://github.com/sooskca/modn/releases/download/v<version>/main-bucket.zip`
+`https://github.com/modn-org/modn/releases/download/v<version>/main-bucket.zip`
 for the running Modn version. It checks the bucket tree's SHA-256 content digest
 against the digest built into the executable. It validates the bucket, stages
 it, and installs it by rename. Failure leaves no partial copy. First use needs
