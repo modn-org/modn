@@ -1,3 +1,4 @@
+use crate::commands::PinArgs;
 use crate::commands::UninstallArgs;
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
@@ -24,13 +25,14 @@ pub(super) fn list(
         println!("No manager-owned packages installed.");
     } else {
         for package in packages {
+            let pin = if package.pinned { " (pinned)" } else { "" };
             match &package.catalog {
                 Some(catalog) => println!(
-                    "{}: {catalog}, {} owned files",
+                    "{}{pin}: {catalog}, {} owned files",
                     package.id,
                     package.files.len()
                 ),
-                None => println!("{}: {} owned files", package.id, package.files.len()),
+                None => println!("{}{pin}: {} owned files", package.id, package.files.len()),
             }
             for directory in &package.directories {
                 println!("  exclusive folder: {directory}");
@@ -98,6 +100,23 @@ pub(super) fn uninstall(
             println!("Uninstalled {id}");
         }
     }
+    Ok(())
+}
+
+pub(super) fn pin(
+    args: &PinArgs,
+    state_path: &Path,
+    requested: Option<&str>,
+    pinned: bool,
+) -> Result<()> {
+    let state = ManagerState::load(state_path)?;
+    let target = state.target_for(args.path.as_deref(), requested)?;
+    let mut store = state.open_writable(&target)?;
+    let (_, game) = selected_installation(Some(&store), args.path.clone(), requested)?;
+    let (id, changed) = store.set_package_pin(&game, &args.package, pinned)?;
+    let status = if pinned { "pinned" } else { "unpinned" };
+    let unchanged = if changed { "" } else { " (unchanged)" };
+    println!("{id}: {status}{unchanged}");
     Ok(())
 }
 

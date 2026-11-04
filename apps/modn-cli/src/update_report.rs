@@ -52,6 +52,7 @@ impl FileChanges {
 
 pub(super) struct DependentCheck {
     package_id: String,
+    pinned: bool,
     package: String,
     requirement: Requirement,
     satisfied: bool,
@@ -153,6 +154,7 @@ pub(super) fn dependent_checks(
                     .as_ref()
                     .map_or_else(String::new, ToString::to_string),
                 package_id: dependent.id,
+                pinned: dependent.pinned,
                 requirement,
                 satisfied,
             })
@@ -190,8 +192,8 @@ pub(super) fn dependent_blockers(checks: &[DependentCheck], mod_id: &str) -> Vec
         .filter(|check| !check.satisfied)
         .map(|check| match &check.requirement {
             Requirement::Requires(text) => format!(
-                "{} {} requires {mod_id} {text}",
-                check.package_id, check.package
+                "{} {}{} requires {mod_id} {text}",
+                check.package_id, check.package, if check.pinned { " (pinned)" } else { "" }
             ),
             Requirement::Alias(alias) => format!(
                 "{} {} needs this archive as {alias}, not as {mod_id}; Modn cannot show that it accepts the update, so update or reinstall it first",

@@ -94,6 +94,24 @@ impl Links {
 }
 
 impl Store {
+    /// Set a managed package's pin under the transaction lock. Return its ID and whether it changed.
+    pub fn set_package_pin(
+        &mut self,
+        game: &Path,
+        selector: &str,
+        pinned: bool,
+    ) -> Result<(String, bool)> {
+        let _guard = lock_store(self)?;
+        self.ensure_idle()?;
+        let packages = self.installed(game)?;
+        let id = resolve(&packages, selector)?;
+        let changed = self.connection.execute(
+            "UPDATE managed_packages SET pinned=?1 WHERE id=?2 AND pinned<>?1",
+            rusqlite::params![pinned, id],
+        )? != 0;
+        Ok((id, changed))
+    }
+
     /// Plan an uninstall without changing anything.
     ///
     /// The plan lists packages in removal order. It fails when `selector`

@@ -28,6 +28,10 @@ pub(super) enum Command {
     Install(InstallArgs),
     /// Replace an installed catalog mod with another release, recoverably.
     Update(UpdateArgs),
+    /// Prevent updates of a managed package, by ID or catalog name.
+    Pin(PinArgs),
+    /// Allow updates of a managed package again.
+    Unpin(PinArgs),
     /// Search mod manifests across configured buckets.
     Search {
         /// Match mod ID or display name (omit to list all).
@@ -204,6 +208,15 @@ pub(super) struct UpdateArgs {
     /// Independently authorize one exact game-relative tool executable in the archive.
     #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
     pub(super) allow_executable: Vec<String>,
+}
+
+/// Options for changing a managed package's pin.
+#[derive(Args)]
+pub(super) struct PinArgs {
+    /// Managed-package ID or catalog name: mod, game/mod or bucket/game/mod.
+    pub(super) package: String,
+    #[arg(long)]
+    pub(super) path: Option<PathBuf>,
 }
 
 /// Options for removing manager-owned packages.

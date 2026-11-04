@@ -153,9 +153,6 @@ pub(super) fn run(
         .collect();
     let target = choose_release(releases, args.version.as_deref(), &label)?;
     let interactive = !args.yes && !args.dry_run;
-    if interactive && !install_consent::can_prompt(json) {
-        bail!("an update writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
-    }
     let state = ManagerState::load_deferred(state_path)?;
     let store = state
         .existing()
@@ -163,6 +160,16 @@ pub(super) fn run(
     let (game_id, game) =
         selected_installation(Some(store), args.path.clone(), Some(&current.package.game))?;
     let old = installed_package(store.installed(&game)?, &reference)?;
+    if old.pinned {
+        println!(
+            "Skipped {}: managed package is pinned; run `modn unpin {}` to update it.",
+            old.id, old.id
+        );
+        return Ok(());
+    }
+    if interactive && !install_consent::can_prompt(json) {
+        bail!("an update writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
+    }
     let installed_version = installed_versions
         .iter()
         .find(|(sha256, _)| *sha256 == old.archive_sha256)

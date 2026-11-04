@@ -180,7 +180,9 @@ pub(super) fn catalog_release(
             )
         })
         .collect();
-    Ok(CatalogRelease::new(reference, dependencies).with_conflicts(conflicts))
+    Ok(CatalogRelease::new(reference, dependencies)
+        .with_conflicts(conflicts)
+        .with_version(selected.package.version.clone()))
 }
 
 fn match_archives(
