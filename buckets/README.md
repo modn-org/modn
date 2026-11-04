@@ -50,20 +50,16 @@ Modn rejects registered local buckets that contain them. It also rejects a
 `modules/` directory in any bucket. Registered local buckets are read-only and
 revalidated before catalog lookup. Third-party game modules remain deferred (#51).
 
-When `<data dir>/buckets/main/` is missing, the first command needing the
-catalog or a game module bootstraps it. Modn downloads `main-bucket.zip` from
-`https://github.com/modn-org/modn/releases/download/v<version>/main-bucket.zip`
-for the running Modn version. It checks the bucket tree's SHA-256 content digest
-against the digest built into the executable. It validates the bucket, stages
-it, and installs it by rename. Failure leaves no partial copy. First use needs
-network access; later use works offline. For development and tests,
-`MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP path instead.
-The digest check still applies.
+The install script runs `modn bucket update` once. Modn never fetches the bucket
+implicitly. If `<data dir>/buckets/main/` is missing, Modn tells the user to run
+`modn bucket update`. For development and tests, `MODN_MAIN_BUCKET_SOURCE`
+selects an HTTPS URL or local ZIP path for that command.
 
 `modn bucket update` downloads the latest release's `main-bucket.zip` and
 `main-bucket.zip.sha256` sidecar over HTTPS. It verifies the digest and validates
 the bucket and its modules before an atomic swap. Failure preserves the previous
-copy. Modn never refreshes it without an explicit request.
+copy. The checksum shares the release origin, as in Scoop. Release signing is
+future work. The separate `modn-org/main` repository is planned in #69.
 
 Use `modn search` for package discovery and `modn bucket show bucket/game/package` for an exact manifest.
 `modn bucket add <name> <directory>` registers a local catalog; removing

@@ -15,7 +15,8 @@ _Avoid_: Mod repository, provider, registry (when referring to a bucket)
 
 **Official bucket**:
 The Modn-maintained `main` catalog and first-party game modules. Modn uses a
-verified local copy after bootstrap.
+local copy installed by `modn bucket update`. The install script runs that command.
+Only `main` contains modules. A separate `modn-org/main` repository is planned in #69.
 _Avoid_: Built-in module, automatically safe mods
 
 **Community bucket**:
