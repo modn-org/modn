@@ -211,6 +211,8 @@ modn install "./unlisted-mod.zip" --dry-run
 modn install "./unlisted-mod.zip" --yes
 modn update cet --dry-run
 modn update cet --yes
+modn pin cet
+modn unpin cet
 modn update community/test-game/example --version 1.0 --file "./example-1.0.zip" --yes
 modn list --json
 modn uninstall <managed-package-id> --yes
@@ -281,6 +283,18 @@ the install fails until you restore or uninstall it, or replace it with
 `modn update`.
 
 ### Updating a mod
+
+`modn pin <selector>` prevents updates of one managed package.
+`modn unpin <selector>` allows updates again. Both commands accept the
+managed package ID, `mod`, `game/mod` or `bucket/game/mod`, as uninstall does.
+Repeating either command succeeds without changing the pin.
+`modn list` marks pinned packages; JSON includes a boolean `pinned` field.
+Uninstall removes a pinned package and its pin normally.
+
+An update skips a pinned managed package successfully without downloading
+or changing the game, cache or manager state. Unpin it before updating.
+A pinned dependent blocks a dependency update when its recorded requirement
+refuses the target version. Modn checks this again under the transaction lock.
 
 `modn update <mod>` replaces the installed release of a catalog mod with the
 bucket's current release. `--version <version>` selects another release that

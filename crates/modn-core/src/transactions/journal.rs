@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 #[non_exhaustive]
 pub struct ManagedPackage {
     pub id: String,
+    pub pinned: bool,
     pub game_installation: PathBuf,
     pub archive_sha256: String,
     /// Exact owned files installed through the recorded source ZIP.

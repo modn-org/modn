@@ -153,7 +153,7 @@ fixture exercises game-agnostic support.
 | Domain concept | Current data |
 | --- | --- |
 | Game installation | `state.sqlite / game_installations(game_id, path, source)` |
-| Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at)` |
+| Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at, pinned)` |
 | Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
 | Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
 | File ownership | `state.sqlite / managed_files(...)` |
@@ -162,6 +162,11 @@ fixture exercises game-agnostic support.
 | Game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
 | Development override | In-memory per-invocation `--module-src` / `--src` |
 | Bucket packages | Local `main` copy and explicitly registered local directories |
+
+Manager schema version 2 stores each pin as `pinned INTEGER NOT NULL DEFAULT 0`.
+Migration preserves existing packages and leaves them unpinned.
+A pin belongs to one managed package and disappears when that package is uninstalled.
+Pin changes hold the manager transaction lock and change no ownership or game files.
 
 The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>.json` and other releases at

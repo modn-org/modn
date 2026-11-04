@@ -91,12 +91,20 @@ impl CatalogRelease {
             reference,
             dependencies,
             conflicts: Vec::new(),
+            version: None,
         }
     }
 
     #[must_use]
     pub fn with_conflicts(mut self, conflicts: Vec<CatalogConflict>) -> Self {
         self.conflicts = conflicts;
+        self
+    }
+
+    /// Supply the target version for dependent requirement checks during update.
+    #[must_use]
+    pub fn with_version(mut self, version: String) -> Self {
+        self.version = Some(version);
         self
     }
 }
@@ -123,6 +131,8 @@ pub struct CatalogDependency {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CatalogRelease {
+    /// Target version, when known to the catalog caller.
+    pub version: Option<String>,
     /// Catalog identity recorded as the managed package's provenance.
     pub reference: CatalogReference,
     /// Releases that must already be managed and intact in the same game installation.

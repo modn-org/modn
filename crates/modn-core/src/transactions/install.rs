@@ -315,6 +315,7 @@ impl Store {
         self.recover_locked()?;
         Ok(ManagedPackage {
             id,
+            pinned: false,
             game_installation: game,
             archive_sha256: inspection.sha256,
             directories,

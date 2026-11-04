@@ -44,6 +44,8 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
         Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
         Command::Install(args) => install::run(&args, state_path, requested, json),
         Command::Update(args) => update::run(&args, state_path, requested, json),
+        Command::Pin(args) => managed::pin(&args, state_path, requested, true),
+        Command::Unpin(args) => managed::pin(&args, state_path, requested, false),
         Command::Inspect { archive } => inspect_archive(&archive, json),
         Command::Game { command } => games::run(command, state_path, requested, json),
         Command::List { path } => managed::list(path, state_path, requested, json),
