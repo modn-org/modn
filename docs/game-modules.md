@@ -56,7 +56,8 @@ All paths passed to Lua capabilities are relative to a short-lived **numeric roo
 ## Runtime-loaded game policy
 
 Cyberpunk discovery, scan classification, framework signals and doctor diagnostics
-now reside in `buckets/main/games/cyberpunk-2077/` as
+now reside in `games/cyberpunk-2077/` of the
+[`modn-org/main`](https://github.com/modn-org/main) bucket repository as
 `module.json` and `module.lua`. Rust loads them **at runtime** through a
 game-agnostic policy executor, not an embedded `cyberpunk.rs` adapter.
 

@@ -1,9 +1,0 @@
-{
-  "schema_version": 1, "id": "equipment-ex", "game": "cyberpunk-2077",
-  "name": "Equipment-EX", "version": "1.2.10",
-  "archive_format": "zip", "sha256": "bd3628af0851af4cc5083e40f890e9e7423305cb7e3017f48f9e06a8bc6b6e17",
-  "source": {"kind":"manual","filename":"Equipment-EX 6945 1.2.10 2026-10-25T21-07Z k8Iw8mmPd.zip"},
-  "dependencies": ["archivexl", "codeware", "redscript", "tweakxl"],
-  "dependency_versions": {"archivexl": ">=1.28.0", "tweakxl": ">=1.12.0"},
-  "homepage": "https://www.nexusmods.com/cyberpunk2077/mods/6945"
-}

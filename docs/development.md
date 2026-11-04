@@ -1,8 +1,10 @@
 # Development
 
-Requires a current stable Rust toolchain.
+Requires a current stable Rust toolchain. The tests use the real main bucket,
+pinned as the `buckets/main` submodule of `modn-org/main`.
 
 ```sh
+git submodule update --init
 cargo test --workspace
 # Milestone 3 gate with the real archives, in a disposable fake game directory:
 MODN_GATE_ARCHIVES=~/Downloads/CP77 cargo test -p modn-cli --test milestone_gate -- --ignored

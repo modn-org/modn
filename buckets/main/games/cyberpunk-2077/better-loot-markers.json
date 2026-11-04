@@ -1,9 +1,0 @@
-{
-  "schema_version": 1, "id": "better-loot-markers", "game": "cyberpunk-2077",
-  "name": "BetterLootMarkers", "version": "1.4.1",
-  "archive_format": "zip", "sha256": "e0f77b22e12f913929b31baa0e442833ae9c9a196718d3bb5bf4a9cd15cb3d49",
-  "source": {"kind":"https","url":"https://github.com/rodikh/BetterLootMarkers-Cyberpunk-mod/releases/download/1.4.1/BetterLootMarkers-1.4.1.zip"},
-  "dependencies": ["cet"],
-  "dependency_versions": {"cet": ">=1.34.1"},
-  "homepage": "https://github.com/rodikh/BetterLootMarkers-Cyberpunk-mod"
-}

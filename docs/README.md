@@ -45,8 +45,9 @@ shipped behavior.
 ## Buckets and verification
 
 - [`../buckets/README.md`](../buckets/README.md): bucket metadata contract v1.
-- [`../buckets/main/PROVENANCE.md`](../buckets/main/PROVENANCE.md): versions,
-  checksums and dependency evidence for the `main` catalog.
+- [`modn-org/main`](https://github.com/modn-org/main): the `main` bucket
+  repository. Its `PROVENANCE.md` holds versions, checksums and dependency
+  evidence. This repository pins it as the `buckets/main` submodule.
 - [`../.agents/skills/verify-modn/SKILL.md`](../.agents/skills/verify-modn/SKILL.md):
   end-to-end CLI verification with disposable fixtures.
 - [`../.agents/skills/verify-ownership/SKILL.md`](../.agents/skills/verify-ownership/SKILL.md):

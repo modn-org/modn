@@ -48,8 +48,9 @@ modn uninstall cet --yes
 
 ## Buckets
 
-Like Scoop, Modn reads mod manifests from buckets. The official `main` bucket
-holds the first-party game modules and the Cyberpunk catalog. Add a local bucket
+Like Scoop, Modn reads mod manifests from buckets. The official `main` bucket,
+[`modn-org/main`](https://github.com/modn-org/main), holds the first-party game
+modules and the Cyberpunk catalog. It has its own releases. Add a local bucket
 with `modn bucket add <name> <directory>`. See [`docs/buckets.md`](docs/buckets.md).
 
 More docs are in [`docs/`](docs/README.md).

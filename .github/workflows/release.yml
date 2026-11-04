@@ -9,8 +9,7 @@ on:
       - .github/scripts/release-smoke.ps1
       - .github/scripts/install-smoke.ps1
       - install.ps1
-      - .github/scripts/pack-main-bucket.py
-      - buckets/main/**
+      - buckets/main
 
 permissions:
   contents: read
@@ -20,6 +19,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - name: Check the tag matches the modn-cli version
         if: github.ref_type == 'tag'
@@ -42,10 +43,12 @@ jobs:
           $hash = (Get-FileHash dist/modn.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("$PWD/dist/modn.exe.sha256", "$hash *modn.exe`n")
           Get-Content dist/modn.exe.sha256
-      - name: Package the deterministic main bucket and checksum
-        run: python .github/scripts/pack-main-bucket.py buckets/main dist/main-bucket.zip
       - name: Package the installer
         run: Copy-Item install.ps1 dist/install.ps1
+      - name: Package the smoke test with the pinned main bucket
+        run: |
+          python buckets/main/.github/scripts/pack.py buckets/main smoke/main-bucket.zip
+          Copy-Item .github/scripts/release-smoke.ps1 smoke/release-smoke.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: modn-windows-x64
@@ -54,7 +57,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-smoke
-          path: .github/scripts/release-smoke.ps1
+          path: smoke/
           if-no-files-found: error
 
   smoke:
@@ -62,6 +65,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - name: Smoke-test the installer
         run: pwsh -NoProfile -File .github/scripts/install-smoke.ps1
@@ -80,7 +85,7 @@ jobs:
           ./smoke/release-smoke.ps1
           -Binary ./dist/modn.exe
           -Checksum ./dist/modn.exe.sha256
-          -MainBucket ./dist/main-bucket.zip
+          -MainBucket ./smoke/main-bucket.zip
 
   release:
     needs: smoke
@@ -99,6 +104,6 @@ jobs:
         run: |
           prerelease=()
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" dist/modn.exe dist/modn.exe.sha256 dist/main-bucket.zip dist/main-bucket.zip.sha256 dist/install.ps1 \
+          gh release create "$GITHUB_REF_NAME" dist/modn.exe dist/modn.exe.sha256 dist/install.ps1 \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "modn $GITHUB_REF_NAME" "${prerelease[@]}"

@@ -11,8 +11,9 @@ where planned work is tracked.
 Modn separates **first-party executable game support**, **catalog metadata**,
 and **managed installation state**.
 
-First-party Lua 5.4 modules live at `buckets/main/games/<game-id>/` as
-`module.json` and `module.lua`. Modn embeds no bucket manifests or modules.
+First-party Lua 5.4 modules live at `games/<game-id>/` of the `modn-org/main`
+bucket repository as `module.json` and `module.lua`. Each `module.json`
+declares the host API version that it needs. Modn embeds no bucket manifests or modules.
 The development-only `--module-src` flag selects a local source for one command;
 it does not change any persistent selection or stored installation record.
 
@@ -51,7 +52,8 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 The install script runs `modn bucket update` to fetch the official `main` bucket.
 Modn never fetches it implicitly. A missing copy prompts the user to run that command.
 The update checks the ZIP against its same-origin release SHA-256 sidecar.
-Release signing is future work. The separate `modn-org/main` repository is planned in #69.
+Release signing is future work. The update fetches the latest `modn-org/main`
+release, and it refuses a bucket with a module this Modn cannot run.
 The local copy works offline and changes only on explicit update. Community buckets
 cannot contain game modules. Registering a bucket
 never authorizes modification of a game installation.
@@ -147,7 +149,8 @@ actually used Modn's managed-install path.
 ## Current implementation mapping
 
 The host runs Lua 5.4 through `mlua`. First-party Cyberpunk source is
-`buckets/main/games/cyberpunk-2077/`. The synthetic module
+`games/cyberpunk-2077/` in `modn-org/main`. This repository pins a bucket commit
+as the `buckets/main` submodule for its tests. The synthetic module
 fixture exercises game-agnostic support.
 
 | Domain concept | Current data |

@@ -16,7 +16,8 @@ mod packages: versions, hashes, sources and known dependencies. Only `main`
 may contain game modules. The local copy works offline. Only `modn bucket update` fetches it.
 If the copy is missing, Modn asks the user to run that command.
 The update checks the ZIP against its release SHA-256 sidecar from the same origin.
-Release signing is future work. A separate `modn-org/main` repository is planned in #69.
+Release signing is future work. `main` lives in the `modn-org/main` repository,
+with its own release cycle.
 Third-party game modules (#51) and Git-backed catalog sync (#53) remain deferred.
 Package manifests never authorize changes to game files: a
 manifest may declare the tool executables its archive installs, but only the
