@@ -103,4 +103,6 @@ Negative cases cover missing trust, official collisions, incompatible API, misma
 Explicit missing and mismatched overrides fail even when a valid registration exists.
 These tests do not run Skyrim. No real game operation has been performed.
 `mvp_commands` also exercises trust, tamper detection, official-ID rejection and the fixture CLI lifecycle.
-MCP, desktop UI, asset conversion, REDmod deployment and automatic cleanup remain pending.
+The [MCP companion](mcp.md) and [GPUI Kit desktop](desktop.md) provide tested first-MVP interfaces.
+[Owned cleanup](lifecycle.md) requires explicit force approval.
+Asset conversion, REDmod deployment and automatic cleanup remain unimplemented.
