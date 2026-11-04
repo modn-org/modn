@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/release.yml
       - .github/scripts/release-smoke.ps1
+      - .github/scripts/pack-main-bucket.py
+      - buckets/main/**
 
 permissions:
   contents: read
@@ -38,6 +40,8 @@ jobs:
           $hash = (Get-FileHash dist/modn.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("$PWD/dist/modn.exe.sha256", "$hash *modn.exe`n")
           Get-Content dist/modn.exe.sha256
+      - name: Package the deterministic main bucket and checksum
+        run: python .github/scripts/pack-main-bucket.py buckets/main dist/main-bucket.zip
       - uses: actions/upload-artifact@v4
         with:
           name: modn-windows-x64
@@ -68,6 +72,7 @@ jobs:
           ./smoke/release-smoke.ps1
           -Binary ./dist/modn.exe
           -Checksum ./dist/modn.exe.sha256
+          -MainBucket ./dist/main-bucket.zip
 
   release:
     needs: smoke
@@ -86,6 +91,6 @@ jobs:
         run: |
           prerelease=()
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" dist/modn.exe dist/modn.exe.sha256 \
+          gh release create "$GITHUB_REF_NAME" dist/modn.exe dist/modn.exe.sha256 dist/main-bucket.zip dist/main-bucket.zip.sha256 \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "modn $GITHUB_REF_NAME" "${prerelease[@]}"

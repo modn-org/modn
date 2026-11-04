@@ -25,9 +25,6 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile = "3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
 
-[build-dependencies]
-sha2 = "0.10"
-
 [target.'cfg(windows)'.dependencies]
 winapi-util = "0.1"
 

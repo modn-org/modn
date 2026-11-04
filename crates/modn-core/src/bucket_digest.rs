@@ -34,23 +34,11 @@ pub fn directory_digest(root: &Path) -> io::Result<String> {
     entries.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
     let mut digest = Sha256::new();
     for (name, path) in entries {
-        let content = fs::read(path)?;
+        let mut content = fs::File::open(path)?;
         digest.update(name.as_bytes());
         digest.update([0]);
-        digest.update((content.len() as u64).to_le_bytes());
-        digest.update(&content);
+        digest.update(content.metadata()?.len().to_le_bytes());
+        io::copy(&mut content, &mut digest)?;
     }
     Ok(format!("{:x}", digest.finalize()))
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn repository_main_digest_matches_build_constant() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main");
-        assert_eq!(
-            super::directory_digest(&root).expect("fixture invariant"),
-            crate::MAIN_BUCKET_DIGEST
-        );
-    }
 }

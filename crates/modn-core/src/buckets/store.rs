@@ -50,7 +50,7 @@ struct Registration {
 
 /// Catalog registry, separate from game registrations and ownership state.
 pub struct BucketStore {
-    root: PathBuf,
+    pub(super) root: PathBuf,
 }
 
 fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
@@ -194,7 +194,7 @@ impl BucketStore {
         }
     }
 
-    fn check_registry_root(&self) -> Result<()> {
+    pub(super) fn check_registry_root(&self) -> Result<()> {
         if self.root.components().any(|c| c == Component::ParentDir) {
             bail!("bucket registry path must not contain parent components");
         }
@@ -282,10 +282,15 @@ impl BucketStore {
         Self::new(&crate::data_dir::data_directory()?).check_registry_root()?;
         self.load("main", &path).with_context(|| {
             format!(
-                "cannot load local main bucket; expected a valid copy at {}",
+                "cannot load local main bucket; run `modn bucket update`; expected a valid copy at {}",
                 path.display()
             )
         })
+    }
+
+    pub(super) fn validate_main(&self, path: &Path) -> Result<()> {
+        self.load("main", path)?;
+        Ok(())
     }
 
     /// Return the validated first-party module directory for a supported game.

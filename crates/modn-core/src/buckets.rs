@@ -1,6 +1,7 @@
 mod dependencies;
 mod manifest;
 mod store;
+mod update;
 mod version;
 
 pub use dependencies::install_order;

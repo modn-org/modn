@@ -9,12 +9,10 @@
 )]
 pub mod acquisition;
 pub mod archive;
-/// Deterministic content digest shared with the release build.
+/// Deterministic content digest for bucket update reporting.
 pub mod bucket_digest;
 /// Versioned bucket metadata, validation and local registration.
 pub mod buckets;
-/// SHA-256 content digest of the official bucket at build time.
-pub const MAIN_BUCKET_DIGEST: &str = env!("MAIN_BUCKET_DIGEST");
 /// Resolve manager-owned data locations.
 pub mod data_dir;
 /// Validate installations and discover registered game locations.
