@@ -5,6 +5,40 @@ use tempfile::tempdir;
 
 const URL: &str = "https://example.invalid/releases/v1.0/fixture-1.0.zip?raw=1";
 
+#[test]
+fn aliases_reuse_verified_bytes_and_repair_corruption() {
+    let dir = tempdir().unwrap();
+    let cache = ArchiveCache::new(dir.path().to_owned());
+    let digest = sha(b"shared bytes");
+    let first = cache
+        .acquire(&key(&digest), CacheUse::Reuse, |_| {
+            Ok(Cursor::new(b"shared bytes"))
+        })
+        .unwrap();
+    let alias = CacheKey::new(
+        "other-game",
+        "alias",
+        "2",
+        "https://other.invalid/a.zip",
+        &digest,
+    );
+    let reused = cache
+        .acquire(&alias, CacheUse::Reuse, |_| -> Result<Cursor<Vec<u8>>> {
+            bail!("alias must not download")
+        })
+        .unwrap();
+    assert_eq!(reused.path, first.path);
+    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 1);
+    fs::write(&first.path, b"corrupt").unwrap();
+    assert!(cache.cached(&alias).unwrap().is_none());
+    let repaired = cache
+        .acquire(&alias, CacheUse::Reuse, |_| {
+            Ok(Cursor::new(b"shared bytes"))
+        })
+        .unwrap();
+    assert_eq!(fs::read(repaired.path).unwrap(), b"shared bytes");
+}
+
 fn sha(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }

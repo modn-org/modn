@@ -13,6 +13,9 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
+mod provider;
+pub use provider::GithubReleaseAsset;
+
 /// Largest archive Modn downloads; a longer response is refused.
 pub const MAX_DOWNLOAD_BYTES: u64 = 4 << 30;
 
@@ -129,12 +132,26 @@ impl ArchiveCache {
     pub fn cached(&self, key: &CacheKey<'_>) -> Result<Option<PathBuf>> {
         let path = self.path(key);
         let Ok(metadata) = fs::symlink_metadata(&path) else {
-            return Ok(None);
+            return self.cached_alias(key);
         };
         if !metadata.is_file() {
             bail!("cache entry is not a regular file: {}", path.display());
         }
-        Ok((file_sha256(&path)? == key.sha256).then_some(path))
+        if file_sha256(&path)? == key.sha256 {
+            return Ok(Some(path));
+        }
+        self.cached_alias(key)
+    }
+
+    fn cached_alias(&self, key: &CacheKey<'_>) -> Result<Option<PathBuf>> {
+        for entry in self.entries(None)? {
+            if fs::symlink_metadata(&entry.path)?.file_type().is_file()
+                && file_sha256(&entry.path)? == key.sha256
+            {
+                return Ok(Some(entry.path));
+            }
+        }
+        Ok(None)
     }
 
     /// Return a verified archive for `key`, downloading it when needed.
