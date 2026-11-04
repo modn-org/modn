@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::Read;
 
 const DEFAULT_SOURCE: &str =
-    "https://github.com/modn-org/modn/releases/latest/download/main-bucket.zip";
+    "https://github.com/modn-org/main/releases/latest/download/main-bucket.zip";
 
 fn source_reader(source: &str) -> Result<Box<dyn Read>> {
     if source.starts_with("https://") {

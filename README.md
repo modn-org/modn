@@ -44,9 +44,11 @@ pwsh -File .github/scripts/release-smoke.ps1 -Binary target/release/modn.exe
 
 ## Development
 
-Requires a current stable Rust toolchain.
+Requires a current stable Rust toolchain. The tests use the real main bucket,
+pinned as the `buckets/main` submodule of `modn-org/main`.
 
 ```sh
+git submodule update --init
 cargo test --workspace
 # Milestone 3 gate with the real archives, in a disposable fake game directory:
 MODN_GATE_ARCHIVES=~/Downloads/CP77 cargo test -p modn-cli --test milestone_gate -- --ignored
@@ -144,7 +146,8 @@ All paths passed to Lua capabilities are relative to a short-lived **numeric roo
 ## Runtime-loaded Cyberpunk game policy
 
 Cyberpunk discovery, scan classification, framework signals and doctor diagnostics
-now reside in `buckets/main/games/cyberpunk-2077/` as
+now reside in `games/cyberpunk-2077/` of the
+[`modn-org/main`](https://github.com/modn-org/main) bucket repository as
 `module.json` and `module.lua`. Rust loads them **at runtime** through a
 game-agnostic policy executor, not an embedded `cyberpunk.rs` adapter.
 
@@ -153,11 +156,13 @@ Modn tells the user to run `modn bucket update`. Modn never fetches it implicitl
 The install script runs that command once. The local copy works offline.
 `MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP for an update.
 
-`modn bucket update` downloads the latest release's `main-bucket.zip` and
-`main-bucket.zip.sha256` over HTTPS. It verifies the digest and validates the
-bucket and modules before an atomic swap. The checksum shares the release origin,
-as in Scoop. Release signing is future work. Failure preserves the previous copy.
-Only `main` contains modules. The separate `modn-org/main` repository is planned in #69.
+`modn bucket update` downloads `main-bucket.zip` and `main-bucket.zip.sha256`
+from the latest `modn-org/main` release over HTTPS. It verifies the digest and
+validates the bucket and modules before an atomic swap. The checksum shares the
+release origin, as in Scoop. Release signing is future work. Failure preserves
+the previous copy. A module whose `api_version` this Modn does not support makes
+the whole update fail. Only `main` contains modules. The bucket has its own
+release cycle, so a catalog change needs no Modn release.
 Modn refreshes the copy only when requested. Third-party game modules (#51)
 and Git-backed catalog sync (#53) remain deferred.
 
@@ -629,7 +634,7 @@ against the original distribution. GitHub-hosted packages record their release U
 source. Nexus-only packages are `manual` sources naming the original file.
 Modn does not mirror these archives. It downloads an `https` source from its
 original URL when you install it. The snapshot does not assert compatibility with every game
-version. See [provenance](buckets/main/PROVENANCE.md) for versions, dependency
+version. See [provenance](https://github.com/modn-org/main/blob/main/PROVENANCE.md) for versions, dependency
 evidence and compatibility notes.
 
 ```powershell
@@ -647,7 +652,7 @@ has schema_version, id, game, name, version, archive_format (`zip`/`7z`),
 sha256, source (`manual` with filename, or `https` with URL),
 optional dependencies (same-game IDs), dependency_versions, conflicts,
 executables and homepage. Unknown fields and
-unsupported schemas are rejected. See `buckets/main` for examples.
+unsupported schemas are rejected. See [`modn-org/main`](https://github.com/modn-org/main) for examples.
 Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. Only the official `main` bucket may contain
 `module.json` and `module.lua`. Modn rejects those files in registered local

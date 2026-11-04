@@ -42,8 +42,12 @@ bucket may also publish other releases of the same package as
 the file name's version, the current release must exist, and each version may
 appear once. Only `modn update <package> --version <version>` selects another
 release. Modn versions before this rule reject such files. The `main`
-snapshot publishes current releases only. See `buckets/main/games/` for
-examples.
+snapshot publishes current releases only. See
+[`modn-org/main`](https://github.com/modn-org/main) for examples.
+
+Each `module.json` declares `api_version`, the host API version that its module
+needs. Modn refuses a bucket with a module whose `api_version` it does not
+support.
 
 Only the official `main` bucket may contain `module.json` and `module.lua`.
 Modn rejects registered local buckets that contain them. It also rejects a
@@ -55,11 +59,12 @@ implicitly. If `<data dir>/buckets/main/` is missing, Modn tells the user to run
 `modn bucket update`. For development and tests, `MODN_MAIN_BUCKET_SOURCE`
 selects an HTTPS URL or local ZIP path for that command.
 
-`modn bucket update` downloads the latest release's `main-bucket.zip` and
-`main-bucket.zip.sha256` sidecar over HTTPS. It verifies the digest and validates
-the bucket and its modules before an atomic swap. Failure preserves the previous
-copy. The checksum shares the release origin, as in Scoop. Release signing is
-future work. The separate `modn-org/main` repository is planned in #69.
+`modn bucket update` downloads `main-bucket.zip` and its
+`main-bucket.zip.sha256` sidecar from the latest
+[`modn-org/main`](https://github.com/modn-org/main/releases) release over HTTPS.
+It verifies the digest and validates the bucket and its modules before an atomic
+swap. Failure preserves the previous copy. The checksum shares the release
+origin, as in Scoop. Release signing is future work.
 
 Use `modn search` for package discovery and `modn bucket show bucket/game/package` for an exact manifest.
 `modn bucket add <name> <directory>` registers a local catalog; removing
@@ -71,5 +76,17 @@ catalog synchronization remains deferred (#53).
 
 ## Adding a package to `main`
 
-Add `buckets/main/games/<game-id>/<package-id>.json` and a row in
-`buckets/main/PROVENANCE.md`. The release bucket contains these manifests.
+Open a pull request in [`modn-org/main`](https://github.com/modn-org/main). Its
+README describes the manifest, the provenance row and the release steps. A
+bucket release reaches users through `modn bucket update` without a Modn
+release.
+
+This repository pins a `main` commit as the `buckets/main` submodule. The
+catalog, milestone gate, verify-modn and ownership tests use that copy. To test
+a newer bucket, update the submodule:
+
+```sh
+git -C buckets/main fetch origin
+git -C buckets/main checkout <commit>
+git add buckets/main
+```
