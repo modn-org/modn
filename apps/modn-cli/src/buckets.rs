@@ -45,6 +45,9 @@ pub(super) fn run(
         }
     }
     let value: Value = match command {
+        BucketCommand::Update { name } => {
+            return crate::bucket_update::run(name.as_deref(), json_output);
+        }
         BucketCommand::Add { name, path } => serde_json::to_value(store.add(&name, &path)?)?,
         BucketCommand::Remove { name } => {
             store.remove(&name)?;

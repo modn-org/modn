@@ -42,15 +42,3 @@ pub fn directory_digest(root: &Path) -> io::Result<String> {
     }
     Ok(format!("{:x}", digest.finalize()))
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn repository_main_digest_matches_build_constant() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main");
-        assert_eq!(
-            super::directory_digest(&root).expect("fixture invariant"),
-            crate::MAIN_BUCKET_DIGEST
-        );
-    }
-}

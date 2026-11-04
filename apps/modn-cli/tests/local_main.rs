@@ -30,6 +30,7 @@ fn missing_main_copy_names_expected_path_without_panicking() {
         assert!(!result.status.success());
         let error = String::from_utf8_lossy(&result.stderr);
         assert!(error.contains("cannot load local main bucket"), "{error}");
+        assert!(error.contains("modn bucket update"), "{error}");
         assert!(
             error.replace('\\', "/").contains(
                 &data
