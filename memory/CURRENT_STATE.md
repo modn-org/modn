@@ -5,11 +5,12 @@ Keep it short; put details in memory events or in the canonical documents.
 
 ## Canonical documents
 
-- `README.md`: shipped features, commands, tested behavior and limitations.
-- `VISION.md`: approved product direction. Planned work is in GitHub
+- `docs/README.md`: index of the user guides for shipped features, commands,
+  tested behavior and limitations. `README.md` is only a short overview.
+- `docs/vision.md`: approved product direction. Planned work is in GitHub
   milestones and issues; deferred work has the `deferred` label.
-- `glossary.md`: canonical terms. Use them in memory records too.
-- `data-model.md`: entities and trust, selection and ownership boundaries.
+- `docs/glossary.md`: canonical terms. Use them in memory records too.
+- `docs/data-model.md`: entities and trust, selection and ownership boundaries.
 
 When memory and these documents disagree, the documents and the code win.
 Supersede the stale memory with the correction.

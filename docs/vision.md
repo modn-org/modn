@@ -2,7 +2,7 @@
 
 This page states the product direction. It changes only when that direction
 changes. Planned work is tracked in GitHub milestones and issues; shipped
-behavior is in [README.md](README.md).
+behavior is in the [user guides](README.md#user-guides).
 
 ## Product direction
 
@@ -40,7 +40,7 @@ Windows comes first.
 
 ## Where things live
 
-- **Shipped behavior:** [README.md](README.md), updated in the same change as the code.
+- **Shipped behavior:** [`docs/`](README.md) user guides, updated in the same change as the code.
 - **Planned work:** [GitHub milestones](https://github.com/sooskca/modn/milestones)
   and issues. Each milestone description holds its exit gate. A PR closes its
   issue with `Fixes #n`.

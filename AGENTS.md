@@ -2,7 +2,7 @@
 
 ## Authority and scope
 
-- Follow the project's architecture and behavior described in README.md.
+- Follow the project's architecture and behavior described in [docs/](docs/README.md).
 - Use the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html) and the Gate `google-rust-style` skill for new or changed Rust code, subject to this file and existing correctness, safety, and API contracts.
 - Use the official Rust API Guidelines where neither project instructions nor Google give a rule. Keep established local conventions unless a change has a concrete benefit.
 - Google rules specifically for Chromium, Fuchsia, and Android do not apply. This workspace uses stable Rust; nightly-only rustfmt options are review guidelines, not build requirements.
@@ -11,10 +11,12 @@
 
 Read these documents before substantive changes:
 
-1. [README.md](README.md)  - implemented features, commands, tested behavior and current limitations.
-2. [VISION.md](VISION.md)  - approved bucket-first product direction and where planned work is tracked.
-3. [glossary.md](glossary.md)  - canonical names for bucket, module, mod, archive and ownership concepts.
-4. [data-model.md](data-model.md)  - conceptual entities, trust/selection/ownership boundaries and mapping to existing persistence.
+1. [docs/README.md](docs/README.md)  - index of the user guides that describe implemented features, commands, tested behavior and current limitations; read the guides for the area you change.
+2. [docs/vision.md](docs/vision.md)  - approved bucket-first product direction and where planned work is tracked.
+3. [docs/glossary.md](docs/glossary.md)  - canonical names for bucket, module, mod, archive and ownership concepts.
+4. [docs/data-model.md](docs/data-model.md)  - conceptual entities, trust/selection/ownership boundaries and mapping to existing persistence.
+
+Keep [README.md](README.md) short: what Modn does, installation, a quick start and a link to `docs/`. Put shipped-behavior detail in the matching `docs/` page, in the same change as the code.
 
 Planned work lives in GitHub milestones and issues (`gh issue list`,
 `gh api repos/sooskca/modn/milestones`); each milestone description holds its
