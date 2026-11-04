@@ -1,5 +1,4 @@
-use crate::selection::selected_installation;
-use crate::state_access::ManagerState;
+use crate::state_access::{InstallationAccess, ManagerState};
 use anyhow::Result;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::scan::IntegrityStatus;
@@ -11,11 +10,14 @@ fn selected_store(
     state_path: &Path,
     requested: Option<&str>,
 ) -> Result<(Store, String, PathBuf)> {
-    let state = ManagerState::load(state_path)?;
-    let target = state.target_for(path.as_deref(), requested)?;
-    let store = state.open_writable(&target)?;
-    let (game_id, game) = selected_installation(Some(&store), path, requested)?;
-    Ok((store, game_id, game))
+    let selected = ManagerState::load(state_path)?
+        .for_installation(path, requested)?
+        .open(InstallationAccess::Write)?;
+    Ok((
+        selected.store.expect("write access opens manager state"),
+        selected.game_id,
+        selected.root,
+    ))
 }
 
 pub(super) fn scan(

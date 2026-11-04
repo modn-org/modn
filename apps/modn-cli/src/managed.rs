@@ -1,7 +1,6 @@
 use crate::commands::PinArgs;
 use crate::commands::UninstallArgs;
-use crate::selection::selected_installation;
-use crate::state_access::{ManagerState, ProtectedTarget};
+use crate::state_access::{InstallationAccess, ManagerState, ProtectedTarget};
 use anyhow::{bail, Result};
 use modn_core::transactions::UninstallScope;
 use std::path::{Path, PathBuf};
@@ -12,10 +11,11 @@ pub(super) fn list(
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let state = ManagerState::load(state_path)?;
-    let target = state.target_for(path.as_deref(), requested)?;
-    let store = state.open_writable(&target)?;
-    let (_, game) = selected_installation(Some(&store), path, requested)?;
+    let selected = ManagerState::load(state_path)?
+        .for_installation(path, requested)?
+        .open(InstallationAccess::Write)?;
+    let store = selected.store.expect("write access opens manager state");
+    let game = selected.root;
     let packages = store.installed(&game)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&packages)?);
@@ -56,13 +56,16 @@ pub(super) fn uninstall(
     json: bool,
 ) -> Result<()> {
     let state = ManagerState::load(state_path)?;
-    let target = state.target_for(args.path.as_deref(), requested)?;
+    let state = state.for_installation(args.path.clone(), requested)?;
     let scope = UninstallScope::default()
         .including_dependencies(args.include_deps)
         .including_dependents(args.cascade);
     if args.dry_run {
-        let store = state.open_preview(&target)?;
-        let (_, game) = selected_installation(Some(&store), args.path.clone(), requested)?;
+        let selected = state.open(InstallationAccess::Preview)?;
+        let store = selected
+            .store
+            .expect("preview access requires manager state");
+        let game = selected.root;
         let plan = store.plan_uninstall(&game, &args.package, scope)?;
         if json {
             println!(
@@ -87,8 +90,9 @@ pub(super) fn uninstall(
     if !args.yes {
         bail!("uninstall removes game files; rerun with --yes, or --dry-run to preview");
     }
-    let mut store = state.open_writable(&target)?;
-    let (_, game) = selected_installation(Some(&store), args.path.clone(), requested)?;
+    let selected = state.open(InstallationAccess::Write)?;
+    let mut store = selected.store.expect("write access opens manager state");
+    let game = selected.root;
     let removed = store.uninstall_with(&game, &args.package, scope)?;
     if json {
         println!(
@@ -109,10 +113,11 @@ pub(super) fn pin(
     requested: Option<&str>,
     pinned: bool,
 ) -> Result<()> {
-    let state = ManagerState::load(state_path)?;
-    let target = state.target_for(args.path.as_deref(), requested)?;
-    let mut store = state.open_writable(&target)?;
-    let (_, game) = selected_installation(Some(&store), args.path.clone(), requested)?;
+    let selected = ManagerState::load(state_path)?
+        .for_installation(args.path.clone(), requested)?
+        .open(InstallationAccess::Write)?;
+    let mut store = selected.store.expect("write access opens manager state");
+    let game = selected.root;
     let (id, changed) = store.set_package_pin(&game, &args.package, pinned)?;
     let status = if pinned { "pinned" } else { "unpinned" };
     let unchanged = if changed { "" } else { " (unchanged)" };
