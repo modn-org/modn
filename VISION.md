@@ -41,8 +41,11 @@ Read-only DDS and RDAR v12 structural inspection is available through `modn asse
 The CLI supports explicit adoption, confirmed owned cleanup, and REDmod content installation.
 The local MCP companion supports scoped previews and approved ordinary installs and uninstalls.
 The Windows desktop MVP supports local archive review and confirmed ordinary lifecycle operations through the CLI backend.
-Native picker selection, desktop 7z coverage, and cross-platform desktop coverage remain unverified.
+The GPUI Kit 0.9.0 app belongs to the root workspace, with Windows-only GPUI dependencies.
+Native Windows fixture evidence covers picker selection and ZIP and genuine 7z lifecycle operations.
+Windows 10 hardware, Linux execution, and GitHub CI execution remain unverified.
 Asset conversion, REDmod deployment and automatic cleanup remain pending.
+REDmod content validation does not check the complete vendor schema.
 Skyrim support has synthetic fixture coverage, without real-game validation.
 
 ## Where things live
