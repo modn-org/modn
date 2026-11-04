@@ -23,10 +23,11 @@ pub(super) fn run(name: Option<&str>, json: bool) -> Result<()> {
         bail!("only main can be updated; registered local buckets are local directories");
     }
     let source = std::env::var("MODN_MAIN_BUCKET_SOURCE").unwrap_or_else(|_| DEFAULT_SOURCE.into());
-    let checksum = source_reader(&format!("{source}.sha256"))?;
-    let archive = source_reader(&source)?;
     let store = BucketStore::new(&modn_core::data_dir::data_directory()?);
-    let (digest, changed) = store.update_main(archive, checksum)?;
+    let (digest, changed) = store.update_main(
+        || source_reader(&source),
+        || source_reader(&format!("{source}.sha256")),
+    )?;
     if json {
         println!(
             "{}",

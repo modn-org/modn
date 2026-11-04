@@ -216,6 +216,13 @@ fn interrupted_swaps_restore_or_clean_before_failed_update() {
             );
         }
     }
+    fs::rename(root.join("main"), root.join(".main-aside")).unwrap();
+    fs::remove_file(format!("{source}.sha256")).unwrap();
+    assert!(!run(data.path(), source, &["bucket", "update"])
+        .status
+        .success());
+    assert!(root.join("main/marker").is_file());
+    assert!(!root.join(".main-aside").exists());
 }
 
 #[test]

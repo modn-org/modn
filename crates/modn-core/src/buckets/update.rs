@@ -137,7 +137,11 @@ fn extract(path: &Path, stage: &Path, expected: &str) -> Result<()> {
 impl BucketStore {
     /// Verify and install a main bucket ZIP. Recover an interrupted swap before updating.
     /// Return the installed tree digest and whether its contents changed.
-    pub fn update_main(&self, mut source: impl Read, sidecar: impl Read) -> Result<(String, bool)> {
+    pub fn update_main<R: Read, S: Read>(
+        &self,
+        source: impl FnOnce() -> Result<R>,
+        sidecar: impl FnOnce() -> Result<S>,
+    ) -> Result<(String, bool)> {
         self.check_registry_root()?;
         fs::create_dir_all(&self.root)?;
         let lock_path = self.root.join(".main-update.lock");
@@ -154,7 +158,8 @@ impl BucketStore {
         lock.try_lock_exclusive()
             .context("main bucket update is already running")?;
         recover(&self.root)?;
-        let expected = checksum(sidecar)?;
+        let expected = checksum(sidecar()?)?;
+        let mut source = source()?;
         let mut zip = tempfile::Builder::new()
             .suffix(".zip")
             .tempfile_in(&self.root)?;
