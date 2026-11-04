@@ -1,10 +1,11 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use support::{error, Fixture};
 
 #[test]
@@ -25,7 +26,7 @@ fn adds_first_party_game_and_supports_development_source() {
 
     let other = Fixture::new();
     let source = other.modules.join("test-game");
-    let result = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let result = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&other.state)
         .arg("--src")
@@ -89,7 +90,7 @@ fn local_manifest_hash_verified_then_preview_and_install_reuse_rust_transactions
     );
     assert!(!preview.status.success(), "unapproved add must not proceed");
 
-    let direct = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let direct = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -109,7 +110,7 @@ fn local_manifest_hash_verified_then_preview_and_install_reuse_rust_transactions
     assert_eq!(report["plan"]["status"], "reviewable");
     assert!(!expected_file.exists());
 
-    let installed = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let installed = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -125,7 +126,7 @@ fn local_manifest_hash_verified_then_preview_and_install_reuse_rust_transactions
         b"installed-by-modn"
     );
 
-    let repeat = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let repeat = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -149,7 +150,7 @@ fn incorrect_hash_and_unresolved_dependencies_do_not_touch_game() {
     let (archive, digest) = fixture.archive();
     fixture.bucket("wrong", "test-game", "bad", &"0".repeat(64), &[]);
     let root = fixture.temp.path().join("wrong");
-    let bad_hash = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let bad_hash = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -175,7 +176,7 @@ fn incorrect_hash_and_unresolved_dependencies_do_not_touch_game() {
         serde_json::to_vec(&base).expect("JSON"),
     )
     .expect("dependency");
-    let missing_dependency = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let missing_dependency = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -208,7 +209,7 @@ fn local_archive_preview_without_game_registration_has_no_state_writes() {
     let (archive, hash) = fixture.archive();
     fixture.bucket("community", "test-game", "example", &hash, &[]);
     assert!(!fixture.state.join("state.sqlite").exists());
-    let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let preview = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -340,7 +341,7 @@ fn a_bare_mod_id_cannot_be_shadowed_by_same_named_local_file() {
     fixture.bucket("community", "test-game", "example", &digest, &[]);
     fs::write(fixture.temp.path().join("example"), b"not an archive")
         .expect("create filename collision");
-    let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let preview = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .current_dir(fixture.temp.path())
         .arg("--state-dir")
         .arg(&fixture.state)
@@ -362,7 +363,7 @@ fn explicit_extensionless_path_reaches_raw_archive_validation() {
     fixture.register();
     let (archive, _) = fixture.archive();
     fs::copy(&archive, fixture.temp.path().join("local-archive")).expect("raw zip");
-    let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let preview = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .current_dir(fixture.temp.path())
         .arg("--state-dir")
         .arg(&fixture.state)

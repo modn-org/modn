@@ -40,6 +40,7 @@ class Driver:
         self.index += 1
         command = [str(self.binary), *map(str, args)]
         environment = dict(os.environ)
+        environment["LOCALAPPDATA"] = str(self.root / "data")
         environment.pop("MODN_GAME_MODULES_DIR", None)
         if use_override:
             environment["MODN_GAME_MODULES_DIR"] = str(self.root / "modules")
@@ -73,7 +74,8 @@ def verify(driver):
     root = driver.root
     modules = root / "modules"
     shutil.copytree(FIXTURE, modules / "test-game")
-    shutil.copytree(REPO / "crates/modn-core/game-modules/cyberpunk-2077",
+    shutil.copytree(REPO / "buckets/main", root / "data/modn/buckets/main")
+    shutil.copytree(REPO / "buckets/main/games/cyberpunk-2077",
                     modules / "cyberpunk-2077")
     game = root / "test-game"
     cyberpunk = root / "cyberpunk-fixture"

@@ -1,6 +1,7 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 #[test]
 fn policy_beside_the_executable_is_ignored() {
@@ -14,13 +15,13 @@ fn policy_beside_the_executable_is_ignored() {
     let planted = bin.join("game-modules/cyberpunk-2077");
     fs::create_dir_all(&planted).expect("planted module");
     let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/modn-core/game-modules/cyberpunk-2077/module.json");
+        .join("../../buckets/main/games/cyberpunk-2077/module.json");
     fs::copy(bundled, planted.join("module.json")).expect("planted manifest");
     fs::write(planted.join("main.lua"), "error('planted policy loaded')").expect("planted Lua");
 
     let game = root.path().join("not-a-game");
     fs::create_dir_all(&game).expect("game directory");
-    let output = Command::new(&copied)
+    let output = main_bucket::command(&copied)
         .env_remove("MODN_GAME_MODULES_DIR")
         .current_dir(root.path())
         .arg("--state-dir")

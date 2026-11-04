@@ -1,5 +1,5 @@
-use super::bundled::read_bundled;
 use super::loader::{self, VerifiedModule};
+use super::official::read_official;
 use anyhow::{bail, Result};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -36,7 +36,7 @@ pub(super) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     });
     let (manifest, source) = match directory {
         Some(directory) => loader::read_verified_module(&directory)?,
-        None => read_bundled(game)?,
+        None => read_official(game)?,
     };
     if manifest.game_id != game {
         bail!("game module identity does not match requested game");

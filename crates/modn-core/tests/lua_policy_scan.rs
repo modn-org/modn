@@ -37,7 +37,8 @@ fn discovered_unreadable_red4ext_plugin_marks_scan_incomplete() {
     lua.globals().set("mods_host", host).expect("set host");
 
     let source = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("game-modules/cyberpunk-2077/main.lua"),
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../buckets/main/games/cyberpunk-2077/module.lua"),
     )
     .expect("bundled policy");
     let policy: Table = lua.load(&source).eval().expect("evaluate bundled Lua");

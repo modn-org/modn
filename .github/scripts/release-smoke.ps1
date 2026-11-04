@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string] $Binary,
-  [string] $Checksum
+  [string] $Checksum,
+  [string] $MainBucket = (Join-Path $PSScriptRoot '../../buckets/main')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,6 +14,8 @@ function Assert-That([bool] $Condition, [string] $Message) {
 }
 
 $source = (Resolve-Path -LiteralPath $Binary).Path
+$bucketSource = (Resolve-Path -LiteralPath $MainBucket).Path
+$previousLocalAppData = $env:LOCALAPPDATA
 
 if ($Checksum) {
   $expected = ((Get-Content -LiteralPath $Checksum -Raw).Trim() -split '\s+')[0]
@@ -34,6 +37,10 @@ Assert-That (-not (Get-Command cargo, rustc -ErrorAction SilentlyContinue)) 'car
 $work = Join-Path ([IO.Path]::GetTempPath()) "modn-smoke-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
+  $env:LOCALAPPDATA = Join-Path $work 'data'
+  $bucketParent = Join-Path $env:LOCALAPPDATA 'modn/buckets'
+  New-Item -ItemType Directory -Path $bucketParent -Force | Out-Null
+  Copy-Item -LiteralPath $bucketSource -Destination (Join-Path $bucketParent 'main') -Recurse
   Push-Location -LiteralPath $work
   Copy-Item -LiteralPath $source -Destination 'modn.exe'
   $insideRepository = (Get-Command git -ErrorAction SilentlyContinue) -and
@@ -83,6 +90,7 @@ try {
   $gameAfter = Get-TreeSnapshot $game
   Assert-That (-not (Compare-Object @($gameBefore) @($gameAfter))) 'the fake game directory and file contents are unchanged'
 } finally {
+  $env:LOCALAPPDATA = $previousLocalAppData
   Pop-Location
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

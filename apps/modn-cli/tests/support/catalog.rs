@@ -2,11 +2,12 @@
     dead_code,
     reason = "each integration-test crate uses a different subset of this fixture"
 )]
+use crate::main_bucket;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use tempfile::TempDir;
 use zip::write::SimpleFileOptions;
 
@@ -28,11 +29,11 @@ impl Fixture {
         for file in ["main.lua", "module.json"] {
             fs::copy(fixture.join(file), module.join(file)).expect("module source");
         }
-        let cyberpunk = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../crates/modn-core/game-modules/cyberpunk-2077");
+        let cyberpunk =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
         let cyberpunk_target = modules.join("cyberpunk-2077");
         fs::create_dir_all(&cyberpunk_target).expect("cyberpunk module");
-        for file in ["main.lua", "module.json"] {
+        for file in ["module.lua", "module.json"] {
             fs::copy(cyberpunk.join(file), cyberpunk_target.join(file)).expect("cyberpunk source");
         }
         let game = temp.path().join("game");
@@ -47,7 +48,7 @@ impl Fixture {
     }
 
     pub fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_modn"))
+        main_bucket::command(env!("CARGO_BIN_EXE_modn"))
             .arg("--state-dir")
             .arg(&self.state)
             .env("MODN_GAME_MODULES_DIR", &self.modules)
@@ -57,7 +58,7 @@ impl Fixture {
     }
 
     pub fn run_paths(&self, args: &[&str], paths: &[&Path]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_modn"));
+        let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
         command
             .arg("--state-dir")
             .arg(&self.state)

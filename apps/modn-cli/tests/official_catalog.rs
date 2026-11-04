@@ -1,8 +1,9 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tempfile::TempDir;
 
 fn checked_in_manifests() -> Vec<Value> {
@@ -10,7 +11,13 @@ fn checked_in_manifests() -> Vec<Value> {
     let mut manifests = Vec::new();
     for game in fs::read_dir(games).expect("games directory") {
         for package in fs::read_dir(game.expect("game entry").path()).expect("game packages") {
-            let bytes = fs::read(package.expect("package entry").path()).expect("manifest");
+            let path = package.expect("package entry").path();
+            if path.file_name().expect("fixture invariant") == "module.json"
+                || path.extension().expect("fixture invariant") != "json"
+            {
+                continue;
+            }
+            let bytes = fs::read(path).expect("manifest");
             manifests.push(serde_json::from_slice(&bytes).expect("manifest JSON"));
         }
     }
@@ -34,6 +41,11 @@ fn checkout_copy(destination: &Path) -> PathBuf {
         fs::create_dir_all(&target).expect("game directory");
         for package in fs::read_dir(game.path()).expect("game packages") {
             let package = package.expect("package entry");
+            if package.file_name() == "module.json"
+                || package.path().extension().expect("fixture invariant") != "json"
+            {
+                continue;
+            }
             fs::copy(package.path(), target.join(package.file_name())).expect("copy manifest");
         }
     }
@@ -46,7 +58,7 @@ fn checkout_copy(destination: &Path) -> PathBuf {
 }
 
 fn modn(state: &Path, args: &[&str]) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(state)
         .arg("--json")

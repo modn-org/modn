@@ -1,5 +1,6 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use std::fs;
-use std::process::Command;
 
 #[test]
 fn command_reports_module_identity_without_opening_state_database() {
@@ -18,7 +19,7 @@ fn command_reports_module_identity_without_opening_state_database() {
     )
     .expect("entrypoint");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args(["--json", "--state-dir"])
         .arg(&state)
@@ -46,7 +47,7 @@ fn command_reports_module_identity_without_opening_state_database() {
         "print('unexpected stdout'); return {game_id='demo-game',api_version=1}",
     )
     .expect("replace module with printing script");
-    let printing = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let printing = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args(["--json", "--state-dir"])
         .arg(&state)
@@ -64,7 +65,7 @@ fn command_reports_module_identity_without_opening_state_database() {
         "assert(io == nil); error('script failure')",
     )
     .expect("replace module");
-    let failed = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let failed = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir"])
         .arg(&state)
@@ -110,7 +111,7 @@ fn scoped_cli_roots_work_without_creating_state_or_writing_to_game() {
     .expect("script");
 
     let command = || {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_modn"));
+        let mut cmd = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
         cmd.args(["--game", "cyberpunk-2077"]);
         cmd.args(["--json", "--state-dir"])
             .arg(&state)
@@ -163,7 +164,7 @@ fn standalone_module_check_ignores_existing_invalid_manager_state() {
         "return { game_id='demo-game', api_version=mods_host.api_version }",
     )
     .expect("entrypoint");
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--state-dir", state.to_str().unwrap(), "module", "check"])
         .arg(&module)
         .output()

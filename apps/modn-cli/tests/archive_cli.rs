@@ -1,7 +1,8 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::Write;
-use std::process::Command;
 use tempfile::tempdir;
 
 #[test]
@@ -22,7 +23,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
     fs::write(game.join("bin/x64/Cyberpunk2077.exe"), "game").unwrap();
     let state = temp.path().join("state");
 
-    let inspect = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let inspect = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -43,7 +44,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
     assert_eq!(inventory["metadata_only"], true);
     assert!(!state.exists());
 
-    let plan = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let plan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -74,7 +75,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
 
     fs::create_dir_all(game.join("archive/pc/mod")).unwrap();
     fs::write(game.join("archive/pc/mod/weather.archive"), "unmanaged").unwrap();
-    let plan = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let plan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -115,7 +116,7 @@ fn registered_install_dry_run_reads_existing_db_without_changes() {
     writer.finish().unwrap();
 
     let state = temp.path().join("state");
-    let registered = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let registered = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -136,7 +137,7 @@ fn registered_install_dry_run_reads_existing_db_without_changes() {
     let database = state.join("state.sqlite");
     let before = fs::read(&database).unwrap();
 
-    let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let preview = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
