@@ -10,7 +10,7 @@ pub(super) struct Cli {
     #[arg(long, global = true, value_name = "DIR")]
     pub(super) state_dir: Option<PathBuf>,
 
-    /// Select a first-party Lua game policy by ID.
+    /// Select an official or explicitly trusted Lua game policy by ID.
     #[arg(long = "game", global = true, value_name = "ID")]
     pub(super) game_id: Option<String>,
 
@@ -61,7 +61,7 @@ pub(super) enum Command {
     },
     /// Inspect ZIP, JAR, or 7z metadata without extracting files.
     Inspect { archive: PathBuf },
-    /// Validate a local Lua module without granting file or game-write access.
+    /// Check local Lua policy or manage explicitly trusted module snapshots.
     Module {
         #[command(subcommand)]
         command: ModuleCommand,
@@ -84,6 +84,16 @@ pub(super) enum Command {
 
 #[derive(Subcommand)]
 pub(super) enum ModuleCommand {
+    /// Copy executable Lua policy into the runtime registry after explicit trust.
+    Register {
+        directory: PathBuf,
+        #[arg(long, help = "Accept execution of this third-party Lua policy")]
+        trust: bool,
+    },
+    /// List trusted snapshots and verify their retained bytes.
+    List,
+    /// Remove a snapshot without changing installed packages or game files.
+    Remove { game: String },
     /// Load a local game module and report its identity and API compatibility.
     Check {
         directory: PathBuf,
