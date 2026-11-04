@@ -1,7 +1,7 @@
 # Releasing
 
 The `Release` workflow publishes only when a maintainer pushes a `v*` tag. The tag
-must equal the `modn-cli` version, for example `v0.1.0`. The workflow builds
+must equal the `modn-cli` version, for example `v0.2.0`. The workflow builds
 `modn.exe` on Windows and smoke-tests it on a second, clean runner. The smoke
 test runs from an empty directory, with no repository and no `cargo` or `rustc`
 on `PATH`. It checks the checksum, the absence of C runtime DLL imports,
