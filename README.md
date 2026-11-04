@@ -1,6 +1,11 @@
 # modn
 
-A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Lua Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, MCP and a desktop UI are not implemented; see the issues labeled `deferred`.
+Modn is a Cyberpunk 2077-first, game-agnostic mod manager written in Rust.
+The CLI supports game discovery, archive inspection, metadata previews, and explicitly approved installation with ownership tracking.
+Supported ZIP and 7z packages include legacy archives, CET, RED4ext, redscript, ArchiveXL-associated files, and canonical REDmod content.
+Lua provides game discovery, diagnostics, and content policy at runtime.
+The Windows desktop MVP manages local archives and registered installations through the CLI backend.
+REDmod deployment remains pending. See the issues labeled `deferred`.
 
 ## Install on Windows
 
@@ -62,7 +67,7 @@ cargo run --bin modn -- install "./downloaded-mod.zip" --dry-run --path "/path/t
 
 On Windows, omit `--path` to attempt discovery through Steam libraries, Epic Launcher manifests, and common game directories. Custom GOG/Epic/Steam installs may require an explicit path. Registration writes **only manager-owned state** outside the game directory; `scan` and `doctor` never modify game files.
 
-Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not claim or authorize uninstalling detected files. Only Modn-installed archives become newly managed.
+Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not claim or authorize uninstalling detected files. Explicit adoption can also record matching manual files; see [managed lifecycle](docs/mvp/lifecycle.md).
 
 Current detection recognizes legacy `.archive` files, ArchiveXL `.xl` metadata, redscript `.reds` files, redscript hint `.toml`, tweak `.yaml`/`.yml` files, REDmod directories, CET mods and RED4ext plugins. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
 
@@ -71,17 +76,17 @@ Current detection recognizes legacy `.archive` files, ArchiveXL `.xl` metadata, 
 **Start from a clean, verified game installation.** Use the game client or
 platform to verify the game files, and remove manually installed mods using
 their original removal instructions before starting with Modn. Keep a backup
-of personal saves and settings; Modn does not clean or repair an existing game.
+of personal saves and settings. Modn does not repair game installations or automatically remove unmanaged content.
 
 Register the game with `modn game add <game-id> --path "<game>"`, inspect
 supported ZIP and 7z packages with `install --dry-run`, and install with explicit
 `--yes` after reviewing the plan. There is no default game. Keep subsequent
 mod installs and uninstalls under Modn's ownership tracking.
 
-If an installation contains manually installed mods, remove them using their
-original uninstall instructions before installing overlapping archive packages.
-Modn detects unmanaged content but never claims it; existing files or directories
-are not silently overwritten.
+For overlapping manual files, use explicit adoption only when the original archive matches every selected target.
+Otherwise, follow the original uninstall instructions before installing the archive through Modn.
+Modn detects unmanaged content. Explicit adoption can claim matching individual files.
+Existing files or directories are not silently overwritten.
 
 The MVP prioritizes conservative ownership checks and refusing ambiguous
 filesystem layouts, not support for arbitrary symlink/junction setups or
@@ -89,6 +94,48 @@ guaranteed protection against another process changing paths concurrently.
 Avoid redirected game/mod directories where practical; use dedicated game
 installations and do not run another mod manager against the same files
 at the same time.
+
+## Explicit adoption and owned cleanup
+
+```powershell
+modn adopt "<archive.zip>" --game cyberpunk-2077 --path "<game>" --dry-run --json
+modn adopt "<archive.zip>" --game cyberpunk-2077 --path "<game>" --acknowledge --yes
+modn uninstall <managed-package-id> --path "<game>" --force --dry-run --json
+modn uninstall <managed-package-id> --path "<game>" --force --yes
+```
+
+Adoption previews selected individual files and the archive SHA-256 without writing state, cache, or game files.
+It reports `verification_required` because target byte matching, content validation, and ownership checks run only during the approved commit.
+A blocked proposal remains blocked. Both `--acknowledge` and `--yes` are required to record ownership.
+Every selected target must match its archive member by size and SHA-256.
+The ownership commit is atomic and leaves game bytes untouched.
+Adoption accepts local ZIP or 7z archives, without catalog identity, dependency links, or executable grants.
+Ordinary install still rejects occupied targets.
+
+`uninstall --force --yes` removes recorded files of one selected managed package, including changed files.
+It preserves unmanaged siblings and other packages. It retains exclusive directories and unrecorded descendants.
+It rejects missing owned files, unsafe paths, replaced directories, and packages required by another package.
+`--force` cannot combine with `--cascade` or `--include-deps`.
+Its dry run lists selected files and pending commit checks; it does not certify that cleanup can commit.
+Normal uninstall keeps its existing strict checks. Cleanup retains core backup, rollback, and recovery guarantees.
+See [managed lifecycle contracts and limits](docs/mvp/lifecycle.md).
+
+## Local MCP startup
+
+Build the companion and CLI with `cargo build --locked -p modn-cli -p modn-mcp`.
+Provision dedicated manager state outside game directories, then configure approved roots and an absolute backend path.
+The companion uses local stdio. Writes require server `--allow-writes` and per-request `approved: true`.
+See [complete startup, client configuration, tool contracts, and limits](docs/mvp/mcp.md).
+Adoption and forced cleanup are CLI commands; the companion does not expose them.
+
+## Windows desktop MVP
+
+The GPUI Kit app uses a separate Cargo workspace and a fixed CLI backend.
+It supports installation selection, local archive review, confirmed installation, owned-package listing, and strict confirmed uninstall.
+See [desktop startup, verification, and limits](docs/mvp/desktop.md).
+Native verification uses disposable Windows fixtures and ZIP archives entered through the path field.
+Native picker selection, desktop 7z coverage, and cross-platform desktop coverage remain unverified.
+The desktop exposes neither adoption nor forced cleanup.
 
 ## Read-only asset inspection
 
@@ -527,7 +574,7 @@ skipped entries remain visible in diagnostics; scanning never grants ownership.
 
 `modn --game <game-id> install <file> --dry-run --path <game> --json` resolves archive contents into proposed file operations without writing game files. The runtime-loaded Lua game policy provides a **schema-v1** proposal (`schema_version = 1`, `operations = { { source, destination, kind, package_root }, ... }`, `blockers = { { code, message }, ... }`). Rust independently validates source membership, game-root confinement, target paths, case-insensitive duplicates, file/directory overlap, occupied or linked destinations, prohibited executables, declared byte limits, and source-archive changes. The module cannot choose an arbitrary destination root or access write APIs. To keep the existing 8 MiB/1-second module execution budget predictable, previews with more than 2,048 archive files return a blocked result (TOO_MANY_FILES), not a partial proposal. Replacing the Lua policy alone changes the preview without rebuilding Rust.
 
-An optional outer package folder is trimmed by the game policy. Unknown layouts, incompatible package variants, executable installers, occupied destinations, and missing REDmod tooling block the preview. A `status: "reviewable"` preview means the selected Lua policy proposed safe operations, **not** that archive content is verified or installation approved. The first-party Cyberpunk module permits legacy `.archive` and ArchiveXL `.xl`/`.archive.xl` metadata directly under `archive/pc/mod/`, `.reds` under `r6/scripts/` and its subdirectories, `.toml` under `r6/config/redsUserHints/`, `.yaml`/`.yml` under `r6/tweaks/`, CET mods under `bin/x64/plugins/cyber_engine_tweaks/mods/<name>/`, and RED4ext plugins under `red4ext/plugins/<name>/`, plus direct `r6/input/*.xml` definitions when Input Loader is present or included in the ZIP. It still blocks REDmod deployment and unsupported content. An Input Loader package containing its DLL under `red4ext/plugins/input_loader/` deliberately omits three runtime-generated files from installation: `engine/config/platform/pc/input_loader.ini`, `r6/cache/inputContexts.xml`, and `r6/cache/inputUserMappings.xml`. Dry-run JSON lists them under `skipped_generated_files`. Input Loader creates or regenerates these when the game starts; Modn never claims ownership or deletes them during uninstall. Preserve existing caches and follow upstream instructions for optional manual cleanup. Other game-cache and engine-config paths remain unsupported. The Rust executor accepts independently validated ZIP and 7z file operations from any selected game policy. Changing Lua mappings changes both preview and approved installation without rebuilding Rust. `metadata_only: true` means file contents have not been staged or verified. Untrusted Lua results have an 8 MiB copied-string budget and strict per-field limits.
+An optional outer package folder is trimmed by the game policy. Unknown layouts, incompatible package variants, executable installers, and occupied destinations block the preview. A `status: "reviewable"` preview means the selected Lua policy proposed safe operations, **not** that archive content is verified or installation approved. The first-party Cyberpunk module permits legacy `.archive` and ArchiveXL `.xl`/`.archive.xl` metadata directly under `archive/pc/mod/`, `.reds` under `r6/scripts/` and its subdirectories, `.toml` under `r6/config/redsUserHints/`, `.yaml`/`.yml` under `r6/tweaks/`, CET mods under `bin/x64/plugins/cyber_engine_tweaks/mods/<name>/`, and RED4ext plugins under `red4ext/plugins/<name>/`, plus direct `r6/input/*.xml` definitions when Input Loader is present or included in the ZIP. It still blocks REDmod deployment and unsupported content. An Input Loader package containing its DLL under `red4ext/plugins/input_loader/` deliberately omits three runtime-generated files from installation: `engine/config/platform/pc/input_loader.ini`, `r6/cache/inputContexts.xml`, and `r6/cache/inputUserMappings.xml`. Dry-run JSON lists them under `skipped_generated_files`. Input Loader creates or regenerates these when the game starts; Modn never claims ownership or deletes them during uninstall. Preserve existing caches and follow upstream instructions for optional manual cleanup. Other game-cache and engine-config paths remain unsupported. The Rust executor accepts independently validated ZIP and 7z file operations from any selected game policy. Changing Lua mappings changes both preview and approved installation without rebuilding Rust. `metadata_only: true` means file contents have not been staged or verified. Untrusted Lua results have an 8 MiB copied-string budget and strict per-field limits.
 
 `modn install <file> --yes` re-resolves the same Lua policy as `--dry-run`, then submits its operations to Rust for fresh source hashes, filesystem conflicts and ownership checks under the exclusive transaction lock. Lua itself has no write binding, and preview results are neither stored nor accepted as approval tokens. `--dry-run --path <game>` does not initialize manager state; previews using a registered game open an existing database read-only. Without `--yes` or `--dry-run`, `install` refuses to run. These options are mutually exclusive. **A reviewable dry run never authorizes installation.**
 
@@ -546,7 +593,7 @@ or that a particular mod is compatible with the installed game version.
 Recognized directory prefixes use canonical casing (`bin/x64/plugins/cyber_engine_tweaks/mods`,
 `red4ext/plugins`, `r6/scripts`, `r6/input`, `r6/tweaks`, `r6/config/redsUserHints` and
 `archive/pc/mod`); the per-mod filenames retain their original spelling.
-Mismatched prefix casing, unrelated file types, REDmod, installers or unsafe ZIP
+Mismatched prefix casing, unrelated file types, installers or unsafe ZIP
 names block the **entire** package. The presence of `engine/tools/scc.exe`,
 `red4ext/plugins/ArchiveXL/ArchiveXL.dll` or
 `red4ext/plugins/TweakXL/TweakXL.dll` is required respectively for redscript
@@ -566,7 +613,7 @@ records before loading entry metadata.
 
 ## Transactional Lua-planned ZIP and 7z installation (experimental)
 
-The Cyberpunk Lua policy permits ZIP and 7z packages containing recognized legacy archives, ArchiveXL metadata, redscript sources/hints, YAML tweaks, CET mods and RED4ext plugin files, alone or together, with an optional wrapper and recognized documentation. A supported multi-file package is installed and uninstalled under one ownership record. Unknown or unsupported layouts block the entire package; `mods` (REDmod), unknown framework/bootstrap files and executable installers remain out of scope. Inspect and use `install --dry-run` first. Existing manually installed files remain unmanaged; remove them before installing a conflicting package through Modn.
+The Cyberpunk Lua policy permits ZIP and 7z packages containing recognized legacy archives, ArchiveXL metadata, redscript sources/hints, YAML tweaks, CET mods and RED4ext plugin files, alone or together, with an optional wrapper and recognized documentation. A supported multi-file package is installed and uninstalled under one ownership record. Unknown or unsupported layouts block the entire package; unknown framework/bootstrap files and executable installers remain out of scope. Canonical REDmod content uses one `mods/<name>/info.json` package with associated `archives`, `scripts`, and `tweaks` files. Rust checks that staged `info.json` is a JSON object of at most 65,536 bytes. Modn does not deploy or activate REDmods. Inspect and use `install --dry-run` first. Existing manually installed files remain unmanaged; remove them before installing a conflicting package through Modn.
 
 ```powershell
 modn --game cyberpunk-2077 install "C:\Downloads\HD Reworked.zip" --dry-run --json --path <game>
@@ -578,11 +625,11 @@ modn recover --yes --json
 
 The Cyberpunk Lua policy prefers an **exclusive mod folder** for new CET, RED4ext, and mod-specific redscript subdirectories when their shared parent already exists. Modn owns the entire newly created folder: uninstall quarantines and deletes it, including changed files and runtime-generated content. Do not place unrelated personal content in these folders. Pre-existing mod directories cannot be claimed wholesale; loose archives, tweaks and XML mappings use conservative file-level ownership. An exclusive claim never overwrites a pre-existing folder. Modn records the operating system's directory-object identity in its SQLite ledger (on Linux this requires a supported filesystem birth timestamp, not just a reusable inode). A transaction prepares each new folder at a same-volume staging name, persists that identity, and then activates it by rename. Recovery checks the directory object rather than a file marker, so interrupted cleanup remains restartable without hashing runtime contents.
 
-`uninstall` and standalone archive installs require explicit `--yes` approval; catalog installs accept `--yes` or an interactive confirmation. The manager stores file hashes and ownership in SQLite in the state directory. It rejects existing destinations, linked paths, unsupported mod layouts, encrypted archives, oversized content, and attempts to uninstall modified files. Installation verifies archive content into manager-owned staging before creating game files; destination creation uses exclusive hard links rather than replacing existing files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `modn recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
+`uninstall` and standalone archive installs require explicit `--yes` approval; catalog installs accept `--yes` or an interactive confirmation. The manager stores file hashes and ownership in SQLite in the state directory. It rejects existing destinations, linked paths, unsupported mod layouts, encrypted archives, and oversized content. Normal file-level uninstall refuses modified owned files. Installation verifies archive content into manager-owned staging before creating game files; destination creation uses exclusive hard links rather than replacing existing files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `modn recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
 
 The transaction executor is game-agnostic: Rust callers may submit an explicitly approved `InstallPlan` to `Store::install_operations_zip` for any real installation root. Under the exclusive store lock it independently re-inspects the archive, verifies archive hashes and all source sizes, validates destinations, collisions, executable payloads, ownership conflicts, and size limits before staging. The ownership ledger, rollback, crash recovery, and uninstall operate on generic installation roots. The CLI now resolves installation operations from Lua; no Cyberpunk-specific Rust installation planner or legacy compatibility adapter remains. ZIP and 7z extraction are supported; REDmod deployment remains unsupported. CET/RED4ext `.dll` plugin files are permitted within the recognized plugin layout, but neither Modn nor its preview executes them or certifies their compatibility; prohibited executable payloads remain blocked unless explicitly approved as an exact tool path by the caller.
 
-Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), file adoption, migration, or automatic recovery. Package updates use the same journals; see [Updating a mod](#updating-a-mod). Always try it on a disposable game fixture before testing against a real game.
+Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), migration or automatic recovery. Package updates use the same journals; see [Updating a mod](#updating-a-mod). Always try it on a disposable game fixture before testing against a real game.
 
 ### Cyberpunk framework ZIP installation
 
@@ -649,7 +696,9 @@ do not delete game files or personal saves to reset manager state.
 Windows first. Trusted game modules use the generic managed transaction path.
 The Skyrim example has synthetic fixture coverage only; it has no real-game validation.
 Its current missing-file handling needs correction before its unmodified source supports CLI state checks.
-MCP, desktop UI, asset workflows, REDmod deployment and automatic cleanup remain pending.
+The local MCP companion is available; see [MCP startup and limits](docs/mvp/mcp.md).
+The Windows desktop MVP is available in its separate workspace; see [desktop limits](docs/mvp/desktop.md).
+Asset conversion, REDmod deployment and automatic cleanup remain pending.
 Planned work is in GitHub milestones and issues; see [VISION.md](VISION.md).
 
 All first-party code is MIT licensed.

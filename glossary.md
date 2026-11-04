@@ -126,7 +126,7 @@ _Avoid_: Exclusive directory
 
 **Unmanaged content**:
 Files or directories in a game installation that Modn did not claim through a
-recorded installation.
+recorded installation or acknowledged adoption.
 _Avoid_: Invalid mod, orphaned package
 
 **Pending transaction**:
@@ -138,3 +138,11 @@ _Avoid_: Installed package, failed mod
 The continuation or rollback of a pending managed transaction using recorded
 ownership and transaction evidence.
 _Avoid_: Game repair, automatic cleanup
+
+**Adoption**:
+An acknowledged atomic ownership commit for existing individual files that match a selected local archive.
+It changes no game bytes and claims no directory or unknown descendant.
+
+**Owned cleanup**:
+Explicitly approved removal of one managed package's recorded files, including modified files.
+It preserves unrecorded descendants and retains transaction backups and recovery checks.

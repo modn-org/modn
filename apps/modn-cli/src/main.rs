@@ -1,3 +1,4 @@
+mod adoption;
 mod assets;
 mod buckets;
 mod catalog_install;
@@ -50,6 +51,7 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
         Command::Module { command } => modules::run(command, state_path, json),
         Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
         Command::Install(args) => install::run(&args, state_path, requested, json),
+        Command::Adopt(args) => adoption::run(&args, state_path, requested, json),
         Command::Update(args) => update::run(&args, state_path, requested, json),
         Command::Pin(args) => managed::pin(&args, state_path, requested, true),
         Command::Unpin(args) => managed::pin(&args, state_path, requested, false),

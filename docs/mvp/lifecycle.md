@@ -1,7 +1,7 @@
 # Managed content lifecycle foundations
 
 These APIs extend Rust ownership. They do not authorize deleting arbitrary paths.
-All examples must use disposable fixtures until the CLI integration is verified.
+Verification uses disposable fixtures. No real-game compatibility or deployment validation is claimed.
 
 ## REDmod content
 
@@ -73,9 +73,9 @@ Automatic rollback restores current bytes on failure.
 Recovery verifies recorded exclusive-directory identities before restoring files.
 Changed paths or witnesses stop recovery and preserve the remaining evidence.
 
-## Intended CLI integration
+## CLI commands
 
-The integration worker owns registration. These commands are not registered by this change:
+The CLI registers these explicit commands:
 
 ```text
 modn adopt <archive> --game <game-id> --path <game> --dry-run --json
@@ -90,9 +90,31 @@ Force cleanup requires `--force` and mutation approval, then calls `cleanup_owne
 Without `--force`, keep the normal uninstall path.
 Never infer either approval from Lua labels, archive contents, scan results, or unmanaged detection.
 
+Adoption dry-run JSON wraps the metadata proposal in `plan` and reports `target_contents_verified: false`.
+Its top-level `status` is `verification_required` unless the proposal is blocked.
+The nested plan status describes metadata only. Target bytes, staged content, ownership, and conflicts remain pending until commit.
+Both `--acknowledge` and `--yes` are required; neither flag is inferred or prompted.
+`--dry-run` conflicts with approval flags and writes no manager state, game file, or cache file.
+
+Force cleanup accepts a managed package ID or the existing catalog selector syntax.
+It rejects `--cascade` and `--include-deps`, so approval covers one package only.
+Its dry-run JSON lists individual owned files and `verification_required`.
+Missing files, unsafe paths, directory identities, and pending transactions are checked again under the commit lock.
+Normal uninstall preserves its existing selection and strict removal behavior.
+
+The local MCP companion supports its documented ordinary lifecycle subset.
+See [MCP startup and limits](mcp.md). It exposes neither adoption nor forced cleanup.
+
 ## Verification
 
 `transactions::lifecycle_tests` exercises real Store, archive, path, and file state.
 It covers REDmod lifecycle and refusal, atomic adoption failure, authorization, modified cleanup, and recovery.
 Its fixed-seed property checks 32 generated payload and approval cases.
 Existing destination properties and CLI ownership properties retain their original assertions.
+
+`apps/modn-cli/tests/lifecycle_cli.rs` exercises seven real CLI journeys with copied runtime policy.
+It covers independent approvals, exact adoption claims, mismatch and missing-file refusal, unsafe state, confirmed cleanup, exclusive-directory preservation, and help.
+Its REDmod journey previews, installs, lists, checks ownership with doctor, and uninstalls a canonical package.
+Invalid JSON, noncanonical casing, multiple names, and occupied layouts fail without changing unrelated bytes.
+Forced cleanup refuses required packages and preserves their game bytes and manager state.
+No REDmod tool or game executable runs.

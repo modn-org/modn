@@ -26,6 +26,8 @@ pub(super) struct Cli {
 pub(super) enum Command {
     /// Install a cataloged mod or an explicit local ZIP/7z archive.
     Install(InstallArgs),
+    /// Claim matching manual files without changing game bytes.
+    Adopt(AdoptArgs),
     /// Replace an installed catalog mod with another release, recoverably.
     Update(UpdateArgs),
     /// Prevent updates of a managed package, by ID or catalog name.
@@ -52,7 +54,7 @@ pub(super) enum Command {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// Remove an unchanged manager-owned package, by ID or catalog name.
+    /// Remove a managed package; --force removes changed owned files only.
     Uninstall(UninstallArgs),
     /// Safely roll back interrupted installs/uninstalls.
     Recover {
@@ -276,4 +278,24 @@ pub(super) struct UninstallArgs {
     /// Also remove every package that needs the selected one, dependents first.
     #[arg(long)]
     pub(super) cascade: bool,
+    /// Remove recorded files even when modified; requires --yes to execute.
+    #[arg(long, conflicts_with_all = ["include_deps", "cascade"])]
+    pub(super) force: bool,
+}
+
+/// Explicit approval to claim individual manual files from a local archive.
+#[derive(Args)]
+pub(super) struct AdoptArgs {
+    pub(super) archive: PathBuf,
+    #[arg(long)]
+    pub(super) path: Option<PathBuf>,
+    /// Preview metadata only; byte matching and ownership checks remain pending.
+    #[arg(long, conflicts_with_all = ["yes", "acknowledge"])]
+    pub(super) dry_run: bool,
+    /// Acknowledge recording ownership of matching existing individual files.
+    #[arg(long)]
+    pub(super) acknowledge: bool,
+    /// Confirm the atomic ownership commit; game bytes remain unchanged.
+    #[arg(long)]
+    pub(super) yes: bool,
 }
