@@ -39,7 +39,8 @@ Run the same smoke test locally on a built executable:
 ```powershell
 $env:RUSTFLAGS = '-C target-feature=+crt-static'
 cargo build --release --locked -p modn-cli
-pwsh -File .github/scripts/release-smoke.ps1 -Binary target/release/modn.exe
+python .github/scripts/pack-main-bucket.py buckets/main target/release/main-bucket.zip
+pwsh -File .github/scripts/release-smoke.ps1 -Binary target/release/modn.exe -MainBucket target/release/main-bucket.zip
 ```
 
 ## Development
