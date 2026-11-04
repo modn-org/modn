@@ -9,13 +9,13 @@ Rust core and future Lua integrations.
 ### Buckets and trust
 
 **Bucket**:
-A versioned catalog containing mod package manifests
-under a named source.
+A versioned catalog of mod package manifests under a named source. The official
+bucket also contains first-party game modules.
 _Avoid_: Mod repository, provider, registry (when referring to a bucket)
 
 **Official bucket**:
-The Modn-maintained `main` package catalog, bundled offline and curated by
-Modn maintainers.
+The Modn-maintained `main` catalog and first-party game modules. Modn uses a
+verified local copy after bootstrap.
 _Avoid_: Built-in module, automatically safe mods
 
 **Community bucket**:
@@ -47,8 +47,8 @@ installation policy, diagnostics and tool behavior.
 _Avoid_: Mod, plugin, adapter, Rust game handler
 
 **First-party game module**:
-A Lua 5.4 integration owned by Modn and shipped alongside the application.
-_Avoid_: Bucket module, independently installed game plugin
+A Lua 5.4 integration owned by Modn and distributed in the official bucket.
+_Avoid_: Independently installed game plugin
 
 **Development module override**:
 A temporary caller-selected Lua module source for one command, never persisted.

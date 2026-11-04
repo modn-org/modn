@@ -1,12 +1,13 @@
 # Bucket contract v1
 
-A bucket catalogs mod packages. It does not distribute executable game modules.
-First-party Lua game modules live in `crates/modn-core/game-modules/` and ship
-with Modn, independently of buckets.
+A bucket catalogs mod packages. The official `main` bucket also distributes
+first-party Lua game modules. Modn embeds no bucket manifests or game modules.
 
 ```text
 bucket.json
 games/<game-id>/<package-id>.json
+games/<game-id>/module.json       # official main only
+games/<game-id>/module.lua        # official main only
 ```
 
 `bucket.json` declares `schema_version` (integer 1), `name` and `title`.
@@ -40,27 +41,39 @@ bucket may also publish other releases of the same package as
 `games/<game-id>/<package-id>@<version>.json`. The `version` field must equal
 the file name's version, the current release must exist, and each version may
 appear once. Only `modn update <package> --version <version>` selects another
-release. Modn versions before this rule reject such files. The bundled `main`
+release. Modn versions before this rule reject such files. The `main`
 snapshot publishes current releases only. See `buckets/main/games/` for
 examples.
 
-Buckets containing a `modules/` directory are rejected; it is not an
-extension point. Registered local buckets are read-only and revalidated before
-catalog lookup. The official `main` snapshot is compiled into Modn and
-works offline.
+Only the official `main` bucket may contain `module.json` and `module.lua`.
+Modn rejects registered local buckets that contain them. It also rejects a
+`modules/` directory in any bucket. Registered local buckets are read-only and
+revalidated before catalog lookup. Third-party game modules remain deferred (#51).
+
+When `<data dir>/buckets/main/` is missing, the first command needing the
+catalog or a game module bootstraps it. Modn downloads `main-bucket.zip` from
+`https://github.com/sooskca/modn/releases/download/v<version>/main-bucket.zip`
+for the running Modn version. It checks the bucket tree's SHA-256 content digest
+against the digest built into the executable. It validates the bucket, stages
+it, and installs it by rename. Failure leaves no partial copy. First use needs
+network access; later use works offline. For development and tests,
+`MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP path instead.
+The digest check still applies.
+
+`modn bucket update` downloads the latest release's `main-bucket.zip` and
+`main-bucket.zip.sha256` sidecar over HTTPS. It verifies the digest and validates
+the bucket and its modules before an atomic swap. Failure preserves the previous
+copy. Modn never refreshes it without an explicit request.
 
 Use `modn search` for package discovery and `modn bucket show bucket/game/package` for an exact manifest.
 `modn bucket add <name> <directory>` registers a local catalog; removing
 registration does not remove its source files.
 
-Bucket operations never download artifacts, execute Lua, install mods or
-modify game files. `modn install` resolves dependencies, checks these
+Bucket operations do not install mods or modify game files. `modn install` resolves dependencies, checks these
 requirements and conflicts, and downloads `https` artifacts. Git-backed
-catalog synchronization remains future work.
+catalog synchronization remains deferred (#53).
 
 ## Adding a package to `main`
 
 Add `buckets/main/games/<game-id>/<package-id>.json` and a row in
-`buckets/main/PROVENANCE.md`. A build script in `modn-core` embeds every
-manifest in that directory, and the catalog tests read the same directory, so
-no Rust file lists packages.
+`buckets/main/PROVENANCE.md`. The release bucket contains these manifests.

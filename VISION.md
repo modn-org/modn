@@ -7,15 +7,16 @@ behavior is in [README.md](README.md).
 ## Product direction
 
 Modn is a game-agnostic Rust mod manager using first-party Lua 5.4 game
-modules. Every supported game has a canonical source at
-`crates/modn-core/game-modules/<game-id>/`. Modn reviews these sources and
-compiles them into the executable. They are not downloaded, installed,
-activated, or updated through buckets.
+modules. Each supported game's module lives in the official `main` bucket at
+`games/<game-id>/module.json` and `module.lua`. Modn embeds no bucket manifests
+or game modules. It bootstraps a verified local `main` copy on first use.
 
 The `main` official bucket and registered local community buckets describe
-mod packages only: versions, hashes, sources and known dependencies.
-Buckets cannot publish executable Lua. The official `main` package catalog
-works offline. Package manifests never authorize changes to game files: a
+mod packages: versions, hashes, sources and known dependencies. Only `main`
+may contain game modules. The first bootstrap needs network access; the local
+copy works offline afterward. Only `modn bucket update` refreshes it.
+Third-party game modules (#51) and Git-backed catalog sync (#53) remain deferred.
+Package manifests never authorize changes to game files: a
 manifest may declare the tool executables its archive installs, but only the
 user's confirmation or an explicit `--allow-executable` approves them.
 Modn downloads `https` sources into a verified cache; `manual` sources still
