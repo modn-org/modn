@@ -149,12 +149,17 @@ fixture exercises game-agnostic support.
 | Domain concept | Current data |
 | --- | --- |
 | Game installation | `state.sqlite / game_installations(game_id, path, source)` |
-| Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at)` |
+| Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at, pinned)` |
 | Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
 | Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
 | File ownership | `state.sqlite / managed_files(...)` |
 | Directory ownership | `state.sqlite / managed_directories(...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
+
+Manager schema version 2 stores each pin as `pinned INTEGER NOT NULL DEFAULT 0`.
+Migration preserves existing packages and leaves them unpinned.
+A pin belongs to one managed package and disappears when that package is uninstalled.
+Pin changes hold the manager transaction lock and change no ownership or game files.
 | Game module | First-party `game-modules/<game-id>/module.json` + Lua, embedded with `include_str!` |
 | Development override | In-memory per-invocation `--module-src` / `--src` |
 | Bucket packages | Embedded `main` snapshot and explicitly registered local directories |

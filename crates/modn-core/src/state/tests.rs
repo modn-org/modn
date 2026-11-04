@@ -3,6 +3,8 @@ use rusqlite::Connection;
 use std::fs;
 use tempfile::tempdir;
 
+mod pins;
+
 #[cfg(windows)]
 #[test]
 fn ownership_key_migration_rewrites_old_keys_and_reopening_is_a_noop() {
@@ -185,7 +187,7 @@ fn fresh_packages_require_archive_provenance() {
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(schema_version, 1);
+    assert_eq!(schema_version, 2);
     let columns: Vec<(String, i64)> = store
         .connection
         .prepare("PRAGMA table_info(managed_packages)")
@@ -317,7 +319,7 @@ fn concurrent_fresh_opens_finish_one_complete_schema() {
                         .connection
                         .pragma_query_value(None, "user_version", |row| row.get(0))
                         .unwrap();
-                    assert_eq!(version, 1);
+                    assert_eq!(version, 2);
                 })
             })
             .collect();

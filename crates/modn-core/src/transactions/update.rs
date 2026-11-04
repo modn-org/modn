@@ -68,6 +68,10 @@ impl Store {
             .into_iter()
             .find(|package| package.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
+        if old.pinned {
+            bail!("managed package {package_id} is pinned; run `modn unpin {package_id}` to update it");
+        }
+        self.check_pinned_dependents(&game, &old, release)?;
         if old.catalog.as_ref() != Some(&release.reference) {
             bail!(
                 "managed package {package_id} was not installed from {}",
@@ -144,6 +148,43 @@ impl Store {
             }
         }
         Ok(found)
+    }
+
+    fn check_pinned_dependents(
+        &self,
+        game: &Path,
+        old: &ManagedPackage,
+        release: &CatalogRelease,
+    ) -> Result<()> {
+        for dependent in self.dependents_of(game, &old.id)? {
+            if !dependent.pinned {
+                continue;
+            }
+            for requirement in self
+                .recorded_dependencies(&dependent.id)?
+                .unwrap_or_default()
+            {
+                if requirement.reference != release.reference {
+                    continue;
+                }
+                if let Some(text) = requirement.requirement {
+                    let accepted = release.version.as_deref().is_some_and(|version| {
+                        crate::buckets::VersionReq::parse(&text)
+                            .ok()
+                            .and_then(|req| req.matches(version).ok())
+                            .unwrap_or(false)
+                    });
+                    if !accepted {
+                        bail!(
+                            "managed package {} is pinned and requires {} {text}",
+                            dependent.id,
+                            release.reference
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Managed packages whose recorded dependencies include `package_id`.
