@@ -227,6 +227,10 @@ mod IDs; noninteractive invocations return candidates (structured JSON errors
 under `--json`). `modn search` matches mod ID or display name and accepts
 global `--game`.
 
+Each catalog install or update retains one bucket snapshot for release selection,
+dependency pins, conflicts and published versions. Bucket edits during a prompt
+do not change that command's selected evidence.
+
 Catalog installation needs each archive with the exact format and SHA-256
 from its manifest. Modn downloads an `https` source itself. A `manual`
 source, such as a Nexus file, is never downloaded: supply it with `--file`,
