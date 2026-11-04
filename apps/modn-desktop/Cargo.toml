@@ -5,14 +5,15 @@ edition = "2024"
 license = "MIT"
 publish = false
 
-[workspace]
-
 [dependencies]
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
 gpui-kit = "=0.9.0"
+gpui-pre = "=0.3.11"
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -27,8 +28,6 @@ undocumented_unsafe_blocks = "deny"
 derive_partial_eq_without_eq = "allow"
 missing_const_for_fn = "allow"
 
-[profile.dev]
-debug = 0
 [features]
 verification = []
 

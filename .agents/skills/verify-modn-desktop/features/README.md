@@ -13,5 +13,6 @@ A native action proves only its exercised entry point.
 `verify.py` drives the first two features through the real CLI.
 `lifecycle.py` drives responsiveness through an explicit slow test backend.
 Cargo backend-contract tests cover process limits and literal argument boundaries.
-The real driver covers native file-dialog cancellation and typed archive selection.
-Native picker selection, 7z, and real games remain unverified.
+The real driver covers native picker selection for ZIP and 7z, dialog cancellation, and typed paths.
+Both formats exercise preview, confirmed install, strict refusal, uninstall, and manual-byte preservation.
+Windows 10 hardware and real games remain unverified.

@@ -8,7 +8,8 @@ See licenses/LICENSE-APACHE for the license terms.
 The bundled Lucide icons use ISC. See licenses/LICENSE-LUCIDE.
 The app loads the platform fonts Segoe UI and Consolas. It does not redistribute fonts.
 
-Cargo.lock records transitive dependencies. Their license terms remain applicable.
+The root workspace Cargo.lock records transitive dependencies.
+The Windows-only manifest pins GPUI Kit 0.9.0 and GPUI pre 0.3.11. Their license terms remain applicable.
 A distributor must audit the locked dependency graph and retain required notices.
 This source notices file does not certify a complete binary distribution license audit.
 

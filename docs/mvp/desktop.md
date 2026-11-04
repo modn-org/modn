@@ -1,13 +1,16 @@
 # Windows desktop MVP
 
 Modn Desktop uses GPUI Kit 0.9.0 and its included Component layer.
-It is a standalone nested Cargo workspace with its own lockfile.
-The root workspace does not yet build or test this app.
+It is a root Cargo workspace member and uses the root Cargo.lock.
+The manifest restricts GPUI Kit and GPUI pre to Windows.
+On other platforms, the executable reports that Windows is required and exits 1.
+Linux core and CLI checks do not compile GPUI or require GPU system libraries.
 
 ## Build and prerequisites
 
 Use Windows 10 or newer with an interactive desktop session.
 Install stable Rust 1.92 or newer, VS 2022 C++ Build Tools, Windows SDK, and CMake.
+Native verification also requires 7-Zip on PATH.
 The verified host uses Rust 1.99 and Windows SDK 10.0.26100.0.
 No nightly toolchain is required.
 
@@ -16,10 +19,11 @@ Run these commands from the repository root:
 ```powershell
 cargo build -p modn-cli --locked
 pwsh -NoProfile -File .agents/skills/verify-modn-desktop/scripts/doctor.ps1 -Backend target/debug/modn.exe
-cargo build --manifest-path apps/modn-desktop/Cargo.toml --locked
-cargo fmt --manifest-path apps/modn-desktop/Cargo.toml --all -- --check
-cargo clippy --manifest-path apps/modn-desktop/Cargo.toml --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --manifest-path apps/modn-desktop/Cargo.toml --workspace --all-features --locked
+cargo build --workspace --all-features --locked
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --locked
+cargo test -p modn-desktop --all-features --locked
 ```
 
 The `verification` feature adds a disposable test backend executable.
@@ -37,7 +41,7 @@ The desktop app does not register games or approve executable Lua policy.
 Example launch, after registration:
 
 ```powershell
-$app = (Resolve-Path apps/modn-desktop/target/debug/modn-desktop.exe).Path
+$app = (Resolve-Path target/debug/modn-desktop.exe).Path
 $backend = (Resolve-Path target/debug/modn.exe).Path
 & $app --backend $backend --state-dir C:\ModnDesktop\state --data-dir C:\ModnDesktop\data
 ```
@@ -104,20 +108,26 @@ Catalog browsing, downloads, updates, pins, recovery controls, and executable ap
 It performs no automatic network requests.
 It does not deploy REDmod or certify game compatibility.
 The UI shows managed package IDs; it does not infer ownership from scanning.
-The desktop verifier uses a synthetic Lua game module and ZIP archives.
-It drives native file-dialog cancellation with Windows control IDs.
-It selects archives through the path field. Native picker selection remains unverified.
-Native 7z selection uses the same backend path but needs separate fixture coverage.
+The desktop verifier uses a synthetic Lua game module, ZIP archives, and a genuine 7z fixture.
+It selects ZIP and 7z fixtures through the native picker and checks the selected paths.
+It also checks native dialog cancellation with Windows control IDs.
+Both archive formats exercise real CLI preview, confirmed installation, ownership, and strict uninstall.
+Modified owned bytes cause refusal; manual bytes remain intact.
+Windows 10 hardware validation remains unclaimed.
 Real game installations have not been used for verification.
 
-The root workspace integration must reconcile dependency resolution and retain these proof commands.
-It must also update canonical project documentation within its authorized scope.
+Root Windows gates cover the app and existing backend contracts.
+The Windows CI job also runs the desktop contracts with all features.
+Linux dependency resolution excludes GPUI; native desktop behavior requires Windows.
+The root dev profile disables debug information to retain the existing GPUI build configuration.
+An explicit CARGO_TARGET_DIR changes all binary paths shown above.
+Use that directory for the app, CLI, test backend, doctor, and native drivers.
 Issue #69 remains excluded.
 
 ## Framework and licensing
 
 The manifest pins `gpui-kit = "=0.9.0"`.
-That release selects `gpui-pre = "=0.3.11"`.
+The manifest also pins `gpui-pre = "=0.3.11"`.
 The app uses `application().with_assets(assets::Assets).run`, `init`, `Render`, Kit buttons, and Kit `open_window`.
 `open_window` supplies the Root component.
 There is no alternate UI framework.

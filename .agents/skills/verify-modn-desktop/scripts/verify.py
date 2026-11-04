@@ -54,15 +54,15 @@ class Driver:
         require(condition, message)
         self.assertions += 1
 
-    def run(self, command, label, env=None):
+    def run(self, command, label, env=None, json_output=True, cwd=None):
         result = subprocess.run(list(map(str, command)), env=env, capture_output=True,
                                 encoding="utf-8", errors="replace", timeout=90,
-                                creationflags=HIDDEN)
+                                creationflags=HIDDEN, cwd=cwd)
         self.exits.append(result.returncode)
         self.record(label, dict(command=list(map(str, command)), exit=result.returncode,
                                 stdout=result.stdout, stderr=result.stderr))
         require(result.returncode == 0, f"{label}: {result.stderr} {result.stdout}")
-        return json.loads(result.stdout)
+        return json.loads(result.stdout) if json_output else result.stdout
 
     def cli(self, *args):
         return self.run([self.backend, "--json", "--state-dir", self.root / "state", *args],
@@ -81,7 +81,7 @@ class Driver:
         return result["data"]
 
     def tree(self):
-        return self.desktop("snapshot", "--window-id", self.window, "--timeout-ms", "8000")["tree"]
+        return self.desktop("snapshot", "--window-id", self.window, "--timeout-ms", "20000")["tree"]
 
     def find(self, role, name):
         found = [n for n in nodes(self.tree()) if n.get("role") == role and n.get("name") == name]
@@ -100,12 +100,12 @@ class Driver:
 
     def native_control(self, window, role, native_id):
         result = self.desktop("find", "--window-id", window, "--role", role,
-                              "--native-id", native_id, "--exact")
+                              "--native-id", native_id, "--exact", "--timeout-ms", "20000")
         matches = result["matches"]
         require(len(matches) == 1, f"Expected one native {role}:{native_id}")
         return matches[0]
 
-    def cancel_file_dialog(self):
+    def open_file_dialog(self):
         self.click("Browse...")
         deadline = time.monotonic() + 15
         dialog = None
@@ -117,8 +117,22 @@ class Driver:
                 dialog = own[0]["id"]
                 break
         require(dialog, "Native file dialog did not open")
+        return dialog
+
+    def cancel_file_dialog(self):
+        dialog = self.open_file_dialog()
         self.desktop("click", self.native_control(dialog, "button", "2")["ref_id"])
         self.wait("File selection cancelled.")
+
+    def select_file_dialog(self, path):
+        dialog = self.open_file_dialog()
+        field = self.native_control(dialog, "textfield", "1148")
+        self.desktop("set-value", field["ref_id"], str(path))
+        confirm = self.native_control(dialog, "button", "1")
+        self.desktop("click", confirm["ref_id"])
+        self.wait("Archive selected")
+        selected = self.find("textfield", "Absolute path to a local ZIP or 7z")["value"]
+        self.check(Path(selected) == path, "Native picker selected a different archive")
 
     def archive(self, path):
         self.desktop("set-value", self.find("textfield", "Absolute path to a local ZIP or 7z")["ref_id"], str(path))
@@ -147,6 +161,15 @@ class Driver:
         for name, entry in [("demo.zip", "package/plugins/demo.plugin"), ("blocked.zip", "../escape.exe"), ("unmapped.zip", "unknown.txt")]:
             with zipfile.ZipFile(self.root / name, "w") as archive:
                 archive.writestr(entry, b"owned-fixture")
+        payload = self.root / "seven-source/package/plugins/seven.plugin"
+        payload.parent.mkdir(parents=True)
+        payload.write_bytes(b"seven-owned-fixture")
+        seven = shutil.which("7z")
+        require(seven, "Install 7-Zip to create the genuine native 7z fixture")
+        self.run([seven, "a", "-t7z", str(self.root / "demo.7z"), "package"],
+                 "create-7z", json_output=False, cwd=self.root / "seven-source")
+        self.check((self.root / "demo.7z").read_bytes().startswith(b"7z\xbc\xaf\x27\x1c"),
+                   "Fixture is not a genuine 7z archive")
         self.cli("game", "add", "test-game", "--path", self.root / "game")
         (self.root / "game2/bin").mkdir(parents=True)
         (self.root / "game2/bin/TestGame.exe").write_bytes(b"fixture-only")
@@ -182,11 +205,19 @@ class Driver:
         state = snapshot_bytes(self.root / "state")
         self.cancel_file_dialog()
         self.unchanged(game, state)
-        self.archive(self.root / "demo.zip")
+        self.select_file_dialog(self.root / "demo.zip")
         self.click("Inspect and preview")
         self.wait("Review ready.")
         self.check("addons/demo.plugin" in json.dumps(self.find("document", "Proposed files, blockers and results")), "Mapped destination missing")
         self.unchanged(game, state)
+        self.cancel_file_dialog()
+        self.check(Path(self.find("textfield", "Absolute path to a local ZIP or 7z")["value"]) == self.root / "demo.zip",
+                   "Cancelling the picker changed the archive path")
+        self.check("disabled" in self.find("button", "Install reviewed archive...").get("states", []),
+                   "Cancelling the picker retained review authority")
+        self.unchanged(game, state)
+        self.click("Inspect and preview")
+        self.wait("Review ready.")
         second = next(n for n in nodes(self.tree()) if n.get("role") == "button" and n.get("name", "").startswith("test-game:") and n["name"].endswith("game2"))
         self.desktop("click", second["ref_id"])
         self.wait("Owned packages refreshed")
@@ -268,9 +299,43 @@ class Driver:
         self.check(not owned.exists(), "Strict uninstall retained owned file")
         self.check(self.cli("list", "--path", self.root / "game") == [], "Uninstall retained package")
         self.check(snapshot_bytes(self.root / "game") == game, "Uninstall altered manual content")
+        self.seven_lifecycle(game)
         self.click("Doctor / diagnostics")
         self.wait("Diagnostics complete")
         self.desktop("screenshot", str(self.evidence / "final.png"), "--window-id", self.window)
+
+    def seven_lifecycle(self, original_game):
+        self.select_file_dialog(self.root / "demo.7z")
+        game = snapshot_bytes(self.root / "game")
+        state = snapshot_bytes(self.root / "state")
+        self.click("Inspect and preview")
+        self.wait("Review ready.")
+        self.check("addons/seven.plugin" in json.dumps(self.find("document", "Proposed files, blockers and results")),
+                   "7z preview omitted the intended destination")
+        self.unchanged(game, state)
+        self.desktop("screenshot", str(self.evidence / "seven-review.png"), "--window-id", self.window)
+        self.click("Install reviewed archive...")
+        self.click("Confirm install")
+        self.wait("Change complete.")
+        owned = self.root / "game/addons/seven.plugin"
+        self.check(owned.read_bytes() == b"seven-owned-fixture", "7z installed bytes differ")
+        packages = self.cli("list", "--path", self.root / "game")
+        self.check(len(packages) == 1 and packages[0]["files"], "7z ownership missing")
+        self.desktop("click", self.find("button", packages[0]["id"])["ref_id"])
+        self.click("Uninstall selected package...")
+        owned.write_bytes(b"seven-external-change")
+        drift_game = snapshot_bytes(self.root / "game")
+        drift_state = snapshot_bytes(self.root / "state")
+        self.click("Confirm uninstall")
+        self.wait("Action refused or failed.")
+        self.unchanged(drift_game, drift_state)
+        owned.write_bytes(b"seven-owned-fixture")
+        self.click("Uninstall selected package...")
+        self.click("Confirm uninstall")
+        self.wait("Change complete.")
+        self.check(not owned.exists(), "7z strict uninstall retained owned bytes")
+        self.check(self.cli("list", "--path", self.root / "game") == [], "7z uninstall retained ownership")
+        self.check(snapshot_bytes(self.root / "game") == original_game, "7z lifecycle changed manual content")
 
     def cleanup(self):
         if self.process and self.process.poll() is None:
@@ -291,7 +356,7 @@ class Driver:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--app", type=Path, default=REPO / "apps/modn-desktop/target/debug/modn-desktop.exe")
+    parser.add_argument("--app", type=Path, default=Path(os.environ.get("CARGO_TARGET_DIR", REPO / "target")) / "debug/modn-desktop.exe")
     parser.add_argument("--backend", type=Path, required=True)
     args = parser.parse_args()
     driver = Driver(args.app, args.backend)

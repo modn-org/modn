@@ -1,13 +1,20 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
+#[cfg(windows)]
 mod backend;
+#[cfg(windows)]
 mod presentation;
+#[cfg(windows)]
 mod ui;
 
+#[cfg(windows)]
 use backend::Backend;
+#[cfg(windows)]
 use gpui_kit::assets::Assets;
+#[cfg(windows)]
 use gpui_kit::{AppContext, WindowBounds, WindowOptions, px, size};
 
+#[cfg(windows)]
 fn main() -> anyhow::Result<()> {
     let backend = Backend::from_args();
     gpui_kit::application().with_assets(Assets).run(move |cx| {
@@ -49,8 +56,10 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
 struct StartupError(String);
 
+#[cfg(windows)]
 impl gpui_kit::Render for StartupError {
     fn render(
         &mut self,
@@ -63,4 +72,10 @@ impl gpui_kit::Render for StartupError {
             self.0.clone().into(),
         ))
     }
+}
+
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("Modn Desktop requires Windows. Use the modn CLI on this platform.");
+    std::process::exit(1);
 }

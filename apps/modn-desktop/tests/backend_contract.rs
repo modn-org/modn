@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 #[expect(
     dead_code,
     reason = "Reuse the application backend without invoking its process-global argument parser"
