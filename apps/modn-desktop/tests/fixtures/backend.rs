@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
         }
     } else if tail.iter().any(|s| s == "--dry-run") {
         json!({"status":"reviewable", "metadata_only":true,
-            "operations":[{"destination":"addons/demo.plugin"}],
+            "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}],
             "blockers":if mode == "blocked" {json!([{"message":"blocked"}])} else {json!([])}})
     } else if tail.iter().any(|s| s == "inspect") {
         json!({"metadata_only":true})

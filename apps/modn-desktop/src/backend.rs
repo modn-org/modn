@@ -315,18 +315,40 @@ pub(crate) fn reviewable(plan: &Value) -> bool {
     plan["status"] == "reviewable"
         && plan["metadata_only"] == true
         && plan["blockers"].as_array().is_some_and(Vec::is_empty)
-        && plan["operations"]
-            .as_array()
-            .is_some_and(|ops| !ops.is_empty())
+        && plan["operations"].as_array().is_some_and(|ops| {
+            !ops.is_empty()
+                && ops.iter().all(|op| {
+                    ["source", "destination"].iter().all(|key| {
+                        op[*key]
+                            .as_str()
+                            .is_some_and(|value| !value.trim().is_empty())
+                    })
+                })
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn only_nonempty_metadata_plans_without_blockers_enable_install() {
-        let mut plan = serde_json::json!({"status":"reviewable", "metadata_only":true, "blockers":[], "operations":[{}]});
+    fn only_complete_operations_in_unblocked_metadata_plans_enable_install() {
+        let mut plan = serde_json::json!({"status":"reviewable", "metadata_only":true, "blockers":[], "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}]});
         assert!(reviewable(&plan));
+        for operations in [
+            serde_json::json!([{}]),
+            serde_json::json!([null]),
+            serde_json::json!([{"source":"plugins/demo.plugin"}]),
+            serde_json::json!([{"destination":"addons/demo.plugin"}]),
+            serde_json::json!([{"source":1, "destination":"addons/demo.plugin"}]),
+            serde_json::json!([{"source":"plugins/demo.plugin", "destination":null}]),
+            serde_json::json!([{"source":"", "destination":"addons/demo.plugin"}]),
+            serde_json::json!([{"source":"plugins/demo.plugin", "destination":" "}]),
+            serde_json::json!([{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}, {}]),
+        ] {
+            let mut malformed = plan.clone();
+            malformed["operations"] = operations;
+            assert!(!reviewable(&malformed), "malformed operations: {malformed}");
+        }
         for blocked in [
             serde_json::json!([{"message":"approval required"}]),
             Value::Null,
