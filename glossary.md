@@ -2,7 +2,7 @@
 
 Modn manages game modifications through curated buckets and game-specific
 modules. This glossary names the domain concepts used in the CLI, manifests,
-Rust core and future Lua integrations.
+Rust core and runtime Lua integrations.
 
 ## Language
 
@@ -92,6 +92,11 @@ _Avoid_: Bucket, install destination
 **Verified artifact**:
 An archive whose bytes match the digest pinned by its package manifest.
 _Avoid_: Safe mod, trusted publisher
+
+**Verified archive reuse**:
+Reuse of an immutable cache payload after its bytes match another package or source alias's pinned SHA-256.
+It grants no ownership and never deduplicates mutable game files.
+_Avoid_: Game-file deduplication, trusted publisher
 
 **Dependency**:
 A declared relationship in which a mod release needs another mod or framework

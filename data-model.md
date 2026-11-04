@@ -96,8 +96,7 @@ Changed snapshots fail verification. Removal leaves game files and ownership int
 An eventual fully qualified identity may be
 `<bucket>/<game>/<mod>@<version>`. **This is a proposed identity**, not a
 stable CLI contract. Within one bucket, logical IDs must not collide
-silently. The future resolver must detect cycles, missing references,
-ambiguous names, and incompatible version requirements.
+silently. The current resolver checks cycles, missing references, ambiguous names, and version requirements for the supported manifest contract.
 
 ### Artifact source and verified artifact
 
@@ -107,9 +106,9 @@ Approved acquisition validates bounded provider metadata before verified HTTPS r
 Ordinary dry runs remain offline and read-only. A **VerifiedArtifact** is a cache entry whose bytes match the pinned
 archive hash. Neither is an ownership record for a game installation.
 
-Use normal HTTPS retrieval and local archive import before designing
-provider-specific acquisition systems. A checksum match alone is not a
-publisher authenticity guarantee.
+Verified cache reuse can return an existing payload for another package or source alias with the same pinned digest.
+Every reuse verifies bytes. It creates no alias file and never deduplicates mutable game files.
+A checksum match alone is not a publisher authenticity guarantee.
 
 ## Installation and ownership entities
 
@@ -185,6 +184,16 @@ The existing bucket v1 contract validates current releases at
 modules. A mod update is a pending uninstall journal and a pending
 install journal; one commit retires the old managed package and moves its
 dependency links to the new one. Explicit `bucket sync` publishes a validated Git snapshot and full commit.
+
+## Companion and desktop boundaries
+
+The local MCP companion fixes its CLI backend, manager state, and approved filesystem roots at startup.
+Server `--allow-writes` and per-request `approved: true` authorize ordinary installation or uninstall.
+It exposes neither adoption nor forced cleanup.
+The GPUI Kit 0.9.0 desktop belongs to the root workspace, with Windows-only GPUI dependencies.
+It reviews local ZIP and 7z archives and confirms ordinary installation or strict uninstall through the CLI.
+Neither surface derives ownership from scan results or grants executable approval.
+See [MCP scopes](docs/mvp/mcp.md) and [desktop configuration](docs/mvp/desktop.md).
 
 ## Invariants for future changes
 

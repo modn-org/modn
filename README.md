@@ -5,7 +5,8 @@ The CLI supports game discovery, archive inspection, metadata previews, and expl
 Supported ZIP and 7z packages include legacy archives, CET, RED4ext, redscript, ArchiveXL-associated files, and canonical REDmod content.
 Lua provides game discovery, diagnostics, and content policy at runtime.
 The Windows desktop MVP manages local archives and registered installations through the CLI backend.
-REDmod deployment remains pending. See the issues labeled `deferred`.
+REDmod deployment remains pending. REDmod content validation does not check the complete vendor schema.
+See [lifecycle limits](docs/mvp/lifecycle.md).
 
 ## Install on Windows
 
@@ -125,17 +126,38 @@ See [managed lifecycle contracts and limits](docs/mvp/lifecycle.md).
 Build the companion and CLI with `cargo build --locked -p modn-cli -p modn-mcp`.
 Provision dedicated manager state outside game directories, then configure approved roots and an absolute backend path.
 The companion uses local stdio. Writes require server `--allow-writes` and per-request `approved: true`.
-See [complete startup, client configuration, tool contracts, and limits](docs/mvp/mcp.md).
+Start the companion after provisioning its dedicated state and official bucket:
+
+```powershell
+target/debug/modn-mcp.exe --backend C:\src\modn\target\debug\modn.exe --state-dir C:\ModnMcp\modn --allow-root C:\Games --allow-root C:\ModArchives
+```
+
+Use absolute existing roots for game installations and archives.
+See [complete provisioning, client configuration, tool contracts, and limits](docs/mvp/mcp.md).
 Adoption and forced cleanup are CLI commands; the companion does not expose them.
 
 ## Windows desktop MVP
 
-The GPUI Kit app uses a separate Cargo workspace and a fixed CLI backend.
+The GPUI Kit 0.9.0 app belongs to the root Cargo workspace and uses a fixed CLI backend.
+GPUI dependencies compile only on Windows.
 It supports installation selection, local archive review, confirmed installation, owned-package listing, and strict confirmed uninstall.
 See [desktop startup, verification, and limits](docs/mvp/desktop.md).
-Native verification uses disposable Windows fixtures and ZIP archives entered through the path field.
-Native picker selection, desktop 7z coverage, and cross-platform desktop coverage remain unverified.
+Native verification selects ZIP and genuine 7z archives through the Windows picker.
+Both formats exercise preview, confirmed installation, ownership, and strict uninstall with disposable game fixtures.
+Windows 10 hardware, Linux execution, and GitHub CI execution remain unverified.
 The desktop exposes neither adoption nor forced cleanup.
+
+Build and launch from the repository root after CLI game registration:
+
+```powershell
+cargo build --workspace --locked
+$app = (Resolve-Path target/debug/modn-desktop.exe).Path
+$backend = (Resolve-Path target/debug/modn.exe).Path
+& $app --backend $backend --state-dir C:\ModnDesktop\state
+```
+
+Use the same explicit state directory for registration and desktop operations.
+See the desktop guide for separate runtime data configuration.
 
 ## Read-only asset inspection
 
@@ -144,6 +166,20 @@ It selects formats from bytes and does not select a game, open manager state, fe
 It does not decode payloads or verify game compatibility and integrity.
 Reads are limited to 148 DDS bytes or 44 header bytes plus 16 MiB of RDAR index metadata.
 See [asset formats and limits](docs/mvp/assets.md).
+
+## Pinned GitHub release sources
+
+A package manifest can select one exact release asset:
+
+```json
+{"kind":"github-release","repository":"owner/project","tag":"v1.2","asset":"mod.zip"}
+```
+
+The manifest must also pin the original archive SHA-256.
+Use `modn install <mod> --dry-run --download` to acquire and inspect it without game writes.
+Ordinary previews remain offline. Verified cache aliases need no provider metadata request.
+Provider metadata grants neither executable approval nor ownership.
+See [source validation and provider limits](docs/mvp/sources.md).
 
 ## First-party Lua game modules
 
@@ -484,8 +520,8 @@ an entry exists only after its digest is verified. Modn verifies an entry
 again each time it uses it; an entry that fails is never used, and the next
 download replaces it. The cache directory, like the state directory, must be
 outside every game installation; Modn checks this before it downloads. A dry
-run reads the cache but never downloads. Modn downloads only after you
-confirm. A single mod asks `Download? [y/N]` first, because its install
+run reads the cache without downloading unless you explicitly pass `--download`.
+Modn downloads only after you confirm or explicitly approve acquisition. A single mod asks `Download? [y/N]` first, because its install
 prompt needs the archive. A stack checks that every `manual` archive is
 supplied, then asks once for the whole stack.
 
@@ -494,6 +530,11 @@ supplied, then asks once for the whole stack.
 - `modn cache rm <mod>` or `modn cache rm --all` removes entries. A file
   counts as an entry only if its whole name matches the entry format. Other
   files, including partial downloads, are left alone.
+
+Different package or source aliases reuse an existing cache payload when its SHA-256 matches the requested pin.
+Each reuse verifies the actual bytes. Corrupt entries never count as hits.
+Reuse creates no alias file, so cache listing retains the original stored package name.
+This reuse applies only to immutable archives. Modn never hard-links cache bytes or deduplicates mutable game files.
 
 A catalog manifest may declare the tool executables its archive installs,
 for example redscript's `engine/tools/scc.exe`. A declaration only lets Modn
@@ -695,13 +736,13 @@ do not delete game files or personal saves to reset manager state.
 
 Windows first. Trusted game modules use the generic managed transaction path.
 The Skyrim example has synthetic fixture coverage only; it has no real-game validation.
-Its current missing-file handling needs correction before its unmodified source supports CLI state checks.
 The local MCP companion is available; see [MCP startup and limits](docs/mvp/mcp.md).
-The Windows desktop MVP is available in its separate workspace; see [desktop limits](docs/mvp/desktop.md).
+The Windows desktop MVP is available in the root workspace; see [desktop limits](docs/mvp/desktop.md).
 Asset conversion, REDmod deployment and automatic cleanup remain pending.
 Planned work is in GitHub milestones and issues; see [VISION.md](VISION.md).
 
-All first-party code is MIT licensed.
+Modn first-party code is MIT licensed.
+The desktop includes Apache-2.0 GPUI Kit and ISC icons; see [third-party notices](apps/modn-desktop/THIRD_PARTY_NOTICES.md).
 
 
 ## Local buckets (metadata contract v1)
