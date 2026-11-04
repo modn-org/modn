@@ -195,21 +195,6 @@ pub(super) fn read_verified_module(directory: &Path) -> Result<(VerifiedModule, 
     verified(manifest, &script)
 }
 
-pub(super) fn verify_embedded(
-    manifest_bytes: &[u8],
-    entrypoint: &str,
-    script: &[u8],
-) -> Result<(VerifiedModule, String)> {
-    if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES || script.len() as u64 > MAX_SCRIPT_BYTES {
-        bail!("embedded game module exceeds its size limit");
-    }
-    let manifest = parse_manifest(manifest_bytes)?;
-    if manifest.entrypoint != entrypoint {
-        bail!("embedded game module entrypoint does not match its manifest");
-    }
-    verified(manifest, script)
-}
-
 fn parse_manifest(bytes: &[u8]) -> Result<ModuleManifest> {
     let manifest: ModuleManifest =
         serde_json::from_slice(bytes).context("invalid module.json manifest")?;

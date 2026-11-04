@@ -18,7 +18,7 @@ const MAX_PACKAGES: usize = 1024;
 pub struct BucketInfo {
     pub name: String,
     pub title: String,
-    /// None indicates the built-in, read-only main snapshot.
+    /// Directory of the read-only catalog source.
     pub path: Option<PathBuf>,
 }
 
@@ -84,7 +84,7 @@ struct Releases {
     other: Vec<PackageManifest>,
 }
 
-fn read_packages(root: &Path) -> Result<Releases> {
+fn read_packages(root: &Path, official: bool) -> Result<Releases> {
     let canonical = root.canonicalize()?;
     let games = root.join("games");
     if !games.exists() {
@@ -106,8 +106,34 @@ fn read_packages(root: &Path) -> Result<Releases> {
             bail!("invalid game directory name");
         }
         real_directory(&game.path(), &canonical)?;
+        let module = game.path().join("module.json");
+        let script = game.path().join("module.lua");
+        let has_module = fs::symlink_metadata(&module).is_ok();
+        let has_script = fs::symlink_metadata(&script).is_ok();
+        if has_module || has_script {
+            if !official {
+                bail!(
+                    "only the official main bucket may contain game modules: {}",
+                    game.path().display()
+                );
+            }
+            let info = crate::game_modules::check_module(&game.path())?;
+            if info.game_id != game_id || !has_script {
+                bail!("official game module identity or module.lua mismatch: {game_id}");
+            }
+            let manifest: serde_json::Value = bounded_json(&module)?;
+            if manifest["entrypoint"] != "module.lua" {
+                bail!("official game module entrypoint must be module.lua");
+            }
+        }
         for entry in fs::read_dir(game.path())? {
             let path = entry?.path();
+            if matches!(
+                path.file_name().and_then(|n| n.to_str()),
+                Some("module.json" | "module.lua")
+            ) {
+                continue;
+            }
             if path.extension().is_none_or(|e| e != "json") {
                 bail!("unexpected bucket package entry");
             }
@@ -157,16 +183,6 @@ fn read_packages(root: &Path) -> Result<Releases> {
         }
     }
     Ok(releases)
-}
-
-fn official() -> Result<Vec<PackageManifest>> {
-    let mut packages = Vec::new();
-    for source in include!(concat!(env!("OUT_DIR"), "/official_manifests.rs")) {
-        let manifest: PackageManifest = serde_json::from_str(source)?;
-        manifest.validate(&manifest.game, &manifest.id)?;
-        packages.push(manifest);
-    }
-    Ok(packages)
 }
 
 impl BucketStore {
@@ -248,7 +264,7 @@ impl BucketStore {
             Err(error) => return Err(error.into()),
             Ok(_) => bail!("bucket module directories are unsupported"),
         }
-        let packages = read_packages(path)?;
+        let packages = read_packages(path, name == "main")?;
         Ok((
             BucketInfo {
                 name: name.into(),
@@ -257,6 +273,37 @@ impl BucketStore {
             },
             packages,
         ))
+    }
+
+    fn official(&self) -> Result<(BucketInfo, Releases)> {
+        let path = crate::data_dir::data_directory()?.join("buckets").join("main");
+        Self::new(&crate::data_dir::data_directory()?).check_registry_root()?;
+        self.load("main", &path).with_context(|| {
+            format!(
+                "cannot load local main bucket; expected a valid copy at {}",
+                path.display()
+            )
+        })
+    }
+
+    /// Return the validated first-party module directory for a supported game.
+    pub fn official_module(&self, game: &str) -> Result<PathBuf> {
+        if !valid_id(game) {
+            bail!("invalid game module identifier");
+        }
+        let (info, _) = self.official()?;
+        let path = info
+            .path
+            .context("main bucket path missing")?
+            .join("games")
+            .join(game);
+        if !path.join("module.json").is_file() {
+            bail!(
+                "no first-party game module for {game}; expected {}",
+                path.display()
+            );
+        }
+        Ok(path)
     }
 
     /// Register one explicitly chosen local bucket. Does not copy or download content.
@@ -297,22 +344,26 @@ impl BucketStore {
         Ok(())
     }
 
-    /// List the built-in main bucket and registered local buckets.
+    /// List the local main bucket and registered local buckets.
     pub fn list(&self) -> Result<Vec<BucketInfo>> {
-        let mut all = vec![BucketInfo {
-            name: "main".into(),
-            title: "Modn Official (bundled snapshot)".into(),
-            path: None,
-        }];
+        let mut all = vec![self.official()?.0];
         for (id, path) in self.registrations()? {
             all.push(self.load(&id, &path)?.0);
         }
         Ok(all)
     }
 
-    /// Game IDs represented by built-in package metadata, not hardcoded Rust policy.
+    /// Game IDs with validated first-party modules in the local main bucket.
     pub fn official_games(&self) -> Result<Vec<String>> {
-        let mut ids: Vec<String> = official()?.into_iter().map(|p| p.game).collect();
+        let (info, _) = self.official()?;
+        let games = info.path.context("main bucket path missing")?.join("games");
+        let mut ids = Vec::new();
+        for entry in fs::read_dir(games)? {
+            let entry = entry?;
+            if entry.path().join("module.json").is_file() {
+                ids.push(entry.file_name().to_string_lossy().into_owned());
+            }
+        }
         ids.sort();
         ids.dedup();
         Ok(ids)
@@ -324,7 +375,7 @@ impl BucketStore {
             bail!("invalid game ID");
         }
         let mut packages = Vec::new();
-        for package in official()? {
+        for package in self.official()?.1.current {
             packages.push(BucketPackage {
                 bucket: "main".into(),
                 package,
@@ -362,8 +413,14 @@ impl BucketStore {
         if releases.is_empty() {
             bail!("bucket package not found: {bucket}/{game}/{id}");
         }
-        if let Some(path) = self.registrations()?.remove(bucket) {
-            let (_, content) = self.load(bucket, &path)?;
+        let content = if bucket == "main" {
+            Some(self.official()?.1)
+        } else if let Some(path) = self.registrations()?.remove(bucket) {
+            Some(self.load(bucket, &path)?.1)
+        } else {
+            None
+        };
+        if let Some(content) = content {
             releases.extend(
                 content
                     .other

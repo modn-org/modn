@@ -1,6 +1,6 @@
-mod bundled;
 mod capabilities;
 mod loader;
+mod official;
 pub(crate) mod policy;
 mod resolver;
 mod runtime;
