@@ -1,5 +1,8 @@
 use super::loader::{self, VerifiedModule};
 use super::official::read_official;
+use super::registry::ModuleRegistry;
+use crate::buckets::BucketStore;
+use crate::data_dir;
 use anyhow::{bail, Result};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -36,7 +39,20 @@ pub(super) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     });
     let (manifest, source) = match directory {
         Some(directory) => loader::read_verified_module(&directory)?,
-        None => read_official(game)?,
+        None => {
+            let data = data_dir::data_directory()?;
+            if BucketStore::new(&data)
+                .official_games()?
+                .iter()
+                .any(|id| id == game)
+            {
+                read_official(game)?
+            } else if let Some((manifest, script, _)) = ModuleRegistry::new(&data).read(game)? {
+                (manifest, script)
+            } else {
+                read_official(game)?
+            }
+        }
     };
     if manifest.game_id != game {
         bail!("game module identity does not match requested game");
