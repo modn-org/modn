@@ -160,11 +160,7 @@ fn registered_skyrim_runs_cli_lifecycle_without_overwriting_manual_content() {
     let source = temp.path().join("skyrim-module");
     fs::create_dir(&source).unwrap();
     fs::copy(example.join("module.json"), source.join("module.json")).unwrap();
-    let script = fs::read_to_string(example.join("module.lua")).unwrap();
-    fs::write(source.join("module.lua"), script.replace(
-        "return fs.metadata(1, path)",
-        "local ok, value = pcall(fs.metadata, 1, path)\n    if ok then return value end\n    return nil",
-    )).unwrap();
+    fs::copy(example.join("module.lua"), source.join("module.lua")).unwrap();
     success(&cli(
         temp.path(),
         &[
@@ -182,6 +178,20 @@ fn registered_skyrim_runs_cli_lifecycle_without_overwriting_manual_content() {
     fs::write(game.join("SkyrimSE.exe"), b"synthetic marker").unwrap();
     fs::write(game.join("Data/manual.esp"), b"manual").unwrap();
     fs::write(game.join("plugins.txt"), b"manual order").unwrap();
+    let invalid = temp.path().join("invalid-game");
+    fs::create_dir_all(invalid.join("Data")).unwrap();
+    let rejected = cli(
+        temp.path(),
+        &[
+            "game",
+            "add",
+            "skyrim-special-edition",
+            "--path",
+            invalid.to_str().unwrap(),
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert!(!String::from_utf8_lossy(&rejected.stderr).contains("runtime error"));
     let archive = temp.path().join("skyrim.zip");
     let mut zip = zip::ZipWriter::new(fs::File::create(&archive).unwrap());
     zip.start_file("Data/Example.esp", zip::write::SimpleFileOptions::default())

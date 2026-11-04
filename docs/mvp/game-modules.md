@@ -72,10 +72,10 @@ modn module remove my-game
 
 Source: `examples/game-modules/skyrim-special-edition/`.
 Register that directory with explicit trust, or select it through the existing source override.
-The current example calls `fs.metadata` without handling missing-file errors.
-CLI state protection validates ancestor directories, so this unmodified example currently fails that journey.
-The CLI lifecycle test uses a disposable copy with the official module's `pcall` missing-file pattern.
-Correcting the distributed example remains an integration requirement outside the CLI change.
+The example uses the official module's `pcall` pattern for metadata checks.
+Unsupported ancestor directories return false during installation validation.
+Missing executable markers or Data directories still reject installation registration.
+The CLI lifecycle test registers an unchanged copy of this example.
 Select game ID `skyrim-special-edition` and an explicit disposable or user-selected game path.
 The module requires a regular `SkyrimSE.exe` file and a real `Data` directory.
 It does not infer game identity from a folder name. It supplies no automatic discovery paths.
@@ -103,4 +103,4 @@ Negative cases cover missing trust, official collisions, incompatible API, misma
 Explicit missing and mismatched overrides fail even when a valid registration exists.
 These tests do not run Skyrim. No real game operation has been performed.
 `mvp_commands` also exercises trust, tamper detection, official-ID rejection and the fixture CLI lifecycle.
-MCP, desktop UI, asset workflows, REDmod deployment and automatic cleanup remain pending.
+MCP, desktop UI, asset conversion, REDmod deployment and automatic cleanup remain pending.
