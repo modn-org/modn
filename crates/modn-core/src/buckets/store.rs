@@ -276,7 +276,9 @@ impl BucketStore {
     }
 
     fn official(&self) -> Result<(BucketInfo, Releases)> {
-        let path = crate::data_dir::data_directory()?.join("buckets").join("main");
+        let path = crate::data_dir::data_directory()?
+            .join("buckets")
+            .join("main");
         Self::new(&crate::data_dir::data_directory()?).check_registry_root()?;
         self.load("main", &path).with_context(|| {
             format!(

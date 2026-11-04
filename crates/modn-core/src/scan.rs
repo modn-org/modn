@@ -205,33 +205,37 @@ mod tests {
 
     #[test]
     fn exhausted_budget_is_reported() {
-        let game = tempdir().unwrap();
-        let dir = game.path().join("archive/pc/mod");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("unrelated.txt"), "fixture").unwrap();
-        fs::create_dir_all(game.path().join("mods/ActualRedmod")).unwrap();
-        let report = scan_bounded_for("cyberpunk-2077", game.path(), 1);
-        assert!(report.incomplete);
-        assert!(report.mods.is_empty());
-        assert!(diagnose(report)
-            .diagnostics
-            .iter()
-            .any(|d| d.code == "SCAN_INCOMPLETE"));
+        crate::test_support::seeded(|| {
+            let game = tempdir().unwrap();
+            let dir = game.path().join("archive/pc/mod");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("unrelated.txt"), "fixture").unwrap();
+            fs::create_dir_all(game.path().join("mods/ActualRedmod")).unwrap();
+            let report = scan_bounded_for("cyberpunk-2077", game.path(), 1);
+            assert!(report.incomplete);
+            assert!(report.mods.is_empty());
+            assert!(diagnose(report)
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "SCAN_INCOMPLETE"));
+        });
     }
 
     #[test]
     fn exact_entry_limit_is_not_truncation() {
-        let game = tempdir().unwrap();
-        let dir = game.path().join("archive/pc/mod");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("one.archive"), "fixture").unwrap();
-        let report = scan_bounded_for("cyberpunk-2077", game.path(), 1);
-        assert!(!report.incomplete);
-        assert_eq!(report.mods.len(), 1);
-        assert!(!diagnose(report)
-            .diagnostics
-            .iter()
-            .any(|d| d.code == "SCAN_INCOMPLETE"));
+        crate::test_support::seeded(|| {
+            let game = tempdir().unwrap();
+            let dir = game.path().join("archive/pc/mod");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("one.archive"), "fixture").unwrap();
+            let report = scan_bounded_for("cyberpunk-2077", game.path(), 1);
+            assert!(!report.incomplete);
+            assert_eq!(report.mods.len(), 1);
+            assert!(!diagnose(report)
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "SCAN_INCOMPLETE"));
+        });
     }
 
     #[test]
