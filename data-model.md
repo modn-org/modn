@@ -44,7 +44,7 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 | Field | Meaning |
 | --- | --- |
 | `bucket_id` | Registered catalog name, for example `main`. |
-| `source` | Verified local `main` copy, registered local directory or future Git source. |
+| `source` | Verified local `main` copy, registered local directory or explicit Git source. |
 | `revision` | Selected catalog snapshot/revision. |
 | `title` | Human-readable catalog name. |
 
@@ -71,6 +71,14 @@ The manifest declares `game_id`, `version`, `api_version` and
 A caller can explicitly provide a temporary alternative source for tests;
 a missing or mismatched override fails without falling back.
 
+### Trusted module registration
+
+`module register <source> --trust` copies a validated third-party module snapshot.
+The runtime data directory stores its identity, API version and exact content digest.
+This registry is independent of `--state-dir` and development source overrides.
+Official game IDs retain priority and cannot be registered through this registry.
+Changed snapshots fail verification. Removal leaves game files and ownership intact.
+
 ### Mod release (package manifest)
 
 | Field | Meaning |
@@ -93,8 +101,10 @@ ambiguous names, and incompatible version requirements.
 
 ### Artifact source and verified artifact
 
-An **ArtifactSource** describes an original download URL or a manual archive
-source. A **VerifiedArtifact** is a cache entry whose bytes match the pinned
+An **ArtifactSource** describes an HTTPS URL, a pinned GitHub release asset or a manual archive
+source. GitHub selectors contain repository, tag and asset names.
+Approved acquisition validates bounded provider metadata before verified HTTPS retrieval.
+Ordinary dry runs remain offline and read-only. A **VerifiedArtifact** is a cache entry whose bytes match the pinned
 archive hash. Neither is an ownership record for a game installation.
 
 Use normal HTTPS retrieval and local archive import before designing
@@ -159,9 +169,10 @@ fixture exercises game-agnostic support.
 | File ownership | `state.sqlite / managed_files(...)` |
 | Directory ownership | `state.sqlite / managed_directories(...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
-| Game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
+| Official game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
+| Trusted module snapshot | `<data-directory>/game-modules/<game-id>/`, with a verified registration receipt |
 | Development override | In-memory per-invocation `--module-src` / `--src` |
-| Bucket packages | Local `main` copy and explicitly registered local directories |
+| Bucket packages | Local `main` copy, registered local directories and explicitly synced Git snapshots |
 
 Manager schema version 2 stores each pin as `pinned INTEGER NOT NULL DEFAULT 0`.
 Migration preserves existing packages and leaves them unpinned.
@@ -173,13 +184,13 @@ The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>@<version>.json`. Only `main` publishes game
 modules. A mod update is a pending uninstall journal and a pending
 install journal; one commit retires the old managed package and moves its
-dependency links to the new one. Git-backed catalog sync remains deferred (#53).
+dependency links to the new one. Explicit `bucket sync` publishes a validated Git snapshot and full commit.
 
 ## Invariants for future changes
 
 1. Preserve game ownership and pending-transaction evidence.
 2. A catalog update cannot silently install, uninstall or update mods.
-3. Game-specific Lua policy remains first-party source in `main`.
+3. Official Lua policy remains in `main`; trusted third-party snapshots use the separate registry.
 4. Development override paths never persist or silently fall back.
 5. Package manifests and Lua proposals cannot claim pre-existing files.
 6. Failed installation and recovery preserve unmanaged game content.

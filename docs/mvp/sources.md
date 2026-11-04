@@ -1,6 +1,6 @@
 # Community catalogs and artifact providers
 
-These core APIs form the first MVP. CLI registration remains an integration task.
+These core APIs and explicit CLI commands form the first MVP.
 They do not change the official `main` release source.
 
 ## Git catalogs
@@ -14,11 +14,11 @@ Use a branch, tag, or commit reference. Remote branch names can use `origin/<bra
 Call `sync_git(name, None)` only after an explicit update request.
 Call `git_revision(name)` to read the selected source and full commit without fetching.
 
-Proposed CLI wiring:
+CLI commands:
 
 ```text
-modn bucket add community --git https://example.org/catalog.git --ref main
-modn bucket update community
+modn bucket sync community --source https://example.org/catalog.git --revision main
+modn bucket sync community
 modn bucket list --json
 ```
 
@@ -75,10 +75,21 @@ Build `CacheKey` with that URL and the package's existing SHA-256 pin.
 Call `ArchiveCache::acquire` to verify the downloaded bytes before use.
 Provider metadata never replaces the artifact pin or executable approval.
 
-The integration layer must collect the provider selector separately from existing package sources.
-It can map an explicit provider selection to the existing HTTPS acquisition path after resolution.
-This pass does not add a `PackageSource` variant or alter manual and HTTPS manifest behavior.
-Future manifest wiring must update every source match and preserve existing schemas.
+Package manifests support this pinned source alongside existing manual and HTTPS sources:
+
+```json
+{"kind":"github-release","repository":"owner/project","tag":"v1.2","asset":"mod.zip"}
+```
+
+The package still requires its original archive SHA-256 pin.
+Install resolves provider metadata only after explicit download or installation consent.
+`install --dry-run --download` permits metadata and archive acquisition without game writes.
+Ordinary previews derive the canonical asset URL locally and make no network requests.
+Verified cache hits, including digest aliases, need no provider metadata request.
+Metadata transport sends GitHub API headers and refuses redirects.
+Archive transport retains HTTPS-only retrieval and the existing byte verification path.
+The CLI fixture transport exists only in test builds; production has no transport override.
+Deterministic command tests cover metadata identity, URL and hash failures before game writes.
 Tags and asset names accept ASCII letters, digits, dots, underscores, and hyphens.
 `latest`, authentication, pagination, arbitrary providers, and release discovery remain unsupported.
 Transport rate limits, retries, redirect policy, and timeouts remain caller responsibilities.

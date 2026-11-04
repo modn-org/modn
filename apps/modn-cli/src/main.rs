@@ -9,6 +9,8 @@ mod install_consent;
 mod inventory;
 mod managed;
 mod modules;
+#[cfg(test)]
+mod provider_fixture_tests;
 mod selection;
 mod stack_install;
 mod state_access;
@@ -40,7 +42,7 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
     match command {
         Command::Bucket { command } => buckets::run(command, state_path, json, requested),
         Command::Cache { command } => download::run(command, state_path, json),
-        Command::Module { command } => modules::run(command, json),
+        Command::Module { command } => modules::run(command, state_path, json),
         Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
         Command::Install(args) => install::run(&args, state_path, requested, json),
         Command::Update(args) => update::run(&args, state_path, requested, json),
