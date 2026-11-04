@@ -104,6 +104,126 @@ fn installed_with_dependent() -> Catalog {
     installed_with_dependent_requiring(">=1.0")
 }
 
+fn tree_bytes(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    fn visit(root: &Path, path: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        for entry in fs::read_dir(path).expect("tree") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                visit(root, &path, out);
+            } else {
+                out.push((
+                    path.strip_prefix(root).expect("relative").to_path_buf(),
+                    fs::read(&path).expect("bytes"),
+                ));
+            }
+        }
+    }
+    let mut result = Vec::new();
+    visit(root, root, &mut result);
+    result.sort();
+    result
+}
+
+#[test]
+fn pins_use_managed_selectors_and_skip_updates_without_writes() {
+    let catalog = installed_with_dependent();
+    let fixture = &catalog.fixture;
+    let packages = json_of(&fixture.run(&["list", "--json"]));
+    let base = packages
+        .as_array()
+        .expect("packages")
+        .iter()
+        .find(|p| p["catalog"]["mod_id"] == "base")
+        .expect("base")["id"]
+        .as_str()
+        .expect("id");
+    for selector in [base, "base", "test-game/base", "deps/test-game/base"] {
+        let pin = fixture.run(&["pin", selector]);
+        assert!(pin.status.success(), "{}", error(&pin));
+        assert!(String::from_utf8_lossy(&pin.stdout).contains(base));
+        assert!(fixture.run(&["unpin", selector]).status.success());
+    }
+    assert!(fixture.run(&["pin", "base"]).status.success());
+    let before_repeat = tree_bytes(fixture.temp.path());
+    let repeat = fixture.run(&["pin", "base"]);
+    assert!(repeat.status.success());
+    assert!(String::from_utf8_lossy(&repeat.stdout).contains("unchanged"));
+    assert_eq!(tree_bytes(fixture.temp.path()), before_repeat);
+    let packages = json_of(&fixture.run(&["list", "--json"]));
+    assert_eq!(
+        packages
+            .as_array()
+            .expect("packages")
+            .iter()
+            .find(|p| p["id"] == base)
+            .expect("base")["pinned"],
+        true
+    );
+    assert!(String::from_utf8_lossy(&fixture.run(&["list"]).stdout)
+        .contains(&format!("{base} (pinned)")));
+    let before = tree_bytes(fixture.temp.path());
+    let skipped = fixture.run(&["update", "base"]);
+    assert!(skipped.status.success(), "{}", error(&skipped));
+    assert!(String::from_utf8_lossy(&skipped.stdout).contains("managed package is pinned"));
+    assert_eq!(tree_bytes(fixture.temp.path()), before);
+    assert!(fixture.run(&["unpin", "base"]).status.success());
+    let before_repeat = tree_bytes(fixture.temp.path());
+    let repeat = fixture.run(&["unpin", "base"]);
+    assert!(repeat.status.success());
+    assert!(String::from_utf8_lossy(&repeat.stdout).contains("unchanged"));
+    assert_eq!(tree_bytes(fixture.temp.path()), before_repeat);
+    let packages = json_of(&fixture.run(&["list", "--json"]));
+    assert!(packages
+        .as_array()
+        .expect("packages")
+        .iter()
+        .all(|package| package["pinned"] == false));
+    assert!(!fixture.run(&["pin", "unknown"]).status.success());
+    assert!(fixture.run(&["pin", "top"]).status.success());
+    assert!(fixture.run(&["uninstall", "top", "--yes"]).status.success());
+    assert!(!fixture.run(&["pin", "top"]).status.success());
+}
+
+#[test]
+fn pinned_dependent_refuses_incompatible_update_without_writes() {
+    let catalog = installed_with_dependent_requiring("<2.0");
+    assert!(catalog.fixture.run(&["pin", "top"]).status.success());
+    let before = tree_bytes(catalog.fixture.temp.path());
+    let blocked = catalog.fixture.run(&["update", "base", "--yes"]);
+    assert!(!blocked.status.success());
+    let message = error(&blocked);
+    assert!(
+        message.contains("pinned") && message.contains("top") && message.contains("<2.0"),
+        "{message}"
+    );
+    assert_eq!(tree_bytes(catalog.fixture.temp.path()), before);
+}
+
+#[test]
+fn pin_ambiguity_matches_uninstall_and_names_matching_ids() {
+    let catalog = installed_with_dependent();
+    let fixture = &catalog.fixture;
+    let (archive, hash) = plugins(fixture, "other-top", &[("other.plugin", "other")]);
+    fixture.bucket("other", "test-game", "top", &hash, &[]);
+    let installed = run(
+        fixture,
+        &["install", "other/test-game/top", "--yes"],
+        Some(&archive),
+    );
+    assert!(installed.status.success(), "{}", error(&installed));
+    let before = tree_bytes(fixture.temp.path());
+    let pin = fixture.run(&["pin", "top"]);
+    let uninstall = fixture.run(&["uninstall", "top", "--dry-run"]);
+    assert!(!pin.status.success());
+    assert!(!uninstall.status.success());
+    assert_eq!(error(&pin), error(&uninstall));
+    assert!(error(&pin).contains("matches several managed packages"));
+    let unknown_pin = fixture.run(&["pin", "unknown"]);
+    let unknown_uninstall = fixture.run(&["uninstall", "unknown", "--dry-run"]);
+    assert_eq!(error(&unknown_pin), error(&unknown_uninstall));
+    assert_eq!(tree_bytes(fixture.temp.path()), before);
+}
+
 fn installed_with_dependent_requiring(requirement: &str) -> Catalog {
     let fixture = Fixture::new();
     let (v1, v1_hash) = plugins(
