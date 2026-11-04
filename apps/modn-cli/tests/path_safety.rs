@@ -3,6 +3,7 @@ mod main_bucket;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::Command;
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
