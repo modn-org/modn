@@ -55,6 +55,16 @@ _Avoid_: Independently installed game plugin
 A temporary caller-selected Lua module source for one command, never persisted.
 _Avoid_: Installed module, active third-party module
 
+**Trusted module registration**:
+An explicitly accepted snapshot of third-party Lua policy in the runtime data directory.
+Its retained digest detects changed bytes. Registration grants no game-write approval.
+_Avoid_: Sandboxed module, bucket module, development override
+
+**Git catalog revision**:
+The explicit source and full commit published with a validated community catalog snapshot.
+Only an explicit `bucket sync` fetches this source.
+_Avoid_: Automatically refreshed catalog
+
 ### Packages and acquisition
 
 **Mod**:

@@ -17,11 +17,12 @@ may contain game modules. The local copy works offline. Only `modn bucket update
 If the copy is missing, Modn asks the user to run that command.
 The update checks the ZIP against its release SHA-256 sidecar from the same origin.
 Release signing is future work. A separate `modn-org/main` repository is planned in #69.
-Third-party game modules (#51) and Git-backed catalog sync (#53) remain deferred.
+The CLI supports explicit trusted module registration and community Git catalog sync.
+Third-party Lua modules use a separate copied registry; community catalogs contain metadata only.
 Package manifests never authorize changes to game files: a
 manifest may declare the tool executables its archive installs, but only the
 user's confirmation or an explicit `--allow-executable` approves them.
-Modn downloads `https` sources into a verified cache; `manual` sources still
+Modn downloads `https` and pinned `github-release` sources into a verified cache; `manual` sources still
 need the user's file.
 
 Development-only `--module-src` (`--src`) and `MODN_GAME_MODULES_DIR`
@@ -36,6 +37,8 @@ install transaction guarantees. Prefer clean installs, not automatic adoption
 of manually installed mods.
 
 Windows comes first.
+MCP, desktop UI, asset workflows, REDmod deployment and automatic cleanup remain pending.
+Skyrim support has synthetic fixture coverage, without real-game validation.
 
 ## Where things live
 

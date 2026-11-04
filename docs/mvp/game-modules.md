@@ -1,6 +1,6 @@
 # Trusted game modules and Skyrim Special Edition
 
-This MVP adds core APIs. CLI command registration is an integration task.
+This MVP exposes core APIs through explicit CLI commands.
 Third-party modules use a separate explicit registry. Community buckets still cannot publish modules.
 Trust acknowledgement accepts executable Lua policy. Do not describe this as sandboxing.
 Registration, listing, and removal change no game files.
@@ -11,7 +11,7 @@ Registration does not approve installation or executable payloads.
 Use `modn_core::data_dir::data_directory()` for the selected manager data directory.
 Construct `game_modules::ModuleRegistry::new(&data_directory)`.
 
-| Future command | Exact API | Result |
+| Command | Exact API | Result |
 | --- | --- | --- |
 | `modn module register <source> --trust` | `registry.register(source, ModuleTrust::Acknowledged)` | `RegisteredModule` |
 | Registration without `--trust` | `registry.register(source, ModuleTrust::NotAcknowledged)` | Explicit trust error |
@@ -52,14 +52,30 @@ The relevant entry points are:
 - `inventory::doctor_with_ownership_for(&store, game_id, path)`
 - `Store::uninstall(path, package_id)` after existing explicit approval checks
 
-Integration must add registered IDs to any CLI supported-game listing that currently lists only official IDs.
-The core resolver already selects registered modules by the runtime game ID.
-No root CLI wiring, bucket relocation, or root documentation changes belong to this implementation.
+The core resolver selects registered modules by the runtime game ID.
+The CLI accepts explicit game IDs and selects registered installations through their recorded identity.
+The official main-bucket distribution remains unchanged.
+
+```sh
+modn module register ./my-game-module --trust
+modn module list --json
+modn game add my-game --path /path/to/disposable-game
+modn install ./mod.zip --dry-run
+modn install ./mod.zip --yes
+modn list
+modn doctor
+modn uninstall <managed-package-id> --yes
+modn module remove my-game
+```
 
 ## Skyrim example
 
 Source: `examples/game-modules/skyrim-special-edition/`.
 Register that directory with explicit trust, or select it through the existing source override.
+The current example calls `fs.metadata` without handling missing-file errors.
+CLI state protection validates ancestor directories, so this unmodified example currently fails that journey.
+The CLI lifecycle test uses a disposable copy with the official module's `pcall` missing-file pattern.
+Correcting the distributed example remains an integration requirement outside the CLI change.
 Select game ID `skyrim-special-edition` and an explicit disposable or user-selected game path.
 The module requires a regular `SkyrimSE.exe` file and a real `Data` directory.
 It does not infer game identity from a folder name. It supplies no automatic discovery paths.
@@ -86,3 +102,5 @@ It verifies that manual Data content and `plugins.txt` retain their original byt
 Negative cases cover missing trust, official collisions, incompatible API, mismatched identity, duplicate registration, and changed snapshot bytes.
 Explicit missing and mismatched overrides fail even when a valid registration exists.
 These tests do not run Skyrim. No real game operation has been performed.
+`mvp_commands` also exercises trust, tamper detection, official-ID rejection and the fixture CLI lifecycle.
+MCP, desktop UI, asset workflows, REDmod deployment and automatic cleanup remain pending.
