@@ -2,11 +2,17 @@
 
 A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Lua Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, MCP and a desktop UI are not implemented; see the issues labeled `deferred`.
 
-## Portable Windows release
+## Install on Windows
 
-A release is a single `modn.exe` with a `modn.exe.sha256` checksum file. It
-needs no installer, Rust toolchain or repository. The executable embeds no
-game modules or bucket manifests. It links
+Run this command in PowerShell without administrator rights:
+
+```powershell
+irm https://github.com/modn-org/modn/releases/latest/download/install.ps1 | iex
+```
+
+The script verifies and installs `modn.exe`, adds it to your user PATH, and runs
+`modn bucket update`. Open a new terminal, then run `modn search`.
+The executable embeds no game modules or bucket manifests. It links
 the C runtime statically, so it does not need the Visual C++ Redistributable.
 Check the download in PowerShell before you run it:
 
@@ -142,18 +148,16 @@ now reside in `buckets/main/games/cyberpunk-2077/` as
 `module.json` and `module.lua`. Rust loads them **at runtime** through a
 game-agnostic policy executor, not an embedded `cyberpunk.rs` adapter.
 
-Modn reads the official bucket from `<data dir>/buckets/main/`. When it is
-missing, the first command needing a catalog or game module downloads the
-running version's `main-bucket.zip` from its GitHub release. Modn verifies the
-bucket tree against a SHA-256 content digest built into the executable. It
-validates the bucket and installs it atomically through staging and rename.
-Failure leaves no partial copy. First use needs network access; later use works
-offline. `MODN_MAIN_BUCKET_SOURCE` overrides the source with an HTTPS URL or
-local ZIP path for development and tests. The digest check still applies.
+Modn reads the official bucket from `<data dir>/buckets/main/`. If it is missing,
+Modn tells the user to run `modn bucket update`. Modn never fetches it implicitly.
+The install script runs that command once. The local copy works offline.
+`MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP for an update.
 
 `modn bucket update` downloads the latest release's `main-bucket.zip` and
 `main-bucket.zip.sha256` over HTTPS. It verifies the digest and validates the
-bucket and modules before an atomic swap. Failure preserves the previous copy.
+bucket and modules before an atomic swap. The checksum shares the release origin,
+as in Scoop. Release signing is future work. Failure preserves the previous copy.
+Only `main` contains modules. The separate `modn-org/main` repository is planned in #69.
 Modn refreshes the copy only when requested. Third-party game modules (#51)
 and Git-backed catalog sync (#53) remain deferred.
 

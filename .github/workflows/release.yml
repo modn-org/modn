@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/release.yml
       - .github/scripts/release-smoke.ps1
+      - .github/scripts/install-smoke.ps1
+      - install.ps1
       - .github/scripts/pack-main-bucket.py
       - buckets/main/**
 
@@ -42,6 +44,8 @@ jobs:
           Get-Content dist/modn.exe.sha256
       - name: Package the deterministic main bucket and checksum
         run: python .github/scripts/pack-main-bucket.py buckets/main dist/main-bucket.zip
+      - name: Package the installer
+        run: Copy-Item install.ps1 dist/install.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: modn-windows-x64
@@ -57,6 +61,10 @@ jobs:
     needs: build
     runs-on: windows-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Smoke-test the installer
+        run: pwsh -NoProfile -File .github/scripts/install-smoke.ps1
       - uses: actions/download-artifact@v4
         with:
           name: modn-windows-x64
@@ -91,6 +99,6 @@ jobs:
         run: |
           prerelease=()
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" dist/modn.exe dist/modn.exe.sha256 dist/main-bucket.zip dist/main-bucket.zip.sha256 \
+          gh release create "$GITHUB_REF_NAME" dist/modn.exe dist/modn.exe.sha256 dist/main-bucket.zip dist/main-bucket.zip.sha256 dist/install.ps1 \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "modn $GITHUB_REF_NAME" "${prerelease[@]}"

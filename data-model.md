@@ -48,8 +48,11 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 | `revision` | Selected catalog snapshot/revision. |
 | `title` | Human-readable catalog name. |
 
-Modn bootstraps the official `main` bucket on first use. Its local copy works
-offline afterward and changes only on explicit update. Community buckets
+The install script runs `modn bucket update` to fetch the official `main` bucket.
+Modn never fetches it implicitly. A missing copy prompts the user to run that command.
+The update checks the ZIP against its same-origin release SHA-256 sidecar.
+Release signing is future work. The separate `modn-org/main` repository is planned in #69.
+The local copy works offline and changes only on explicit update. Community buckets
 cannot contain game modules. Registering a bucket
 never authorizes modification of a game installation.
 
