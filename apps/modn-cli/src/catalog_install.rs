@@ -8,9 +8,7 @@ use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
-use modn_core::buckets::{
-    ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore, PackageSource,
-};
+use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
 use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
 use modn_core::transactions::CatalogReference;
 use std::collections::BTreeMap;
@@ -235,11 +233,8 @@ fn install_mod(
     }
     if !args.dry_run && !archives.contains_key(&reference) {
         if interactive {
-            let url = match &selected.package.source {
-                PackageSource::Https { url } => url.as_str(),
-                _ => "",
-            };
-            let download = format!("{reference} {} from {url}", selected.package.version);
+            let source = dependency_plan::acquisition(&selected.package.source);
+            let download = format!("{reference} {}; {source}", selected.package.version);
             if !install_consent::confirm_download(
                 &[download],
                 &mut io::stdin().lock(),
