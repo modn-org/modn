@@ -56,6 +56,7 @@ cargo run --bin modn -- game list
 cargo run --bin modn -- scan --json
 cargo run --bin modn -- doctor --json
 cargo run --bin modn -- inspect "./downloaded-mod.zip" --json
+cargo run --bin modn -- asset inspect "./texture.dds" --json
 cargo run --bin modn -- install "./downloaded-mod.zip" --dry-run --path "/path/to/Cyberpunk 2077" --json
 ```
 
@@ -88,6 +89,14 @@ guaranteed protection against another process changing paths concurrently.
 Avoid redirected game/mod directories where practical; use dedicated game
 installations and do not run another mod manager against the same files
 at the same time.
+
+## Read-only asset inspection
+
+`modn asset inspect <path> [--json]` reads DDS headers or the supported REDengine RDAR v12 structural subset.
+It selects formats from bytes and does not select a game, open manager state, fetch network content, or write the input.
+It does not decode payloads or verify game compatibility and integrity.
+Reads are limited to 148 DDS bytes or 44 header bytes plus 16 MiB of RDAR index metadata.
+See [asset formats and limits](docs/mvp/assets.md).
 
 ## First-party Lua game modules
 
@@ -159,8 +168,26 @@ The install script runs that command once. The local copy works offline.
 bucket and modules before an atomic swap. The checksum shares the release origin,
 as in Scoop. Release signing is future work. Failure preserves the previous copy.
 Only `main` contains modules. The separate `modn-org/main` repository is planned in #69.
-Modn refreshes the copy only when requested. Third-party game modules (#51)
-and Git-backed catalog sync (#53) remain deferred.
+Modn refreshes the copy only when requested. Trusted third-party module snapshots
+and explicit community Git catalog sync are available through the CLI.
+
+```sh
+modn module register ./my-game-module --trust
+modn module list --json
+modn game add my-game --path "/path/to/disposable-game"
+modn bucket sync community --source https://example.org/catalog.git --revision main
+modn bucket sync community
+modn module remove my-game
+```
+
+Registration copies the module into the runtime data directory, independently of
+`--state-dir`. `--trust` accepts executable Lua policy; it does not approve game writes.
+Official game IDs cannot be replaced. Changed registered bytes fail verification.
+Module removal leaves game bytes and managed ownership intact.
+Git sync reports its source and selected full commit. Failed sync preserves the old catalog.
+Community catalogs cannot contain Lua modules. Search and installation never sync catalogs.
+Local `bucket add <name> <path>` and official `bucket update` retain their behavior.
+See [trusted modules](docs/mvp/game-modules.md) and [sources](docs/mvp/sources.md) for limits.
 
 For development, select a source directory containing `module.json` and
 its Lua entrypoint for the current invocation only:
@@ -173,7 +200,7 @@ modn --game cyberpunk-2077 scan --module-src ./my-cyberpunk-module --json
 The `--src` alias for `--module-src` is global but never persisted.
 `MODN_GAME_MODULES_DIR/<game-id>/` remains an alternative developer override.
 An explicit missing, invalid or mismatched source fails without fallback.
-Ordinary commands return to the local `main` policy; edits to a selected local
+Ordinary commands resolve the official policy or trusted registry snapshot; edits to a selected local
 source are observed without rebuilding Modn. A persistent
 `MODN_GAME_MODULES_DIR` applies to every command in that environment, so
 unset it outside development. Neither override grants write
@@ -233,7 +260,7 @@ dependency pins, conflicts and published versions. Bucket edits during a prompt
 do not change that command's selected evidence.
 
 Catalog installation needs each archive with the exact format and SHA-256
-from its manifest. Modn downloads an `https` source itself. A `manual`
+from its manifest. Modn downloads an `https` or pinned `github-release` source itself. A `manual`
 source, such as a Nexus file, is never downloaded: supply it with `--file`,
 and without it Modn names the file to get. Standalone
 `modn install <archive.zip|archive.7z>` needs no catalog entry and uses
@@ -619,7 +646,11 @@ do not delete game files or personal saves to reset manager state.
 
 ## Scope
 
-Windows first. Additional games, additional transaction types and a package browser are not implemented. Planned work is in GitHub milestones and issues; see [VISION.md](VISION.md).
+Windows first. Trusted game modules use the generic managed transaction path.
+The Skyrim example has synthetic fixture coverage only; it has no real-game validation.
+Its current missing-file handling needs correction before its unmodified source supports CLI state checks.
+MCP, desktop UI, asset workflows, REDmod deployment and automatic cleanup remain pending.
+Planned work is in GitHub milestones and issues; see [VISION.md](VISION.md).
 
 All first-party code is MIT licensed.
 
@@ -649,7 +680,8 @@ modn bucket remove community
 A local bucket contains `bucket.json` (schema_version: 1, name, title)
 and `games/<game-id>/<package-id>.json` files. Each package record
 has schema_version, id, game, name, version, archive_format (`zip`/`7z`),
-sha256, source (`manual` with filename, or `https` with URL),
+sha256, source (`manual` with filename, `https` with URL, or `github-release`
+with repository, tag and asset),
 optional dependencies (same-game IDs), dependency_versions, conflicts,
 executables and homepage. Unknown fields and
 unsupported schemas are rejected. See `buckets/main` for examples.

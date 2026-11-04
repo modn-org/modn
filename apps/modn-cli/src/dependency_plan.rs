@@ -122,6 +122,11 @@ pub(super) fn acquisition(source: &PackageSource) -> String {
     match source {
         PackageSource::Manual { filename } => format!("download {filename:?} manually"),
         PackageSource::Https { url } => format!("Modn downloads it from {url}"),
+        PackageSource::GithubRelease {
+            repository,
+            tag,
+            asset,
+        } => format!("Modn resolves GitHub release {repository} {tag} asset {asset}"),
         _ => "unsupported source".to_owned(),
     }
 }
@@ -165,7 +170,9 @@ pub(super) fn report(
     }
     let Some(preview) = archive else {
         let next = match &selected.package.source {
-            PackageSource::Https { .. } => "when you install it",
+            PackageSource::Https { .. } | PackageSource::GithubRelease { .. } => {
+                "when you install it"
+            }
             _ => "then add --file <archive>",
         };
         println!(

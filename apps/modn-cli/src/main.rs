@@ -1,3 +1,4 @@
+mod assets;
 mod buckets;
 mod catalog_install;
 mod commands;
@@ -9,6 +10,8 @@ mod install_consent;
 mod inventory;
 mod managed;
 mod modules;
+#[cfg(test)]
+mod provider_fixture_tests;
 mod selection;
 mod stack_install;
 mod state_access;
@@ -24,6 +27,9 @@ use std::path::Path;
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    if let Command::Asset { command } = &cli.command {
+        return assets::run(command, cli.json);
+    }
     let state_path = database_path(cli.state_dir.as_deref())?;
     let module_source = cli.module_source.clone();
     with_module_source(module_source.as_deref(), || run_cli(cli, &state_path))
@@ -38,9 +44,10 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
     } = cli;
     let requested = game_id.as_deref();
     match command {
+        Command::Asset { command } => assets::run(&command, json),
         Command::Bucket { command } => buckets::run(command, state_path, json, requested),
         Command::Cache { command } => download::run(command, state_path, json),
-        Command::Module { command } => modules::run(command, json),
+        Command::Module { command } => modules::run(command, state_path, json),
         Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
         Command::Install(args) => install::run(&args, state_path, requested, json),
         Command::Update(args) => update::run(&args, state_path, requested, json),

@@ -6,7 +6,9 @@ local policy = {
 }
 
 local function metadata(path)
-    return fs.metadata(1, path)
+    local ok, value = pcall(fs.metadata, 1, path)
+    if ok then return value end
+    return nil
 end
 
 function policy.validate()
