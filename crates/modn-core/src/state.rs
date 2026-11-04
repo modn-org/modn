@@ -164,6 +164,13 @@ impl Store {
             tx.pragma_update(None, "user_version", 1)?;
         }
         validate_package_schema(&tx)?;
+        let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if version == 1 {
+            tx.execute_batch(
+                "ALTER TABLE managed_packages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
+            )?;
+            tx.pragma_update(None, "user_version", 2)?;
+        }
         migrate_ownership_keys(&tx)?;
         tx.commit()?;
         Ok(Self {
@@ -367,7 +374,7 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
 
 fn validate_package_schema(connection: &Connection) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != 1 {
+    if version != 1 && version != 2 {
         bail!("unsupported manager state schema; start with a fresh state directory");
     }
     let (archive_required, manual_origin): (Option<i64>, bool) = connection.query_row(

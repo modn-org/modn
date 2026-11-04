@@ -65,6 +65,54 @@ fn base_with_dependent() -> Installed {
     }
 }
 
+#[test]
+fn pin_after_preview_blocks_update_before_withdrawal() {
+    let mut installed = base_with_dependent();
+    let game = installed.fixture.game.clone();
+    let proposal = plan_into(&game, &installed.new_base, "addons");
+    installed
+        .fixture
+        .store
+        .connection
+        .execute(
+            "UPDATE package_requirements SET requirement='<2.0' WHERE package_id=?1",
+            [&installed.top.id],
+        )
+        .expect("requirement");
+    installed
+        .fixture
+        .store
+        .set_package_pin(&game, &installed.top.id, true)
+        .expect("pin after preview");
+    let before = fs::read(game.join("addons/base.plugin")).expect("old content");
+    let error = installed
+        .fixture
+        .store
+        .update_catalog_release(
+            &game,
+            &installed.base.id,
+            &installed.new_base,
+            &proposal,
+            &CatalogRelease::new(reference("base"), vec![]).with_version("2.0".into()),
+            &[],
+        )
+        .expect_err("pinned dependent blocks update");
+    assert!(error.to_string().contains("pinned"));
+    assert!(error.to_string().contains(&installed.top.id));
+    assert_eq!(
+        fs::read(game.join("addons/base.plugin")).expect("content"),
+        before
+    );
+    installed.fixture.store.ensure_idle().expect("no journal");
+    assert!(installed
+        .fixture
+        .store
+        .installed(&game)
+        .expect("packages")
+        .iter()
+        .any(|p| p.id == installed.base.id));
+}
+
 impl Installed {
     fn update(&mut self, fault: Option<Fault>) -> anyhow::Result<ManagedPackage> {
         self.update_to(CatalogRelease::new(reference("base"), Vec::new()), fault)
