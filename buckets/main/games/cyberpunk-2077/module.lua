@@ -344,6 +344,7 @@ function policy.plan(files)
                 or string.sub(stem, 1, 9) == "changelog")
     end
     local canonical_framework_prefixes = {
+        redmod = { "mods" },
         cet = { "bin", "x64", "plugins", "cyber_engine_tweaks", "mods" },
         red4ext = { "red4ext", "plugins" },
         redscript = { "r6", "scripts" },
@@ -445,17 +446,18 @@ function policy.plan(files)
                 if allowed ~= nil and not allowed[extension] then
                     block("UNSUPPORTED_CONTENT", "Unsupported file in " .. kind .. ": " .. file.source)
                 end
-                if kind == "redmod" then block("NOT_INSTALLABLE", "REDmod deployment is not supported") end
                 if kind == "input-xml" then needs_input_loader = true end
                 if kind == "redscript" or kind == "redscript-hint" then needs_redscript = true
                 elseif kind == "archive-xl" then needs_archivexl = true
                 elseif kind == "tweak" then needs_tweakxl = true end
                 if kind == "redmod" then
-                    local name = string.lower(parts[i + 1])
+                    local name = parts[i + 1]
                     if redmods[name] == nil then redmods[name] = false end
                     if #parts - i + 1 == 3
-                        and string.lower(parts[i + 2]) == "info.json" then
-                        redmods[name] = true
+                        and parts[i + 2] == "info.json" and file.bytes > 0 and file.bytes <= 65536 then
+                        redmods[name] = true; operations[#operations].kind = "json-object"
+                    elseif not (parts[i + 2] == "archives" or parts[i + 2] == "scripts" or parts[i + 2] == "tweaks") then
+                        block("REDMOD_INVALID_CONTENT", "Unsupported REDmod member: " .. file.source)
                     end
                 end
                 mapped = true
@@ -480,15 +482,17 @@ function policy.plan(files)
     if needs_tweakxl and not present("red4ext/plugins/TweakXL/TweakXL.dll", "file") then
         block("TWEAKXL_NOT_INSTALLED", "TweakXL plugin was not detected")
     end
-    local redmod_found = false
+    local redmod_count = 0
     for name, has_info in pairs(redmods) do
-        redmod_found = true
-        if not has_info then
-            block("REDMOD_INFO_MISSING", "REDmod has no info.json: " .. name)
-        end
+        redmod_count = redmod_count + 1
+        if not has_info then block("REDMOD_INFO_MISSING", "REDmod has no bounded info.json: " .. name) end
+        if metadata("mods/" .. name) then block("REDMOD_DESTINATION_OCCUPIED", "REDmod directory already exists: " .. name) end
     end
-    if redmod_found and not present("tools/redmod/bin/redMod.exe", "file") then
-        block("REDMOD_NOT_INSTALLED", "REDmod deployment tools are not installed")
+    if redmod_count > 1 then block("REDMOD_AMBIGUOUS", "Only one REDmod name per package is supported") end
+    if redmod_count > 0 then
+        for _, operation in ipairs(operations) do
+            if operation.kind ~= "redmod" and operation.kind ~= "json-object" then block("NOT_INSTALLABLE", "REDmod cannot be mixed with other layouts") break end
+        end
     end
     return { schema_version = 1, operations = operations, blockers = blockers,
         skipped_generated_files = ignored_generated }

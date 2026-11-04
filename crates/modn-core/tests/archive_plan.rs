@@ -1,5 +1,7 @@
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
+#[path = "archive_plan/redmod.rs"]
+mod redmod;
 use modn_core::archive::inspect;
 use modn_core::archive::ArchiveFormat;
 use modn_core::planning::resolve;
@@ -97,41 +99,6 @@ fn unmanaged_file_and_linked_directory_block_installation_plan() {
             .iter()
             .any(|issue| issue.code == "EXISTING_FILE"));
         assert_eq!(fs::read(&target).unwrap(), b"existing");
-    });
-}
-
-#[test]
-fn redmod_package_requires_info_and_tools() {
-    main_bucket::seeded(|| {
-        let dir = tempdir().unwrap();
-        let game = dir.path().join("game");
-        setup_game(&game, false);
-        let archive = dir.path().join("redmod.zip");
-        zip_fixture(
-            &archive,
-            &[
-                ("mods/Sample/info.json", b"{}"),
-                ("mods/Sample/archives/sample.archive", b"data"),
-            ],
-        );
-        let inspection = inspect(&archive).unwrap();
-        assert!(plan(&inspection, &game)
-            .blockers
-            .iter()
-            .any(|issue| issue.code == "REDMOD_NOT_INSTALLED"));
-        setup_game(&game, true);
-        assert!(plan(&inspection, &game)
-            .blockers
-            .iter()
-            .any(|issue| issue.code == "NOT_INSTALLABLE"));
-
-        let missing = dir.path().join("missing-info.zip");
-        zip_fixture(&missing, &[("mods/Sample/archives/test.archive", b"data")]);
-        let report = plan(&inspect(&missing).unwrap(), &game);
-        assert!(report
-            .blockers
-            .iter()
-            .any(|issue| issue.code == "REDMOD_INFO_MISSING"));
     });
 }
 
@@ -373,7 +340,7 @@ fn conflicts_between_planned_file_and_directory_are_blocked() {
 }
 
 #[test]
-fn redmod_manifest_must_be_at_package_root_case_insensitively() {
+fn redmod_manifest_must_be_canonical_and_at_package_root() {
     main_bucket::seeded(|| {
         let dir = tempdir().unwrap();
         let root = dir.path().join("game");
@@ -387,6 +354,7 @@ fn redmod_manifest_must_be_at_package_root_case_insensitively() {
             ],
         );
         let result = plan(&inspect(&archive).unwrap(), &root);
+        assert_eq!(result.status, PlanStatus::Blocked);
         assert!(result
             .blockers
             .iter()
@@ -394,10 +362,43 @@ fn redmod_manifest_must_be_at_package_root_case_insensitively() {
 
         let archive = dir.path().join("upper-info.zip");
         zip_fixture(&archive, &[("mods/Foo/INFO.JSON", b"{}")]);
-        assert!(plan(&inspect(&archive).unwrap(), &root)
+        let result = plan(&inspect(&archive).unwrap(), &root);
+        assert_eq!(result.status, PlanStatus::Blocked);
+        for code in ["REDMOD_INFO_MISSING", "REDMOD_INVALID_CONTENT"] {
+            assert!(
+                result.blockers.iter().any(|issue| issue.code == code),
+                "{:?}",
+                result.blockers
+            );
+        }
+        assert!(!root.join("mods").exists());
+    });
+}
+
+#[test]
+fn redmod_cannot_be_mixed_with_legacy_archives() {
+    main_bucket::seeded(|| {
+        let dir = tempdir().unwrap();
+        let game = dir.path().join("game");
+        setup_game(&game, true);
+        let archive = dir.path().join("mixed-redmod.zip");
+        zip_fixture(
+            &archive,
+            &[
+                ("mods/Sample/info.json", b"{}"),
+                ("mods/Sample/archives/sample.archive", b"redmod"),
+                ("archive/pc/mod/sample.archive", b"legacy"),
+            ],
+        );
+        let report = plan(&inspect(&archive).unwrap(), &game);
+        assert_eq!(report.status, PlanStatus::Blocked);
+        assert!(report
             .blockers
             .iter()
             .any(|issue| issue.code == "NOT_INSTALLABLE"));
+        assert_eq!(report.operations.len(), 3);
+        assert!(!game.join("mods").exists());
+        assert!(!game.join("archive").exists());
     });
 }
 
