@@ -1,6 +1,7 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::Value;
 use std::fs;
-use std::process::Command;
 use tempfile::tempdir;
 
 #[test]
@@ -18,7 +19,7 @@ fn dense_cet_assets_produce_incomplete_inventory_without_vm_timeout() {
     }
 
     for command in ["scan", "doctor"] {
-        let result = Command::new(env!("CARGO_BIN_EXE_modn"))
+        let result = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
             .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
             .arg(&state)
             .arg(command)
@@ -60,7 +61,7 @@ fn exact_framework_budget_does_not_report_truncation() {
     }
 
     for command in ["scan", "doctor"] {
-        let result = Command::new(env!("CARGO_BIN_EXE_modn"))
+        let result = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
             .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
             .arg(&state)
             .arg(command)
@@ -107,7 +108,7 @@ fn dense_redscript_inventory_returns_incomplete_instead_of_vm_timeout() {
         )
         .expect("script");
     }
-    let response = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let response = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
         .arg(&state)
         .args(["scan", "--path"])
@@ -141,7 +142,7 @@ fn exact_redscript_budget_is_complete_when_no_other_framework_content_exists() {
         )
         .expect("script");
     }
-    let response = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let response = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
         .arg(&state)
         .args(["scan", "--path"])
@@ -178,7 +179,7 @@ fn exhausted_budget_checks_all_queued_directories_before_claiming_complete() {
     }
     fs::write(scripts.join("A/hidden.reds"), b"class Hidden {}").expect("queued script");
     for command in ["scan", "doctor"] {
-        let response = Command::new(env!("CARGO_BIN_EXE_modn"))
+        let response = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
             .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
             .arg(&state)
             .arg(command)
@@ -247,7 +248,7 @@ fn generated_archivexl_log_link_does_not_hide_inventory() {
     }
 
     let run = |action: &str| {
-        Command::new(env!("CARGO_BIN_EXE_modn"))
+        main_bucket::command(env!("CARGO_BIN_EXE_modn"))
             .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
             .arg(&state)
             .arg(action)
@@ -332,7 +333,7 @@ fn unknown_plugin_link_reports_unsafe_entry_not_limit() {
         panic!("symlink fixture: {error}");
     }
 
-    let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let scan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
         .arg(temp.path().join("state"))
         .args(["scan", "--path"])
@@ -391,7 +392,7 @@ fn archivexl_log_directory_link_stays_unsafe() {
         }
         panic!("link fixture: {error}");
     }
-    let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let scan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
         .arg(temp.path().join("state"))
         .args(["scan", "--path"])
@@ -439,7 +440,7 @@ fn exhausted_budget_preserves_unsafe_link_issue() {
         }
         panic!("link fixture: {error}");
     }
-    let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let scan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
         .arg(temp.path().join("state"))
         .args(["scan", "--path"])

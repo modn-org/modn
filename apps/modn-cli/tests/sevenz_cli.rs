@@ -1,9 +1,11 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::Value;
 use sevenz_rust2::{ArchiveEntry, ArchiveWriter, SourceReader};
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use tempfile::{tempdir, TempDir};
 
 fn fixture() -> (TempDir, PathBuf, PathBuf) {
@@ -29,7 +31,7 @@ fn sevenz(path: &Path, files: &[(&str, &[u8])]) {
 }
 
 fn cli(state: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_modn"))
+    main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
         .arg(state)
         .args(args)

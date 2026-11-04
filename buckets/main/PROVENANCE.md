@@ -1,6 +1,6 @@
 # Official `main` bucket provenance
 
-Evidence for each Cyberpunk 2077 package in the bundled snapshot, inspected
+Evidence for each Cyberpunk 2077 package in the official bucket, inspected
 2026-10-31. Modn does not mirror or redistribute any of these archives.
 
 ## Sources

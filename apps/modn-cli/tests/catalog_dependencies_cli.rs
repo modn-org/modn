@@ -1,10 +1,11 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::process::Command;
 use support::{error, Fixture};
 use zip::write::SimpleFileOptions;
 
@@ -44,7 +45,7 @@ fn deleted_managed_dependency_cannot_authorize_dependent_install() {
     .expect("manifest");
     fixture.register();
 
-    let base = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let base = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -57,7 +58,7 @@ fn deleted_managed_dependency_cannot_authorize_dependent_install() {
     assert!(owned_file.is_file());
     fs::remove_file(&owned_file).expect("simulate drift");
 
-    let dependent = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let dependent = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -116,7 +117,7 @@ fn exclusive_directory_dependency_requires_original_payload_bytes() {
     assert_ne!(original, exclusive);
     fs::write(&policy, exclusive).expect("install policy");
     fs::create_dir_all(fixture.game.join("addons")).expect("exclusive parent");
-    let base = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let base = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -129,7 +130,7 @@ fn exclusive_directory_dependency_requires_original_payload_bytes() {
     assert!(payload.is_file());
     fs::write(&policy, original).expect("restore default mapping");
 
-    let preview = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let preview = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -144,7 +145,7 @@ fn exclusive_directory_dependency_requires_original_payload_bytes() {
 
     fs::remove_file(&payload).expect("drifted payload");
     assert!(fixture.game.join("addons/base").is_dir());
-    let blocked = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let blocked = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)

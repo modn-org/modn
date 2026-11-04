@@ -129,14 +129,7 @@ pub(super) fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
     if let Some(dir) = state_dir {
         return Ok(dir.join("state.sqlite"));
     }
-    if let Some(path) = std::env::var_os("LOCALAPPDATA") {
-        return Ok(PathBuf::from(path).join("modn/state.sqlite"));
-    }
-    if let Some(path) = std::env::var_os("XDG_STATE_HOME") {
-        return Ok(PathBuf::from(path).join("modn/state.sqlite"));
-    }
-    let home = std::env::var_os("HOME").context("no HOME or app state directory available")?;
-    Ok(PathBuf::from(home).join(".local/state/modn/state.sqlite"))
+    Ok(modn_core::data_dir::data_directory()?.join("state.sqlite"))
 }
 
 pub(super) fn validate_state_path(

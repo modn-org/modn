@@ -2,11 +2,17 @@
 
 A Cyberpunk 2077-first, game-agnostic mod manager written in Rust. The CLI supports game discovery, archive inspection, metadata-only installation previews, and **explicit, ownership-tracked installation of supported legacy .archive, CET, RED4ext, redscript and ArchiveXL-associated ZIP and 7z packages**. The runtime-loaded Lua Cyberpunk discovery and diagnostics module is available; REDmod deployment, other mod types, MCP and a desktop UI are not implemented; see the issues labeled `deferred`.
 
-## Portable Windows release
+## Install on Windows
 
-A release is a single `modn.exe` with a `modn.exe.sha256` checksum file. It
-needs no installer, Rust toolchain or repository. The executable contains the
-first-party Lua game policy and the official `main` bucket catalog. It links
+Run this command in PowerShell without administrator rights:
+
+```powershell
+irm https://github.com/modn-org/modn/releases/latest/download/install.ps1 | iex
+```
+
+The script verifies and installs `modn.exe`, adds it to your user PATH, and runs
+`modn bucket update`. Open a new terminal, then run `modn search`.
+The executable embeds no game modules or bucket manifests. It links
 the C runtime statically, so it does not need the Visual C++ Redistributable.
 Check the download in PowerShell before you run it:
 
@@ -138,17 +144,22 @@ All paths passed to Lua capabilities are relative to a short-lived **numeric roo
 ## Runtime-loaded Cyberpunk game policy
 
 Cyberpunk discovery, scan classification, framework signals and doctor diagnostics
-now reside in `crates/modn-core/game-modules/cyberpunk-2077/` as
-`module.json` and `main.lua`. Rust loads them **at runtime** through a
+now reside in `buckets/main/games/cyberpunk-2077/` as
+`module.json` and `module.lua`. Rust loads them **at runtime** through a
 game-agnostic policy executor, not an embedded `cyberpunk.rs` adapter.
 
-The canonical first-party module sources are committed here and **compiled
-into the `modn` executable** at build time. A release binary is portable: it
-never reads policy from a `game-modules/` directory beside it or from the
-build machine's source tree, so replacing files next to the executable
-cannot change the reviewed policy. Editing a bundled source requires a
-rebuild. There is no separately installed module ZIP, activation database,
-module marketplace or bucket-provided Lua policy.
+Modn reads the official bucket from `<data dir>/buckets/main/`. If it is missing,
+Modn tells the user to run `modn bucket update`. Modn never fetches it implicitly.
+The install script runs that command once. The local copy works offline.
+`MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP for an update.
+
+`modn bucket update` downloads the latest release's `main-bucket.zip` and
+`main-bucket.zip.sha256` over HTTPS. It verifies the digest and validates the
+bucket and modules before an atomic swap. The checksum shares the release origin,
+as in Scoop. Release signing is future work. Failure preserves the previous copy.
+Only `main` contains modules. The separate `modn-org/main` repository is planned in #69.
+Modn refreshes the copy only when requested. Third-party game modules (#51)
+and Git-backed catalog sync (#53) remain deferred.
 
 For development, select a source directory containing `module.json` and
 its Lua entrypoint for the current invocation only:
@@ -161,7 +172,7 @@ modn --game cyberpunk-2077 scan --module-src ./my-cyberpunk-module --json
 The `--src` alias for `--module-src` is global but never persisted.
 `MODN_GAME_MODULES_DIR/<game-id>/` remains an alternative developer override.
 An explicit missing, invalid or mismatched source fails without fallback.
-Ordinary commands return to the embedded policy; edits to a selected local
+Ordinary commands return to the local `main` policy; edits to a selected local
 source are observed without rebuilding Modn. A persistent
 `MODN_GAME_MODULES_DIR` applies to every command in that environment, so
 unset it outside development. Neither override grants write
@@ -186,6 +197,7 @@ modn game list
 modn game remove cyberpunk-2077
 
 modn bucket list
+modn bucket update
 modn bucket add community "/path/to/catalog"
 modn bucket remove community
 
@@ -219,7 +231,7 @@ Catalog installation needs each archive with the exact format and SHA-256
 from its manifest. Modn downloads an `https` source itself. A `manual`
 source, such as a Nexus file, is never downloaded: supply it with `--file`,
 and without it Modn names the file to get. Standalone
-`modn install <archive.zip|archive.7z>` works without any bucket and uses
+`modn install <archive.zip|archive.7z>` needs no catalog entry and uses
 the existing Lua planner and Rust ownership transaction. `--dry-run` previews
 without game writes. A catalog install in an interactive terminal shows what
 it will write and asks `Install? [y/N]`; scripts and `--json` must pass
@@ -483,7 +495,7 @@ skipped entries remain visible in diagnostics; scanning never grants ownership.
 
 `modn --game <game-id> install <file> --dry-run --path <game> --json` resolves archive contents into proposed file operations without writing game files. The runtime-loaded Lua game policy provides a **schema-v1** proposal (`schema_version = 1`, `operations = { { source, destination, kind, package_root }, ... }`, `blockers = { { code, message }, ... }`). Rust independently validates source membership, game-root confinement, target paths, case-insensitive duplicates, file/directory overlap, occupied or linked destinations, prohibited executables, declared byte limits, and source-archive changes. The module cannot choose an arbitrary destination root or access write APIs. To keep the existing 8 MiB/1-second module execution budget predictable, previews with more than 2,048 archive files return a blocked result (TOO_MANY_FILES), not a partial proposal. Replacing the Lua policy alone changes the preview without rebuilding Rust.
 
-An optional outer package folder is trimmed by the game policy. Unknown layouts, incompatible package variants, executable installers, occupied destinations, and missing REDmod tooling block the preview. A `status: "reviewable"` preview means the selected Lua policy proposed safe operations, **not** that archive content is verified or installation approved. The bundled Cyberpunk module permits legacy `.archive` and ArchiveXL `.xl`/`.archive.xl` metadata directly under `archive/pc/mod/`, `.reds` under `r6/scripts/` and its subdirectories, `.toml` under `r6/config/redsUserHints/`, `.yaml`/`.yml` under `r6/tweaks/`, CET mods under `bin/x64/plugins/cyber_engine_tweaks/mods/<name>/`, and RED4ext plugins under `red4ext/plugins/<name>/`, plus direct `r6/input/*.xml` definitions when Input Loader is present or included in the ZIP. It still blocks REDmod deployment and unsupported content. An Input Loader package containing its DLL under `red4ext/plugins/input_loader/` deliberately omits three runtime-generated files from installation: `engine/config/platform/pc/input_loader.ini`, `r6/cache/inputContexts.xml`, and `r6/cache/inputUserMappings.xml`. Dry-run JSON lists them under `skipped_generated_files`. Input Loader creates or regenerates these when the game starts; Modn never claims ownership or deletes them during uninstall. Preserve existing caches and follow upstream instructions for optional manual cleanup. Other game-cache and engine-config paths remain unsupported. The Rust executor accepts independently validated ZIP and 7z file operations from any selected game policy. Changing Lua mappings changes both preview and approved installation without rebuilding Rust. `metadata_only: true` means file contents have not been staged or verified. Untrusted Lua results have an 8 MiB copied-string budget and strict per-field limits.
+An optional outer package folder is trimmed by the game policy. Unknown layouts, incompatible package variants, executable installers, occupied destinations, and missing REDmod tooling block the preview. A `status: "reviewable"` preview means the selected Lua policy proposed safe operations, **not** that archive content is verified or installation approved. The first-party Cyberpunk module permits legacy `.archive` and ArchiveXL `.xl`/`.archive.xl` metadata directly under `archive/pc/mod/`, `.reds` under `r6/scripts/` and its subdirectories, `.toml` under `r6/config/redsUserHints/`, `.yaml`/`.yml` under `r6/tweaks/`, CET mods under `bin/x64/plugins/cyber_engine_tweaks/mods/<name>/`, and RED4ext plugins under `red4ext/plugins/<name>/`, plus direct `r6/input/*.xml` definitions when Input Loader is present or included in the ZIP. It still blocks REDmod deployment and unsupported content. An Input Loader package containing its DLL under `red4ext/plugins/input_loader/` deliberately omits three runtime-generated files from installation: `engine/config/platform/pc/input_loader.ini`, `r6/cache/inputContexts.xml`, and `r6/cache/inputUserMappings.xml`. Dry-run JSON lists them under `skipped_generated_files`. Input Loader creates or regenerates these when the game starts; Modn never claims ownership or deletes them during uninstall. Preserve existing caches and follow upstream instructions for optional manual cleanup. Other game-cache and engine-config paths remain unsupported. The Rust executor accepts independently validated ZIP and 7z file operations from any selected game policy. Changing Lua mappings changes both preview and approved installation without rebuilding Rust. `metadata_only: true` means file contents have not been staged or verified. Untrusted Lua results have an 8 MiB copied-string budget and strict per-field limits.
 
 `modn install <file> --yes` re-resolves the same Lua policy as `--dry-run`, then submits its operations to Rust for fresh source hashes, filesystem conflicts and ownership checks under the exclusive transaction lock. Lua itself has no write binding, and preview results are neither stored nor accepted as approval tokens. `--dry-run --path <game>` does not initialize manager state; previews using a registered game open an existing database read-only. Without `--yes` or `--dry-run`, `install` refuses to run. These options are mutually exclusive. **A reviewable dry run never authorizes installation.**
 
@@ -609,7 +621,7 @@ All first-party code is MIT licensed.
 
 ## Local buckets (metadata contract v1)
 
-Modn includes a read-only `main` bucket snapshot of thirteen Cyberpunk
+The official `main` bucket catalogs thirteen Cyberpunk
 packages: RED4ext, redscript, Cyber Engine Tweaks, ArchiveXL, TweakXL,
 Codeware, Mod Settings, Equipment-EX, Browser Extension, No Intro Videos,
 Virtual Atelier, Input Loader and BetterLootMarkers. Each SHA-256 was checked
@@ -637,9 +649,9 @@ optional dependencies (same-game IDs), dependency_versions, conflicts,
 executables and homepage. Unknown fields and
 unsupported schemas are rejected. See `buckets/main` for examples.
 Registrations point to explicitly selected directories. Package manifests
-are revalidated on every read. Buckets contain mod-package metadata only;
-`modules/` directories are rejected. See [bucket contract v1](buckets/README.md).
-Game modules are first-party source shipped with Modn, outside buckets.
+are revalidated on every read. Only the official `main` bucket may contain
+`module.json` and `module.lua`. Modn rejects those files in registered local
+buckets and rejects `modules/` directories. See [bucket contract v1](buckets/README.md).
 
 Bucket registration, listing, searching and manifest inspection are
 **metadata-only** and never modify game files. A catalog entry can be

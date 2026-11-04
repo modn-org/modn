@@ -1,6 +1,9 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::Command;
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
@@ -9,16 +12,18 @@ fn create_modules(root: &Path) -> PathBuf {
     let modules = root.join("modules");
     let sources = [
         ("test-game", "../../tests/fixtures/test-game"),
-        (
-            "cyberpunk-2077",
-            "../../crates/modn-core/game-modules/cyberpunk-2077",
-        ),
+        ("cyberpunk-2077", "../../buckets/main/games/cyberpunk-2077"),
     ];
     for (id, source) in sources {
         let destination = modules.join(id);
         fs::create_dir_all(&destination).expect("fixture setup or assertion");
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join(source);
-        for name in ["module.json", "main.lua"] {
+        let script = if id == "test-game" {
+            "main.lua"
+        } else {
+            "module.lua"
+        };
+        for name in ["module.json", script] {
             fs::copy(source.join(name), destination.join(name))
                 .expect("fixture setup or assertion");
         }
@@ -27,7 +32,7 @@ fn create_modules(root: &Path) -> PathBuf {
 }
 
 fn run(modules: &Path, state: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_modn"))
+    main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .env("MODN_GAME_MODULES_DIR", modules)
         .arg("--state-dir")
         .arg(state)

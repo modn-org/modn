@@ -1,8 +1,10 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
@@ -36,7 +38,7 @@ impl Fixture {
     }
 
     fn cli(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_modn"))
+        main_bucket::command(env!("CARGO_BIN_EXE_modn"))
             .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
             .arg(&self.state)
             .args(args)

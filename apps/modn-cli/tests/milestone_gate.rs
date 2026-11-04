@@ -3,13 +3,15 @@ mod support;
 #[path = "support/tree.rs"]
 mod tree;
 
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::LazyLock;
 use support::{error, Fixture};
 use tree::{file_count, sha, snapshot};
@@ -37,6 +39,12 @@ fn text(value: &Value) -> String {
 fn official_releases() -> Vec<Release> {
     let mut releases: Vec<Release> = fs::read_dir(catalog_dir())
         .expect("official catalog")
+        .filter(|entry| {
+            let path = entry.as_ref().expect("entry").path();
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+                && path.file_name().expect("filename") != "module.json"
+        })
         .map(|entry| {
             let path = entry.expect("entry").path();
             let manifest: Value =
@@ -85,7 +93,7 @@ struct Gate {
 
 impl Gate {
     fn modn(&self, args: &[&str], files: &[&Path]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_modn"));
+        let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
         command
             .arg("--state-dir")
             .arg(&self.fixture.state)

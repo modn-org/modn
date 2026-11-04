@@ -1,14 +1,16 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
 #[expect(clippy::unwrap_used, reason = "Fixture setup may fail fast in tests")]
 fn cli(state: &Path, args: &[&str]) -> Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_modn"));
+    let mut cmd = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     cmd.args(["--game", "cyberpunk-2077"]);
     cmd.args(["--state-dir", state.to_str().unwrap(), "--json"]);
     cmd.args(args).output().unwrap()

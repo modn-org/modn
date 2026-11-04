@@ -1,6 +1,8 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -73,7 +75,7 @@ fn run(fixture: &Fixture, args: &[&str], files: &[&Path]) -> std::process::Outpu
         all.push("--file".into());
         all.push(file.as_os_str().to_owned());
     }
-    std::process::Command::new(env!("CARGO_BIN_EXE_modn"))
+    main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)

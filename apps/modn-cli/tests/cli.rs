@@ -1,6 +1,7 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use serde_json::Value;
 use std::fs;
-use std::process::Command;
 use tempfile::tempdir;
 
 #[test]
@@ -17,7 +18,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     let state_str = state.to_str().unwrap();
     let game_str = game.to_str().unwrap();
 
-    let add = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let add = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -36,7 +37,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
         String::from_utf8_lossy(&add.stderr)
     );
 
-    let list = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let list = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir", state_str, "game", "list", "--json"])
         .output()
@@ -45,7 +46,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     let registered: Value = serde_json::from_slice(&list.stdout).unwrap();
     assert_eq!(registered.as_array().unwrap().len(), 1);
 
-    let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let scan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir", state_str, "scan", "--json"])
         .output()
@@ -55,7 +56,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     assert_eq!(scanned["mods"][0]["kind"], "legacy-archive");
     assert_eq!(scanned["mods"][0]["managed"], false);
 
-    let doctor = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let doctor = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args(["--state-dir", state_str, "doctor", "--json"])
         .output()
@@ -80,7 +81,7 @@ fn refuses_to_register_a_non_game_directory() {
     let state = temp.path().join("state");
     let candidate = temp.path().join("not-a-game");
     fs::create_dir_all(&candidate).unwrap();
-    let result = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let result = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -105,7 +106,7 @@ fn refuses_state_database_inside_game_directory() {
     fs::create_dir_all(executable.parent().unwrap()).unwrap();
     fs::write(&executable, b"original").unwrap();
     let state = game.join("private/manager-state");
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
             "--state-dir",
@@ -125,8 +126,9 @@ fn refuses_state_database_inside_game_directory() {
 #[test]
 fn modn_name_and_default_state_directory() {
     let temp = tempdir().unwrap();
+    main_bucket::seed(temp.path());
     let exe = env!("CARGO_BIN_EXE_modn");
-    let help = Command::new(exe)
+    let help = main_bucket::command(exe)
         .args(["--game", "cyberpunk-2077"])
         .arg("--help")
         .output()
@@ -134,7 +136,7 @@ fn modn_name_and_default_state_directory() {
     assert!(help.status.success());
     assert!(String::from_utf8_lossy(&help.stdout).contains("Usage: modn"));
 
-    let output = Command::new(exe)
+    let output = main_bucket::command(exe)
         .args(["--game", "cyberpunk-2077"])
         .env("LOCALAPPDATA", temp.path())
         .args(["game", "list"])
@@ -151,7 +153,7 @@ fn modn_name_and_default_state_directory() {
     fs::create_dir_all(marker.parent().unwrap()).unwrap();
     fs::write(&marker, b"fixture").unwrap();
     let nested_state = game.join("private/state");
-    let listing = Command::new(exe)
+    let listing = main_bucket::command(exe)
         .args([
             "--state-dir",
             nested_state.to_str().unwrap(),
@@ -165,7 +167,7 @@ fn modn_name_and_default_state_directory() {
         !nested_state.exists(),
         "selector-free list wrote inside game"
     );
-    let recovery = Command::new(exe)
+    let recovery = main_bucket::command(exe)
         .args([
             "--state-dir",
             nested_state.to_str().unwrap(),
@@ -179,7 +181,7 @@ fn modn_name_and_default_state_directory() {
         !nested_state.exists(),
         "selector-free recovery initialized state"
     );
-    let add = Command::new(exe)
+    let add = main_bucket::command(exe)
         .env("LOCALAPPDATA", temp.path())
         .args([
             "game",
@@ -207,11 +209,11 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     let module_base = root.path().join("game-modules");
     let module = module_base.join("cyberpunk-2077");
     fs::create_dir_all(&module).expect("module directory");
-    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/modn-core/game-modules/cyberpunk-2077");
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
     fs::copy(source.join("module.json"), module.join("module.json")).expect("manifest fixture");
-    let original = fs::read_to_string(source.join("main.lua")).expect("Lua policy");
-    fs::write(module.join("main.lua"), &original).expect("initial policy");
+    let original = fs::read_to_string(source.join("module.lua")).expect("Lua policy");
+    fs::write(module.join("module.lua"), &original).expect("initial policy");
 
     let game = root.path().join("game");
     fs::create_dir_all(game.join("bin/x64")).expect("game bin");
@@ -220,7 +222,7 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     fs::write(game.join("archive/pc/mod/example.archive"), b"manual").expect("mod");
     let state = root.path().join("state");
     let add = || {
-        Command::new(env!("CARGO_BIN_EXE_modn"))
+        main_bucket::command(env!("CARGO_BIN_EXE_modn"))
             .args(["--game", "cyberpunk-2077"])
             .arg("--src")
             .arg(&module)
@@ -241,7 +243,7 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
         .replace("bin/x64/Cyberpunk2077.exe", "bin/x64/AlternateGame.exe")
         .replace(r#""legacy-archive""#, r#""external-archive""#);
     assert_ne!(updated, original, "fixture must change policy");
-    fs::write(module.join("main.lua"), updated).expect("update Lua without rebuilding");
+    fs::write(module.join("module.lua"), updated).expect("update Lua without rebuilding");
     let after = add();
     assert!(
         after.status.success(),
@@ -249,7 +251,7 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
         String::from_utf8_lossy(&after.stderr)
     );
 
-    let scan = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let scan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .arg("--module-src")
         .arg(&module)
@@ -266,7 +268,7 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     let report: Value = serde_json::from_slice(&scan.stdout).expect("JSON scan");
     assert_eq!(report["mods"][0]["kind"], "external-archive");
     assert_eq!(report["mods"][0]["managed"], false);
-    let normal = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let normal = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--state-dir"])
         .arg(&state)
         .args(["scan", "--json"])
@@ -279,7 +281,7 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     assert!(String::from_utf8_lossy(&normal.stderr).contains("Cyberpunk2077.exe"));
 
     let unsafe_state = game.join("private/state");
-    let forbidden = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let forbidden = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .arg("--src")
         .arg(&module)
@@ -312,7 +314,7 @@ fn explicit_development_source_rejects_wrong_game_without_registering() {
     fs::write(&marker, b"unchanged").expect("marker");
     let state = temp.path().join("state");
     let wrong_module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
-    let result = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let result = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--src")
         .arg(&wrong_module)
         .arg("--state-dir")

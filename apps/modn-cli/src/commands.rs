@@ -129,6 +129,8 @@ pub(super) enum CacheCommand {
 
 #[derive(Subcommand)]
 pub(super) enum BucketCommand {
+    /// Download, verify and replace the official main bucket.
+    Update { name: Option<String> },
     /// Register a local bucket directory after validating its complete contents.
     Add { name: String, path: PathBuf },
     /// Forget a local bucket registration without changing its files.

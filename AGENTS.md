@@ -37,9 +37,7 @@ describe. Revise records with
 `memory/events.jsonl` is append-only. Never store secrets, personal data, raw
 reasoning, or speculation stated as fact.
 
-Game-specific Lua modules are first-party source shipped with Modn, not
-distributed by buckets. Buckets catalog mod packages only. Standard Lua 5.4
-is the game-module runtime; earlier releases used Luau.
+First-party game modules live beside mod manifests in the official `main` bucket; registered local buckets cannot contain modules. Modn embeds no bucket manifests or game modules. `modn bucket update` is the only command that fetches the local `main` copy; the install script runs it once. Standard Lua 5.4 via mlua is the game-module runtime; earlier releases used Luau.
 A trusted module may be powerful, but Rust-owned managed transactions,
 ownership and recoverability are separate correctness guarantees. No
 milestone or issue authorizes modifying a user's real game or merging a PR.

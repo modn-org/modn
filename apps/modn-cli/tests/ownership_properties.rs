@@ -1,3 +1,5 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, RngSeed, TestCaseError, TestError, TestRunner};
 use serde_json::Value;
@@ -114,6 +116,7 @@ struct World {
 impl World {
     fn new(case: &Case) -> Result<Self, TestCaseError> {
         let temp = tempdir()?;
+        main_bucket::seed(temp.path());
         let root = temp.path().join("world");
         let game = root.join("game");
         fs::create_dir_all(game.join("bin/x64"))?;
@@ -130,10 +133,10 @@ impl World {
         let modules = temp.path().join("modules");
         let module = modules.join("cyberpunk-2077");
         fs::create_dir_all(&module)?;
-        let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../crates/modn-core/game-modules/cyberpunk-2077");
+        let bundled =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
         fs::copy(bundled.join("module.json"), module.join("module.json"))?;
-        let code = fs::read_to_string(bundled.join("main.lua"))?.replace("\r\n", "\n");
+        let code = fs::read_to_string(bundled.join("module.lua"))?.replace("\r\n", "\n");
         let policy = code
             .strip_suffix("return policy\n")
             .ok_or_else(|| TestCaseError::fail("bundled module does not end in `return policy`"))?;
@@ -148,7 +151,7 @@ impl World {
             }
         }
         fs::write(
-            module.join("main.lua"),
+            module.join("module.lua"),
             format!(
                 "{policy}\nlocal mapping = {{\n{map}}}\nfunction policy.plan(files)\n  \
                  local present = {{}}\n  for _, file in ipairs(files) do present[file.source] = true end\n  \
@@ -188,6 +191,7 @@ impl World {
 
     fn modn(&self, args: &[&str]) -> Result<Output, TestCaseError> {
         Ok(Command::new(env!("CARGO_BIN_EXE_modn"))
+            .env("LOCALAPPDATA", self._temp.path())
             .env("MODN_GAME_MODULES_DIR", &self.modules)
             .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
             .arg(&self.state)

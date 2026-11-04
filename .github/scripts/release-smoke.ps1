@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string] $Binary,
-  [string] $Checksum
+  [string] $Checksum,
+  [Parameter(Mandatory)] [string] $MainBucket
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,6 +14,9 @@ function Assert-That([bool] $Condition, [string] $Message) {
 }
 
 $source = (Resolve-Path -LiteralPath $Binary).Path
+$bucketSource = (Resolve-Path -LiteralPath $MainBucket).Path
+$previousLocalAppData = $env:LOCALAPPDATA
+$previousBucketSource = $env:MODN_MAIN_BUCKET_SOURCE
 
 if ($Checksum) {
   $expected = ((Get-Content -LiteralPath $Checksum -Raw).Trim() -split '\s+')[0]
@@ -34,6 +38,8 @@ Assert-That (-not (Get-Command cargo, rustc -ErrorAction SilentlyContinue)) 'car
 $work = Join-Path ([IO.Path]::GetTempPath()) "modn-smoke-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
+  $env:LOCALAPPDATA = Join-Path $work 'data'
+  $env:MODN_MAIN_BUCKET_SOURCE = $bucketSource
   Push-Location -LiteralPath $work
   Copy-Item -LiteralPath $source -Destination 'modn.exe'
   $insideRepository = (Get-Command git -ErrorAction SilentlyContinue) -and
@@ -61,6 +67,8 @@ try {
     return ($output -join "`n") | ConvertFrom-Json
   }
 
+  $updated = Invoke-Modn @('bucket', 'update')
+  Assert-That ($updated.bucket -eq 'main' -and $updated.changed) 'bucket update installs the verified local ZIP'
   $search = Invoke-Modn @('search')
   $red4ext = @($search | Where-Object { $_.bucket -eq 'main' -and $_.id -eq 'red4ext' })
   Assert-That ($red4ext.Count -eq 1) "search lists red4ext from the bundled main bucket ($(@($search).Count) mods)"
@@ -83,6 +91,8 @@ try {
   $gameAfter = Get-TreeSnapshot $game
   Assert-That (-not (Compare-Object @($gameBefore) @($gameAfter))) 'the fake game directory and file contents are unchanged'
 } finally {
+  $env:LOCALAPPDATA = $previousLocalAppData
+  $env:MODN_MAIN_BUCKET_SOURCE = $previousBucketSource
   Pop-Location
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

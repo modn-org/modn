@@ -84,7 +84,7 @@ pub(super) fn download(
     Ok(())
 }
 
-fn fetch(url: &str) -> Result<impl Read> {
+pub(super) fn fetch(url: &str) -> Result<impl Read> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
         .timeout_connect(Some(CONNECT_TIMEOUT))
