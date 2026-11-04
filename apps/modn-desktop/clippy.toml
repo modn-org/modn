@@ -1,0 +1,8 @@
+avoid-breaking-exported-api = false
+allow-unwrap-in-tests = true
+disallowed-methods = [
+  { path = "std::panic::catch_unwind", reason = "Use recoverable errors" },
+  { path = "std::sync::PoisonError::into_inner", reason = "Preserve poison errors" },
+  { path = "std::sync::PoisonError::get_ref", reason = "Preserve poison errors" },
+  { path = "std::sync::PoisonError::get_mut", reason = "Preserve poison errors" },
+]
