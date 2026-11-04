@@ -18,7 +18,7 @@ The development-only `--module-src` flag selects a local source for one command;
 it does not change any persistent selection or stored installation record.
 
 Buckets contain mod-package manifests and source metadata. Only the official
-`main` bucket may also contain game modules. A bucket
+`main` bucket may also contain game modules. Trusted third-party modules are copied into a separate registry after explicit approval. A bucket
 record is not evidence of installed content; an archive hash proves exact
 bytes, not harmlessness. Catalog updates cannot modify game files.
 Rust owns managed transactions, file and directory ownership, rollback,
@@ -182,7 +182,7 @@ dependency links to the new one. Git-backed catalog sync remains deferred (#53).
 
 1. Preserve game ownership and pending-transaction evidence.
 2. A catalog update cannot silently install, uninstall or update mods.
-3. Game-specific Lua policy remains first-party source in `main`.
+3. First-party Lua policy remains in `main`; trusted third-party policy uses a separate registry.
 4. Development override paths never persist or silently fall back.
 5. Package manifests and Lua proposals cannot claim pre-existing files.
 6. Failed installation and recovery preserve unmanaged game content.
