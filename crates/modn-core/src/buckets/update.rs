@@ -53,8 +53,13 @@ fn copy_tree(source: &Path, target: &Path) -> Result<()> {
         if kind.is_dir() {
             copy_tree(&entry.path(), &destination)?;
         } else if kind.is_file() {
-            fs::copy(entry.path(), &destination)?;
-            File::open(destination)?.sync_all()?;
+            fs::copy(entry.path(), &destination)
+                .context("copy previous main bucket for rollback")?;
+            OpenOptions::new()
+                .write(true)
+                .open(destination)?
+                .sync_all()
+                .context("sync previous main bucket rollback file")?;
         } else {
             bail!("non-regular previous main bucket entry");
         }
@@ -220,5 +225,20 @@ mod tests {
         assert_eq!(fs::read(root.path().join("main/old")).unwrap(), b"old");
         recover(root.path()).unwrap();
         assert!(!root.path().join(".main-rollback").exists());
+    }
+
+    #[test]
+    fn recovery_uses_complete_rollback_after_interrupted_cleanup() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join(".main-aside")).unwrap();
+        fs::write(root.path().join(".main-aside/remaining"), b"partial").unwrap();
+        fs::create_dir(root.path().join(".main-rollback")).unwrap();
+        fs::write(root.path().join(".main-rollback/old"), b"complete").unwrap();
+        fs::create_dir(root.path().join(".main-staging")).unwrap();
+        recover(root.path()).unwrap();
+        assert_eq!(fs::read(root.path().join("main/old")).unwrap(), b"complete");
+        assert!(!root.path().join(".main-aside").exists());
+        assert!(!root.path().join(".main-rollback").exists());
+        assert!(!root.path().join(".main-staging").exists());
     }
 }
