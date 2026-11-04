@@ -177,6 +177,24 @@ impl Installed {
     }
 }
 
+#[test]
+fn target_pinned_after_planning_stays_installed() {
+    let mut installed = base_with_dependent();
+    let game = installed.fixture.game.clone();
+    installed
+        .fixture
+        .store
+        .set_package_pin(&game, &installed.base.id, true)
+        .expect("pin target");
+    let error = installed.update(None).expect_err("pinned target");
+    assert!(error.to_string().contains("pinned"));
+    assert_eq!(
+        fs::read_to_string(game.join("addons/base.plugin")).expect("old content"),
+        "v1"
+    );
+    installed.fixture.store.ensure_idle().expect("no journal");
+}
+
 fn assert_no_transaction_files(folder: &Path) {
     for entry in fs::read_dir(folder).unwrap() {
         let name = entry.unwrap().file_name().to_string_lossy().into_owned();

@@ -3,53 +3,7 @@ use rusqlite::Connection;
 use std::fs;
 use tempfile::tempdir;
 
-#[test]
-fn version_one_migrates_all_packages_to_unpinned() {
-    let temp = tempdir().expect("fixture");
-    let db = temp.path().join("state.sqlite");
-    let store = Store::open(&db).expect("state");
-    store
-        .connection
-        .execute_batch(
-            "ALTER TABLE managed_packages DROP COLUMN pinned;
-        PRAGMA user_version=1;
-        INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES
-        ('one','game','hash-one'),('two','game','hash-two');",
-        )
-        .expect("version one fixture");
-    drop(store);
-    let before = fs::read(&db).expect("database");
-    drop(Store::open_readonly(&db).expect("read old schema"));
-    assert_eq!(fs::read(&db).expect("database"), before);
-    let store = Store::open(&db).expect("migration");
-    let version: i64 = store
-        .connection
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .expect("version");
-    assert_eq!(version, 2);
-    let mut query = store
-        .connection
-        .prepare("SELECT id, archive_sha256, pinned FROM managed_packages ORDER BY id")
-        .expect("query");
-    let rows = query
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, bool>(2)?,
-            ))
-        })
-        .expect("rows")
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .expect("packages");
-    assert_eq!(
-        rows,
-        vec![
-            ("one".into(), "hash-one".into(), false),
-            ("two".into(), "hash-two".into(), false)
-        ]
-    );
-}
+mod pins;
 
 #[cfg(windows)]
 #[test]
