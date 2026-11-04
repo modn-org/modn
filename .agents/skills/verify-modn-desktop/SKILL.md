@@ -17,10 +17,11 @@ agent-desktop skills get platform
 agent-desktop status
 cargo build -p modn-cli --locked
 pwsh -NoProfile -File .agents/skills/verify-modn-desktop/scripts/doctor.ps1 -Backend target/debug/modn.exe
-cargo build --manifest-path apps/modn-desktop/Cargo.toml --all-features --locked
-cargo fmt --manifest-path apps/modn-desktop/Cargo.toml --all -- --check
-cargo clippy --manifest-path apps/modn-desktop/Cargo.toml --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --manifest-path apps/modn-desktop/Cargo.toml --workspace --all-features --locked
+cargo build --workspace --all-features --locked
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --locked
+cargo test -p modn-desktop --all-features --locked
 ```
 
 Install `agent-desktop` with `npm install -g agent-desktop` if it is absent.
@@ -29,14 +30,22 @@ The doctor checks eight prerequisites and prints a JSON count.
 Require exit 0, eight checks, and zero failures.
 The backend contract suite includes a real 60-second timeout.
 Complete builds and tests before launching a driver.
-Wait for that driver to close its app before rebuilding; Windows locks a running executable.
-The nested workspace commands do not prove root workspace coverage.
+Wait for native drivers and CLI property fixtures to exit before rebuilding.
+Windows locks running executables, including a CLI launched by another test.
+These root workspace commands include the Windows desktop app.
+The separate all-feature desktop command runs all seven backend tests.
+GPUI dependencies are Windows-only; Linux builds use an explicit unsupported-platform entry point.
+Install 7-Zip on PATH for the genuine 7z fixture.
+If the default automation state fails its DACL check, set AGENT_DESKTOP_HOME to a unique task-local directory.
+Keep that value for every command in the run.
+An explicit CARGO_TARGET_DIR relocates every binary path below.
+The real driver reads CARGO_TARGET_DIR for its default app path.
 
 ## Launch and drive
 
 ```powershell
 python .agents/skills/verify-modn-desktop/scripts/verify.py --backend target/debug/modn.exe
-python .agents/skills/verify-modn-desktop/scripts/lifecycle.py --app apps/modn-desktop/target/debug/modn-desktop.exe --backend apps/modn-desktop/target/debug/modn-desktop-test-backend.exe
+python .agents/skills/verify-modn-desktop/scripts/lifecycle.py --app target/debug/modn-desktop.exe --backend target/debug/modn-desktop-test-backend.exe
 ```
 
 Require each script to exit 0 with `status: passed`, positive assertion counts, and zero command failures.
@@ -47,7 +56,7 @@ The test backend requires a disposable-state marker and cannot use default state
 Each script creates unique `modn-desktop-fixture-*` and `modn-desktop-evidence-*` directories under the system temporary directory.
 The fixture contains separate game, state, data, and module directories.
 The real driver copies `tests/fixtures/test-game` and registers only its disposable installations.
-It creates a manual file, valid ZIP, blocked ZIP, and malformed ZIP.
+It creates a manual file, valid ZIP, blocked ZIP, unmapped ZIP, and genuine 7z archive.
 It never uses a real game or downloads a bucket.
 
 The driver records its launched PID, executable hashes, full configuration, and window ID.
@@ -57,7 +66,11 @@ Use only this window ID for subsequent native actions and screenshots.
 Buttons use unique accessible names; take fresh refs after state changes.
 The archive field's accessible name is `Absolute path to a local ZIP or 7z`.
 The report document's name is `Proposed files, blockers and results`.
-The verifier uses native file-dialog control ID 2 for Cancel.
+The verifier uses native dialog control IDs 1148 for the filename, 1 for selection, and 2 for Cancel.
+It resolves fresh controls after opening the dialog and after setting the filename.
+Dialog reads allow 20 seconds to prove control uniqueness.
+It checks the resulting app field against the intended fixture path.
+Cancellation after preview preserves the path and bytes but requires another review.
 The driver waits for a distinct window with its launched PID.
 It reads only these controls to avoid capturing personal folder listings.
 The drivers use semantic actions; they need no physical mouse or keyboard input.
@@ -93,8 +106,8 @@ Never clean another run by prefix alone.
 
 ## Limits
 
-The native journey covers ZIP and the synthetic fixture module.
-Native picker selection, 7z archives, Windows 10 hardware, and real-game compatibility need additional proof.
+The native journey covers ZIP and 7z selection, preview, installation, and strict uninstall with the synthetic fixture module.
+Windows 10 hardware and real-game compatibility remain unverified.
 The launcher supports only documented absolute configuration paths.
 Forced termination and OS crashes can require CLI recovery.
 See [desktop product documentation](../../../docs/mvp/desktop.md) for user-facing limits and licensing.

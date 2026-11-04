@@ -19,7 +19,7 @@ Refresh owned packages reloads the CLI inventory.
 ## Driving it with agent-desktop
 
 Run the full `verify.py` command in [SKILL.md](../SKILL.md).
-It confirms installation through native buttons and checks bytes through Python.
+It confirms ZIP and genuine 7z installation through native buttons and checks bytes through Python.
 It verifies ownership with a separate CLI list invocation.
 It cancels one uninstall, then changes owned bytes and checks strict refusal.
 It restores those disposable bytes and confirms uninstall.

@@ -22,12 +22,13 @@ Run `python .agents/skills/verify-modn-desktop/scripts/verify.py --backend targe
 The script finds the test-game button and the archive field by accessible names.
 It checks the report destination and unchanged file/state hashes.
 It changes selection and source, removes registration, and verifies refusal before writes.
+It cancels the picker after a preview and checks the retained path, invalidated authority, and unchanged bytes.
 It captures the review window and resulting accessibility trees.
 
 ## Gotchas
 
-The driver exercises typed paths and native file-dialog cancellation.
-Native file-picker selection remains unverified.
+The driver exercises native ZIP and 7z selection, typed paths, and native file-dialog cancellation.
+Resolve fresh filename and Open controls after each dialog state change.
 Native dialog control IDs avoid locale-specific labels.
 Programmatic field changes need fresh snapshots before checking disabled buttons.
 A review reads metadata and does not certify compatibility.
