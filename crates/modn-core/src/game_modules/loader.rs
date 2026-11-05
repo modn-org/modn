@@ -2,6 +2,7 @@ use super::capabilities::{AllowedRoots, ReadProfile};
 use super::runtime;
 use anyhow::{bail, Context, Result};
 use mlua::Table;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Read;
@@ -31,6 +32,8 @@ pub(super) struct ModuleManifest {
     pub(super) version: String,
     pub(super) api_version: u32,
     pub(super) entrypoint: String,
+    #[serde(default)]
+    pub(super) min_modn_version: Option<String>,
 }
 
 pub(super) fn bounded_file(path: &Path, root: &Path, limit: u64) -> Result<Vec<u8>> {
@@ -79,6 +82,21 @@ pub(super) fn valid_entrypoint(value: &str) -> bool {
 }
 
 pub(super) fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
+    if let Some(minimum) = &manifest.min_modn_version {
+        let required = Version::parse(minimum).with_context(|| {
+            format!(
+                "invalid min_modn_version {minimum:?}; expected a semantic version such as 0.3.0"
+            )
+        })?;
+        let running =
+            Version::parse(env!("CARGO_PKG_VERSION")).context("invalid Modn build version")?;
+        if running.cmp_precedence(&required).is_lt() {
+            bail!(
+                "module {} needs Modn {required}, you have {running}",
+                manifest.game_id
+            );
+        }
+    }
     if manifest.api_version != HOST_API_VERSION {
         bail!(
             "incompatible host API: module requires {}, host supports {}",
@@ -158,6 +176,7 @@ pub fn check_module_with_roots(
         version: info.version.clone(),
         api_version: info.api_version,
         entrypoint: info.entrypoint.clone(),
+        min_modn_version: None,
     };
     execute_module(script.as_bytes(), &manifest, roots)
         .with_context(|| format!("module {} failed validation", manifest.game_id))?;
