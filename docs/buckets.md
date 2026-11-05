@@ -16,7 +16,7 @@ signing is future work. Failure preserves the previous copy. A module whose
 `main` contains modules. The bucket has its own release cycle, so a catalog
 change needs no Modn release.
 Modn refreshes the copy only when requested. Trusted third-party game modules use a separate registry.
-Git-backed catalog sync (#53) remains deferred.
+Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 
 ## Catalog contents
 

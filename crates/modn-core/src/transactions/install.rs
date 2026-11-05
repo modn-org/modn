@@ -28,7 +28,7 @@ pub(super) enum Fault {
 }
 
 impl Fault {
-    fn after_files(self) -> usize {
+    pub(super) fn after_files(self) -> usize {
         match self {
             Self::FailAfter(files) | Self::CrashAfter(files) => files,
         }
@@ -231,6 +231,10 @@ impl Store {
             }
             Ok(files)
         })();
+        let staged = staged.and_then(|files| {
+            super::content::validate_staged_content(proposal, staging.path())?;
+            Ok(files)
+        });
         let files = match staged {
             Ok(files) => files,
             Err(err) => {

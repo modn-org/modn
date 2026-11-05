@@ -1,7 +1,7 @@
 use crate::commands::BucketCommand;
 use crate::state_access::{validate_state_path, ManagerState};
 use anyhow::{Context, Result};
-use modn_core::buckets::BucketStore;
+use modn_core::buckets::{BucketStore, GitCatalogSource};
 use modn_core::state::Store;
 use serde_json::Value;
 use std::path::Path;
@@ -18,7 +18,7 @@ pub(super) fn run(
     let store = BucketStore::new(root);
     if matches!(
         &command,
-        BucketCommand::Add { .. } | BucketCommand::Remove { .. }
+        BucketCommand::Add { .. } | BucketCommand::Remove { .. } | BucketCommand::Sync { .. }
     ) {
         let state = ManagerState::load_deferred(state_path)?;
         let registered = state
@@ -45,6 +45,16 @@ pub(super) fn run(
         }
     }
     let value: Value = match command {
+        BucketCommand::Sync {
+            name,
+            source,
+            revision,
+        } => {
+            let source = source
+                .zip(revision)
+                .map(|(remote, reference)| GitCatalogSource::new(remote, reference));
+            serde_json::to_value(store.sync_git(&name, source)?)?
+        }
         BucketCommand::Update { name } => {
             return crate::bucket_update::run(name.as_deref(), json_output);
         }

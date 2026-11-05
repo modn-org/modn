@@ -45,7 +45,7 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 | Field | Meaning |
 | --- | --- |
 | `bucket_id` | Registered catalog name, for example `main`. |
-| `source` | Verified local `main` copy, registered local directory or future Git source. |
+| `source` | Verified local `main` copy, registered local directory or explicitly synchronized Git source. |
 | `revision` | Selected catalog snapshot/revision. |
 | `title` | Human-readable catalog name. |
 
@@ -176,7 +176,7 @@ The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>@<version>.json`. Only `main` publishes game
 modules. A mod update is a pending uninstall journal and a pending
 install journal; one commit retires the old managed package and moves its
-dependency links to the new one. Git-backed catalog sync remains deferred (#53).
+dependency links to the new one. Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 
 ## Invariants for future changes
 
@@ -184,7 +184,13 @@ dependency links to the new one. Git-backed catalog sync remains deferred (#53).
 2. A catalog update cannot silently install, uninstall or update mods.
 3. First-party Lua policy remains in `main`; trusted third-party policy uses a separate registry.
 4. Development override paths never persist or silently fall back.
-5. Package manifests and Lua proposals cannot claim pre-existing files.
+5. Normal install cannot claim pre-existing files. Explicit adoption requires acknowledgement and exact archive-byte verification.
 6. Failed installation and recovery preserve unmanaged game content.
 7. Never add a per-game Rust core adapter.
 8. Keep manager state outside game installations.
+
+## Explicit lifecycle and acquisition extensions
+
+[sources.md](sources.md) specifies Git catalog revisions, digest-based cache reuse and pinned GitHub release acquisition.
+[lifecycle.md](lifecycle.md) specifies acknowledged file adoption and approved cleanup of modified owned files.
+Adoption commits individual ownership without writing game bytes. Cleanup retains journals, backups and recovery checks.

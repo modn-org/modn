@@ -1,4 +1,6 @@
+use super::cleanup::RemovalMode;
 use super::directory::{covers, quarantine, quarantine_path};
+use super::install::Fault;
 use super::journal::{digest, lock_store, target_path, temp_path, JournalFile};
 use super::validation::validate_transaction_root;
 use crate::state::Store;
@@ -16,8 +18,19 @@ impl Store {
     }
 
     pub(super) fn uninstall_locked(&mut self, game: &Path, package_id: &str) -> Result<()> {
+        self.uninstall_with_mode_locked(game, package_id, RemovalMode::Strict, None)
+    }
+
+    pub(super) fn uninstall_with_mode_locked(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        mode: RemovalMode,
+        fault: Option<Fault>,
+    ) -> Result<()> {
         let game = validate_transaction_root(game)?;
-        let id = self.withdraw_locked(&game, package_id, Dependents::Refuse)?;
+        let id =
+            self.withdraw_with_mode_locked(&game, package_id, Dependents::Refuse, mode, fault)?;
         if let Err(err) = self.commit_uninstall(&id, package_id) {
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
@@ -39,6 +52,17 @@ impl Store {
         package_id: &str,
         dependents: Dependents,
     ) -> Result<String> {
+        self.withdraw_with_mode_locked(game, package_id, dependents, RemovalMode::Strict, None)
+    }
+
+    fn withdraw_with_mode_locked(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        dependents: Dependents,
+        mode: RemovalMode,
+        fault: Option<Fault>,
+    ) -> Result<String> {
         self.ensure_no_pending()?;
         let package = self
             .installed(game)?
@@ -52,10 +76,11 @@ impl Store {
                 needed_by.join(", ")
             );
         }
-        let files: Vec<_> = package
+        let forced = matches!(mode, RemovalMode::ModifiedOwned);
+        let mut files: Vec<_> = package
             .files
             .iter()
-            .filter(|f| !covers(&package.directories, &f.destination))
+            .filter(|f| forced || !covers(&package.directories, &f.destination))
             .enumerate()
             .map(|(ordinal, f)| JournalFile {
                 ordinal,
@@ -64,8 +89,16 @@ impl Store {
                 bytes: f.bytes,
             })
             .collect();
-        for f in &files {
+        for f in &mut files {
             let target = target_path(game, &f.destination)?;
+            if forced {
+                let metadata = fs::symlink_metadata(&target)?;
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                    bail!("unsafe owned target: {}", target.display());
+                }
+                f.sha256 = digest(&target)?;
+                f.bytes = metadata.len();
+            }
             if !target.is_file() || digest(&target)? != f.sha256 {
                 bail!(
                     "owned file missing or modified; refusing uninstall: {}",
@@ -95,7 +128,7 @@ impl Store {
         let _ = staging.keep();
         self.insert_journal(
             &id,
-            "uninstall",
+            if forced { "cleanup" } else { "uninstall" },
             game,
             package_id,
             None,
@@ -103,11 +136,19 @@ impl Store {
             &package.directories,
         )?;
         let attempt = (|| -> Result<()> {
-            for (index, root) in package.directories.iter().enumerate() {
-                let identity = self.managed_directory_identity(package_id, root)?;
-                quarantine(game, root, &id, index, &identity)?;
+            if !forced {
+                for (index, root) in package.directories.iter().enumerate() {
+                    let identity = self.managed_directory_identity(package_id, root)?;
+                    quarantine(game, root, &id, index, &identity)?;
+                }
             }
             for f in &files {
+                if forced {
+                    for root in &package.directories {
+                        let identity = self.managed_directory_identity(package_id, root)?;
+                        super::directory::verify_directory(&target_path(game, root)?, &identity)?;
+                    }
+                }
                 let target = target_path(game, &f.destination)?;
                 if !target.is_file() || digest(&target)? != f.sha256 {
                     bail!("owned file modified during uninstall: {}", target.display());
@@ -124,10 +165,16 @@ impl Store {
                     );
                 }
                 fs::remove_file(&target)?;
+                if fault.is_some_and(|fault| fault.after_files() == f.ordinal + 1) {
+                    bail!("injected cleanup stop");
+                }
             }
             Ok(())
         })();
         if let Err(err) = attempt {
+            if matches!(fault, Some(Fault::CrashAfter(_))) {
+                return Err(err);
+            }
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
                     "{err:#}; uninstall recovery incomplete: {recovery_error:#}; run 'modn recover'"

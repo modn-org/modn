@@ -1,7 +1,7 @@
 use crate::catalog_install::reference_of;
 use crate::commands::CacheCommand;
 use anyhow::{bail, Context, Result};
-use modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse};
+use modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse, GithubReleaseAsset};
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -10,6 +10,26 @@ use std::time::Duration;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static TEST_RESPONSES: std::cell::RefCell<Option<BTreeMap<String, Vec<u8>>>> = const { std::cell::RefCell::new(None) };
+    pub(super) static TEST_CALLS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn fixture_response(url: &str) -> Option<Result<Box<dyn Read>>> {
+    TEST_RESPONSES.with(|responses| {
+        responses.borrow().as_ref().map(|responses| {
+            TEST_CALLS.with(|calls| calls.borrow_mut().push(url.to_owned()));
+            responses
+                .get(url)
+                .cloned()
+                .map(|bytes| Box::new(std::io::Cursor::new(bytes)) as Box<dyn Read>)
+                .with_context(|| format!("unexpected fixture request: {url}"))
+        })
+    })
+}
 
 pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
     let root = match std::env::var_os("MODN_CACHE") {
@@ -22,21 +42,32 @@ pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
     Ok(ArchiveCache::new(root))
 }
 
-fn key(release: &BucketPackage) -> Option<CacheKey<'_>> {
+fn source_url(release: &BucketPackage) -> Option<String> {
     match &release.package.source {
-        PackageSource::Https { url } => Some(CacheKey::new(
-            &release.package.game,
-            &release.package.id,
-            &release.package.version,
-            url,
-            &release.package.sha256,
+        PackageSource::Https { url } => Some(url.clone()),
+        PackageSource::GithubRelease {
+            repository,
+            tag,
+            asset,
+        } => Some(format!(
+            "https://github.com/{repository}/releases/download/{tag}/{asset}"
         )),
-        _ => None,
+        PackageSource::Manual { .. } | _ => None,
     }
 }
 
+fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
+    CacheKey::new(
+        &release.package.game,
+        &release.package.id,
+        &release.package.version,
+        url,
+        &release.package.sha256,
+    )
+}
+
 pub(super) fn downloadable(release: &BucketPackage) -> bool {
-    key(release).is_some()
+    source_url(release).is_some()
 }
 
 pub(super) fn add_cached<'a>(
@@ -49,8 +80,8 @@ pub(super) fn add_cached<'a>(
         if archives.contains_key(&reference) {
             continue;
         }
-        if let Some(path) = key(release)
-            .map(|key| cache.cached(&key))
+        if let Some(path) = source_url(release)
+            .map(|url| cache.cached(&key(release, &url)))
             .transpose()?
             .flatten()
         {
@@ -69,12 +100,25 @@ pub(super) fn download(
 ) -> Result<()> {
     for release in releases {
         let reference = reference_of(release).to_string();
-        let Some(key) = key(release) else {
+        let Some(url) = source_url(release) else {
             continue;
         };
         if archives.contains_key(&reference) {
             continue;
         }
+        if let PackageSource::GithubRelease {
+            repository,
+            tag,
+            asset,
+        } = &release.package.source
+        {
+            let provider = GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
+            let resolved = provider.resolve(fetch_metadata)?;
+            if resolved != url {
+                bail!("provider source changed during resolution");
+            }
+        }
+        let key = key(release, &url);
         if !json {
             eprintln!("Downloading {reference} {} from {}", key.version, key.url);
         }
@@ -84,7 +128,35 @@ pub(super) fn download(
     Ok(())
 }
 
-pub(super) fn fetch(url: &str) -> Result<impl Read> {
+fn fetch_metadata(url: &str) -> Result<Box<dyn Read>> {
+    #[cfg(test)]
+    if let Some(response) = fixture_response(url) {
+        return response;
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .https_only(true)
+        .max_redirects(0)
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_per_read(Some(READ_INACTIVITY_TIMEOUT))
+        .user_agent(concat!("modn/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into();
+    let response = agent
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .call()?;
+    if response.status() != 200 {
+        bail!("GitHub metadata request returned {}", response.status());
+    }
+    Ok(Box::new(response.into_body().into_reader()))
+}
+
+pub(super) fn fetch(url: &str) -> Result<Box<dyn Read>> {
+    #[cfg(test)]
+    if let Some(response) = fixture_response(url) {
+        return response;
+    }
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
         .timeout_connect(Some(CONNECT_TIMEOUT))
@@ -93,7 +165,7 @@ pub(super) fn fetch(url: &str) -> Result<impl Read> {
         .build()
         .into();
     let response = agent.get(url).call()?;
-    Ok(response.into_body().into_reader())
+    Ok(Box::new(response.into_body().into_reader()))
 }
 
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {

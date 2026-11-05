@@ -47,6 +47,8 @@ struct Metadata {
 #[serde(deny_unknown_fields)]
 struct Registration {
     path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    git: Option<super::GitCatalogRevision>,
 }
 
 /// Catalog registry, separate from game registrations and ownership state.
@@ -332,11 +334,50 @@ impl BucketStore {
         }
         fs::create_dir_all(&dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        serde_json::to_writer(&mut temp, &Registration { path })?;
+        serde_json::to_writer(&mut temp, &Registration { path, git: None })?;
         temp.as_file().sync_all()?;
         temp.persist_noclobber(dir.join(format!("{name}.json")))
             .context("bucket name already registered")?;
         Ok(info)
+    }
+
+    pub(super) fn publish_git(
+        &self,
+        name: &str,
+        path: PathBuf,
+        git: super::GitCatalogRevision,
+    ) -> Result<()> {
+        self.load(name, &path)?;
+        let dir = self.root.join("registrations");
+        if let Ok(meta) = fs::symlink_metadata(&dir) {
+            if !meta.is_dir() || meta.file_type().is_symlink() {
+                bail!("unsafe bucket registry");
+            }
+        }
+        fs::create_dir_all(&dir)?;
+        let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
+        serde_json::to_writer(
+            &mut temp,
+            &Registration {
+                path,
+                git: Some(git),
+            },
+        )?;
+        temp.as_file().sync_all()?;
+        temp.persist(dir.join(format!("{name}.json")))?;
+        Ok(())
+    }
+
+    pub(super) fn registered_git(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
+        if !self.registrations()?.contains_key(name) {
+            return Ok(None);
+        }
+        let registration: Registration =
+            bounded_json(&self.root.join("registrations").join(format!("{name}.json")))?;
+        registration
+            .git
+            .context("bucket is a local source, not a Git catalog")
+            .map(Some)
     }
 
     /// Forget a registered bucket without touching its source or game files.

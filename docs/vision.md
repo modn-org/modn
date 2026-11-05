@@ -18,7 +18,7 @@ If the copy is missing, Modn asks the user to run that command.
 The update checks the ZIP against its release SHA-256 sidecar from the same origin.
 Release signing is future work. `main` lives in the `modn-org/main` repository,
 with its own release cycle.
-Trusted third-party game modules use a separate registry. Git-backed catalog sync (#53) remains deferred.
+Trusted third-party game modules use a separate registry. Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 Package manifests never authorize changes to game files: a
 manifest may declare the tool executables its archive installs, but only the
 user's confirmation or an explicit `--allow-executable` approves them.
@@ -33,8 +33,8 @@ choosing a fallback.
 Rust owns installation transaction state, conflict protection, file and
 directory ownership, rollback and recovery. Lua provides game-specific
 discovery, diagnostics and installation proposals; it does not bypass Rust's
-install transaction guarantees. Prefer clean installs, not automatic adoption
-of manually installed mods.
+install transaction guarantees. Prefer clean installs. Explicit adoption requires acknowledgement and matching archive bytes;
+see [lifecycle.md](lifecycle.md).
 
 Windows comes first.
 

@@ -26,6 +26,8 @@ pub(super) struct Cli {
 pub(super) enum Command {
     /// Install a cataloged mod or an explicit local ZIP/7z archive.
     Install(InstallArgs),
+    /// Claim matching manual files without changing game bytes.
+    Adopt(AdoptArgs),
     /// Replace an installed catalog mod with another release, recoverably.
     Update(UpdateArgs),
     /// Prevent updates of a managed package, by ID or catalog name.
@@ -42,7 +44,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: CacheCommand,
     },
-    /// Inspect bundled and explicitly registered local package catalogs.
+    /// Inspect the local official bucket and registered community catalogs.
     Bucket {
         #[command(subcommand)]
         command: BucketCommand,
@@ -52,7 +54,7 @@ pub(super) enum Command {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// Remove an unchanged manager-owned package, by ID or catalog name.
+    /// Remove a managed package; --force removes changed owned files only.
     Uninstall(UninstallArgs),
     /// Safely roll back interrupted installs/uninstalls.
     Recover {
@@ -80,7 +82,7 @@ pub(super) enum Command {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// Check REDmod availability and report unmanaged content.
+    /// Run the selected game module's diagnostics and report managed-file drift.
     Doctor {
         #[arg(long)]
         path: Option<PathBuf>,
@@ -150,13 +152,21 @@ pub(super) enum CacheCommand {
 
 #[derive(Subcommand)]
 pub(super) enum BucketCommand {
+    /// Explicitly fetch and validate a community Git catalog snapshot.
+    Sync {
+        name: String,
+        #[arg(long, requires = "revision")]
+        source: Option<String>,
+        #[arg(long, requires = "source")]
+        revision: Option<String>,
+    },
     /// Download, verify and replace the official main bucket.
     Update { name: Option<String> },
     /// Register a local bucket directory after validating its complete contents.
     Add { name: String, path: PathBuf },
     /// Forget a local bucket registration without changing its files.
     Remove { name: String },
-    /// List the bundled official bucket and registered local buckets.
+    /// List the local official bucket and registered community buckets.
     List,
     /// Inspect one exact bucket/game/package reference.
     Show { package: String },
@@ -268,4 +278,24 @@ pub(super) struct UninstallArgs {
     /// Also remove every package that needs the selected one, dependents first.
     #[arg(long)]
     pub(super) cascade: bool,
+    /// Remove recorded files even when modified; requires --yes to execute.
+    #[arg(long, conflicts_with_all = ["include_deps", "cascade"])]
+    pub(super) force: bool,
+}
+
+/// Explicit approval to claim individual manual files from a local archive.
+#[derive(Args)]
+pub(super) struct AdoptArgs {
+    pub(super) archive: PathBuf,
+    #[arg(long)]
+    pub(super) path: Option<PathBuf>,
+    /// Preview metadata only; byte matching and ownership checks remain pending.
+    #[arg(long, conflicts_with_all = ["yes", "acknowledge"])]
+    pub(super) dry_run: bool,
+    /// Acknowledge recording ownership of matching existing individual files.
+    #[arg(long)]
+    pub(super) acknowledge: bool,
+    /// Confirm the atomic ownership commit; game bytes remain unchanged.
+    #[arg(long)]
+    pub(super) yes: bool,
 }

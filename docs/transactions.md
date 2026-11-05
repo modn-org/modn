@@ -8,7 +8,7 @@ The Cyberpunk Lua policy prefers an **exclusive mod folder** for new CET, RED4ex
 
 The transaction executor is game-agnostic: Rust callers may submit an explicitly approved `InstallPlan` to `Store::install_operations_zip` for any real installation root. Under the exclusive store lock it independently re-inspects the archive, verifies archive hashes and all source sizes, validates destinations, collisions, executable payloads, ownership conflicts, and size limits before staging. The ownership ledger, rollback, crash recovery, and uninstall operate on generic installation roots. The CLI now resolves installation operations from Lua; no Cyberpunk-specific Rust installation planner or legacy compatibility adapter remains. ZIP and 7z extraction are supported; REDmod deployment remains unsupported. CET/RED4ext `.dll` plugin files are permitted within the recognized plugin layout, but neither Modn nor its preview executes them or certifies their compatibility; prohibited executable payloads remain blocked unless explicitly approved as an exact tool path by the caller.
 
-Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), file adoption, migration, or automatic recovery. Package updates use the same journals; see [Pinning and updating mods](updating.md). Always try it on a disposable game fixture before testing against a real game.
+Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), automatic adoption, migration, or automatic recovery. Package updates use the same journals; see [Pinning and updating mods](updating.md). Always try it on a disposable game fixture before testing against a real game.
 
 ## Directories Modn creates
 
@@ -37,3 +37,8 @@ still a real directory at its recorded canonical path. On Linux, directory
 records are case-sensitive. A directory that a rolled-back install created but
 that still holds content moves into the ledger, so a later prune can remove it.
 `modn game remove` ends the records for that game.
+
+## Explicit lifecycle extensions
+
+[Managed lifecycle](lifecycle.md) describes acknowledged adoption and approved cleanup of modified owned files.
+Normal installation still rejects existing destinations. Normal uninstall retains strict integrity checks.
