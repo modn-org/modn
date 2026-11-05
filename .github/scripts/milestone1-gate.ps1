@@ -94,6 +94,8 @@ if ($localBinary) { $Tag = 'local binary' }
 $env:MODN_MAIN_BUCKET_SOURCE = $null
 $work = Join-Path ([IO.Path]::GetTempPath()) "modn-gate-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $PSScriptRoot 'gate-git.ps1')
+$savedGit = Enter-GateGitEnvironment $work
 try {
   Push-Location -LiteralPath $work
   $env:LOCALAPPDATA = Join-Path $work 'data'
@@ -249,6 +251,7 @@ try {
   Assert-That (-not (Test-Path -LiteralPath (Join-Path $oldGame 'archive\pc\mod\gate.archive'))) `
     "$Tag uninstalled the $PreviousTag package and removed its file"
 } finally {
+  Exit-GateGitEnvironment $savedGit
   $env:LOCALAPPDATA = $previousLocalAppData
   $env:MODN_MAIN_BUCKET_SOURCE = $previousBucketSource
   $env:Path = $previousPath
