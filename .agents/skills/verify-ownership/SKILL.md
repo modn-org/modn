@@ -34,18 +34,18 @@ than its floor fails, so a vacuous pass cannot happen.
 
 ## Coverage record
 
-Last confirmed against commit `ea67090`.
+Last confirmed against commit `7550011`.
 
 | Check | Covered code |
 |---|---|
 | containment, documented names, superscript device names, single component | `crates/modn-core/src/archive.rs` `validated_name`; the destination gate in `crates/modn-core/src/planning.rs` `resolve_with_permissions` and `crates/modn-core/src/transactions/validation.rs` `validate_plan` (called by `validate_execution_plan` and adoption); `crates/modn-core/src/transactions/journal.rs` `target_path`. The test function `accepted` in `crates/modn-core/src/planning/destination_properties.rs` copies that gate and must match both call sites. The single-component checks live in `destination_properties/single_component.rs`. |
-| ownership key | `transactions/directory.rs` `ownership_key` and `case_key`; `planning.rs` `insert_destination`; `transactions/journal.rs` `commit_install` (`path_key`); `transactions/created_dirs.rs`; `inventory.rs`; `transactions/validation.rs` `validate_ownership_paths`; `state.rs` `migrate_ownership_keys` and its migration and collision tests in `state/tests.rs`. |
+| ownership key | `transactions/directory.rs` `ownership_key` and `case_key`; `planning.rs` `insert_destination`; `transactions/journal.rs` `commit_install` (`path_key`); `transactions/created_dirs.rs`; `inventory.rs`; `transactions/validation.rs` `validate_ownership_paths`; `state.rs` `migrate_ownership_keys` and its migration and collision tests in `state/tests.rs`; `state/roots.rs` `migrate_to_v3`, `record_root` and `resolve_root`, whose root-qualified keys `(game_path, root, path_key)` the checks reach through `commit_install`, `validate_ownership_paths` and `Store::transaction_root`, with tests in `state/roots_tests.rs` and `transactions/roots_tests.rs`. |
 | end to end, agreement | `apps/modn-cli/src/install.rs` `install_archive`; `apps/modn-cli/src/state_access.rs`; `planning.rs` `resolve_with_permissions`, `existing_destination_issue`; `crates/modn-core/src/transactions/` `install.rs`, `uninstall.rs`, `journal.rs`, `recovery.rs`, `created_dirs.rs`, `validation.rs`. |
 
 To see whether the covered code changed after the sync commit, run:
 
 ```sh
-git diff --stat ea67090 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/state.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
+git diff --stat 7550011 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/state.rs crates/modn-core/src/state/roots.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
 ```
 
 When that diff is not empty, read it against the table and the generators.
@@ -79,6 +79,8 @@ Writable state opens migrate stored file, directory and created-directory
 keys in one transaction. Exact keys require no updates.
 A collision refuses the open and
 preserves every ownership record. Read-only opens do not migrate state.
+Schema version 3 qualifies every ownership key with its root label; today
+every record uses the `game` root, so the checks see the same keys as before.
 
 ## Read a failure
 
