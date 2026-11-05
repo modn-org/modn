@@ -124,7 +124,7 @@ def lifecycle(r):
             not shutil.which("rustc", path=r.env["PATH"]), "Rust tools absent from child PATH")
     r.check(not re.search(rb"(?i)(vcruntime\d+(_\d+)?|msvcp\d+|api-ms-win-crt-[a-z-]+-l1-1-0)\.dll",
                           r.binary.read_bytes()), "no dynamic Visual C++ runtime imports")
-    spec = importlib.util.spec_from_file_location("pack", REPO / ".github/scripts/pack-main-bucket.py")
+    spec = importlib.util.spec_from_file_location("pack", REPO / "buckets/main/.github/scripts/pack.py")
     pack = importlib.util.module_from_spec(spec)
     sys.dont_write_bytecode = True
     spec.loader.exec_module(pack)

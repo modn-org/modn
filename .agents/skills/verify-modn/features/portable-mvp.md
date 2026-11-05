@@ -12,7 +12,7 @@ python .agents/skills/verify-modn/scripts/portable_mvp.py --binary target/releas
 The driver requires Windows, Python 3.10+ and Git for the outside-repository check.
 It copies the executable outside the repository and removes Rust tools from the child PATH.
 It rejects dynamic Visual C++ runtime imports.
-It packs the current official bucket with the release packer and bootstraps through explicit `bucket update`.
+It packs the current official bucket with the pinned bucket repository release packer and bootstraps through explicit `bucket update`.
 It uses the bootstrapped first-party Cyberpunk policy without a module override.
 
 The disposable community catalog contains synthetic ZIP payloads and pinned digests.

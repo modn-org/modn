@@ -122,7 +122,7 @@ Linux dependency resolution excludes GPUI; native desktop behavior requires Wind
 The root dev profile disables debug information to retain the existing GPUI build configuration.
 An explicit CARGO_TARGET_DIR changes all binary paths shown above.
 Use that directory for the app, CLI, test backend, doctor, and native drivers.
-Issue #69 remains excluded.
+The official bucket uses its separate repository and the existing pinned submodule.
 
 ## Framework and licensing
 
