@@ -97,3 +97,32 @@ modn module remove game-id
 ```
 
 Registration copies the manifest and Lua entrypoint into a separate registry. It requires a valid local `main` bucket and refuses official game identities. The retained digest and identity are checked when loading or listing. Official modules take priority; development overrides remain temporary and fail closed. Removal deletes the registration only. It does not remove installed packages or game files. Community buckets cannot contain modules. Trust does not grant installation approval or provide a sandbox.
+
+## Skyrim example
+
+Source: `examples/game-modules/skyrim-special-edition/`.
+Register that directory with explicit trust, or select it through the existing source override.
+The example uses the official module's `pcall` pattern for metadata checks.
+Unsupported ancestor directories return false during installation validation.
+Missing executable markers or Data directories still reject installation registration.
+The CLI lifecycle test registers an unchanged copy of this example.
+Select game ID `skyrim-special-edition` and an explicit disposable or user-selected game path.
+The module requires a regular `SkyrimSE.exe` file and a real `Data` directory.
+It does not infer game identity from a folder name. It supplies no automatic discovery paths.
+
+Archives must use exact `Data/` prefixes. Wrapped archives and bare plugin files are rejected.
+Supported files are top-level `.esp`, `.esm`, `.esl`, and `.bsa` files under `Data`.
+Loose files are limited to `.nif` under `Data/meshes/` and `.dds` under `Data/textures/`.
+Filename extension checks ignore case. Directory names retain their supplied spelling.
+Root `readme.txt` and `license.txt` are ignored. Other unsupported files block the plan.
+All supported files use individual ownership in shared locations.
+Rust retains destination validation, overwrite protection, rollback, recovery, and uninstall authority.
+
+Scan reports candidate Data content. It does not distinguish official files from manually installed content.
+Doctor reports scan limits and managed-file drift. It always reminds the user to manage load order.
+No SKSE, DLLs, Papyrus scripts, FOMOD installers, save migration, automatic activation, or load-order editing is supported.
+The module does not validate plugin dependencies, game versions, BSA contents, or in-game behavior.
+
+
+Synthetic fixtures cover the managed lifecycle. They do not establish real-game compatibility.
+The example is documentation and test input; Modn does not embed it.
