@@ -34,7 +34,25 @@ jobs:
       - name: Build modn.exe with a static C runtime
         env:
           RUSTFLAGS: -C target-feature=+crt-static
-        run: cargo build --release --locked -p modn-cli
+        run: |
+          cargo build --release --locked -p modn-cli -p modn-mcp -p modn-desktop --features modn-desktop/verification
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc -C opt-level=3 -C target-feature=+crt-static apps/modn-mcp/tests/fixtures/backend.rs -o target/release/modn-mcp-fault.exe
+      - name: Package verifier binaries and SHA-256 checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path verifiers | Out-Null
+          foreach ($name in @('modn-mcp.exe', 'modn-mcp-fault.exe', 'modn-desktop.exe', 'modn-desktop-test-backend.exe')) {
+            Copy-Item "target/release/$name" "verifiers/$name"
+            $hash = (Get-FileHash "verifiers/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText("$PWD/verifiers/$name.sha256", "$hash *$name`n")
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modn-verifiers-${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          path: verifiers/
+          retention-days: 30
+          if-no-files-found: error
       - name: Package modn.exe and its SHA-256 checksum
         shell: pwsh
         run: |
