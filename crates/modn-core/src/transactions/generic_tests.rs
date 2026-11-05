@@ -62,6 +62,69 @@ fn non_cyberpunk_root_install_list_uninstall_and_recover() {
     assert!(!game.join("data/mods/a.bin").exists());
 }
 #[test]
+fn single_component_destination_installs_and_uninstalls() {
+    let (_dir, mut store, game, archive) = fixture();
+    let mut proposal = plan(&game, &archive);
+    proposal.operations[0].destination = "a.lua".into();
+    proposal.operations[1].destination = "Mods/b.lua".into();
+    let package = store
+        .install_operations_zip(&game, &archive, &proposal)
+        .unwrap();
+    assert_eq!(fs::read(game.join("a.lua")).unwrap(), b"one");
+    assert_eq!(fs::read(game.join("Mods/b.lua")).unwrap(), b"two");
+    let mut collision = plan(&game, &archive);
+    collision.operations[0].destination = "a.lua".into();
+    assert!(store
+        .install_operations_zip(&game, &archive, &collision)
+        .is_err());
+    #[cfg(windows)]
+    {
+        collision.operations[0].destination = "A.LUA".into();
+        assert!(store
+            .install_operations_zip(&game, &archive, &collision)
+            .is_err());
+    }
+    store.uninstall(&game, &package.id).unwrap();
+    assert_eq!(store.recover().unwrap(), 0);
+    assert_eq!(fs::read_dir(&game).unwrap().count(), 0);
+}
+#[test]
+fn unsafe_single_component_destinations_are_refused_without_writes() {
+    let (_dir, mut store, game, archive) = fixture();
+    for destination in [
+        "",
+        ".",
+        "..",
+        "/a.lua",
+        "a.lua/",
+        "C:a.lua",
+        "C:",
+        "\\\\server\\share\\a.lua",
+        "a\\b.lua",
+        "a.lua:stream",
+        "a.lua.",
+        "a.lua ",
+        "CON",
+        "nul.lua",
+        "COM1",
+        "lpt9.lua",
+        "COM\u{b9}",
+        "a*b.lua",
+        "install.exe",
+    ] {
+        let mut proposal = plan(&game, &archive);
+        proposal.operations[0].destination = destination.into();
+        assert!(
+            store
+                .install_operations_zip(&game, &archive, &proposal)
+                .is_err(),
+            "{destination:?}"
+        );
+        assert_eq!(fs::read_dir(&game).unwrap().count(), 0, "{destination:?}");
+        assert!(store.pending().unwrap().is_empty());
+    }
+}
+#[test]
 fn independently_rejects_forged_plans_without_writes_or_journals() {
     let (dir, mut store, game, archive) = fixture();
     for choice in 0..11 {

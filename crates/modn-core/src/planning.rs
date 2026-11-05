@@ -317,7 +317,6 @@ fn resolve_with_permissions(
         if request.destination.len() > 1024
             || !crate::archive::validated_name(&request.destination)
                 .is_ok_and(|normalized| normalized == request.destination)
-            || !request.destination.contains('/')
         {
             issue(
                 &mut blockers,

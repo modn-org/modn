@@ -23,6 +23,7 @@ rules as the oracle for that class.
 | `accepted_destinations_stay_inside_the_game` | Every destination the gate accepts names one new file inside the game folder, under the same name, after the OS resolves it. | A hostile module writes outside the game, to a device such as `CON`, or under a silently changed name. |
 | `accepted_destinations_follow_documented_windows_names` | No accepted path component is `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` or `LPT1`–`LPT9` (alone or before an extension), ends in a space or period, or holds a reserved character. | A package installs a file that Windows tools open as a device or cannot delete. |
 | `accepted_destinations_avoid_superscript_device_names` | No accepted path component is `COM¹`–`COM³` or `LPT¹`–`LPT³`, alone or before an extension. | The same device-name harm through the superscript digits that Microsoft documents as reserved. |
+| `single_component_destinations_keep_every_rule` | A destination with one component is accepted only when it names one file directly in the game folder, follows the documented Windows names, and shares its ownership key with every same-file spelling; drive, UNC, traversal, stream, trailing-dot, trailing-space and device-name forms stay rejected. | A single-file mod writes outside the game, to a device, or beside another package's file under a different case. |
 | `same_file_spellings_share_one_ownership_key` | Two accepted destinations that the OS treats as one file get the same ownership key. | Two operations or two packages own one file, so the plan and the ownership checks miss the collision. |
 | `dry_run_install_and_uninstall_keep_ownership_promises` | A dry run changes no file and no manager state. An install writes exactly the previewed files or changes nothing. An uninstall removes exactly its package's files. Uninstalling every package restores the game tree. | Previews write, installs overwrite user files or write outside the game, or uninstall deletes another package's or the user's files. |
 | `reviewable_dry_run_predicts_the_install` | When nothing changes between them, a `reviewable` dry run and the approved install agree. | The user approves a preview, and the install then fails on a blocker the preview missed. |
@@ -33,18 +34,18 @@ than its floor fails, so a vacuous pass cannot happen.
 
 ## Coverage record
 
-Last confirmed against commit `78b2885`.
+Last confirmed against commit `ea67090`.
 
 | Check | Covered code |
 |---|---|
-| containment, documented names, superscript device names | `crates/modn-core/src/archive.rs` `validated_name`; the destination gate in `crates/modn-core/src/planning.rs` `resolve_with_permissions` and `crates/modn-core/src/transactions/validation.rs` `validate_execution_plan`. The test function `accepted` in `crates/modn-core/src/planning/destination_properties.rs` copies that gate and must match both call sites. |
+| containment, documented names, superscript device names, single component | `crates/modn-core/src/archive.rs` `validated_name`; the destination gate in `crates/modn-core/src/planning.rs` `resolve_with_permissions` and `crates/modn-core/src/transactions/validation.rs` `validate_plan` (called by `validate_execution_plan` and adoption); `crates/modn-core/src/transactions/journal.rs` `target_path`. The test function `accepted` in `crates/modn-core/src/planning/destination_properties.rs` copies that gate and must match both call sites. The single-component checks live in `destination_properties/single_component.rs`. |
 | ownership key | `transactions/directory.rs` `ownership_key` and `case_key`; `planning.rs` `insert_destination`; `transactions/journal.rs` `commit_install` (`path_key`); `transactions/created_dirs.rs`; `inventory.rs`; `transactions/validation.rs` `validate_ownership_paths`; `state.rs` `migrate_ownership_keys` and its migration and collision tests in `state/tests.rs`. |
 | end to end, agreement | `apps/modn-cli/src/install.rs` `install_archive`; `apps/modn-cli/src/state_access.rs`; `planning.rs` `resolve_with_permissions`, `existing_destination_issue`; `crates/modn-core/src/transactions/` `install.rs`, `uninstall.rs`, `journal.rs`, `recovery.rs`, `created_dirs.rs`, `validation.rs`. |
 
 To see whether the covered code changed after the sync commit, run:
 
 ```sh
-git diff --stat 78b2885 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/state.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
+git diff --stat ea67090 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/state.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
 ```
 
 When that diff is not empty, read it against the table and the generators.
@@ -63,7 +64,7 @@ cargo test -p modn-cli --locked --test ownership_properties -- --include-ignored
 The first command takes about a second and the second about 30 seconds. The
 seed is fixed, so a rerun checks the same cases. To explore new cases, set
 `PROPTEST_RNG_SEED` to any integer. To check more cases, set `PROPTEST_CASES`.
-`cargo test --workspace` runs all six checks with their default case counts.
+`cargo test --workspace` runs all seven checks with their default case counts.
 
 The ownership-key property is meaningful on Windows, where NTFS folds case.
 On a case-sensitive file system it finds no same-file pairs, and it then skips
@@ -71,7 +72,7 @@ its floor.
 
 ## Expected result at the sync commit
 
-All six checks pass. File and directory ownership keys use `ownership_key`:
+All seven checks pass. Destinations may have one component; `validated_name` alone decides which names are safe. File and directory ownership keys use `ownership_key`:
 per-character lowercase on Windows and exact paths elsewhere. Created-directory
 keys use `case_key`: per-character uppercase on Windows and exact paths elsewhere.
 Writable state opens migrate stored file, directory and created-directory
@@ -94,7 +95,8 @@ which path. Then decide which of these it is:
 
 When a change to behavior is intended, update the property sentence in the
 table first, then the assertion. When new hostile input shapes appear, add them
-to the generator pools `HOSTILE`, `NAMES`, `SHARED`, or the CLI pool `HOSTILE`.
+to the generator pools `HOSTILE`, `NAMES`, `SHARED`, `SINGLE_PREFIXES`,
+`SINGLE_SUFFIXES`, `SINGLE_DEVICES`, or the CLI pools `SHARED` and `HOSTILE`.
 Show every changed check failing on a scratch break of the code it guards,
 such as removing the trailing-dot or `CON` rule in `validated_name`, recording
 ownership for only the first file in `commit_install`, or making the dry run

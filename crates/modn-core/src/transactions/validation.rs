@@ -108,7 +108,6 @@ pub(super) fn validate_plan(
         if operation.destination.len() > 1_024
             || !validated_name(&operation.destination)
                 .is_ok_and(|name| name == operation.destination)
-            || !operation.destination.contains('/')
             || (prohibited_payload(&operation.destination)
                 && !approved_tool_executable(&operation.source, &operation.destination, approved))
         {

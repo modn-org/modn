@@ -8,6 +8,8 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use tempfile::tempdir;
 
+mod single_component;
+
 const FIXED_SEED: u64 = 0x6d6f_646e;
 
 fn config(default_cases: u32) -> Config {
@@ -43,7 +45,6 @@ fn run<S: Strategy>(
 fn accepted(destination: &str) -> bool {
     destination.len() <= 1024
         && validated_name(destination).is_ok_and(|normalized| normalized == destination)
-        && destination.contains('/')
 }
 
 const HOSTILE: &[&str] = &[
