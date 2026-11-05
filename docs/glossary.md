@@ -48,6 +48,10 @@ A versioned Lua integration that defines game-specific discovery,
 installation policy, diagnostics and tool behavior.
 _Avoid_: Mod, plugin, adapter, Rust game handler
 
+**Trusted third-party game module**:
+A user-approved executable Lua policy copied into a separate local registry.
+_Avoid_: Community bucket module, automatically safe module
+
 **First-party game module**:
 A Lua 5.4 integration owned by Modn and distributed in the official bucket.
 _Avoid_: Independently installed game plugin

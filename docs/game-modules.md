@@ -85,3 +85,15 @@ The shared read-only host adds `mods_host.directory.list(root_id,relative[,max_e
 no-write guarantees remain. Rust retains platform access, CLI path selection,
 SQLite ownership, file identity and integrity checks, transactions and recovery.
 Lua presence signals do not certify runtime compatibility.
+
+## Trusted third-party modules
+
+A third-party module is executable policy. Register it only when you trust its source:
+
+```sh
+modn module register ./module --trust
+modn module list --json
+modn module remove game-id
+```
+
+Registration copies the manifest and Lua entrypoint into a separate registry. It requires a valid local `main` bucket and refuses official game identities. The retained digest and identity are checked when loading or listing. Official modules take priority; development overrides remain temporary and fail closed. Removal deletes the registration only. It does not remove installed packages or game files. Community buckets cannot contain modules. Trust does not grant installation approval or provide a sandbox.

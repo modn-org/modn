@@ -15,8 +15,8 @@ signing is future work. Failure preserves the previous copy. A module whose
 `api_version` this Modn does not support makes the whole update fail. Only
 `main` contains modules. The bucket has its own release cycle, so a catalog
 change needs no Modn release.
-Modn refreshes the copy only when requested. Third-party game modules (#51)
-and Git-backed catalog sync (#53) remain deferred.
+Modn refreshes the copy only when requested. Trusted third-party game modules use a separate registry.
+Git-backed catalog sync (#53) remains deferred.
 
 ## Catalog contents
 
