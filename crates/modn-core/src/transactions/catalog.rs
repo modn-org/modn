@@ -1,4 +1,3 @@
-use super::validation::validate_transaction_root;
 use crate::integrity::package_intact;
 use crate::state::Store;
 use anyhow::{bail, Result};
@@ -215,7 +214,7 @@ impl Store {
         if dependencies.is_empty() {
             return Ok(Vec::new());
         }
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         let installed = self.installed(&game)?;
         dependencies
             .iter()

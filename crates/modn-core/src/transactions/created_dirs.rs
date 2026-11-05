@@ -1,12 +1,13 @@
 use super::directory::case_key;
 use super::journal::target_path;
-use super::validation::validate_transaction_root;
-use crate::state::Store;
+use crate::state::{resolve_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
 use rusqlite::{params, Transaction};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+const GAME: &str = RootKind::Game.label();
 
 #[derive(Debug, PartialEq, Eq)]
 enum Prune {
@@ -106,8 +107,9 @@ impl Store {
             if prune_one(game, relative, identity.as_deref())? == Prune::Occupied {
                 self.connection.execute(
                     "INSERT OR REPLACE INTO created_directories
-                         (game_path,path_key,relative_path,identity) VALUES (?1,?2,?3,?4)",
-                    params![game_path, case_key(relative), relative, identity],
+                         (game_path,root,path_key,relative_path,identity)
+                         VALUES (?1,?2,?3,?4,?5)",
+                    params![game_path, GAME, case_key(relative), relative, identity],
                 )?;
             }
         }
@@ -122,10 +124,10 @@ impl Store {
         let game_path = game.to_string_lossy().into_owned();
         let mut statement = self.connection.prepare(
             "SELECT path_key, relative_path, identity FROM created_directories
-             WHERE game_path=?1",
+             WHERE game_path=?1 AND root=?2",
         )?;
         let mut recorded = statement
-            .query_map([&game_path], |row| {
+            .query_map(params![game_path, GAME], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -144,8 +146,9 @@ impl Store {
             }
             if outcome != Prune::Occupied {
                 self.connection.execute(
-                    "DELETE FROM created_directories WHERE game_path=?1 AND path_key=?2",
-                    params![game_path, key],
+                    "DELETE FROM created_directories
+                     WHERE game_path=?1 AND root=?2 AND path_key=?3",
+                    params![game_path, GAME, key],
                 )?;
             }
         }
@@ -163,9 +166,8 @@ impl Store {
         let mut removed = 0;
         for game in games {
             let stored = PathBuf::from(game);
-            match validate_transaction_root(&stored) {
-                Ok(root) if root == stored => removed += self.prune_created(&root)?,
-                _ => {}
+            if let Ok(root) = resolve_root(&self.connection, &stored, RootKind::Game) {
+                removed += self.prune_created(&root)?;
             }
         }
         Ok(removed)
@@ -188,9 +190,15 @@ pub(super) fn commit(tx: &Transaction<'_>, transaction_id: &str, game: &Path) ->
             continue;
         };
         tx.execute(
-            "INSERT OR REPLACE INTO created_directories(game_path,path_key,relative_path,identity)
-             VALUES (?1,?2,?3,?4)",
-            params![game_path.as_ref(), case_key(relative), relative, identity],
+            "INSERT OR REPLACE INTO created_directories
+                 (game_path,root,path_key,relative_path,identity) VALUES (?1,?2,?3,?4,?5)",
+            params![
+                game_path.as_ref(),
+                GAME,
+                case_key(relative),
+                relative,
+                identity
+            ],
         )?;
     }
     Ok(())

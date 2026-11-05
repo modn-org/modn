@@ -1,5 +1,4 @@
 use super::journal::{lock_store, ManagedPackage};
-use super::validation::validate_transaction_root;
 use super::CatalogReference;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
@@ -209,7 +208,7 @@ impl Store {
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
         let plan = self.plan_uninstall(game, selector, scope)?;
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         let mut removed: Vec<String> = Vec::new();
         for step in &plan {
             if let Err(error) = self.uninstall_locked(&game, &step.id) {

@@ -171,6 +171,9 @@ impl Store {
             )?;
             tx.pragma_update(None, "user_version", 2)?;
         }
+        if version < roots::SCHEMA_VERSION {
+            roots::migrate_to_v3(&tx)?;
+        }
         migrate_ownership_keys(&tx)?;
         tx.commit()?;
         Ok(Self {
@@ -190,6 +193,10 @@ impl Store {
         let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .with_context(|| format!("cannot read existing state database {}", path.display()))?;
         validate_package_schema(&connection)?;
+        let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if version < roots::SCHEMA_VERSION {
+            roots::attach_legacy_views(&connection)?;
+        }
         Ok(Self {
             connection,
             state_root: path
@@ -203,12 +210,15 @@ impl Store {
     pub fn add_game(&self, game_id: &str, path: &Path, source: &str) -> Result<GameInstallation> {
         let path = crate::discovery::validate_installation_for(game_id, path)?;
         let path_text = path.to_str().context("game path must be valid UTF-8")?;
-        self.connection.execute(
+        let tx = self.connection.unchecked_transaction()?;
+        roots::record_root(&tx, &path, roots::RootKind::Game, &path)?;
+        tx.execute(
             "INSERT INTO game_installations (game_id, path, source)
              VALUES (?1, ?2, ?3)
              ON CONFLICT(game_id, path) DO UPDATE SET source=excluded.source",
             params![game_id, path_text, source],
         )?;
+        tx.commit()?;
         Ok(GameInstallation {
             game_id: game_id.into(),
             path,
@@ -266,6 +276,11 @@ impl Store {
         {
             bail!("game registration changed; retry");
         }
+        tx.execute(
+            "DELETE FROM installation_roots WHERE game_path=?1
+             AND NOT EXISTS(SELECT 1 FROM game_installations WHERE path=?1)",
+            [path_text],
+        )?;
         tx.commit()?;
         Ok(entry)
     }
@@ -341,7 +356,8 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
             crate::transactions::ownership_key
         };
         let mut query = connection.prepare(&format!(
-            "SELECT game_path, path_key, relative_path FROM {table} ORDER BY game_path, path_key"
+            "SELECT game_path, root, path_key, relative_path FROM {table}
+             ORDER BY game_path, root, path_key"
         ))?;
         let rows = query
             .query_map([], |row| {
@@ -349,22 +365,26 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut keys = BTreeMap::new();
-        for (game, _, relative) in &rows {
+        for (game, root, _, relative) in &rows {
             let key = path_key(relative);
-            if let Some(previous) = keys.insert((game, key), relative) {
+            if let Some(previous) = keys.insert((game, root, key), relative) {
                 bail!("ownership key migration collision in {table} for game {game}: {previous:?} and {relative:?}; state unchanged");
             }
         }
-        for (game, old_key, relative) in rows {
+        for (game, root, old_key, relative) in rows {
             let key = path_key(&relative);
             if key != old_key {
                 connection.execute(
-                    &format!("UPDATE {table} SET path_key=?1 WHERE game_path=?2 AND path_key=?3"),
-                    params![key, game, old_key],
+                    &format!(
+                        "UPDATE {table} SET path_key=?1
+                         WHERE game_path=?2 AND root=?3 AND path_key=?4"
+                    ),
+                    params![key, game, root, old_key],
                 )?;
             }
         }
@@ -374,7 +394,7 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
 
 fn validate_package_schema(connection: &Connection) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != 1 && version != 2 {
+    if !(1..=roots::SCHEMA_VERSION).contains(&version) {
         bail!("unsupported manager state schema; start with a fresh state directory");
     }
     let (archive_required, manual_origin): (Option<i64>, bool) = connection.query_row(
@@ -390,6 +410,11 @@ fn validate_package_schema(connection: &Connection) -> Result<()> {
     }
     Ok(())
 }
+
+mod roots;
+#[cfg(test)]
+pub(crate) use roots::tests::{link_directory, unlink_directory};
+pub(crate) use roots::{is_recorded, record_root, resolve_root, RootKind};
 
 #[cfg(test)]
 mod tests;
