@@ -3913,7 +3913,7 @@ dependencies = [
 
 [[package]]
 name = "modn-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3931,7 +3931,7 @@ dependencies = [
 
 [[package]]
 name = "modn-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "fs2",
@@ -3964,7 +3964,7 @@ dependencies = [
 
 [[package]]
 name = "modn-mcp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
