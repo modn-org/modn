@@ -18,7 +18,7 @@ fn fixture() -> (TempDir, Store, PathBuf, PathBuf) {
     make_zip(&archive, &[("pack/a.bin", b"one"), ("pack/b.bin", b"two")]);
     (dir, store, game, archive)
 }
-fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
+pub(super) fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
     let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
     for (name, bytes) in entries {
         zip.start_file(*name, SimpleFileOptions::default()).unwrap();
@@ -26,7 +26,7 @@ fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
     }
     zip.finish().unwrap();
 }
-fn plan(game: &Path, archive: &Path) -> InstallPlan {
+pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
     let checked = inspect(archive).unwrap();
     InstallPlan {
         archive_sha256: checked.sha256,

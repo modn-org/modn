@@ -3,7 +3,7 @@ use crate::planning::{
     approved_tool_executable, existing_destination_issue, insert_destination, prohibited_payload,
     InstallPlan,
 };
-use crate::state::Store;
+use crate::state::{is_recorded, resolve_root, RootKind, Store};
 use anyhow::{bail, Result};
 use rusqlite::params;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -19,6 +19,18 @@ pub(crate) fn validate_transaction_root(game: &Path) -> Result<PathBuf> {
         bail!("transaction root must be a real directory, not a link");
     }
     Ok(game.canonicalize()?)
+}
+
+impl Store {
+    /// Canonicalize `game` and resolve its game root through the recorded
+    /// root identity, failing closed when that root moved or became a link.
+    pub(super) fn transaction_root(&self, game: &Path) -> Result<PathBuf> {
+        let installation = validate_transaction_root(game)?;
+        if installation != game && is_recorded(&self.connection, game)? {
+            resolve_root(&self.connection, game, RootKind::Game)?;
+        }
+        resolve_root(&self.connection, &installation, RootKind::Game)
+    }
 }
 
 pub(super) fn validate_execution_plan(
@@ -205,12 +217,17 @@ fn owned_paths(
     replaced: Option<&str>,
 ) -> Result<Vec<String>> {
     let mut query = store.connection.prepare(&format!(
-        "SELECT {column} FROM {table} WHERE game_path=?1 AND package_id IS NOT ?2"
+        "SELECT {column} FROM {table} WHERE game_path=?1 AND root=?2 AND package_id IS NOT ?3"
     ))?;
     let paths = query
-        .query_map(params![game.to_string_lossy().as_ref(), replaced], |row| {
-            row.get::<_, String>(0)
-        })?
+        .query_map(
+            params![
+                game.to_string_lossy().as_ref(),
+                RootKind::Game.label(),
+                replaced
+            ],
+            |row| row.get::<_, String>(0),
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(paths)
 }

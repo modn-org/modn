@@ -2,7 +2,6 @@ use super::catalog::{CatalogInstall, CatalogRelease};
 use super::install::Fault;
 use super::journal::{lock_store, ManagedPackage};
 use super::uninstall::Dependents;
-use super::validation::validate_transaction_root;
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{anyhow, bail, Context, Result};
@@ -62,7 +61,7 @@ impl Store {
     ) -> Result<ManagedPackage> {
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         let old = self
             .installed(&game)?
             .into_iter()

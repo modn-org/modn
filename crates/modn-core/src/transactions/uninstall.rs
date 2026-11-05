@@ -2,7 +2,6 @@ use super::cleanup::RemovalMode;
 use super::directory::{covers, quarantine, quarantine_path};
 use super::install::Fault;
 use super::journal::{digest, lock_store, target_path, temp_path, JournalFile};
-use super::validation::validate_transaction_root;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use std::fs;
@@ -28,7 +27,7 @@ impl Store {
         mode: RemovalMode,
         fault: Option<Fault>,
     ) -> Result<()> {
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         let id =
             self.withdraw_with_mode_locked(&game, package_id, Dependents::Refuse, mode, fault)?;
         if let Err(err) = self.commit_uninstall(&id, package_id) {

@@ -1,4 +1,4 @@
-use crate::state::Store;
+use crate::state::{record_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use rusqlite::params;
@@ -277,14 +277,16 @@ impl Store {
         if let Some(replaced) = replaced {
             super::update::vacate(&tx, replaced)?;
         }
+        record_root(&tx, game, RootKind::Game, game)?;
         tx.execute(
             "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES (?1,?2,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
         for f in files {
-            tx.execute("INSERT INTO managed_files(game_path,path_key,relative_path,package_id,sha256,bytes)
-                VALUES (?1,?2,?3,?4,?5,?6)",
-                params![game.to_string_lossy().as_ref(), super::ownership_key(&f.destination),
+            tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,sha256,bytes)
+                VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                params![game.to_string_lossy().as_ref(), RootKind::Game.label(),
+                    super::ownership_key(&f.destination),
                     f.destination, id, f.sha256, f.bytes as i64])?;
         }
         for root in directories {
@@ -294,9 +296,10 @@ impl Store {
                 |row| row.get::<_, Option<String>>(0),
             )?.context("exclusive directory identity must be persisted before commit")?;
             tx.execute(
-                "INSERT INTO managed_directories(game_path,path_key,relative_path,package_id,identity)
-                 VALUES (?1,?2,?3,?4,?5)",
-                params![game.to_string_lossy().as_ref(), super::ownership_key(root), root, id, identity],
+                "INSERT INTO managed_directories(game_path,root,path_key,relative_path,package_id,identity)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
+                params![game.to_string_lossy().as_ref(), RootKind::Game.label(),
+                    super::ownership_key(root), root, id, identity],
             )?;
         }
         if let Some(catalog) = catalog {

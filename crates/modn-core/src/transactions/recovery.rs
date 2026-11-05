@@ -1,8 +1,8 @@
 use super::journal::{
     digest, lock_store, target_path, temp_path, Journal, JournalDirectory, JournalFile,
 };
-use super::validation::validate_transaction_root;
 use crate::state::Store;
+use crate::state::{resolve_root, RootKind};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::io;
@@ -100,7 +100,7 @@ impl Store {
             }
             return self.finish_journal(&journal.id);
         }
-        let game = validate_transaction_root(&journal.game)?;
+        let game = resolve_root(&self.connection, &journal.game, RootKind::Game)?;
         if journal.action == "cleanup" {
             for claim in &journal.directories {
                 super::directory::verify_directory(

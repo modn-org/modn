@@ -1,7 +1,5 @@
 use super::journal::{digest, lock_store, target_path, JournalFile, ManagedPackage};
-use super::validation::{
-    validate_ownership, validate_plan, validate_transaction_root, ExistingTargets,
-};
+use super::validation::{validate_ownership, validate_plan, ExistingTargets};
 use crate::archive::inspect;
 use crate::planning::preview_adoption;
 use crate::state::Store;
@@ -42,7 +40,7 @@ impl Store {
         }
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         if self.state_root.starts_with(&game) || game.starts_with(&self.state_root) {
             bail!("manager state must be separate from the game directory");
         }

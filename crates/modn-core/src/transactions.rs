@@ -22,6 +22,8 @@ mod journal;
 #[cfg(test)]
 mod lifecycle_tests;
 mod recovery;
+#[cfg(test)]
+mod roots_tests;
 mod stack;
 mod staging;
 #[cfg(test)]
@@ -45,3 +47,4 @@ pub(crate) use journal::lock_store;
 pub use journal::{ManagedPackage, OwnedFile};
 pub use stack::StackMember;
 pub use uninstall_plan::{PlannedRemoval, UninstallScope};
+pub(crate) use validation::validate_transaction_root;

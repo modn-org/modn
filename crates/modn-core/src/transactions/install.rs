@@ -5,7 +5,6 @@ use super::journal::{
 };
 use super::validation::{
     validate_directory_reservations, validate_execution_plan, validate_ownership,
-    validate_transaction_root,
 };
 use crate::archive::inspect;
 use crate::planning::InstallPlan;
@@ -134,7 +133,7 @@ impl Store {
         let replaced_journal = replacing.map(|replaced| replaced.journal_id);
         let replaced_package = replacing.map(|replaced| replaced.package_id);
         self.ensure_pending_only(replaced_journal)?;
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         if self.state_root.starts_with(&game) || game.starts_with(&self.state_root) {
             bail!("manager state must be separate from the game directory");
         }
