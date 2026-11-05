@@ -34,4 +34,3 @@ try {
   Exit-GateGitEnvironment $savedGit
   Remove-Item -LiteralPath $work -Recurse -Force
 }
-

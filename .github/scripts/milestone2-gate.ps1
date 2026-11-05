@@ -4,7 +4,7 @@ param(
   [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $Binary,
   [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $Checksum,
   [string] $Repository = 'modn-org/modn',
-  [string] $VerifierBinaries
+  [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $VerifierBinaries
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,7 +15,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) "modn-m2-$([guid]::NewGuid().ToStri
 $saved = @{}
 $names = @('Path', 'LOCALAPPDATA', 'APPDATA', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
   'MODN_CACHE', 'MODN_MAIN_BUCKET_SOURCE', 'MODN_GAME_MODULES_DIR', 'TEMP', 'TMP',
-  'AGENT_DESKTOP_HOME', 'PYTHONDONTWRITEBYTECODE', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM')
+  'AGENT_DESKTOP_HOME', 'PYTHONDONTWRITEBYTECODE')
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 
 function Snapshot([string] $Root) {
@@ -102,14 +102,18 @@ foreach ($path in @(
 }
 $localBinary = if ($Binary) { (Resolve-Path -LiteralPath $Binary).Path }
 $localChecksum = if ($Checksum) { (Resolve-Path -LiteralPath $Checksum).Path }
-if (-not $VerifierBinaries) {
-  $VerifierBinaries = Join-Path $repo 'target/debug'
-}
-$VerifierBinaries = [IO.Path]::GetFullPath($VerifierBinaries)
+if ($VerifierBinaries) { $VerifierBinaries = (Resolve-Path -LiteralPath $VerifierBinaries).Path }
+. (Join-Path $PSScriptRoot 'gate-git.ps1')
 New-Item -ItemType Directory -Path $work | Out-Null
 @(Root-Report $roots) | ConvertTo-Json | Set-Content (Join-Path $work 'roots-before.json')
 Write-Host "Evidence and disposable fixtures: $work"
+$savedGit = Enter-GateGitEnvironment $work
 try {
+  Check 'Git environment isolation' {
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'gate-git-isolation.ps1')
+    Require ($LASTEXITCODE -eq 0) 'Git isolation regression failed'
+  }
+  Require ($results[-1].status -eq 'PASS') 'Cannot continue without Git isolation'
   foreach ($name in @('LOCALAPPDATA', 'APPDATA', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
       'MODN_CACHE', 'AGENT_DESKTOP_HOME', 'TEMP', 'TMP')) {
     $path = Join-Path $work $name
@@ -121,8 +125,6 @@ try {
   $env:MODN_MAIN_BUCKET_SOURCE = $null
   $env:MODN_GAME_MODULES_DIR = $null
   $env:PYTHONDONTWRITEBYTECODE = '1'
-  $env:GIT_CONFIG_GLOBAL = Join-Path $work 'gitconfig'
-  $env:GIT_CONFIG_NOSYSTEM = '1'
   $env:Path = ($env:Path -split ';' | Where-Object {
     $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'cargo.exe')) -and
       -not (Test-Path -LiteralPath (Join-Path $_ 'rustc.exe'))
@@ -173,14 +175,7 @@ try {
     $manifest = Get-Content (Join-Path $repo 'buckets/main/games/cyberpunk-2077/redscript.json') -Raw | ConvertFrom-Json
     $manifest.source = [pscustomobject]@{ kind = 'github-release'; repository = 'jac3km4/redscript'; tag = 'v0.5.32'; asset = 'redscript-v0.5.32-windows.zip' }
     Write-File (Join-Path $catalog 'games/cyberpunk-2077/redscript.json') ($manifest | ConvertTo-Json -Depth 10)
-    & git init $catalog
-    Require ($LASTEXITCODE -eq 0) 'git init failed'
-    & git -C $catalog add .
-    Require ($LASTEXITCODE -eq 0) 'git add failed'
-    & git -C $catalog -c user.name=Gate -c user.email=gate@example.invalid -c commit.gpgsign=false commit -m fixture
-    Require ($LASTEXITCODE -eq 0) 'git commit failed'
-    $revision = (& git -C $catalog rev-parse HEAD).Trim()
-    Require ($LASTEXITCODE -eq 0) 'git rev-parse failed'
+    $revision = New-GateGitCommit $catalog
     [void] (Invoke-GateModn @('bucket', 'sync', 'gate', '--source', $catalog, '--revision', $revision))
     [void] (Invoke-GateModn @('bucket', 'sync', 'gate'))
     $list = @(Invoke-GateModn @('bucket', 'list'))
@@ -242,10 +237,39 @@ try {
     $before = Snapshot (Join-Path $env:LOCALAPPDATA 'modn/buckets/main')
     $message = Invoke-GateModn @('bucket', 'update') -Refuse
     Write-Host $message
+    $runningVersion = $Tag -replace '^v', ''
+    if ($localBinary) {
+      $workspace = Get-Content (Join-Path $repo 'Cargo.toml') -Raw
+      Require ($workspace -match '(?ms)^\[workspace\.package\]\s*(.*?)(?=^\[|\z)') 'Missing workspace package'
+      $package = $Matches[1]
+      Require ($package -match '(?m)^version\s*=\s*"([^"]+)"') 'Missing workspace version'
+      $runningVersion = $Matches[1]
+    }
+    Require ($message.Contains("you have $runningVersion")) 'Missing running version diagnostic'
     Require ($message -match '99\.0\.0' -and $message -match 'needs Modn' -and $message -notmatch 'unknown field') 'Missing minimum-version diagnostic'
     Require ((Snapshot (Join-Path $env:LOCALAPPDATA 'modn/buckets/main')) -eq $before) 'Refused bucket replaced main'
     $env:MODN_MAIN_BUCKET_SOURCE = Join-Path $work 'main.zip'
   }
+  Check 'Verifier artifact checksums' {
+    if (-not $localBinary) {
+      $script:VerifierBinaries = Join-Path $work 'verifiers'
+      $runs = & gh run list --repo $Repository --workflow release.yml --branch $Tag --event push --status success --json databaseId,headSha --limit 20 | ConvertFrom-Json
+      Require ($LASTEXITCODE -eq 0 -and @($runs).Count -gt 0) 'No successful Release workflow run for tag'
+      $tagCommit = & gh api "repos/$Repository/commits/$Tag" --jq .sha
+      Require ($LASTEXITCODE -eq 0) 'Cannot resolve tag commit'
+      $matching = @($runs | Where-Object headSha -eq $tagCommit)
+      Require ($matching.Count -gt 0) 'Release workflow does not match tag commit'
+      & gh run download $matching[0].databaseId --repo $Repository --name "modn-verifiers-$Tag" --dir $VerifierBinaries
+      Require ($LASTEXITCODE -eq 0) 'Cannot download verifier workflow artifact'
+    }
+    foreach ($name in @('modn-mcp.exe', 'modn-mcp-fault.exe', 'modn-desktop.exe', 'modn-desktop-test-backend.exe')) {
+      $path = Join-Path $VerifierBinaries $name
+      $expected = ((Get-Content "$path.sha256" -Raw).Trim() -split '\s+')[0]
+      Require ($expected -match '^[a-fA-F0-9]{64}$') "Invalid verifier checksum: $name"
+      Require ((Get-FileHash $path -Algorithm SHA256).Hash -ieq $expected) "Verifier checksum mismatch: $name"
+    }
+  }
+  Require ($results[-1].status -eq 'PASS') 'Cannot run unverified verifier binaries'
   Check 'MCP verifier' {
     $server = Join-Path $VerifierBinaries 'modn-mcp.exe'
     $fault = Join-Path $VerifierBinaries 'modn-mcp-fault.exe'
@@ -272,6 +296,7 @@ try {
   Write-Host "FAIL Gate setup: $_"
 } finally {
   Pop-Location
+  Exit-GateGitEnvironment $savedGit
   foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
   Check 'Original Modn roots unchanged' {
     $afterRoots = @{}

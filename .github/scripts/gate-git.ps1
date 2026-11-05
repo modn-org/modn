@@ -34,4 +34,3 @@ function New-GateGitCommit([string] $Catalog) {
   if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed' }
   return $revision
 }
-
