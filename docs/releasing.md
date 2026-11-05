@@ -254,8 +254,8 @@ modn list --path $game --json | Set-Content "$live\list-after-install.json"
 
 Expect `"status": "reviewable"`, `"metadata_only": true` and a `main/cyberpunk-2077/cet` dependency.
 Expect one `Installed <reference> (<n> owned files)` line for each of the three
-packages; `list` shows `main/cyberpunk-2077/red4ext`, `main/cyberpunk-2077/cet`
-and `main/cyberpunk-2077/better-loot-markers`.
+packages. The `list` JSON has one catalog reference each for `red4ext`, `cet` and
+`better-loot-markers`, as `{"bucket": "main", "game_id": "cyberpunk-2077", "mod_id": "<id>"}`.
 
 Game-side check: launch the game, open the CET overlay and confirm the loot markers render.
 Record the overlay key, the marker and the game version, then quit.
@@ -327,9 +327,10 @@ Copy only the planned files, then commit the adoption:
 ```powershell
 7z x $adopt -o"$live\adopt-staging" -y
 $plan = Get-Content "$live\adopt-preview.json" -Raw | ConvertFrom-Json
+$taken = $plan.plan.operations | Where-Object { Test-Path -LiteralPath (Join-Path $game $_.destination) }
+if ($taken) { throw "Stop: destinations already exist: $($taken.destination -join ', ')" }
 foreach ($op in $plan.plan.operations) {
   $to = Join-Path $game $op.destination
-  if (Test-Path -LiteralPath $to) { throw "Stop: $to already exists" }
   New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
   Copy-Item -LiteralPath (Join-Path "$live\adopt-staging" $op.source) -Destination $to
 }
@@ -514,7 +515,7 @@ python .agents/skills/verify-modn-desktop/scripts/lifecycle.py --app "$live\veri
 ```
 
 Expect exit 0 and a JSON summary with `"status": "passed"`, a positive `assertions` count,
-`"command_nonzero": 0`, `"app_exit": 0` and `fixture_removed: true` for each driver.
+`"command_nonzero": 0`, `"app_exit": 0` and `"fixture_removed": true` for each driver.
 The v0.3.0 fixture run reported 51 and 8 assertions. Record both counts and keep the evidence path.
 
 #### What to record for #89
