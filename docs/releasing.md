@@ -168,6 +168,7 @@ Run every command in PowerShell. Set these values once and record them:
 $tag = (gh release view --repo modn-org/modn --json tagName --jq .tagName)
 $live = "$env:USERPROFILE\modn-live"
 $game = "<game-root>"
+New-Item -ItemType Directory -Force $live | Out-Null
 ```
 
 **Release.** Use the latest published release for the whole run, `v0.3.0` at the time of writing.
@@ -279,6 +280,8 @@ $old | ConvertTo-Json -Depth 5 | Set-Content "$bucket\games\cyberpunk-2077\archi
 modn bucket add live $bucket
 ```
 
+Expect the registered bucket as JSON and exit 0.
+
 Install the current release, roll back, update forward and roll back again:
 
 ```powershell
@@ -330,6 +333,7 @@ modn list --path $game --json | Set-Content "$live\list-after-adopt.json"
 
 Expect `Adopted <package-id> (<n> individual owned files; game bytes unchanged)` and `"catalog": null`;
 `scan` reports the files as managed.
+
 Game-side check: confirm that the intro videos do not play. Record it and quit.
 
 Append one byte to one adopted file, read the package ID from `list-after-adopt.json`, then run:
@@ -375,6 +379,7 @@ modn inspect $redmod
 modn install $redmod --dry-run --path $game --json | Set-Content "$live\redmod-plan.json"
 modn install $redmod --yes --path $game
 modn list --path $game --json | Set-Content "$live\list-after-redmod.json"
+modn --game cyberpunk-2077 scan --json --path $game | Set-Content "$live\scan-after-redmod.json"
 modn doctor --path $game
 ```
 
