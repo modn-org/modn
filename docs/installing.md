@@ -74,3 +74,5 @@ approves a declared executable: scripts pass `--allow-executable <path>` for
 each one, exactly as for standalone archives. An executable the manifest does
 not declare stays blocked unless `--allow-executable` names it.
 `--dry-run --json` reports `unapproved_declared_executables`.
+
+Each catalog install or update retains one bucket snapshot for release selection, dependency pins, conflicts and published versions. Bucket edits during a prompt do not change that command's selected evidence.

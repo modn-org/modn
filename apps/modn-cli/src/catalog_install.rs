@@ -8,15 +8,19 @@ use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
-use modn_core::buckets::{install_order, ArchiveFormat, BucketPackage, BucketStore, PackageSource};
-use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
-use modn_core::transactions::{
-    CatalogConflict, CatalogDependency, CatalogReference, CatalogRelease,
+use modn_core::buckets::{
+    ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore, PackageSource,
 };
+use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
+use modn_core::transactions::CatalogReference;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+
+#[cfg(test)]
+#[path = "catalog_snapshot_tests.rs"]
+mod tests;
 
 #[derive(Debug)]
 pub(super) struct AmbiguousTarget {
@@ -48,30 +52,8 @@ impl fmt::Display for AmbiguousTarget {
 
 impl std::error::Error for AmbiguousTarget {}
 
-pub(super) fn resolve(
-    query: &str,
-    catalog: &BucketStore,
-    game_filter: Option<&str>,
-    json: bool,
-) -> Result<BucketPackage> {
-    let parts: Vec<&str> = query.split('/').collect();
-    if !(1..=3).contains(&parts.len()) || parts.iter().any(|part| part.is_empty()) {
-        bail!("invalid mod reference; expected mod, game/mod or bucket/game/mod");
-    }
-    let mut candidates: Vec<_> = catalog
-        .packages(game_filter)?
-        .into_iter()
-        .filter(|package| match parts.as_slice() {
-            [id] => package.package.id == *id,
-            [game, id] => package.package.game == *game && package.package.id == *id,
-            [bucket, game, id] => {
-                package.bucket == *bucket
-                    && package.package.game == *game
-                    && package.package.id == *id
-            }
-            _ => false,
-        })
-        .collect();
+pub(super) fn resolve(query: &str, catalog: &BucketSnapshot, json: bool) -> Result<BucketPackage> {
+    let mut candidates = catalog.candidates(query)?;
     match candidates.len() {
         0 => bail!("catalog mod not found: {query}"),
         1 => Ok(candidates.remove(0)),
@@ -119,70 +101,7 @@ pub(super) fn expected_format(format: &ArchiveFormat) -> Option<archive::Archive
 }
 
 pub(super) fn reference_of(package: &BucketPackage) -> CatalogReference {
-    CatalogReference::new(
-        package.bucket.clone(),
-        package.package.game.clone(),
-        package.package.id.clone(),
-    )
-}
-
-pub(super) fn catalog_release(
-    selected: &BucketPackage,
-    catalog: &BucketStore,
-) -> Result<CatalogRelease> {
-    let reference = reference_of(selected);
-    let catalog_packages =
-        if selected.package.dependencies.is_empty() && selected.package.conflicts.is_empty() {
-            Vec::new()
-        } else {
-            catalog.packages(Some(&selected.package.game))?
-        };
-    let dependencies = selected
-        .package
-        .dependencies
-        .iter()
-        .map(|id| {
-            let dependency = catalog_packages
-                .iter()
-                .find(|candidate| {
-                    candidate.bucket == selected.bucket && candidate.package.id == *id
-                })
-                .with_context(|| {
-                    format!(
-                        "dependency unavailable in bucket: {}/{}/{}",
-                        selected.bucket, selected.package.game, id
-                    )
-                })?;
-            Ok(
-                CatalogDependency::new(reference_of(dependency), dependency.package.sha256.clone())
-                    .with_requirement(selected.package.dependency_versions.get(id).cloned()),
-            )
-        })
-        .collect::<Result<_>>()?;
-    let conflicts = selected
-        .package
-        .conflicts
-        .iter()
-        .map(|id| {
-            let published = catalog_packages
-                .iter()
-                .find(|candidate| {
-                    candidate.bucket == selected.bucket && candidate.package.id == *id
-                })
-                .map(|candidate| candidate.package.sha256.clone());
-            CatalogConflict::new(
-                CatalogReference::new(
-                    selected.bucket.clone(),
-                    selected.package.game.clone(),
-                    id.clone(),
-                ),
-                published,
-            )
-        })
-        .collect();
-    Ok(CatalogRelease::new(reference, dependencies)
-        .with_conflicts(conflicts)
-        .with_version(selected.package.version.clone()))
+    package.reference()
 }
 
 fn match_archives(
@@ -221,17 +140,13 @@ fn match_archives(
 
 fn install_mod(
     selected: BucketPackage,
+    catalog: &BucketSnapshot,
     args: &InstallArgs,
     state_path: &Path,
     json: bool,
 ) -> Result<()> {
     let reference = reference_of(&selected).to_string();
-    let catalog = BucketStore::new(
-        state_path
-            .parent()
-            .context("invalid manager state directory")?,
-    );
-    let mut order = install_order(&selected, &catalog.packages(Some(&selected.package.game))?)?;
+    let mut order = catalog.install_order(&selected)?;
     order.pop();
     let interactive = !args.yes && !args.dry_run;
     let mut archives = match_archives(&args.file, &selected, &order)?;
@@ -255,7 +170,7 @@ fn install_mod(
         args.path.clone(),
         Some(&selected.package.game),
     )?;
-    let release = catalog_release(&selected, &catalog)?;
+    let release = catalog.release(&selected)?;
     if !args.dry_run || args.download {
         state.validate_download(
             cache.root(),
@@ -279,7 +194,7 @@ fn install_mod(
         dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
     }
     let conflicts =
-        dependency_plan::conflicts(&installing, &catalog, state.existing(), &installation)?;
+        dependency_plan::conflicts(&installing, catalog, state.existing(), &installation)?;
     if !args.dry_run && !conflicts.is_empty() {
         bail!(
             "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
@@ -295,7 +210,7 @@ fn install_mod(
             order: &order,
             dependencies: &dependencies,
             archives,
-            catalog: &catalog,
+            catalog,
             cache: &cache,
             cache_use,
             game_id,
@@ -451,7 +366,7 @@ pub(super) fn run(
     let root = state_path
         .parent()
         .context("invalid manager state directory")?;
-    let catalog = BucketStore::new(root);
-    let package = resolve(&args.target, &catalog, game_filter, json)?;
-    install_mod(package, args, state_path, json)
+    let catalog = BucketStore::new(root).snapshot(game_filter)?;
+    let package = resolve(&args.target, &catalog, json)?;
+    install_mod(package, &catalog, args, state_path, json)
 }

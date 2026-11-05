@@ -1,4 +1,4 @@
-use crate::catalog_install::{self, catalog_release, expected_format, reference_of};
+use crate::catalog_install::{self, expected_format, reference_of};
 use crate::commands::UpdateArgs;
 use crate::dependency_plan::acquisition;
 use crate::download;
@@ -9,7 +9,7 @@ use crate::update_report::{self, DependentCheck, FileChanges, Preview};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::inspect;
-use modn_core::buckets::{install_order, BucketPackage, BucketStore};
+use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::planning::{preview_update_with_permissions, InstallPlan, PlanStatus};
 use modn_core::transactions::ManagedPackage;
 use std::collections::BTreeMap;
@@ -142,8 +142,9 @@ pub(super) fn run(
         state_path
             .parent()
             .context("invalid manager state directory")?,
-    );
-    let current = catalog_install::resolve(&args.target, &catalog, requested, json)?;
+    )
+    .snapshot(requested)?;
+    let current = catalog_install::resolve(&args.target, &catalog, json)?;
     let reference = reference_of(&current);
     let label = reference.to_string();
     let releases = catalog.releases(&current.bucket, &current.package.game, &current.package.id)?;
@@ -175,10 +176,10 @@ pub(super) fn run(
         .find(|(sha256, _)| *sha256 == old.archive_sha256)
         .map(|(_, version)| version.as_str());
     let mut blockers = Vec::new();
-    if let Err(error) = install_order(&target, &catalog.packages(Some(&target.package.game))?) {
+    if let Err(error) = catalog.install_order(&target) {
         blockers.push(format!("{error:#}"));
     }
-    let release = catalog_release(&target, &catalog)?;
+    let release = catalog.release(&target)?;
     let dependents: Vec<DependentCheck> =
         update_report::dependent_checks(store, &game, &old, &catalog, &target)?;
     blockers.extend(update_report::dependency_blockers(
