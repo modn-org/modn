@@ -70,3 +70,12 @@ its own, once nothing else needs it. Review the dry run first. `--yes` and
 `--dry-run` exclude each other. Each package is a separate recoverable
 removal under one lock. If one fails, the earlier removals stay done, the rest
 stay installed, and the error names both.
+
+## Additional commands
+
+- `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. See [sources.md](sources.md).
+- `modn adopt <archive> --dry-run` previews manual adoption. Commit requires `--acknowledge --yes`.
+- `modn uninstall <package> --force --yes` approves cleanup of modified owned files.
+
+[lifecycle.md](lifecycle.md) defines adoption and cleanup authority, refusals and recovery.
+[mcp.md](mcp.md) and [desktop.md](desktop.md) describe the companion interfaces.

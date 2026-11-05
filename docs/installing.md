@@ -76,3 +76,9 @@ not declare stays blocked unless `--allow-executable` names it.
 `--dry-run --json` reports `unapproved_declared_executables`.
 
 Each catalog install or update retains one bucket snapshot for release selection, dependency pins, conflicts and published versions. Bucket edits during a prompt do not change that command's selected evidence.
+
+## Pinned release providers
+
+Catalog manifests can select an exact GitHub repository, release tag and asset name with `github-release`.
+The archive SHA-256 remains required. Ordinary previews make no provider request.
+Explicit installation or `--dry-run --download` permits acquisition. See [sources.md](sources.md).
