@@ -1,4 +1,0 @@
-[mcp_servers.project_memory]
-command = "project-memory-server"
-args = ["--root", "."]
-required = false
