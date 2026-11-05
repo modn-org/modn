@@ -268,10 +268,11 @@ Add 1.28.5 to a local bucket:
 
 ```powershell
 $bucket = "$live\bucket"
+$main = "<data dir>\buckets\main"  # the official bucket copy; see buckets.md
 New-Item -ItemType Directory -Force "$bucket\games\cyberpunk-2077" | Out-Null
 '{"schema_version":1,"name":"live","title":"Live validation"}' | Set-Content "$bucket\bucket.json"
 'archivexl','red4ext','redscript' | ForEach-Object {
-  Copy-Item "buckets\main\games\cyberpunk-2077\$_.json" "$bucket\games\cyberpunk-2077\"
+  Copy-Item "$main\games\cyberpunk-2077\$_.json" "$bucket\games\cyberpunk-2077\"
 }
 $url = 'https://github.com/psiberx/cp2077-archive-xl/releases/download/v1.28.5/ArchiveXL-1.28.5.zip'
 Invoke-WebRequest $url -OutFile "$live\ArchiveXL-1.28.5.zip"
@@ -328,6 +329,7 @@ Copy only the planned files, then commit the adoption:
 $plan = Get-Content "$live\adopt-preview.json" -Raw | ConvertFrom-Json
 foreach ($op in $plan.plan.operations) {
   $to = Join-Path $game $op.destination
+  if (Test-Path -LiteralPath $to) { throw "Stop: $to already exists" }
   New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
   Copy-Item -LiteralPath (Join-Path "$live\adopt-staging" $op.source) -Destination $to
 }
@@ -511,8 +513,8 @@ python .agents/skills/verify-modn-desktop/scripts/verify.py --app "$live\verifie
 python .agents/skills/verify-modn-desktop/scripts/lifecycle.py --app "$live\verifiers\modn-desktop.exe" --backend "$live\verifiers\modn-desktop-test-backend.exe"
 ```
 
-Expect exit 0, `status: passed`, a positive assertion count, zero failures,
-`app_exit: 0` and `fixture_removed: true` for each driver.
+Expect exit 0 and a JSON summary with `"status": "passed"`, a positive `assertions` count,
+`"command_nonzero": 0`, `"app_exit": 0` and `fixture_removed: true` for each driver.
 The v0.3.0 fixture run reported 51 and 8 assertions. Record both counts and keep the evidence path.
 
 #### What to record for #89
