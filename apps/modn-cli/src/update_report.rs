@@ -1,6 +1,6 @@
 use crate::catalog_install::reference_of;
 use anyhow::Result;
-use modn_core::buckets::{BucketPackage, BucketStore, VersionReq};
+use modn_core::buckets::{BucketPackage, BucketSnapshot, VersionReq};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
 use modn_core::transactions::{
@@ -94,7 +94,7 @@ fn recorded_requirement(
 }
 
 fn legacy_requirement(
-    catalog: &BucketStore,
+    catalog: &BucketSnapshot,
     dependent: &ManagedPackage,
     target: &BucketPackage,
 ) -> Requirement {
@@ -130,7 +130,7 @@ pub(super) fn dependent_checks(
     store: &Store,
     game: &Path,
     old: &ManagedPackage,
-    catalog: &BucketStore,
+    catalog: &BucketSnapshot,
     target: &BucketPackage,
 ) -> Result<Vec<DependentCheck>> {
     store

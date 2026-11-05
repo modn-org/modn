@@ -1,4 +1,6 @@
 //! Header-only inspection; never extracts an archive or executes contained code.
+pub mod assets;
+
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};

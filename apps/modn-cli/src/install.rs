@@ -1,7 +1,6 @@
 use crate::catalog_install;
 use crate::commands::InstallArgs;
-use crate::selection::selected_installation;
-use crate::state_access::ManagerState;
+use crate::state_access::{InstallationAccess, ManagerState};
 use anyhow::{bail, Result};
 use modn_core::planning::preview_install_zip_with_permissions;
 use std::path::{Path, PathBuf};
@@ -46,22 +45,18 @@ fn install_archive(
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let state = ManagerState::load(state_path)?;
-    let mut store = if args.dry_run && args.path.is_some() && state.existing().is_none() {
-        None
+    let access = if args.dry_run {
+        InstallationAccess::ArchivePreview
     } else {
-        let target = state.target_for(args.path.as_deref(), requested)?;
-        Some(if args.dry_run {
-            state.open_preview(&target)?
-        } else {
-            state.open_writable(&target)?
-        })
+        InstallationAccess::ArchiveInstall { approved: args.yes }
     };
+    let selected = ManagerState::load(state_path)?
+        .for_installation(args.path.clone(), requested)?
+        .open(access)?;
+    let mut store = selected.store;
+    let game_id = selected.game_id;
+    let game = selected.root;
     let archive = PathBuf::from(&args.target);
-    if !args.yes && !args.dry_run {
-        bail!("installation writes game files; choose --dry-run or explicitly approve with --yes");
-    }
-    let (game_id, game) = selected_installation(store.as_ref(), args.path.clone(), requested)?;
     let report =
         preview_install_zip_with_permissions(&game_id, &game, &archive, &args.allow_executable)?;
     if args.dry_run {

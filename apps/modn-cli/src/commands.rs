@@ -61,6 +61,11 @@ pub(super) enum Command {
     },
     /// Inspect ZIP, JAR, or 7z metadata without extracting files.
     Inspect { archive: PathBuf },
+    /// Inspect asset structures without selecting a game or opening manager state.
+    Asset {
+        #[command(subcommand)]
+        command: AssetCommand,
+    },
     /// Check local Lua policy or manage explicitly trusted module snapshots.
     Module {
         #[command(subcommand)]
@@ -80,6 +85,12 @@ pub(super) enum Command {
         #[arg(long)]
         path: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub(super) enum AssetCommand {
+    /// Inspect DDS or RDAR v12 structural metadata without decoding payloads.
+    Inspect { path: PathBuf },
 }
 
 #[derive(Subcommand)]

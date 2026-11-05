@@ -18,6 +18,7 @@ shipped behavior.
 - [`cache.md`](cache.md): the verified download cache and `modn cache`.
 - [`inventory.md`](inventory.md): `scan` and `doctor`, ownership drift and
   framework signals.
+- [`assets.md`](assets.md): read-only DDS and RDAR structure inspection.
 - [`archives.md`](archives.md): `modn inspect` and `install --dry-run` planning.
 - [`buckets.md`](buckets.md): the official `main` bucket, `modn bucket update`,
   local buckets and manifest rules.
