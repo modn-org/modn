@@ -1,13 +1,13 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Release')]
 param(
-  [string] $Tag = 'v0.2.0',
+  [Parameter(ParameterSetName = 'Release')] [string] $Tag = 'v0.2.0',
+  [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $Binary,
+  [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $Checksum,
   [string] $PreviousTag = 'v0.1.0',
   [string] $Repository = 'modn-org/modn'
 )
 
-# Milestone 1 exit gate. It runs only released assets, on a machine without
-# Rust, and writes only into a disposable fake game and a disposable data
-# directory. It never touches a real game or the real Modn state.
+# Runs published assets by default. Binary and Checksum select a local build.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -87,6 +87,10 @@ function Get-GatePackage {
 
 $previousLocalAppData = $env:LOCALAPPDATA
 $previousBucketSource = $env:MODN_MAIN_BUCKET_SOURCE
+$previousPath = $env:Path
+$localBinary = if ($Binary) { (Resolve-Path -LiteralPath $Binary).Path }
+$localChecksum = if ($Checksum) { (Resolve-Path -LiteralPath $Checksum).Path }
+if ($localBinary) { $Tag = 'local binary' }
 $env:MODN_MAIN_BUCKET_SOURCE = $null
 $work = Join-Path ([IO.Path]::GetTempPath()) "modn-gate-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $work | Out-Null
@@ -108,8 +112,13 @@ try {
   Write-Host "== Released assets of $Tag =="
   $base = "https://github.com/$Repository/releases/download/$Tag"
   $assets = New-Item -ItemType Directory -Path (Join-Path $work 'assets')
-  foreach ($name in @('modn.exe', 'modn.exe.sha256', 'install.ps1')) {
-    Get-Download "$base/$name" (Join-Path $assets $name)
+  if ($localBinary) {
+    Copy-Item -LiteralPath $localBinary -Destination (Join-Path $assets 'modn.exe')
+    Copy-Item -LiteralPath $localChecksum -Destination (Join-Path $assets 'modn.exe.sha256')
+  } else {
+    foreach ($name in @('modn.exe', 'modn.exe.sha256', 'install.ps1')) {
+      Get-Download "$base/$name" (Join-Path $assets $name)
+    }
   }
   $released = Join-Path $assets 'modn.exe'
   $releasedHash = (Get-FileHash -LiteralPath $released -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -118,7 +127,14 @@ try {
 
   Write-Host '== Bootstrap with the released install script =='
   $bin = Join-Path $work 'bin'
-  & (Join-Path $assets 'install.ps1') -InstallDir $bin -ReleaseBase $base -NoModifyPath
+  if ($localBinary) {
+    New-Item -ItemType Directory -Path $bin | Out-Null
+    Copy-Item -LiteralPath $released -Destination (Join-Path $bin 'modn.exe')
+    & (Join-Path $bin 'modn.exe') bucket update
+    Assert-That ($LASTEXITCODE -eq 0) 'local binary bootstrapped the main bucket'
+  } else {
+    & (Join-Path $assets 'install.ps1') -InstallDir $bin -ReleaseBase $base -NoModifyPath
+  }
   $script:Modn = Join-Path $bin 'modn.exe'
   Assert-That ((Get-FileHash -LiteralPath $script:Modn -Algorithm SHA256).Hash.ToLowerInvariant() -eq $releasedHash) `
     'the installed modn.exe is the released file'
@@ -235,6 +251,7 @@ try {
 } finally {
   $env:LOCALAPPDATA = $previousLocalAppData
   $env:MODN_MAIN_BUCKET_SOURCE = $previousBucketSource
+  $env:Path = $previousPath
   Pop-Location
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
