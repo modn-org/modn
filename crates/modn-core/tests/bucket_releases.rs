@@ -86,3 +86,40 @@ fn malformed_release_files_are_rejected() {
         }
     });
 }
+
+#[test]
+fn snapshot_keeps_selection_and_historical_versions_after_bucket_edits() {
+    main_bucket::seeded(|| {
+        let temp = tempfile::tempdir().expect("temp");
+        let root = bucket(temp.path(), "local");
+        write_release(&root, "foo.json", "foo", "1.1");
+        write_release(&root, "foo@1.0.json", "foo", "1.0");
+        let store = BucketStore::new(&temp.path().join("state"));
+        store.add("local", &root).expect("register");
+        let snapshot = store.snapshot(Some("test-game")).expect("snapshot");
+
+        write_release(&root, "foo.json", "foo", "2.0");
+        fs::write(root.join("games/test-game/foo@1.0.json"), b"invalid JSON")
+            .expect("edit historical manifest");
+
+        for query in ["foo", "test-game/foo", "local/test-game/foo"] {
+            let candidates = snapshot.candidates(query).expect("resolve snapshot");
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0].package.version, "1.1");
+        }
+        let versions: Vec<String> = snapshot
+            .releases("local", "test-game", "foo")
+            .expect("retained releases")
+            .into_iter()
+            .map(|release| release.package.version)
+            .collect();
+        assert_eq!(versions, ["1.1", "1.0"]);
+        assert!(snapshot
+            .candidates("main/test-game/foo")
+            .unwrap()
+            .is_empty());
+        assert!(snapshot.candidates("/foo").is_err());
+        assert!(snapshot.releases("other", "test-game", "foo").is_err());
+        assert!(store.snapshot(Some("test-game")).is_err());
+    });
+}
