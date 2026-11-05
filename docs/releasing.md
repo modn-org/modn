@@ -390,6 +390,7 @@ Expect `inspect` to list one `mods/<name>/info.json`, a `"reviewable"` preview a
 
 Game-side check: reach the main menu and record "REDmod activation not verified".
 Modn does not deploy REDmod. Do not run the deployment tool during this run.
+See [REDmod content](lifecycle.md#redmod-content) for the policy limits.
 
 ```powershell
 modn uninstall <package-id> --dry-run --path $game
