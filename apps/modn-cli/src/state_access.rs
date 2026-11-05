@@ -16,6 +16,62 @@ pub(super) struct ProtectedTarget {
     pub(super) root: Option<PathBuf>,
 }
 
+pub(super) enum InstallationAccess {
+    Preview,
+    Write,
+    ArchivePreview,
+    ArchiveInstall { approved: bool },
+}
+
+pub(super) struct InstallationState {
+    state: ManagerState,
+    target: ProtectedTarget,
+    selected: Option<(String, PathBuf)>,
+}
+
+pub(super) struct SelectedState {
+    pub(super) store: Option<Store>,
+    pub(super) game_id: String,
+    pub(super) root: PathBuf,
+}
+
+impl InstallationState {
+    pub(super) fn open(self, access: InstallationAccess) -> Result<SelectedState> {
+        let Self {
+            state,
+            target,
+            selected,
+        } = self;
+        let store = match access {
+            InstallationAccess::ArchivePreview
+                if target.root.is_some() && state.existing().is_none() =>
+            {
+                None
+            }
+            InstallationAccess::Preview | InstallationAccess::ArchivePreview => {
+                Some(state.open_preview(&target)?)
+            }
+            InstallationAccess::Write | InstallationAccess::ArchiveInstall { .. } => {
+                Some(state.open_writable(&target)?)
+            }
+        };
+        if let InstallationAccess::ArchiveInstall { approved: false } = access {
+            bail!(
+                "installation writes game files; choose --dry-run or explicitly approve with --yes"
+            );
+        }
+        let (game_id, root) = match selected {
+            Some(selected) => selected,
+            None => selected_installation(store.as_ref(), target.root, target.game.as_deref())?,
+        };
+        Ok(SelectedState {
+            store,
+            game_id,
+            root,
+        })
+    }
+}
+
 impl ManagerState {
     pub(super) fn load(path: &Path) -> Result<Self> {
         let mut state = Self::load_deferred(path)?;
@@ -50,21 +106,33 @@ impl ManagerState {
         self.existing
     }
 
-    pub(super) fn target_for(
-        &self,
-        path: Option<&Path>,
+    pub(super) fn for_installation(
+        self,
+        path: Option<PathBuf>,
         requested: Option<&str>,
-    ) -> Result<ProtectedTarget> {
-        if let Some(path) = path {
-            return Ok(ProtectedTarget {
-                game: requested.map(str::to_owned),
-                root: Some(path.to_path_buf()),
-            });
-        }
-        let (id, root) = selected_installation(self.existing(), None, requested)?;
-        Ok(ProtectedTarget {
-            game: Some(requested.map_or(id, str::to_owned)),
-            root: Some(root),
+    ) -> Result<InstallationState> {
+        let (target, selected) = if let Some(path) = path {
+            (
+                ProtectedTarget {
+                    game: requested.map(str::to_owned),
+                    root: Some(path),
+                },
+                None,
+            )
+        } else {
+            let (game_id, root) = selected_installation(self.existing(), None, requested)?;
+            (
+                ProtectedTarget {
+                    game: Some(game_id.clone()),
+                    root: Some(root.clone()),
+                },
+                Some((game_id, root)),
+            )
+        };
+        Ok(InstallationState {
+            state: self,
+            target,
+            selected,
         })
     }
 
