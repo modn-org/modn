@@ -80,10 +80,9 @@ pub(super) fn target_path(game: &Path, relative: &str) -> Result<PathBuf> {
     let canonical = game.canonicalize()?;
     let mut current = canonical.clone();
     let parts: Vec<_> = relative.split('/').collect();
-    if parts.len() < 2
-        || parts
-            .iter()
-            .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains(['\\', ':']))
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains(['\\', ':']))
     {
         bail!("invalid destination path: {relative}");
     }
