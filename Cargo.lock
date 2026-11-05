@@ -3940,6 +3940,7 @@ dependencies = [
  "rusqlite",
  "rustix",
  "same-file",
+ "semver",
  "serde",
  "serde_json",
  "sevenz-rust2",

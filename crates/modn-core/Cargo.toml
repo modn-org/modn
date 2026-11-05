@@ -19,6 +19,7 @@ sevenz-rust2 = { version = "0.24", default-features = false }
 fs2 = "0.4"
 same-file = "1"
 tempfile = "3"
+semver = "1"
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
