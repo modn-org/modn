@@ -19,7 +19,7 @@ Read these documents before substantive changes:
 Keep [README.md](README.md) short: what Modn does, installation, a quick start and a link to `docs/`. Put shipped-behavior detail in the matching `docs/` page, in the same change as the code.
 
 Planned work lives in GitHub milestones and issues (`gh issue list`,
-`gh api repos/sooskca/modn/milestones`); each milestone description holds its
+`gh api repos/modn-org/modn/milestones`); each milestone description holds its
 exit gate, and the `deferred` label marks out-of-scope work. Close an issue
 from its PR with `Fixes #n`. When a milestone closes, record its result and
 evidence in project memory. The data model and issues describe **planned**
