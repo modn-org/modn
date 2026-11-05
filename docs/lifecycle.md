@@ -5,8 +5,8 @@ Verification uses disposable fixtures. No real-game compatibility or deployment 
 
 ## REDmod content
 
-REDmod policy requires the separate bucket repository change `t3/pr-54-redmod-policy`.
-The unchanged bucket pin in this repository does not yet provide that policy.
+The Cyberpunk game module in the official `main` bucket ([modn-org/main](https://github.com/modn-org/main)) provides the REDmod policy.
+`modn bucket update` fetches that module into the local `main` copy.
 The core content validator and lifecycle tests retain their full assertions.
 
 The Cyberpunk Lua policy recognizes one canonical `mods/<name>/info.json` package.
