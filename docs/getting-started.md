@@ -49,3 +49,6 @@ do not delete game files or personal saves to reset manager state.
 - Run the setup check in [`inventory.md`](inventory.md) before the first install.
 - Install mods with [`installing.md`](installing.md).
 - Find each command in [`cli.md`](cli.md).
+
+Commands that open manager state retain the selected game installation for the
+whole operation. Archive previews with an explicit path do not create state.
