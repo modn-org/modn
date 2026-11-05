@@ -1,6 +1,6 @@
-use crate::catalog_install::{catalog_release, reference_of};
+use crate::catalog_install::reference_of;
 use anyhow::Result;
-use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
+use modn_core::buckets::{BucketPackage, BucketSnapshot, PackageSource};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
 use modn_core::transactions::{CatalogDependency, DependencyState};
@@ -98,7 +98,7 @@ pub(super) fn plan(
 
 pub(super) fn conflicts(
     releases: &[&BucketPackage],
-    catalog: &BucketStore,
+    catalog: &BucketSnapshot,
     store: Option<&Store>,
     game: &Path,
 ) -> Result<Vec<String>> {
@@ -108,7 +108,7 @@ pub(super) fn conflicts(
     let mut found = Vec::new();
     for release in releases {
         let reference = reference_of(release);
-        let catalog_release = catalog_release(release, catalog)?;
+        let catalog_release = catalog.release(release)?;
         for package in
             store.conflicting_packages(game, Some(&catalog_release), &release.package.sha256)?
         {
