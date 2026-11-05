@@ -27,7 +27,10 @@ capabilities; when they differ from the code, inspect the current revision
 and active PRs, and do not present planned behavior as implemented. Use glossary terms consistently in
 code, documentation, CLI and reviews.
 
-Project memory lives in `memory/`. At the start of substantive work, run
+Project memory lives in `memory/`. Use project-memory 0.2.0 or later.
+See [docs/development.md](docs/development.md#project-memory-in-a-pull-request)
+for installation and the immutable event-file layout.
+At the start of substantive work, run
 `project-memory --root . context "<task>"` from the repository root. If the CLI
 is unavailable, read [memory/CURRENT_STATE.md](memory/CURRENT_STATE.md). Look up
 prior records with `project-memory --root . search "<query>"`. Record durable

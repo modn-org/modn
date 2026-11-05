@@ -16,6 +16,35 @@ cargo run --bin modn -- inspect "./downloaded-mod.zip" --json
 cargo run --bin modn -- install "./downloaded-mod.zip" --dry-run --path "/path/to/Cyberpunk 2077" --json
 ```
 
+## Project memory in a pull request
+
+Use project-memory version 0.2.0 or later for the CLI and MCP server.
+Install the approved upstream branch with this command:
+
+```sh
+uv tool install --force git+ssh://git@github.com/sooskca/project-memory@memory-event-files
+```
+
+The upstream branch supplies version 0.2.0 until its release reaches the default branch.
+Restart an existing MCP server after you update its tool.
+Run `project-memory --root . status` from the repository root to check the store.
+
+The tracked `memory/events/` directory selects one file per new event.
+Use `project-memory --root . add` to record a decision or finding.
+Use `project-memory --root . supersede <id> --reason "<reason>"` to revise a record.
+Commit each generated JSON file with the change it describes.
+Keep event files immutable after you commit them.
+Never edit or append to `memory/events.jsonl` in a pull request.
+The tool reads that legacy log first, then event files in filename order.
+
+Run these checks before you commit a memory change:
+
+```sh
+project-memory --root . context "<task>"
+project-memory --root . search "<word from the record>"
+project-memory --root . rebuild
+```
+
 ## Verification
 
 The fictional `tests/fixtures/test-game/` Lua module uses `bin/TestGame.exe`,

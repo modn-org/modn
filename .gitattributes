@@ -1,5 +1,5 @@
 crates/modn-core/game-modules/**/*.lua text eol=lf
 crates/modn-core/game-modules/**/module.json text eol=lf
 
-# Append-only project-memory log: keep both sides of parallel appends.
-memory/events.jsonl text eol=lf merge=union
+# Preserve legacy log bytes. New records use memory/events/.
+memory/events.jsonl text eol=lf
