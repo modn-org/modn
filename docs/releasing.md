@@ -244,7 +244,7 @@ Stop if the game already has CET, RED4ext, redscript or the mods below.
 
 #### Step 2: Install a catalog stack and check the game
 
-**Authorize this step.** Modn downloads and writes `better-loot-markers` with its `cet` dependency.
+**Authorize this step.** Modn downloads and writes `better-loot-markers`, `cet` and `red4ext`.
 
 ```powershell
 modn install better-loot-markers --dry-run --download --path $game --json | Set-Content "$live\install-plan.json"
@@ -253,7 +253,9 @@ modn list --path $game --json | Set-Content "$live\list-after-install.json"
 ```
 
 Expect `"status": "reviewable"`, `"metadata_only": true` and a `main/cyberpunk-2077/cet` dependency.
-Expect one `Installed <reference> (<n> owned files)` line per package; `list` shows both.
+Expect one `Installed <reference> (<n> owned files)` line for each of the three
+packages; `list` shows `main/cyberpunk-2077/red4ext`, `main/cyberpunk-2077/cet`
+and `main/cyberpunk-2077/better-loot-markers`.
 
 Game-side check: launch the game, open the CET overlay and confirm the loot markers render.
 Record the overlay key, the marker and the game version, then quit.
@@ -296,7 +298,9 @@ modn update live/cyberpunk-2077/archivexl --version 1.28.5 --yes --path $game
 modn list --path $game --json | Set-Content "$live\list-after-rollback.json"
 ```
 
-Expect `Installed` for `red4ext`, `redscript` and `archivexl`, in that order.
+Expect `Installed` for `redscript` and `archivexl`, in that order.
+Modn prints no `Installed` line for `red4ext`, because Step 2 installed the same
+archive digest.
 Each preview names the installed and target versions; each update prints
 `Updated live/cyberpunk-2077/archivexl to <version> (<n> owned files)`.
 The final `list` shows archivexl with the 1.28.5 digest.
