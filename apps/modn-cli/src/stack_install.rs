@@ -1,4 +1,4 @@
-use crate::catalog_install::{catalog_release, reference_of};
+use crate::catalog_install::reference_of;
 use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
@@ -6,7 +6,7 @@ use crate::install_consent::{self, StackRequest};
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse};
-use modn_core::buckets::{BucketPackage, BucketStore};
+use modn_core::buckets::{BucketPackage, BucketSnapshot};
 use modn_core::planning::{preview_install_zip_with_permissions, PlanStatus};
 use modn_core::transactions::StackMember;
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,7 +18,7 @@ pub(super) struct Stack<'a> {
     pub(super) order: &'a [BucketPackage],
     pub(super) dependencies: &'a [PlannedDependency],
     pub(super) archives: BTreeMap<String, PathBuf>,
-    pub(super) catalog: &'a BucketStore,
+    pub(super) catalog: &'a BucketSnapshot,
     pub(super) cache: &'a ArchiveCache,
     pub(super) cache_use: CacheUse,
     pub(super) game_id: String,
@@ -153,7 +153,7 @@ pub(super) fn run(
             digests.insert(reference_of(release).to_string(), &release.package.sha256);
             Ok(StackMember::new(
                 archive.clone(),
-                catalog_release(release, stack.catalog)?,
+                stack.catalog.release(release)?,
                 approved,
             ))
         })

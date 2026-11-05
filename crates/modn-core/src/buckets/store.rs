@@ -1,4 +1,5 @@
 use super::manifest::{valid_id, PackageManifest};
+use super::BucketSnapshot;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -378,68 +379,37 @@ impl BucketStore {
 
     /// Enumerate all validated manifests, keeping bucket namespaces distinct.
     pub fn packages(&self, game: Option<&str>) -> Result<Vec<BucketPackage>> {
+        Ok(self.snapshot(game)?.packages().to_vec())
+    }
+
+    /// Read each bucket once and retain current and historical releases together.
+    pub fn snapshot(&self, game: Option<&str>) -> Result<BucketSnapshot> {
         if game.is_some_and(|id| !valid_id(id)) {
             bail!("invalid game ID");
         }
-        let mut packages = Vec::new();
-        for package in self.official()?.1.current {
-            packages.push(BucketPackage {
-                bucket: "main".into(),
-                package,
-            });
-        }
+        let mut sources = vec![("main".to_owned(), self.official()?.1)];
         for (id, path) in self.registrations()? {
-            let (_, content) = self.load(&id, &path)?;
-            for package in content.current {
-                packages.push(BucketPackage {
-                    bucket: id.clone(),
-                    package,
-                });
-            }
+            sources.push((id.clone(), self.load(&id, &path)?.1));
         }
-        packages.retain(|entry| game.is_none_or(|id| entry.package.game == id));
-        packages.sort_by(|a, b| {
-            (&a.bucket, &a.package.game, &a.package.id).cmp(&(
-                &b.bucket,
-                &b.package.game,
-                &b.package.id,
-            ))
-        });
-        Ok(packages)
+        let mut current = Vec::new();
+        let mut other = Vec::new();
+        for (bucket, releases) in sources {
+            let qualify = |package: PackageManifest| BucketPackage {
+                bucket: bucket.clone(),
+                package,
+            };
+            let matches = |package: &PackageManifest| game.is_none_or(|id| package.game == id);
+            current.extend(releases.current.into_iter().filter(matches).map(qualify));
+            other.extend(releases.other.into_iter().filter(matches).map(qualify));
+        }
+        Ok(BucketSnapshot::new(current, other))
     }
 
     /// Every release that `bucket` publishes for one mod: the current release
     /// first, then other releases by version string. Only the current release
     /// takes part in search, dependency resolution and plain installs.
     pub fn releases(&self, bucket: &str, game: &str, id: &str) -> Result<Vec<BucketPackage>> {
-        let mut releases: Vec<BucketPackage> = self
-            .packages(Some(game))?
-            .into_iter()
-            .filter(|p| p.bucket == bucket && p.package.id == id)
-            .collect();
-        if releases.is_empty() {
-            bail!("bucket package not found: {bucket}/{game}/{id}");
-        }
-        let content = if bucket == "main" {
-            Some(self.official()?.1)
-        } else if let Some(path) = self.registrations()?.remove(bucket) {
-            Some(self.load(bucket, &path)?.1)
-        } else {
-            None
-        };
-        if let Some(content) = content {
-            releases.extend(
-                content
-                    .other
-                    .into_iter()
-                    .filter(|p| p.game == game && p.id == id)
-                    .map(|package| BucketPackage {
-                        bucket: bucket.into(),
-                        package,
-                    }),
-            );
-        }
-        Ok(releases)
+        self.snapshot(Some(game))?.releases(bucket, game, id)
     }
 
     /// Resolve a complete bucket/game/mod reference without ambiguity.
@@ -448,9 +418,10 @@ impl BucketStore {
         if parts.len() != 3 || parts.iter().any(|part| !valid_id(part)) {
             bail!("expected bucket/game/package");
         }
-        self.packages(Some(parts[1]))?
+        self.snapshot(Some(parts[1]))?
+            .candidates(reference)?
             .into_iter()
-            .find(|p| p.bucket == parts[0] && p.package.id == parts[2])
+            .next()
             .with_context(|| format!("bucket package not found: {reference}"))
     }
 }
