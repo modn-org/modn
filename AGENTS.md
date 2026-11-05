@@ -19,7 +19,7 @@ Read these documents before substantive changes:
 Keep [README.md](README.md) short: what Modn does, installation, a quick start and a link to `docs/`. Put shipped-behavior detail in the matching `docs/` page, in the same change as the code.
 
 Planned work lives in GitHub milestones and issues (`gh issue list`,
-`gh api repos/sooskca/modn/milestones`); each milestone description holds its
+`gh api repos/modn-org/modn/milestones`); each milestone description holds its
 exit gate, and the `deferred` label marks out-of-scope work. Close an issue
 from its PR with `Fixes #n`. When a milestone closes, record its result and
 evidence in project memory. The data model and issues describe **planned**
@@ -27,17 +27,12 @@ capabilities; when they differ from the code, inspect the current revision
 and active PRs, and do not present planned behavior as implemented. Use glossary terms consistently in
 code, documentation, CLI and reviews.
 
-Project memory lives in `memory/`. At the start of substantive work, run
-`project-memory --root . context "<task>"` from the repository root. If the CLI
-is unavailable, read [memory/CURRENT_STATE.md](memory/CURRENT_STATE.md). Look up
-prior records with `project-memory --root . search "<query>"`. Record durable
-decisions, sourced findings, important failures, hypotheses and serious
-candidates with `project-memory --root . add --kind <kind> --title "<title>"
---summary "<summary>" --source <ref>`. Commit records with the change they
-describe. Revise records with
-`project-memory --root . supersede <id> --reason "<reason>"`.
-`memory/events.jsonl` is append-only. Never store secrets, personal data, raw
-reasoning, or speculation stated as fact.
+Project memory lives in `memory/events/`, one immutable record file per
+durable decision, finding, failure or preference. Use the `project-wiki` skill
+to look up records at the start of substantive work, to add records, and to
+supersede them. Commit each record with the change it describes. When memory
+disagrees with the documents above or with the code, the documents and the
+code win: supersede the stale record.
 
 First-party game modules live beside mod manifests in the official `main` bucket; registered local buckets cannot contain modules. Modn embeds no bucket manifests or game modules. `modn bucket update` is the only command that fetches the local `main` copy; the install script runs it once. Standard Lua 5.4 via mlua is the game-module runtime; earlier releases used Luau.
 A trusted module may be powerful, but Rust-owned managed transactions,

@@ -3,7 +3,9 @@ use super::loader::HOST_API_VERSION;
 use anyhow::Result;
 use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
 use std::cell::Cell;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(feature = "test-instruction-budget"))]
+use std::time::Instant;
 
 const MAX_VM_BYTES: usize = 8 * 1024 * 1024;
 const MAX_HOOKS: u64 = 100_000;
@@ -55,6 +57,7 @@ pub(super) fn evaluate<T>(
         meta.set("__metatable", false)?;
         proxy.set_metatable(Some(meta))?;
         globals.set("mods_host", proxy)?;
+        #[cfg(not(feature = "test-instruction-budget"))]
         let started = Instant::now();
         let hooks = Cell::new(0u64);
         lua.set_hook(
@@ -62,7 +65,11 @@ pub(super) fn evaluate<T>(
             move |_, _| {
                 let next = hooks.get().saturating_add(1);
                 hooks.set(next);
-                if next > MAX_HOOKS || started.elapsed() > MAX_EXECUTION {
+                #[cfg(not(feature = "test-instruction-budget"))]
+                let elapsed = started.elapsed();
+                #[cfg(feature = "test-instruction-budget")]
+                let elapsed = Duration::ZERO;
+                if budget_exceeded(next, elapsed) {
                     return Err(mlua::Error::RuntimeError(
                         "Lua module execution budget exceeded".into(),
                     ));
@@ -74,4 +81,22 @@ pub(super) fn evaluate<T>(
         evaluate(&lua, output)
     };
     run().map_err(|error| anyhow::anyhow!("Lua module execution failed: {error}"))
+}
+
+fn budget_exceeded(hooks: u64, elapsed: Duration) -> bool {
+    hooks > MAX_HOOKS || elapsed > MAX_EXECUTION
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{budget_exceeded, MAX_EXECUTION, MAX_HOOKS};
+    use std::time::Duration;
+
+    #[test]
+    fn execution_budget_checks_hook_and_wall_clock_boundaries() {
+        assert_eq!(MAX_EXECUTION, Duration::from_secs(1));
+        assert!(!budget_exceeded(MAX_HOOKS, MAX_EXECUTION));
+        assert!(budget_exceeded(MAX_HOOKS + 1, Duration::ZERO));
+        assert!(budget_exceeded(0, MAX_EXECUTION + Duration::from_nanos(1)));
+    }
 }

@@ -41,11 +41,11 @@ Windows comes first.
 ## Where things live
 
 - **Shipped behavior:** [`docs/`](README.md) user guides, updated in the same change as the code.
-- **Planned work:** [GitHub milestones](https://github.com/sooskca/modn/milestones)
+- **Planned work:** [GitHub milestones](https://github.com/modn-org/modn/milestones)
   and issues. Each milestone description holds its exit gate. A PR closes its
   issue with `Fixes #n`.
 - **Deferred work:** issues with the
-  [`deferred`](https://github.com/sooskca/modn/labels/deferred) label. Each one
+  [`deferred`](https://github.com/modn-org/modn/labels/deferred) label. Each one
   needs a separate proposal and tests before work starts.
 - **Decisions, findings and failures:** project memory in `memory/`. When a
   milestone closes, record its result and evidence there as a finding.

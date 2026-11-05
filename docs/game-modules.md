@@ -14,6 +14,20 @@ cargo run --bin modn -- module check examples/game-modules/sample-game --json
 {"game_id":"sample-game","version":"0.1.0","api_version":1,"entrypoint":"main.lua"}
 ```
 
+An optional `min_modn_version` sets the minimum Modn release that can load the module.
+Use a complete semantic version string, such as `"min_modn_version":"0.3.0"`, without operators or wildcards.
+Modn compares it with the core crate version set at build time, before executing Lua.
+Semantic version precedence applies, including prereleases; build metadata does not affect precedence.
+An absent field adds no minimum release requirement. The `api_version` check still applies.
+Malformed values return an input error.
+A newer requirement returns, for example, `module cyberpunk-2077 needs Modn 0.3.0, you have 0.2.0`.
+
+Released Modn 0.2.0 rejects this field as an unknown manifest field.
+It never silently loads a module that declares the requirement.
+Its error names `min_modn_version`, but cannot display the needed release.
+Keep `api_version` at 1 when the module still uses host API v1.
+Version requirements can cover new host validation behavior without changing that API revision.
+
 `main.lua`:
 
 ```lua
@@ -21,6 +35,8 @@ return { game_id = "sample-game", api_version = mods_host.api_version }
 ```
 
 The loader negotiates **host API v1** and rejects mismatching manifest/script identities, unsupported versions, malformed input, unsafe filenames, linked files and directories, oversized source files, and binary/non-UTF-8 Lua chunks. The VM is fresh per check, with an 8 MiB memory ceiling, a 1-second execution deadline checked every 1,000 VM instructions, and a ceiling of 100,000 instruction-hook callbacks. Manifest size is capped at 16 KiB and script size at 256 KiB. Script failures produce explicit errors.
+
+The internal `test-instruction-budget` Cargo feature disables the wall-clock check for CLI integration tests. It retains the instruction-hook ceiling. Do not enable it in production builds.
 
 This is **explicitly selected local module execution**, not compatibility certification or code trust verification. Without explicit roots, Lua only receives `mods_host.api_version`; it has no host filesystem, state database, game directory, archive, network, or process API. OS, IO, package loading, dynamic script loading, debug, print and warn globals are unavailable. The default host exposes no filesystem writes or process API, and suppresses script printing so `--json` stays valid. These execution limits are **not a sandbox or security guarantee** for intentionally trusted modules. Read-only capabilities and runtime policy selection are documented below.
 

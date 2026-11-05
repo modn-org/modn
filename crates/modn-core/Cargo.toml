@@ -7,6 +7,9 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+test-instruction-budget = []
+
 [dependencies]
 anyhow = "1"
 mlua = { version = "0.12", default-features = false, features = ["lua54", "vendored"] }
@@ -19,6 +22,7 @@ sevenz-rust2 = { version = "0.24", default-features = false }
 fs2 = "0.4"
 same-file = "1"
 tempfile = "3"
+semver = "1"
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
