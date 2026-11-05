@@ -140,3 +140,14 @@ It compares the original Modn roots before and after the run.
 Each check prints `PASS` or `FAIL`. Any failure produces a nonzero exit.
 These fixture checks do not establish real-game compatibility or REDmod activation.
 The gate must pass against published assets after tagging; local proof alone does not close issue #87.
+
+### Result for v0.3.0
+
+On 2026-11-05, `milestone2-gate.ps1 -Tag v0.3.0` passed against the published v0.3.0 assets.
+It reported 15 checks and 0 failures.
+The Milestone 1 gate passed for v0.3.0, including state created by v0.1.0.
+The MCP verifier passed 69 checks.
+The desktop verifiers passed 51 and 8 assertions.
+The refusal check printed `module cyberpunk-2077 needs Modn 99.0.0, you have 0.3.0`.
+The original Modn roots were unchanged.
+The released `modn.exe` SHA-256 is `2dade4e26e3db81ebf2dd62f0fc38a487184fc6968139dce43f1fd4bfa90eadb`.
