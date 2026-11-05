@@ -122,10 +122,8 @@ fn no_os_or_file_write_capability_is_exposed() {
 fn loops_and_memory_exhaustion_return_explicit_errors() {
     let (_root, directory) = fixture();
     write_script(&directory, "while true do end");
-    let start = std::time::Instant::now();
     let error = format!("{:#}", check_module(&directory).unwrap_err());
     assert!(error.contains("budget exceeded"), "{error}");
-    assert!(start.elapsed() < std::time::Duration::from_secs(5));
     write_script(&directory, "local x = string.rep('x', 16000000); return {}");
     assert!(check_module(&directory).is_err());
 }

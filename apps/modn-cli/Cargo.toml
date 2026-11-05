@@ -19,6 +19,7 @@ serde_json = "1"
 ureq = "3"
 
 [dev-dependencies]
+modn-core = { path = "../../crates/modn-core", features = ["test-instruction-budget"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
