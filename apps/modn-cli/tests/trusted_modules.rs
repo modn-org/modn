@@ -147,4 +147,3 @@ fn registered_skyrim_runs_cli_lifecycle_without_overwriting_manual_content() {
     assert_eq!(fs::read(game.join("Data/manual.esp")).unwrap(), b"manual");
     assert_eq!(fs::read(game.join("plugins.txt")).unwrap(), b"manual order");
 }
-
