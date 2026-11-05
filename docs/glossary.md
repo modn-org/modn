@@ -2,7 +2,7 @@
 
 Modn manages game modifications through curated buckets and game-specific
 modules. This glossary names the domain concepts used in the CLI, manifests,
-Rust core and future Lua integrations.
+Rust core and runtime Lua integrations.
 
 ## Language
 
@@ -48,6 +48,10 @@ A versioned Lua integration that defines game-specific discovery,
 installation policy, diagnostics and tool behavior.
 _Avoid_: Mod, plugin, adapter, Rust game handler
 
+**Trusted third-party game module**:
+A user-approved executable Lua policy copied into a separate local registry.
+_Avoid_: Community bucket module, automatically safe module
+
 **First-party game module**:
 A Lua 5.4 integration owned by Modn and distributed in the official bucket.
 _Avoid_: Independently installed game plugin
@@ -55,6 +59,16 @@ _Avoid_: Independently installed game plugin
 **Development module override**:
 A temporary caller-selected Lua module source for one command, never persisted.
 _Avoid_: Installed module, active third-party module
+
+**Trusted module registration**:
+An explicitly accepted snapshot of third-party Lua policy in the runtime data directory.
+Its retained digest detects changed bytes. Registration grants no game-write approval.
+_Avoid_: Sandboxed module, bucket module, development override
+
+**Git catalog revision**:
+The explicit source and full commit published with a validated community catalog snapshot.
+Only an explicit `bucket sync` fetches this source.
+_Avoid_: Automatically refreshed catalog
 
 ### Packages and acquisition
 
@@ -83,6 +97,11 @@ _Avoid_: Bucket, install destination
 **Verified artifact**:
 An archive whose bytes match the digest pinned by its package manifest.
 _Avoid_: Safe mod, trusted publisher
+
+**Verified archive reuse**:
+Reuse of an immutable cache payload after its bytes match another package or source alias's pinned SHA-256.
+It grants no ownership and never deduplicates mutable game files.
+_Avoid_: Game-file deduplication, trusted publisher
 
 **Dependency**:
 A declared relationship in which a mod release needs another mod or framework
@@ -117,7 +136,7 @@ _Avoid_: Exclusive directory
 
 **Unmanaged content**:
 Files or directories in a game installation that Modn did not claim through a
-recorded installation.
+recorded installation or acknowledged adoption.
 _Avoid_: Invalid mod, orphaned package
 
 **Pending transaction**:
@@ -129,3 +148,34 @@ _Avoid_: Installed package, failed mod
 The continuation or rollback of a pending managed transaction using recorded
 ownership and transaction evidence.
 _Avoid_: Game repair, automatic cleanup
+
+**Adoption**:
+An acknowledged atomic ownership commit for existing individual files that match a selected local archive.
+It changes no game bytes and claims no directory or unknown descendant.
+
+**Owned cleanup**:
+Explicitly approved removal of one managed package's recorded files, including modified files.
+It preserves unrecorded descendants and retains transaction backups and recovery checks.
+
+**Trusted module registration**:
+An explicitly accepted snapshot of third-party Lua policy in the runtime data directory.
+Its retained digest detects changed bytes. Registration grants no game-write approval.
+_Avoid_: Sandboxed module, bucket module, development override
+
+**Git catalog revision**:
+The explicit source and full commit published with a validated community catalog snapshot.
+Only an explicit `bucket sync` fetches this source.
+_Avoid_: Automatically refreshed catalog
+
+**Verified archive reuse**:
+Reuse of an immutable cache payload after its bytes match another package or source alias's pinned SHA-256.
+It grants no ownership and never deduplicates mutable game files.
+_Avoid_: Game-file deduplication, trusted publisher
+
+**Adoption**:
+An acknowledged atomic ownership commit for existing individual files that match a selected local archive.
+It changes no game bytes and claims no directory or unknown descendant.
+
+**Owned cleanup**:
+Explicitly approved removal of one managed package's recorded files, including modified files.
+It preserves unrecorded descendants and retains transaction backups and recovery checks.

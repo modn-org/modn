@@ -101,6 +101,17 @@ impl Store {
             return self.finish_journal(&journal.id);
         }
         let game = validate_transaction_root(&journal.game)?;
+        if journal.action == "cleanup" {
+            for claim in &journal.directories {
+                super::directory::verify_directory(
+                    &target_path(&game, &claim.root)?,
+                    claim
+                        .identity
+                        .as_deref()
+                        .context("missing cleanup directory identity")?,
+                )?;
+            }
+        }
         for f in journal.files.iter().rev() {
             let dest = target_path(&game, &f.destination)?;
             let temp = temp_path(&dest, &journal.id, f.ordinal)?;
@@ -140,7 +151,7 @@ impl Store {
                         fs::remove_file(&temp)?;
                     }
                 }
-                ("uninstall", "pending") => {
+                ("uninstall" | "cleanup", "pending") => {
                     if witness {
                         if present {
                             if !same_file::is_same_file(&temp, &dest)? || digest(&dest)? != f.sha256

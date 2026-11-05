@@ -3,7 +3,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 #[test]
-fn removed_adopt_command_cannot_create_ownership() {
+fn adoption_without_archive_cannot_create_ownership() {
     let temp = tempdir().expect("fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
@@ -20,7 +20,7 @@ fn removed_adopt_command_cannot_create_ownership() {
         .expect("CLI help");
     assert!(help.status.success());
     let usage = String::from_utf8_lossy(&help.stdout);
-    assert!(!usage
+    assert!(usage
         .lines()
         .any(|line| line.trim_start().starts_with("adopt ")));
 
@@ -30,16 +30,16 @@ fn removed_adopt_command_cannot_create_ownership() {
         .args(["adopt", "--dry-run", "--path"])
         .arg(&game)
         .output()
-        .expect("removed CLI command");
+        .expect("incomplete adoption command");
     assert!(!denied.status.success());
     assert!(
-        String::from_utf8_lossy(&denied.stderr).contains("unrecognized subcommand"),
+        String::from_utf8_lossy(&denied.stderr).contains("<ARCHIVE>"),
         "{}",
         String::from_utf8_lossy(&denied.stderr)
     );
     assert_eq!(fs::read(&manual).expect("manual preserved"), b"manual mod");
     assert!(
         !state.exists(),
-        "unknown command must not create manager state"
+        "incomplete command must not create manager state"
     );
 }

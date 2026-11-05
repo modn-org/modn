@@ -329,3 +329,61 @@ fn list_and_doctor_show_the_folders_modn_created() {
     let list = modn(&fixture, &["list"]);
     assert!(!String::from_utf8_lossy(&list.stdout).contains("Folders Modn created"));
 }
+
+#[test]
+fn provider_preview_is_offline_and_aliases_reuse_verified_bytes() {
+    let fixture = Fixture::new();
+    let (archive, hash) = plugin_archive(&fixture, "shared");
+    fixture.bucket("deps", "test-game", "provider", &hash, &[]);
+    let manifest = fixture
+        .temp
+        .path()
+        .join("deps/games/test-game/provider.json");
+    let mut value: Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    value["source"] = json!({"kind":"github-release", "repository":"fixture/project", "tag":"v1", "asset":"mod.zip"});
+    fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+    let preview = modn(
+        &fixture,
+        &[
+            "--game",
+            "test-game",
+            "--json",
+            "install",
+            "provider",
+            "--path",
+            fixture.game.to_str().unwrap(),
+            "--dry-run",
+        ],
+    );
+    assert!(preview.status.success(), "{}", error(&preview));
+    assert!(!fixture.state.join("state.sqlite").exists());
+    assert!(!cache_dir(&fixture).exists());
+    assert!(!fixture.game.join("addons").exists());
+    fixture.register();
+    seed(&fixture, "original", &archive);
+    let installed = modn(&fixture, &["install", "provider", "--yes"]);
+    assert!(installed.status.success(), "{}", error(&installed));
+    assert_eq!(
+        fs::read(fixture.game.join("addons/shared.plugin")).unwrap(),
+        b"shared"
+    );
+    let entries = fs::read_dir(cache_dir(&fixture)).unwrap().count();
+    assert_eq!(entries, 1, "digest alias reuse adds no second entry");
+    assert!(modn(&fixture, &["uninstall", "provider", "--yes"])
+        .status
+        .success());
+    value["id"] = json!("alias");
+    value["source"] = json!({"kind":"https","url": "https://127.0.0.1:9/another-source.zip"});
+    fs::write(
+        fixture.temp.path().join("deps/games/test-game/alias.json"),
+        serde_json::to_vec(&value).unwrap(),
+    )
+    .unwrap();
+    let alias = modn(&fixture, &["install", "alias", "--yes"]);
+    assert!(alias.status.success(), "{}", error(&alias));
+    assert_eq!(fs::read_dir(cache_dir(&fixture)).unwrap().count(), 1);
+    assert_eq!(
+        fs::read(fixture.game.join("addons/shared.plugin")).unwrap(),
+        b"shared"
+    );
+}

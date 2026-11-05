@@ -12,11 +12,12 @@ each game.
 - records each file it writes, so uninstall, update and rollback remove only
   what Modn owns
 - recovers an interrupted transaction with `modn recover --yes`
-- never claims or overwrites files that it did not install
+- adopts matching manual files only after explicit acknowledgement
 
 Modn supports legacy `.archive`, CET, RED4ext, redscript, ArchiveXL and TweakXL
-packages. REDmod deployment, other games, MCP and a desktop UI are not
-implemented.
+packages. A scoped MCP companion and a Windows desktop app use the CLI backend.
+Explicit adoption and approved cleanup extend the managed lifecycle.
+See [the user guides](docs/README.md) for limits and setup.
 
 ## Installation
 

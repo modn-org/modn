@@ -18,7 +18,7 @@ The development-only `--module-src` flag selects a local source for one command;
 it does not change any persistent selection or stored installation record.
 
 Buckets contain mod-package manifests and source metadata. Only the official
-`main` bucket may also contain game modules. A bucket
+`main` bucket may also contain game modules. Trusted third-party modules are copied into a separate registry after explicit approval. A bucket
 record is not evidence of installed content; an archive hash proves exact
 bytes, not harmlessness. Catalog updates cannot modify game files.
 Rust owns managed transactions, file and directory ownership, rollback,
@@ -45,7 +45,7 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 | Field | Meaning |
 | --- | --- |
 | `bucket_id` | Registered catalog name, for example `main`. |
-| `source` | Verified local `main` copy, registered local directory or future Git source. |
+| `source` | Verified local `main` copy, registered local directory or explicitly synchronized Git source. |
 | `revision` | Selected catalog snapshot/revision. |
 | `title` | Human-readable catalog name. |
 
@@ -90,18 +90,19 @@ a missing or mismatched override fails without falling back.
 An eventual fully qualified identity may be
 `<bucket>/<game>/<mod>@<version>`. **This is a proposed identity**, not a
 stable CLI contract. Within one bucket, logical IDs must not collide
-silently. The future resolver must detect cycles, missing references,
-ambiguous names, and incompatible version requirements.
+silently. The current resolver checks cycles, missing references, ambiguous names and supported version requirements.
 
 ### Artifact source and verified artifact
 
-An **ArtifactSource** describes an original download URL or a manual archive
-source. A **VerifiedArtifact** is a cache entry whose bytes match the pinned
+An **ArtifactSource** describes an HTTPS URL, a pinned GitHub release asset or a manual archive
+source. GitHub selectors contain repository, tag and asset names.
+Approved acquisition validates bounded provider metadata before verified HTTPS retrieval.
+Ordinary dry runs remain offline and read-only. A **VerifiedArtifact** is a cache entry whose bytes match the pinned
 archive hash. Neither is an ownership record for a game installation.
 
-Use normal HTTPS retrieval and local archive import before designing
-provider-specific acquisition systems. A checksum match alone is not a
-publisher authenticity guarantee.
+Verified cache reuse can return an existing payload for another package or source alias with the same pinned digest.
+Every reuse verifies bytes. It creates no alias file and never deduplicates mutable game files.
+A checksum match alone is not a publisher authenticity guarantee.
 
 ## Installation and ownership entities
 
@@ -162,9 +163,10 @@ fixture exercises game-agnostic support.
 | File ownership | `state.sqlite / managed_files(...)` |
 | Directory ownership | `state.sqlite / managed_directories(...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
-| Game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
+| Official game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
+| Trusted module snapshot | `<data-directory>/game-modules/<game-id>/`, with a verified registration receipt |
 | Development override | In-memory per-invocation `--module-src` / `--src` |
-| Bucket packages | Local `main` copy and explicitly registered local directories |
+| Bucket packages | Local `main` copy, registered local directories and explicitly synced Git snapshots |
 
 Manager schema version 2 stores each pin as `pinned INTEGER NOT NULL DEFAULT 0`.
 Migration preserves existing packages and leaves them unpinned.
@@ -176,15 +178,51 @@ The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>@<version>.json`. Only `main` publishes game
 modules. A mod update is a pending uninstall journal and a pending
 install journal; one commit retires the old managed package and moves its
-dependency links to the new one. Git-backed catalog sync remains deferred (#53).
+dependency links to the new one. Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 
 ## Invariants for future changes
 
 1. Preserve game ownership and pending-transaction evidence.
 2. A catalog update cannot silently install, uninstall or update mods.
-3. Game-specific Lua policy remains first-party source in `main`.
+3. First-party Lua policy remains in `main`; trusted third-party policy uses a separate registry.
 4. Development override paths never persist or silently fall back.
-5. Package manifests and Lua proposals cannot claim pre-existing files.
+5. Normal install cannot claim pre-existing files. Explicit adoption requires acknowledgement and exact archive-byte verification.
 6. Failed installation and recovery preserve unmanaged game content.
 7. Never add a per-game Rust core adapter.
 8. Keep manager state outside game installations.
+
+## Explicit lifecycle and acquisition extensions
+
+[sources.md](sources.md) specifies Git catalog revisions, digest-based cache reuse and pinned GitHub release acquisition.
+[lifecycle.md](lifecycle.md) specifies acknowledged file adoption and approved cleanup of modified owned files.
+Adoption commits individual ownership without writing game bytes. Cleanup retains journals, backups and recovery checks.
+
+### Trusted module registration
+
+`module register <source> --trust` copies a validated third-party module snapshot.
+The runtime data directory stores its identity, API version and exact content digest.
+This registry is independent of `--state-dir` and development source overrides.
+Official game IDs retain priority and cannot be registered through this registry.
+Changed snapshots fail verification. Removal leaves game files and ownership intact.
+
+
+## Companion and desktop boundaries
+
+The local MCP companion fixes its CLI backend, manager state, and approved filesystem roots at startup.
+Server `--allow-writes` and per-request `approved: true` authorize ordinary installation or uninstall.
+It exposes neither adoption nor forced cleanup.
+The GPUI Kit 0.9.0 desktop belongs to the root workspace, with Windows-only GPUI dependencies.
+It reviews local ZIP and 7z archives and confirms ordinary installation or strict uninstall through the CLI.
+Neither surface derives ownership from scan results or grants executable approval.
+See [MCP scopes](mcp.md) and [desktop configuration](desktop.md).
+
+
+## Explicit lifecycle commands
+
+`adopt <archive> --acknowledge --yes` records matching manual files in the existing managed-package and file-ownership tables.
+It records archive provenance without catalog identity or dependency links. No schema field distinguishes adoption from installation.
+The read-only preview reports pending byte, content, and ownership verification.
+`uninstall <selector> --force --yes` resolves one managed package and removes only its recorded files.
+It preserves unrecorded descendants and retains exclusive directories. Normal uninstall remains strict.
+The cleanup journal records current bytes for rollback and recovery.
+See [lifecycle contracts](lifecycle.md) and [MCP startup](mcp.md).

@@ -27,6 +27,28 @@ pub(super) fn validate_execution_plan(
     proposal: &InstallPlan,
     approved: &[String],
 ) -> Result<()> {
+    validate_plan(
+        inspection,
+        game,
+        proposal,
+        approved,
+        ExistingTargets::Refuse,
+    )
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ExistingTargets {
+    Refuse,
+    Adopt,
+}
+
+pub(super) fn validate_plan(
+    inspection: &Inspection,
+    game: &Path,
+    proposal: &InstallPlan,
+    approved: &[String],
+    existing: ExistingTargets,
+) -> Result<()> {
     if !inspection.format.is_installable() {
         bail!("transaction executor supports only ZIP and 7z operations");
     }
@@ -104,7 +126,9 @@ pub(super) fn validate_execution_plan(
         if let Some(code) = insert_destination(&mut targets, &operation.destination) {
             bail!("{code}: {}", operation.destination);
         }
-        if let Some(code) = existing_destination_issue(game, &operation.destination) {
+        if let Some(code) = existing_destination_issue(game, &operation.destination)
+            .filter(|code| *code != "EXISTING_FILE" || matches!(existing, ExistingTargets::Refuse))
+        {
             bail!("{code}: {}", operation.destination);
         }
     }

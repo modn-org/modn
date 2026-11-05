@@ -46,6 +46,7 @@ impl InstallationState {
             InstallationAccess::ArchivePreview
                 if target.root.is_some() && state.existing().is_none() =>
             {
+                state.validate(&target)?;
                 None
             }
             InstallationAccess::Preview | InstallationAccess::ArchivePreview => {

@@ -23,3 +23,9 @@ supplied, then asks once for the whole stack.
 - `modn cache rm <mod>` or `modn cache rm --all` removes entries. A file
   counts as an entry only if its whole name matches the entry format. Other
   files, including partial downloads, are left alone.
+
+## Digest-based reuse
+
+Cache lookup can reuse verified payloads across package or source aliases with the same pinned SHA-256.
+Every hit verifies bytes. Reuse creates no alias file and never deduplicates mutable game files.
+See [sources.md](sources.md) for removal behavior and provider acquisition.

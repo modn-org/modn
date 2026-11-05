@@ -1,0 +1,41 @@
+[package]
+name = "modn-desktop"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+gpui-kit = "=0.9.0"
+gpui-pre = "=0.3.11"
+
+[lints.rust]
+unsafe_code = "forbid"
+unstable_features = "deny"
+
+[lints.clippy]
+ref_option = "deny"
+unwrap_used = "deny"
+wildcard_imports = "deny"
+needless_for_each = "deny"
+undocumented_unsafe_blocks = "deny"
+derive_partial_eq_without_eq = "allow"
+missing_const_for_fn = "allow"
+
+[features]
+verification = []
+
+[[bin]]
+name = "modn-desktop-test-backend"
+path = "tests/fixtures/backend.rs"
+required-features = ["verification"]
+
+[[test]]
+name = "backend_contract"
+required-features = ["verification"]

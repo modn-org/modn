@@ -1,8 +1,8 @@
 use crate::commands::PinArgs;
 use crate::commands::UninstallArgs;
 use crate::state_access::{InstallationAccess, ManagerState, ProtectedTarget};
-use anyhow::{bail, Result};
-use modn_core::transactions::UninstallScope;
+use anyhow::{bail, Context, Result};
+use modn_core::transactions::{CleanupApproval, UninstallScope};
 use std::path::{Path, PathBuf};
 
 pub(super) fn list(
@@ -67,6 +67,32 @@ pub(super) fn uninstall(
             .expect("preview access requires manager state");
         let game = selected.root;
         let plan = store.plan_uninstall(&game, &args.package, scope)?;
+        if args.force {
+            let id = &plan.first().expect("a removal plan selects one package").id;
+            let package = store
+                .installed(&game)?
+                .into_iter()
+                .find(|p| &p.id == id)
+                .context("managed package changed during preview; retry the command")?;
+            let pending = "Current paths, missing files, directory identities, and pending transactions are checked under the commit lock.";
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "dry_run": true, "force": true, "status": "verification_required",
+                        "packages": plan, "owned_files": package.files,
+                        "checks_pending_until_commit": pending,
+                    }))?
+                );
+            } else {
+                println!("Would clean recorded files of {id}, including modified files:");
+                for file in &package.files {
+                    println!("  {}", file.destination);
+                }
+                println!("{pending}");
+            }
+            return Ok(());
+        }
         if json {
             println!(
                 "{}",
@@ -93,7 +119,14 @@ pub(super) fn uninstall(
     let selected = state.open(InstallationAccess::Write)?;
     let mut store = selected.store.expect("write access opens manager state");
     let game = selected.root;
-    let removed = store.uninstall_with(&game, &args.package, scope)?;
+    let removed = if args.force {
+        let plan = store.plan_uninstall(&game, &args.package, scope)?;
+        let id = &plan.first().expect("a removal plan selects one package").id;
+        store.cleanup_owned(&game, id, CleanupApproval::Approved)?;
+        vec![id.clone()]
+    } else {
+        store.uninstall_with(&game, &args.package, scope)?
+    };
     if json {
         println!(
             "{}",

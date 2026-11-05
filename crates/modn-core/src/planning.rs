@@ -1,5 +1,7 @@
 //! Deterministic, metadata-only plans. No game writes or extraction.
+mod adoption;
 use crate::archive::Inspection;
+pub use adoption::preview_adoption;
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;

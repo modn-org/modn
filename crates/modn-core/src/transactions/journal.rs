@@ -174,7 +174,7 @@ impl Store {
             )?;
         }
         for (ordinal, root) in directories.iter().enumerate() {
-            let identity: Option<String> = if action == "uninstall" {
+            let identity: Option<String> = if matches!(action, "uninstall" | "cleanup") {
                 Some(tx.query_row(
                     "SELECT identity FROM managed_directories WHERE package_id=?1 AND relative_path=?2",
                     params![package_id, root],

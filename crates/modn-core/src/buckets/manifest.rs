@@ -61,8 +61,18 @@ pub enum ArchiveFormat {
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 #[non_exhaustive]
 pub enum PackageSource {
-    Manual { filename: String },
-    Https { url: String },
+    Manual {
+        filename: String,
+    },
+    Https {
+        url: String,
+    },
+    #[serde(rename = "github-release")]
+    GithubRelease {
+        repository: String,
+        tag: String,
+        asset: String,
+    },
 }
 
 pub(super) fn valid_id(value: &str) -> bool {
@@ -131,6 +141,18 @@ impl PackageManifest {
             bail!("package sha256 must be 64 lowercase hex characters");
         }
         match &self.source {
+            PackageSource::GithubRelease {
+                repository,
+                tag,
+                asset,
+            } => {
+                crate::acquisition::GithubReleaseAsset::new(
+                    repository.clone(),
+                    tag.clone(),
+                    asset.clone(),
+                )
+                .metadata_url()?;
+            }
             PackageSource::Manual { filename } => {
                 let extension = match self.archive_format {
                     ArchiveFormat::Zip => ".zip",
