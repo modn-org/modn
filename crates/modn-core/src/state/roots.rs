@@ -5,18 +5,28 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// The manager state schema version this build writes.
-pub(crate) const SCHEMA_VERSION: i64 = 3;
+pub(crate) const SCHEMA_VERSION: i64 = 4;
 
 /// Identity of one root within its installation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RootKind {
     Game,
+    Content,
 }
 
 impl RootKind {
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Game => "game",
+            Self::Content => "content",
+        }
+    }
+
+    pub(crate) fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "game" => Some(Self::Game),
+            "content" => Some(Self::Content),
+            _ => None,
         }
     }
 }
@@ -49,6 +59,31 @@ pub(super) fn migrate_to_v3(connection: &Connection) -> Result<()> {
             PRIMARY KEY(game_path, root)
         );",
     )?;
+    for (table, column, definition) in [
+        ("pending_files", "root", "TEXT NOT NULL DEFAULT 'game'"),
+        (
+            "pending_directories",
+            "root",
+            "TEXT NOT NULL DEFAULT 'game'",
+        ),
+        (
+            "pending_created_directories",
+            "root",
+            "TEXT NOT NULL DEFAULT 'game'",
+        ),
+        ("pending_created_directories", "base_path", "TEXT"),
+    ] {
+        let has_column: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",
+            [table, column],
+            |row| row.get(0),
+        )?;
+        if !has_column {
+            connection.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN {column} {definition};"
+            ))?;
+        }
+    }
     for (table, columns, copied) in OWNERSHIP_TABLES {
         let has_root: bool = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name='root')",
@@ -173,6 +208,22 @@ pub(crate) fn record_root(
     Ok(())
 }
 
+/// Read the recorded path of `kind` without requiring it to exist.
+pub(crate) fn recorded_root(
+    connection: &Connection,
+    installation: &Path,
+    kind: RootKind,
+) -> Result<Option<PathBuf>> {
+    Ok(connection
+        .query_row(
+            "SELECT path FROM installation_roots WHERE game_path=?1 AND root=?2",
+            params![installation.to_string_lossy().as_ref(), kind.label()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(PathBuf::from))
+}
+
 /// Whether `installation` names an installation with recorded roots.
 pub(crate) fn is_recorded(connection: &Connection, installation: &Path) -> Result<bool> {
     Ok(connection.query_row(
@@ -203,6 +254,9 @@ pub(crate) fn resolve_root(
     let path = match (recorded, kind) {
         (Some(path), _) => PathBuf::from(path),
         (None, RootKind::Game) => return validate_transaction_root(installation),
+        (None, RootKind::Content) => {
+            bail!("installation {installation:?} has no recorded content root")
+        }
     };
     let canonical = validate_transaction_root(&path)?;
     if canonical != path {

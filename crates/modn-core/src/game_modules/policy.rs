@@ -1,11 +1,10 @@
 use super::capabilities::{AllowedRoots, ReadProfile};
-use super::loader::HOST_API_VERSION;
 use super::resolver::read_policy;
 use super::runtime;
 use crate::planning::{RequestedFile, RequestedPlan};
 use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use mlua::{Function, Lua, Table};
 use std::path::{Component, Path, PathBuf};
 
@@ -43,6 +42,7 @@ fn evaluate_with_profile<T>(
     runtime::evaluate(
         &source,
         &manifest.entrypoint,
+        manifest.api_version,
         roots,
         profile,
         |lua, policy| {
@@ -50,7 +50,7 @@ fn evaluate_with_profile<T>(
             let version: u32 = policy.get("api_version")?;
             let module_version: Option<String> = policy.get("version")?;
             if id != game_id
-                || version != HOST_API_VERSION
+                || version != manifest.api_version
                 || module_version.is_some_and(|version| version != manifest.version)
             {
                 return Err(mlua::Error::RuntimeError(
@@ -272,9 +272,21 @@ pub(crate) fn plan(
     root: &Path,
     inspection: &crate::archive::Inspection,
     replaced: &[String],
+    appdata: Option<&Path>,
 ) -> Result<RequestedPlan> {
     const MAX_PROPOSALS: usize = 2_048;
     let root = root.canonicalize()?;
+    let (manifest, _) = read_policy(game_id)?;
+    let content_root = match &manifest.content_root {
+        Some(spec) => {
+            let base = appdata.context(
+                "module declares content_root but no appdata base was supplied to the planner",
+            )?;
+            Some(crate::content_root::resolve(&root, spec, base)?)
+        }
+        None => None,
+    };
+    let declared_content = content_root.is_some();
     if inspection.files.len() > MAX_PROPOSALS {
         return Ok(RequestedPlan {
             operations: Vec::new(),
@@ -283,6 +295,7 @@ pub(crate) fn plan(
                 "TOO_MANY_FILES".into(),
                 format!("Read-only preview supports at most {MAX_PROPOSALS} files"),
             )],
+            content_root,
         });
     }
     evaluate_hiding(game_id, &[root], replaced, |lua, policy| {
@@ -317,6 +330,16 @@ pub(crate) fn plan(
                     destination: plan_field(&value, "destination", 1_024, &mut result_budget)?,
                     kind: plan_field(&value, "kind", 64, &mut result_budget)?,
                     package_root: plan_field(&value, "package_root", 256, &mut result_budget)?,
+                    root: match value.get::<Option<String>>("root")? {
+                        None => crate::state::RootKind::Game,
+                        Some(root) if root == "game" => crate::state::RootKind::Game,
+                        Some(root) if root == "content" => crate::state::RootKind::Content,
+                        Some(root) => {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "unknown operation root {root:?}"
+                            )))
+                        }
+                    },
                     owned_directory: match value.get::<Option<String>>("owned_directory")? {
                         Some(root) if root.len() <= 1024 => Some(root),
                         Some(_) => {
@@ -329,7 +352,7 @@ pub(crate) fn plan(
                 })
             })
             .collect::<mlua::Result<Vec<_>>>()?;
-        let blockers = issues
+        let mut blockers = issues
             .sequence_values::<Table>()
             .map(|value| {
                 let value = value?;
@@ -339,6 +362,16 @@ pub(crate) fn plan(
                 ))
             })
             .collect::<mlua::Result<Vec<_>>>()?;
+        if operations
+            .iter()
+            .any(|operation| operation.root == crate::state::RootKind::Content)
+            && !declared_content
+        {
+            blockers.push((
+                "CONTENT_ROOT_UNDECLARED".into(),
+                "module did not declare content_root for content destinations".into(),
+            ));
+        }
         let skipped_generated_files = match output
             .get::<Option<Table>>("skipped_generated_files")?
         {
@@ -366,6 +399,7 @@ pub(crate) fn plan(
             operations,
             blockers,
             skipped_generated_files,
+            content_root,
         })
     })
 }

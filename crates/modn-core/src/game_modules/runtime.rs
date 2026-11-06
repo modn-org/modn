@@ -1,5 +1,4 @@
 use super::capabilities::{self, AllowedRoots, ReadProfile};
-use super::loader::HOST_API_VERSION;
 use anyhow::Result;
 use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
 use std::cell::Cell;
@@ -14,6 +13,7 @@ const MAX_EXECUTION: Duration = Duration::from_secs(1);
 pub(super) fn evaluate<T>(
     source: &str,
     label: &str,
+    api_version: u32,
     roots: AllowedRoots,
     profile: ReadProfile,
     evaluate: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
@@ -43,7 +43,7 @@ pub(super) fn evaluate<T>(
             globals.set(restricted, mlua::Value::Nil)?;
         }
         let host = lua.create_table()?;
-        host.set("api_version", HOST_API_VERSION)?;
+        host.set("api_version", api_version)?;
         capabilities::register(&lua, &host, roots, profile)?;
         let proxy = lua.create_table()?;
         let meta = lua.create_table()?;

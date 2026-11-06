@@ -8,10 +8,17 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-/// First host API revision. Future incompatible changes require a new revision.
-pub const HOST_API_VERSION: u32 = 1;
+/// Newest host API revision. Older revisions stay supported.
+pub const HOST_API_VERSION: u32 = 2;
+/// Oldest host API revision this build still accepts.
+pub const MIN_HOST_API_VERSION: u32 = 1;
 pub(super) const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 pub(super) const MAX_SCRIPT_BYTES: u64 = 256 * 1024;
+
+/// Whether this build accepts host API revision `version`.
+pub(crate) const fn supported_api_version(version: u32) -> bool {
+    version >= MIN_HOST_API_VERSION && version <= HOST_API_VERSION
+}
 
 /// Validated identity of one Lua game integration; no installation privileges implied.
 #[expect(missing_docs, reason = "Field and variant names state their meaning")]
@@ -25,6 +32,43 @@ pub struct GameModuleInfo {
     pub api_version: u32,
 }
 
+/// Declared root for game content that lives outside the game installation.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct ContentRootSpec {
+    /// Known-folder base name. Only `appdata` is supported.
+    pub base: String,
+    /// Relative path below the base.
+    pub path: String,
+}
+
+impl ContentRootSpec {
+    fn validate(&self, api_version: u32) -> Result<()> {
+        if api_version < 2 {
+            bail!("content_root requires api_version 2");
+        }
+        if self.base != "appdata" {
+            bail!(
+                "unsupported content_root base {:?}; only \"appdata\" is supported",
+                self.base
+            );
+        }
+        if self.path.is_empty()
+            || self.path.len() > 256
+            || Path::new(&self.path).is_absolute()
+            || crate::archive::validated_name(&self.path)
+                .map_or(true, |normalized| normalized != self.path)
+        {
+            bail!(
+                "content_root.path must be a relative, safe path below the base: {:?}",
+                self.path
+            );
+        }
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ModuleManifest {
@@ -34,6 +78,8 @@ pub(super) struct ModuleManifest {
     pub(super) entrypoint: String,
     #[serde(default)]
     pub(super) min_modn_version: Option<String>,
+    #[serde(default)]
+    pub(super) content_root: Option<ContentRootSpec>,
 }
 
 pub(super) fn bounded_file(path: &Path, root: &Path, limit: u64) -> Result<Vec<u8>> {
@@ -97,12 +143,16 @@ pub(super) fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
             );
         }
     }
-    if manifest.api_version != HOST_API_VERSION {
+    if !supported_api_version(manifest.api_version) {
         bail!(
-            "incompatible host API: module requires {}, host supports {}",
+            "incompatible host API: module requires {}, host supports {} through {}",
             manifest.api_version,
+            MIN_HOST_API_VERSION,
             HOST_API_VERSION
         );
+    }
+    if let Some(content_root) = &manifest.content_root {
+        content_root.validate(manifest.api_version)?;
     }
     if !valid_game_id(&manifest.game_id) {
         bail!("invalid module game_id; use lowercase ASCII letters, digits and hyphens");
@@ -130,6 +180,7 @@ fn execute_module(script: &[u8], manifest: &ModuleManifest, roots: AllowedRoots)
     runtime::evaluate(
         source,
         &manifest.entrypoint,
+        manifest.api_version,
         roots,
         ReadProfile::Standard,
         |_, output: Table| {
@@ -177,6 +228,7 @@ pub fn check_module_with_roots(
         api_version: info.api_version,
         entrypoint: info.entrypoint.clone(),
         min_modn_version: None,
+        content_root: None,
     };
     execute_module(script.as_bytes(), &manifest, roots)
         .with_context(|| format!("module {} failed validation", manifest.game_id))?;
@@ -189,6 +241,7 @@ pub(super) struct VerifiedModule {
     pub(super) version: String,
     pub(super) api_version: u32,
     pub(super) entrypoint: String,
+    pub(super) content_root: Option<ContentRootSpec>,
 }
 
 impl From<VerifiedModule> for GameModuleInfo {
@@ -232,6 +285,7 @@ fn verified(manifest: ModuleManifest, script: &[u8]) -> Result<(VerifiedModule, 
             version: manifest.version,
             api_version: manifest.api_version,
             entrypoint: manifest.entrypoint,
+            content_root: manifest.content_root,
         },
         source.to_owned(),
     ))

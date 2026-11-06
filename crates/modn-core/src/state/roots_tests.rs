@@ -68,7 +68,7 @@ fn v2_state_migrates_to_v3_with_every_owned_path_on_the_game_root() {
     assert_eq!(games.len(), 1);
 
     let store = Store::open(&db).expect("migration");
-    assert_eq!(user_version(&db), 3);
+    assert_eq!(user_version(&db), 4);
     assert_eq!(ownership_rows(&store.connection), before);
     for table in [
         "managed_files",

@@ -1,8 +1,8 @@
 use super::cleanup::RemovalMode;
 use super::directory::{covers, quarantine, quarantine_path};
 use super::install::Fault;
-use super::journal::{digest, lock_store, target_path, temp_path, JournalFile};
-use crate::state::Store;
+use super::journal::{digest, lock_store, target_path, temp_path, JournalFile, Roots};
+use crate::state::{resolve_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
@@ -28,8 +28,19 @@ impl Store {
         fault: Option<Fault>,
     ) -> Result<()> {
         let game = self.transaction_root(game)?;
+        let content = if self
+            .installed(&game)?
+            .iter()
+            .find(|package| package.id == package_id)
+            .is_some_and(|package| package.files.iter().any(|file| file.root == "content"))
+        {
+            Some(resolve_root(&self.connection, &game, RootKind::Content)?)
+        } else {
+            None
+        };
+        let roots = Roots { game, content };
         let id =
-            self.withdraw_with_mode_locked(&game, package_id, Dependents::Refuse, mode, fault)?;
+            self.withdraw_with_mode_locked(&roots, package_id, Dependents::Refuse, mode, fault)?;
         if let Err(err) = self.commit_uninstall(&id, package_id) {
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
@@ -40,7 +51,7 @@ impl Store {
         }
         self.recover_locked()
             .context("uninstall committed; cleanup incomplete, run 'modn recover'")?;
-        self.prune_created(&game)
+        self.prune_created(&roots)
             .context("uninstall committed; folder cleanup incomplete, run 'modn recover'")?;
         Ok(())
     }
@@ -51,12 +62,24 @@ impl Store {
         package_id: &str,
         dependents: Dependents,
     ) -> Result<String> {
-        self.withdraw_with_mode_locked(game, package_id, dependents, RemovalMode::Strict, None)
+        let game = self.transaction_root(game)?;
+        let content = if self
+            .installed(&game)?
+            .iter()
+            .find(|package| package.id == package_id)
+            .is_some_and(|package| package.files.iter().any(|file| file.root == "content"))
+        {
+            Some(resolve_root(&self.connection, &game, RootKind::Content)?)
+        } else {
+            None
+        };
+        let roots = Roots { game, content };
+        self.withdraw_with_mode_locked(&roots, package_id, dependents, RemovalMode::Strict, None)
     }
 
     fn withdraw_with_mode_locked(
         &mut self,
-        game: &Path,
+        roots: &Roots,
         package_id: &str,
         dependents: Dependents,
         mode: RemovalMode,
@@ -64,7 +87,7 @@ impl Store {
     ) -> Result<String> {
         self.ensure_no_pending()?;
         let package = self
-            .installed(game)?
+            .installed(&roots.game)?
             .into_iter()
             .find(|p| p.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
@@ -83,13 +106,14 @@ impl Store {
             .enumerate()
             .map(|(ordinal, f)| JournalFile {
                 ordinal,
+                root: RootKind::from_label(&f.root).unwrap_or(RootKind::Game),
                 destination: f.destination.clone(),
                 sha256: f.sha256.clone(),
                 bytes: f.bytes,
             })
             .collect();
         for f in &mut files {
-            let target = target_path(game, &f.destination)?;
+            let target = roots.target(f.root, &f.destination)?;
             if forced {
                 let metadata = fs::symlink_metadata(&target)?;
                 if !metadata.is_file() || metadata.file_type().is_symlink() {
@@ -106,11 +130,12 @@ impl Store {
             }
         }
         for (index, root) in package.directories.iter().enumerate() {
-            let path = target_path(game, root)?;
+            let path = target_path(&roots.game, root)?;
             let metadata = fs::symlink_metadata(&path)?;
             if !metadata.is_dir()
                 || metadata.file_type().is_symlink()
-                || fs::symlink_metadata(quarantine_path(game, root, "preflight", index)?).is_ok()
+                || fs::symlink_metadata(quarantine_path(&roots.game, root, "preflight", index)?)
+                    .is_ok()
             {
                 bail!("unsafe owned directory: {}", path.display());
             }
@@ -128,7 +153,7 @@ impl Store {
         self.insert_journal(
             &id,
             if forced { "cleanup" } else { "uninstall" },
-            game,
+            &roots.game,
             package_id,
             None,
             &files,
@@ -138,17 +163,20 @@ impl Store {
             if !forced {
                 for (index, root) in package.directories.iter().enumerate() {
                     let identity = self.managed_directory_identity(package_id, root)?;
-                    quarantine(game, root, &id, index, &identity)?;
+                    quarantine(&roots.game, root, &id, index, &identity)?;
                 }
             }
             for f in &files {
                 if forced {
                     for root in &package.directories {
                         let identity = self.managed_directory_identity(package_id, root)?;
-                        super::directory::verify_directory(&target_path(game, root)?, &identity)?;
+                        super::directory::verify_directory(
+                            &target_path(&roots.game, root)?,
+                            &identity,
+                        )?;
                     }
                 }
-                let target = target_path(game, &f.destination)?;
+                let target = roots.target(f.root, &f.destination)?;
                 if !target.is_file() || digest(&target)? != f.sha256 {
                     bail!("owned file modified during uninstall: {}", target.display());
                 }

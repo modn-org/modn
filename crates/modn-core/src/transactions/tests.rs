@@ -42,6 +42,7 @@ fn prepared_file(dest: &str, data: &[u8]) -> JournalFile {
     let mut hasher = Sha256::new();
     hasher.update(data);
     JournalFile {
+        root: crate::state::RootKind::Game,
         ordinal: 0,
         destination: dest.into(),
         sha256: format!("{:x}", hasher.finalize()),

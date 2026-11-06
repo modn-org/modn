@@ -29,7 +29,7 @@ pub fn with_module_source<T>(source: Option<&Path>, action: impl FnOnce() -> T) 
     action()
 }
 
-pub(super) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
+pub(crate) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     if !loader::valid_game_id(game) {
         bail!("invalid game module identifier");
     }

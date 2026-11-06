@@ -1,10 +1,11 @@
+use super::journal::Roots;
 use crate::archive::{validated_name, Inspection};
 use crate::planning::{
     approved_tool_executable, existing_destination_issue, insert_destination, prohibited_payload,
     InstallPlan,
 };
 use crate::state::{is_recorded, resolve_root, RootKind, Store};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use rusqlite::params;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -35,13 +36,13 @@ impl Store {
 
 pub(super) fn validate_execution_plan(
     inspection: &Inspection,
-    game: &Path,
+    roots: &Roots,
     proposal: &InstallPlan,
     approved: &[String],
 ) -> Result<()> {
     validate_plan(
         inspection,
-        game,
+        roots,
         proposal,
         approved,
         ExistingTargets::Refuse,
@@ -56,7 +57,7 @@ pub(super) enum ExistingTargets {
 
 pub(super) fn validate_plan(
     inspection: &Inspection,
-    game: &Path,
+    roots: &Roots,
     proposal: &InstallPlan,
     approved: &[String],
     existing: ExistingTargets,
@@ -73,7 +74,7 @@ pub(super) fn validate_plan(
     if proposal.archive_sha256 != inspection.sha256 {
         bail!("archive changed since the proposed installation was reviewed");
     }
-    if validate_transaction_root(&proposal.game_installation)? != game {
+    if validate_transaction_root(&proposal.game_installation)? != roots.game {
         bail!("installation proposal targets a different game root");
     }
     if proposal.operations.is_empty() {
@@ -134,10 +135,20 @@ pub(super) fn validate_plan(
         {
             bail!("invalid operation kind: {}", operation.kind);
         }
-        if let Some(code) = insert_destination(&mut targets, &operation.destination) {
+        let root = RootKind::from_label(&operation.root)
+            .with_context(|| format!("unknown operation root: {}", operation.root))?;
+        if operation.owned_directory.is_some() && root != RootKind::Game {
+            bail!("exclusive directories are not supported under the content root");
+        }
+        let root_path = roots.path(root)?;
+        if let Some(code) = insert_destination(
+            &mut targets,
+            operation.root.as_str(),
+            &operation.destination,
+        ) {
             bail!("{code}: {}", operation.destination);
         }
-        if let Some(code) = existing_destination_issue(game, &operation.destination)
+        if let Some(code) = existing_destination_issue(root_path, &operation.destination)
             .filter(|code| *code != "EXISTING_FILE" || matches!(existing, ExistingTargets::Refuse))
         {
             bail!("{code}: {}", operation.destination);
@@ -152,20 +163,21 @@ pub(super) fn validate_ownership(
     proposal: &InstallPlan,
     replaced: Option<&str>,
 ) -> Result<()> {
-    validate_ownership_paths(
-        store,
-        game,
-        proposal
+    for root in [RootKind::Game, RootKind::Content] {
+        let paths = proposal
             .operations
             .iter()
-            .map(|operation| operation.destination.as_str()),
-        replaced,
-    )
+            .filter(|operation| operation.root == root.label())
+            .map(|operation| operation.destination.as_str());
+        validate_ownership_paths(store, game, root, paths, replaced)?;
+    }
+    Ok(())
 }
 
 fn validate_ownership_paths<'a>(
     store: &Store,
     game: &Path,
+    root: RootKind,
     paths: impl IntoIterator<Item = &'a str>,
     replaced: Option<&str>,
 ) -> Result<()> {
@@ -182,14 +194,21 @@ fn validate_ownership_paths<'a>(
             bail!("installation root overlaps another managed installation");
         }
     }
-    let mut reserved: BTreeSet<String> =
-        owned_paths(store, game, "relative_path", "managed_files", replaced)?
-            .into_iter()
-            .map(|path| super::ownership_key(&path))
-            .collect();
+    let mut reserved: BTreeSet<String> = owned_paths(
+        store,
+        game,
+        root,
+        "relative_path",
+        "managed_files",
+        replaced,
+    )?
+    .into_iter()
+    .map(|path| super::ownership_key(&path))
+    .collect();
     let directories = owned_paths(
         store,
         game,
+        root,
         "relative_path",
         "managed_directories",
         replaced,
@@ -202,7 +221,7 @@ fn validate_ownership_paths<'a>(
         }) {
             bail!("destination is inside an exclusively owned directory: {destination}");
         }
-        if let Some(code) = insert_destination(&mut reserved, destination) {
+        if let Some(code) = insert_destination(&mut reserved, root.label(), destination) {
             bail!("{code}: destination already reserved by manager: {destination}");
         }
     }
@@ -212,6 +231,7 @@ fn validate_ownership_paths<'a>(
 fn owned_paths(
     store: &Store,
     game: &Path,
+    root: RootKind,
     column: &str,
     table: &str,
     replaced: Option<&str>,
@@ -221,11 +241,7 @@ fn owned_paths(
     ))?;
     let paths = query
         .query_map(
-            params![
-                game.to_string_lossy().as_ref(),
-                RootKind::Game.label(),
-                replaced
-            ],
+            params![game.to_string_lossy().as_ref(), root.label(), replaced],
             |row| row.get::<_, String>(0),
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -238,10 +254,18 @@ pub(super) fn validate_directory_reservations(
     directories: &[String],
     replaced: Option<&str>,
 ) -> Result<()> {
-    let occupied = owned_paths(store, game, "relative_path", "managed_files", replaced)?;
+    let occupied = owned_paths(
+        store,
+        game,
+        RootKind::Game,
+        "relative_path",
+        "managed_files",
+        replaced,
+    )?;
     let owned_dirs = owned_paths(
         store,
         game,
+        RootKind::Game,
         "relative_path",
         "managed_directories",
         replaced,

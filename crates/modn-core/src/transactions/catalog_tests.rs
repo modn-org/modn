@@ -117,6 +117,7 @@ pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> Install
             .files
             .into_iter()
             .map(|entry| PlannedFile {
+                root: "game".into(),
                 destination: format!("{directory}/{}", entry.entry.rsplit('/').next().unwrap()),
                 source: entry.entry,
                 bytes: entry.bytes,
@@ -126,6 +127,8 @@ pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> Install
             .collect(),
         blockers: Vec::new(),
         skipped_generated_files: Vec::new(),
+        content_base: None,
+        content_root: None,
     }
 }
 

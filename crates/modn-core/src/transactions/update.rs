@@ -1,6 +1,6 @@
 use super::catalog::{CatalogInstall, CatalogRelease};
 use super::install::Fault;
-use super::journal::{lock_store, ManagedPackage};
+use super::journal::{lock_store, ManagedPackage, Roots};
 use super::uninstall::Dependents;
 use crate::planning::InstallPlan;
 use crate::state::Store;
@@ -21,6 +21,20 @@ pub(super) struct Replacement<'a> {
     pub(super) journal_id: &'a str,
 }
 
+/// Test-only stop that drives the same rollback path as a real failure.
+#[cfg(feature = "test-instruction-budget")]
+fn test_fault() -> Option<Fault> {
+    std::env::var("MODN_TEST_UPDATE_FAULT_AFTER")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(Fault::FailAfter)
+}
+
+#[cfg(not(feature = "test-instruction-budget"))]
+const fn test_fault() -> Option<Fault> {
+    None
+}
+
 impl Store {
     /// Replace managed package `package_id` with another release of the same
     /// catalog mod, in one recoverable transaction.
@@ -33,6 +47,11 @@ impl Store {
     /// new package. A failure before that commit restores the old release
     /// under its package ID. After an interruption, [`Store::recover`] does
     /// the same. An update never overwrites a file that Modn does not own.
+    ///
+    /// A build with the `test-instruction-budget` feature may inject a stop
+    /// through `MODN_TEST_UPDATE_FAULT_AFTER`, so integration tests can
+    /// observe the rollback through the real command. Regular builds compile
+    /// that hook out.
     pub fn update_catalog_release(
         &mut self,
         game: &Path,
@@ -42,7 +61,15 @@ impl Store {
         release: &CatalogRelease,
         approved: &[String],
     ) -> Result<ManagedPackage> {
-        self.update_inner(game, package_id, archive, proposal, release, approved, None)
+        self.update_inner(
+            game,
+            package_id,
+            archive,
+            proposal,
+            release,
+            approved,
+            test_fault(),
+        )
     }
 
     #[expect(
@@ -106,8 +133,11 @@ impl Store {
         };
         match self.install_locked(&game, archive, proposal, fault, approved, Some(catalog)) {
             Ok(package) => {
-                self.prune_created(&game)
-                    .context("update committed; folder cleanup incomplete, run 'modn recover'")?;
+                self.prune_created(&Roots {
+                    game: game.clone(),
+                    content: proposal.content_root.clone(),
+                })
+                .context("update committed; folder cleanup incomplete, run 'modn recover'")?;
                 Ok(package)
             }
             Err(err) if matches!(fault, Some(Fault::CrashAfter(_))) => Err(err),

@@ -2,6 +2,7 @@ use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, Request};
+use crate::modules::content_root_appdata;
 use crate::selection::selected_installation;
 use crate::stack_install;
 use crate::state_access::{ManagerState, ProtectedTarget};
@@ -9,7 +10,9 @@ use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
-use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
+use modn_core::planning::{
+    preview_install_zip_with_appdata, preview_install_zip_with_permissions, InstallPlan, PlanStatus,
+};
 use modn_core::transactions::CatalogReference;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -256,8 +259,14 @@ fn install_mod(
         );
     };
     let preview = |approved: &[String]| -> Result<InstallPlan> {
-        let plan =
-            preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?;
+        let plan = match content_root_appdata(&game_id)? {
+            Some(appdata) => {
+                preview_install_zip_with_appdata(&game_id, &installation, archive, &appdata)?
+            }
+            None => {
+                preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?
+            }
+        };
         if plan.archive_sha256 != selected.package.sha256 {
             bail!("{reference}: source changed after catalog verification");
         }
