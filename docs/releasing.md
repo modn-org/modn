@@ -151,3 +151,422 @@ The desktop verifiers passed 51 and 8 assertions.
 The refusal check printed `module cyberpunk-2077 needs Modn 99.0.0, you have 0.3.0`.
 The original Modn roots were unchanged.
 The released `modn.exe` SHA-256 is `2dade4e26e3db81ebf2dd62f0fc38a487184fc6968139dce43f1fd4bfa90eadb`.
+
+## Real-game validation
+
+The gates above use disposable fixtures and prove no real-game compatibility or REDmod activation.
+The Milestone 3 exit gate needs live evidence from Windows 10 and Windows 11.
+Run [Cyberpunk 2077 (#88)](#cyberpunk-2077-88) on Windows 11 and
+[Windows 10 (#89)](#windows-10-89) on Windows 10.
+A Balatro subsection follows when its game module ships.
+
+### Before any live step
+
+Run every command in PowerShell. Set these values once and record them:
+
+```powershell
+$tag = (gh release view --repo modn-org/modn --json tagName --jq .tagName)
+$live = "$env:USERPROFILE\modn-live"
+$game = "<game-root>"
+New-Item -ItemType Directory -Force $live | Out-Null
+```
+
+**Release.** Use the latest published release for the whole run, `v0.3.0` at the time of writing.
+Do not mix binaries from different tags. Download and verify it:
+
+```powershell
+gh release download $tag --repo modn-org/modn --pattern modn.exe --pattern modn.exe.sha256 --dir "$live\release"
+(Get-FileHash "$live\release\modn.exe" -Algorithm SHA256).Hash
+Get-Content "$live\release\modn.exe.sha256"
+gh api "repos/modn-org/modn/commits/$tag" --jq .sha
+```
+
+Expect the two hashes to match, in any case, and a full commit SHA.
+Record the tag, the commit and the SHA-256. Install Python 3, Git, `gh` and 7-Zip on `PATH`.
+
+**OS version.** Run these commands and record the results:
+
+```powershell
+[System.Environment]::OSVersion.Version
+winver
+```
+
+Record the caption, version, full build, architecture and whether the machine is physical or virtual.
+
+**Game version and store.** Record the store and both version values:
+
+```powershell
+(Get-Item -LiteralPath "$game\bin\x64\Cyberpunk2077.exe").VersionInfo | Select-Object ProductVersion, FileVersion
+```
+
+**Protect user data.** Do this before step 1. Choose one option and record the choice:
+- A full copy of the game installation on another disk, with its path and time.
+- A SHA-256 manifest. The store's "verify integrity of game files" action is then the restore path.
+
+```powershell
+Get-ChildItem -LiteralPath $game -Recurse -File | Get-FileHash -Algorithm SHA256 |
+  Select-Object Hash, Path | Set-Content -LiteralPath "$live\baseline.txt"
+```
+
+If a file cannot be read, stop. If the user declines both options, record the accepted risk and the restore path.
+
+**Live-step rules.**
+- Each live step starts with an **Authorize this step** checkpoint, for that step only.
+  Preview each install and update with `--dry-run` before the write.
+- Stop on a reported conflict, blocker or unmanaged destination file.
+  Never delete or overwrite that file. Record the command, exit code and message.
+- Stop on a pending transaction. Run `modn recover --yes` only after the user authorizes it.
+- Never run a step that removes or replaces unmanaged content.
+
+Every command and flag below exists in `apps/modn-cli/src/commands.rs`; check one with `modn <command> --help`.
+
+### Cyberpunk 2077 (#88)
+
+This run closes [issue #88](https://github.com/modn-org/modn/issues/88).
+It covers install, update, rollback, uninstall, adoption, owned cleanup and one REDmod content package.
+Use a clean game installation with no unmanaged framework or mod files.
+
+#### Step 1: Register the installation and record the baseline
+
+**Authorize this step.** Modn reads the game installation and writes only its own state.
+
+```powershell
+modn bucket update
+modn game add cyberpunk-2077 --path $game
+modn doctor --path $game
+modn --game cyberpunk-2077 scan --json --path $game | Set-Content "$live\scan-before.json"
+```
+
+Expect `Installed main <digest>; changed: <bool>`, `Registered <path> (<source>)`,
+`Detected unmanaged entries: <n>` and one `UNMANAGED` line per entry.
+Record the entries and do not remove them.
+Stop if the game already has CET, RED4ext, redscript or the mods below.
+
+#### Step 2: Install a catalog stack and check the game
+
+**Authorize this step.** Modn downloads and writes `better-loot-markers`, `cet` and `red4ext`.
+
+```powershell
+modn install better-loot-markers --dry-run --download --path $game --json | Set-Content "$live\install-plan.json"
+modn install better-loot-markers --yes --path $game
+modn list --path $game --json | Set-Content "$live\list-after-install.json"
+```
+
+Expect `"status": "reviewable"`, `"metadata_only": true` and a `main/cyberpunk-2077/cet` dependency.
+Expect one `Installed <reference> (<n> owned files)` line for each of the three
+packages. The `list` JSON has one catalog reference each for `red4ext`, `cet` and
+`better-loot-markers`, as `{"bucket": "main", "game_id": "cyberpunk-2077", "mod_id": "<id>"}`.
+
+Game-side check: launch the game, open the CET overlay and confirm the loot markers render.
+Record the overlay key, the marker and the game version, then quit.
+
+#### Step 3: Update and roll back a catalog mod
+
+**Authorize this step.** Modn replaces ArchiveXL 1.28.6 with 1.28.5 and back through a local bucket.
+Each update writes game files. The official bucket publishes the current release only.
+Add 1.28.5 to a local bucket:
+
+```powershell
+$bucket = "$live\bucket"
+$main = "<data dir>\buckets\main"  # the official bucket copy; see buckets.md
+New-Item -ItemType Directory -Force "$bucket\games\cyberpunk-2077" | Out-Null
+'{"schema_version":1,"name":"live","title":"Live validation"}' | Set-Content "$bucket\bucket.json"
+'archivexl','red4ext','redscript' | ForEach-Object {
+  Copy-Item "$main\games\cyberpunk-2077\$_.json" "$bucket\games\cyberpunk-2077\"
+}
+$url = 'https://github.com/psiberx/cp2077-archive-xl/releases/download/v1.28.5/ArchiveXL-1.28.5.zip'
+Invoke-WebRequest $url -OutFile "$live\ArchiveXL-1.28.5.zip"
+$old = Get-Content "$bucket\games\cyberpunk-2077\archivexl.json" -Raw | ConvertFrom-Json
+$old.version = '1.28.5'; $old.source.url = $url
+$old.sha256 = (Get-FileHash "$live\ArchiveXL-1.28.5.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+$old | ConvertTo-Json -Depth 5 | Set-Content "$bucket\games\cyberpunk-2077\archivexl@1.28.5.json"
+modn bucket add live $bucket
+```
+
+Expect the registered bucket as JSON and exit 0.
+
+Install the current release, roll back, update forward and roll back again:
+
+```powershell
+modn install live/cyberpunk-2077/archivexl --dry-run --download --path $game --allow-executable engine/tools/scc.exe --json
+modn install live/cyberpunk-2077/archivexl --yes --path $game --allow-executable engine/tools/scc.exe
+modn update live/cyberpunk-2077/archivexl --version 1.28.5 --dry-run --download --path $game --json
+modn update live/cyberpunk-2077/archivexl --version 1.28.5 --yes --path $game
+modn update live/cyberpunk-2077/archivexl --version 1.28.6 --dry-run --download --path $game --json
+modn update live/cyberpunk-2077/archivexl --version 1.28.6 --yes --path $game
+modn update live/cyberpunk-2077/archivexl --version 1.28.5 --dry-run --download --path $game --json
+modn update live/cyberpunk-2077/archivexl --version 1.28.5 --yes --path $game
+modn list --path $game --json | Set-Content "$live\list-after-rollback.json"
+```
+
+Expect `Installed` for `redscript` and `archivexl`, in that order.
+Modn prints no `Installed` line for `red4ext`, because Step 2 installed the same
+archive digest.
+Each preview names the installed and target versions; each update prints
+`Updated live/cyberpunk-2077/archivexl to <version> (<n> owned files)`.
+The final `list` shows archivexl with the 1.28.5 digest.
+
+Game-side check: launch the game, confirm the CET overlay opens and record the newest
+ArchiveXL log line under `red4ext/plugins/ArchiveXL/`. Quit the game.
+
+#### Step 4: Adopt manual files and clean them up
+
+**Authorize this step.** Modn previews an archive, then claims files that you copy into the game.
+Adoption changes no game bytes. Download No Intro Videos 0.8 from Nexus mod 533.
+
+```powershell
+$adopt = "<path-to-No Intro Videos - redscript-533-0-8-1760416944.zip>"
+modn adopt $adopt --dry-run --path $game --json | Set-Content "$live\adopt-preview.json"
+```
+
+Expect `"status": "verification_required"`, `"target_contents_verified": false` and one operation
+per destination. Stop if a destination already exists.
+
+Copy only the planned files, then commit the adoption:
+
+```powershell
+7z x $adopt -o"$live\adopt-staging" -y
+$plan = Get-Content "$live\adopt-preview.json" -Raw | ConvertFrom-Json
+$taken = $plan.plan.operations | Where-Object { Test-Path -LiteralPath (Join-Path $game $_.destination) }
+if ($taken) { throw "Stop: destinations already exist: $($taken.destination -join ', ')" }
+foreach ($op in $plan.plan.operations) {
+  $to = Join-Path $game $op.destination
+  New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
+  Copy-Item -LiteralPath (Join-Path "$live\adopt-staging" $op.source) -Destination $to
+}
+modn adopt $adopt --acknowledge --yes --path $game
+modn list --path $game --json | Set-Content "$live\list-after-adopt.json"
+```
+
+Expect `Adopted <package-id> (<n> individual owned files; game bytes unchanged)` and `"catalog": null`;
+`scan` reports the files as managed.
+
+Game-side check: confirm that the intro videos do not play. Record it and quit.
+
+Append one byte to one adopted file, read the package ID from `list-after-adopt.json`, then run:
+
+```powershell
+modn uninstall <package-id> --yes --path $game
+modn uninstall <package-id> --force --dry-run --path $game
+modn uninstall <package-id> --force --yes --path $game
+```
+
+Expect the strict uninstall to exit nonzero and name the modified file, and the force removal to print
+`Uninstalled <package-id>`. Unrecorded files stay.
+
+#### Step 5: Uninstall the remaining managed packages
+
+**Authorize this step.** Modn removes only owned files and exclusive directories from this run.
+Copy any CET setting that you want to keep before this step.
+
+```powershell
+modn uninstall live/cyberpunk-2077/archivexl --include-deps --dry-run --path $game
+modn uninstall live/cyberpunk-2077/archivexl --include-deps --yes --path $game
+modn uninstall better-loot-markers --include-deps --dry-run --path $game
+modn uninstall better-loot-markers --include-deps --yes --path $game
+modn list --path $game
+```
+
+Expect `Would uninstall, in this order:` from each dry run; record the order.
+Expect `Uninstalled <id>` for each package and a final `No manager-owned packages installed.`
+
+Game-side check: launch the game and reach the main menu without the mods. Quit.
+
+#### Step 6: Install and uninstall one REDmod content package
+
+**Authorize this step.** Modn writes and then removes one standalone REDmod package.
+Pick a REDmod mod whose archive holds exactly one `mods/<name>/info.json`, with optional files
+under `archives`, `scripts` and `tweaks` in that folder.
+The official bucket has no REDmod package.
+Reject an archive with several names, noncanonical casing or a mixed layout.
+
+```powershell
+$redmod = "<path-to-REDmod.zip>"
+modn inspect $redmod
+modn install $redmod --dry-run --path $game --json | Set-Content "$live\redmod-plan.json"
+modn install $redmod --yes --path $game
+modn list --path $game --json | Set-Content "$live\list-after-redmod.json"
+modn --game cyberpunk-2077 scan --json --path $game | Set-Content "$live\scan-after-redmod.json"
+modn doctor --path $game
+```
+
+Expect `inspect` to list one `mods/<name>/info.json`, a `"reviewable"` preview and
+`Installed <package-id> (<n> owned files)` with `"catalog": null`.
+`scan` reports the `mods/<name>` folder as `redmod-directory` and unmanaged.
+`doctor` prints `UNMANAGED_CONTENT` for that folder; this is expected.
+
+Game-side check: reach the main menu and record "REDmod activation not verified".
+Modn does not deploy REDmod. Do not run the deployment tool during this run.
+See [REDmod content](lifecycle.md#redmod-content) for the policy limits.
+
+```powershell
+modn uninstall <package-id> --dry-run --path $game
+modn uninstall <package-id> --yes --path $game
+modn list --path $game
+```
+
+Expect `Uninstalled <package-id>` and `No manager-owned packages installed.`
+Runtime files under `mods/<name>` stay unmanaged. Record each remaining path.
+
+#### Step 7: Final cleanup and comparison
+
+**Authorize this step.** Modn forgets the local bucket and the game registration. Neither deletes a game file.
+
+```powershell
+modn bucket remove live
+modn --game cyberpunk-2077 scan --json --path $game | Set-Content "$live\scan-after.json"
+modn doctor --path $game
+modn game remove cyberpunk-2077 --path $game
+```
+
+Expect `Unregistered cyberpunk-2077 (<path>)`, no managed files and only runtime files.
+Compare the game tree with the baseline:
+
+```powershell
+Get-ChildItem -LiteralPath $game -Recurse -File | Get-FileHash -Algorithm SHA256 |
+  Select-Object Hash, Path | Set-Content "$live\after.txt"
+Compare-Object (Get-Content "$live\baseline.txt") (Get-Content "$live\after.txt")
+```
+
+Every difference must be a runtime file.
+A missing or changed owned file is a difference from the fixture results. Record it and file a bug.
+
+#### What to record for #88
+
+Write these facts into one record:
+
+```text
+Cyberpunk 2077 live validation, <date>
+- Release <tag>, commit <sha>, modn.exe SHA-256 <hash>, state <path>
+- OS <caption> <version>, build <build>, <physical|VM>
+- Game <version>, <Steam|GOG|Epic>, installation <path>
+- Backup <full copy at ... | manifest at ...>; risk acceptance <yes, restore <...> | not needed>
+- Baseline <n> unmanaged entries, <n> hashed files
+
+| Step | Command | Exit | Key output line | Game-side check |
+| --- | --- | --- | --- | --- |
+| 1 | modn game add ... | 0 | Registered ... | none |
+| ... | ... | ... | ... | ... |
+
+Differences from fixture results
+- <none, or command, observed value and fixture value>
+```
+
+### Windows 10 (#89)
+
+This run closes [issue #89](https://github.com/modn-org/modn/issues/89) with the released `modn.exe`
+from [Before any live step](#before-any-live-step) and verifier binaries from the same commit.
+The `modn-verifiers-<tag>` workflow artifact holds the desktop binaries.
+Download it before it expires, 30 days after the release.
+
+#### Step 1: Confirm the OS build
+
+**Authorize this step.** Allow read-only OS queries.
+
+Run the OS version commands in [Before any live step](#before-any-live-step).
+Expect `10.0.19045` for Windows 10 22H2 and a `Microsoft Windows 10` caption.
+Stop if the build is 22000 or higher: that is Windows 11, not #89.
+
+#### Step 2: Download and verify the verifier binaries
+
+**Authorize this step.** Allow downloads into `$live`.
+
+```powershell
+$commit = (gh api "repos/modn-org/modn/commits/$tag" --jq .sha)
+$run = gh run list --repo modn-org/modn --workflow release.yml --branch $tag --event push --status success --json databaseId,headSha --limit 20 | ConvertFrom-Json | Where-Object headSha -eq $commit | Select-Object -First 1
+gh run download $run.databaseId --repo modn-org/modn --name "modn-verifiers-$tag" --dir "$live\verifiers"
+Get-ChildItem "$live\verifiers\*.exe" | ForEach-Object {
+  "{0}: {1}" -f $_.Name, ((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -eq ((Get-Content "$($_.FullName).sha256") -split '\s+')[0].ToLowerInvariant())
+}
+```
+
+Expect `True` for all four verifier binaries and record each SHA-256 with the tag, commit and run ID.
+Stop if an artifact is missing; do not use a local build.
+
+#### Step 3: Run the Milestone 1 gate
+
+**Authorize this step.** The gate uses release assets and a fake game in a temporary directory.
+
+```powershell
+git clone https://github.com/modn-org/modn.git "$live\modn"
+git -C "$live\modn" checkout $tag
+Set-Location "$live\modn"
+pwsh -File .github/scripts/milestone1-gate.ps1 -Tag $tag
+```
+
+Expect exit 0, `ok:` for every check and a final `milestone 1 exit gate passed for <tag>`.
+The gate uses the released `modn.exe`. See [Milestone 1 exit gate](#milestone-1-exit-gate).
+Count the `ok:` lines and record the count.
+
+#### Step 4: Run the desktop verifiers
+
+**Authorize this step.** The app opens one window and writes only to unique `modn-desktop-fixture-*` directories.
+
+Prerequisites: Python 3, 7-Zip, `agent-desktop` and an unlocked interactive desktop.
+Skip the build doctor; the released drivers need no build toolchain.
+If the automation state fails its DACL check, set a unique `AGENT_DESKTOP_HOME` for the whole run.
+
+```powershell
+agent-desktop skills get desktop > "$live\desktop-skill.json"
+agent-desktop skills get platform > "$live\platform-skill.json"
+agent-desktop status
+python .agents/skills/verify-modn-desktop/scripts/verify.py --app "$live\verifiers\modn-desktop.exe" --backend "$live\release\modn.exe"
+python .agents/skills/verify-modn-desktop/scripts/lifecycle.py --app "$live\verifiers\modn-desktop.exe" --backend "$live\verifiers\modn-desktop-test-backend.exe"
+```
+
+Expect exit 0 and a JSON summary with `"status": "passed"`, a positive `assertions` count,
+`"command_nonzero": 0`, `"app_exit": 0` and `"fixture_removed": true` for each driver.
+The v0.3.0 fixture run reported 51 and 8 assertions. Record both counts and keep the evidence path.
+
+#### What to record for #89
+
+Write these facts into one record:
+
+```text
+Windows 10 validation, <date>
+- Release <tag>, commit <sha>, modn.exe SHA-256 <hash>, workflow run <id>
+- Verifier SHA-256: modn-desktop.exe <hash>, test backend <hash>
+- OS <caption> <version>, build <build>, <physical|VM>; gate game <fake fixture>
+
+| Command | Exit | Key output line |
+| --- | --- | --- |
+| milestone1-gate.ps1 | 0 | milestone 1 exit gate passed for <tag>, <n> ok lines |
+| verify.py | 0 | status: passed, <n> assertions, 0 failures |
+| lifecycle.py | 0 | status: passed, <n> assertions, 0 failures |
+
+Differences from fixture results
+- <none, or command, observed value and fixture value>
+```
+
+### Record the result and file bugs
+
+Add each record with the `project-wiki` skill, then commit it:
+
+```powershell
+uv run --no-project python "$env:USERPROFILE\.agents\skills\project-wiki\scripts\wiki.py" add `
+  --kind finding --title "<run> passed on <date>" `
+  --source "https://github.com/modn-org/modn/releases/tag/$tag" `
+  --source "https://github.com/modn-org/modn/issues/<88|89>" `
+  --body-file "$live\record.md"
+uv run --no-project python "$env:USERPROFILE\.agents\skills\project-wiki\scripts\wiki.py" lint
+```
+
+Keep raw evidence outside the repository and cite its local path in the body.
+File one bug for each difference from the fixture results:
+
+```powershell
+gh issue create --repo modn-org/modn --label bug --title "Live <game>: <difference>" --body-file "$live\bug.md"
+```
+
+Use this body:
+
+```text
+## Expected
+<fixture result, with the gate or test that shows it>
+## Actual
+<live result, with the command and exit code>
+## Reproduction
+<commands>
+## Environment
+<release, OS build, game version and store, evidence path>
+```
