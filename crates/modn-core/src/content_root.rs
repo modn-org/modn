@@ -5,6 +5,260 @@ use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+/// Read-only health of a module-declared content root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContentRootStatus {
+    Healthy,
+    Missing,
+    NotDirectory,
+    Linked,
+    Moved,
+    Unavailable,
+}
+
+/// Inspection result for a content root; reads only, never creates.
+#[derive(Debug)]
+pub(crate) struct ContentRootHealth {
+    /// Declared or recorded path, whether or not it exists.
+    pub(crate) path: PathBuf,
+    /// Canonical readable root, only when the status is healthy.
+    pub(crate) root: Option<PathBuf>,
+    pub(crate) status: ContentRootStatus,
+    /// Moved target or base failure, when it adds detail.
+    pub(crate) detail: Option<String>,
+}
+
+impl ContentRootHealth {
+    /// Diagnostic code, message and next safe action for a problem.
+    pub(crate) fn diagnostic(&self) -> Option<(&'static str, String, String)> {
+        let path = self.path.display();
+        let (code, message, action) = match self.status {
+            ContentRootStatus::Healthy => return None,
+            ContentRootStatus::Missing => (
+                "CONTENT_ROOT_MISSING",
+                format!("The module content root {path} is missing."),
+                "Install a content package with Modn, or restore the folder, then run `modn doctor` again."
+                    .into(),
+            ),
+            ContentRootStatus::NotDirectory => (
+                "CONTENT_ROOT_NOT_DIRECTORY",
+                format!("The module content root {path} is not a folder."),
+                "Restore the declared folder or remove the file that occupies its path, then run `modn doctor` again."
+                    .into(),
+            ),
+            ContentRootStatus::Linked => (
+                "CONTENT_ROOT_LINKED",
+                format!("The module content root {path} is a link or junction; Modn does not follow it."),
+                "Replace the link with a real folder at the declared path, then run `modn doctor` again."
+                    .into(),
+            ),
+            ContentRootStatus::Moved => (
+                "CONTENT_ROOT_MOVED",
+                match &self.detail {
+                    Some(detail) => format!(
+                        "The module content root {path} no longer resolves to its recorded path: {detail}"
+                    ),
+                    None => format!(
+                        "The module content root {path} no longer resolves to its recorded path."
+                    ),
+                },
+                "Move the folder back to its recorded path, then run `modn doctor` again."
+                    .into(),
+            ),
+            ContentRootStatus::Unavailable => (
+                "CONTENT_ROOT_UNAVAILABLE",
+                match &self.detail {
+                    Some(detail) => format!("The module content root {path} is unavailable: {detail}"),
+                    None => format!("The module content root {path} is unavailable."),
+                },
+                "Restore the appdata folder and its permissions, then run `modn doctor` again."
+                    .into(),
+            ),
+        };
+        Some((code, message, action))
+    }
+}
+
+/// Inspect a declared content root without writing or following links.
+///
+/// A recorded root is authoritative: Modn fails closed if it is missing,
+/// is not a folder, became a link, or canonicalizes elsewhere. Without a
+/// record, the declared path below `appdata` is inspected instead.
+pub(crate) fn inspect(
+    game: &Path,
+    spec: &ContentRootSpec,
+    appdata: &Path,
+    recorded: Option<&Path>,
+) -> ContentRootHealth {
+    match recorded {
+        Some(recorded) => inspect_recorded(game, recorded),
+        None => inspect_declared(game, spec, appdata),
+    }
+}
+
+fn inspect_recorded(game: &Path, recorded: &Path) -> ContentRootHealth {
+    let unavailable = |detail: String| ContentRootHealth {
+        path: recorded.to_owned(),
+        root: None,
+        status: ContentRootStatus::Unavailable,
+        detail: Some(detail),
+    };
+    let metadata = match fs::symlink_metadata(recorded) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return ContentRootHealth {
+                path: recorded.to_owned(),
+                root: None,
+                status: ContentRootStatus::Missing,
+                detail: None,
+            }
+        }
+        Err(error) => return unavailable(error.to_string()),
+    };
+    if metadata.file_type().is_symlink() {
+        return ContentRootHealth {
+            path: recorded.to_owned(),
+            root: None,
+            status: ContentRootStatus::Linked,
+            detail: None,
+        };
+    }
+    if !metadata.is_dir() {
+        return ContentRootHealth {
+            path: recorded.to_owned(),
+            root: None,
+            status: ContentRootStatus::NotDirectory,
+            detail: None,
+        };
+    }
+    let resolved = match recorded.canonicalize() {
+        Ok(resolved) => resolved,
+        Err(error) => return unavailable(error.to_string()),
+    };
+    if resolved != recorded {
+        return ContentRootHealth {
+            path: recorded.to_owned(),
+            root: None,
+            status: ContentRootStatus::Moved,
+            detail: Some(format!(
+                "recorded {}, resolved {}",
+                recorded.display(),
+                resolved.display()
+            )),
+        };
+    }
+    if same_or_nested(&resolved, game) {
+        return unavailable("it overlaps the game installation".into());
+    }
+    ContentRootHealth {
+        path: recorded.to_owned(),
+        root: Some(resolved),
+        status: ContentRootStatus::Healthy,
+        detail: None,
+    }
+}
+
+fn inspect_declared(game: &Path, spec: &ContentRootSpec, appdata: &Path) -> ContentRootHealth {
+    let relative = Path::new(&spec.path);
+    let expected = appdata.join(relative);
+    let unavailable = |detail: String| ContentRootHealth {
+        path: expected.clone(),
+        root: None,
+        status: ContentRootStatus::Unavailable,
+        detail: Some(detail),
+    };
+    if !appdata.is_absolute() {
+        return unavailable("the appdata base is not absolute".into());
+    }
+    let metadata = match fs::symlink_metadata(appdata) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return unavailable("the appdata base is missing".into())
+        }
+        Err(error) => return unavailable(error.to_string()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return unavailable("the appdata base is not a real directory".into());
+    }
+    let base = match appdata.canonicalize() {
+        Ok(base) => base,
+        Err(error) => return unavailable(error.to_string()),
+    };
+    let expected = base.join(relative);
+    let mut current = base;
+    for component in relative.components() {
+        let Component::Normal(part) = component else {
+            return ContentRootHealth {
+                path: expected,
+                root: None,
+                status: ContentRootStatus::Unavailable,
+                detail: Some("the declared path is not a safe relative path".into()),
+            };
+        };
+        current.push(part);
+        let metadata = match fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return ContentRootHealth {
+                    path: expected,
+                    root: None,
+                    status: ContentRootStatus::Missing,
+                    detail: None,
+                }
+            }
+            Err(error) => {
+                return ContentRootHealth {
+                    path: expected,
+                    root: None,
+                    status: ContentRootStatus::Unavailable,
+                    detail: Some(error.to_string()),
+                }
+            }
+        };
+        if metadata.file_type().is_symlink() {
+            return ContentRootHealth {
+                path: expected,
+                root: None,
+                status: ContentRootStatus::Linked,
+                detail: Some(format!("{} is a link", current.display())),
+            };
+        }
+        if !metadata.is_dir() {
+            return ContentRootHealth {
+                path: expected,
+                root: None,
+                status: ContentRootStatus::NotDirectory,
+                detail: Some(format!("{} is not a folder", current.display())),
+            };
+        }
+    }
+    let resolved = match current.canonicalize() {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            return ContentRootHealth {
+                path: expected,
+                root: None,
+                status: ContentRootStatus::Unavailable,
+                detail: Some(error.to_string()),
+            }
+        }
+    };
+    if same_or_nested(&resolved, game) {
+        return ContentRootHealth {
+            path: expected,
+            root: None,
+            status: ContentRootStatus::Unavailable,
+            detail: Some("it overlaps the game installation".into()),
+        };
+    }
+    ContentRootHealth {
+        path: expected,
+        root: Some(resolved),
+        status: ContentRootStatus::Healthy,
+        detail: None,
+    }
+}
+
 /// Resolve the production known-folder base for an `appdata` content root.
 ///
 /// `MODN_APPDATA` is a test-only override; it is compiled out of release

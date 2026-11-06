@@ -36,7 +36,22 @@ return {
     steam_name = function() return "Content Game" end,
     is_epic = function() return false end,
     scan = function()
-        return { mods = {}, framework_signals = {}, incomplete = false, redmod_available = false }
+        local mods = {}
+        local roots = mods_host.discovery.roots()
+        local function add(root_id, relative, kind, label)
+            local ok, info = pcall(mods_host.fs.metadata, root_id, relative)
+            if ok and info.kind == "file" then
+                table.insert(mods, { kind = kind, relative_path = relative, root = label })
+            end
+        end
+        if #roots >= 1 then
+            add(1, "GameMods/Present.lua", "game-mod", nil)
+        end
+        if #roots >= 2 then
+            add(2, "Pkg/core.lua", "content-mod", "content")
+            add(2, "Manual/Content.lua", "content-mod", "content")
+        end
+        return { mods = mods, framework_signals = {}, incomplete = false, redmod_available = false }
     end,
     doctor = function() return {} end,
     plan = function(files)

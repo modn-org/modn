@@ -161,4 +161,4 @@ A schema-v1 plan operation may add `"root": "content"`; an absent or `"game"` ro
 An operation with `"root": "content"` is blocked when the module did not declare `content_root`.
 Exclusive `owned_directory` claims are limited to the game root in this release.
 Modn records content files with a root-qualified ownership key, so plan, install, dry-run, update, uninstall, adoption and recovery use the same root model.
-`validate` and `scan` still receive only the game root.
+`validate` still receives only the game root. For an API 2 module with `content_root`, `scan` also authorizes the content root: the game root is numeric ID 1 and the content root is ID 2. A scan entry from the content root sets `root = "content"`; a game-root entry omits `root`. Rust labels and reports both roots, while Lua never receives an absolute root path. `doctor` uses the same authorized roots and reports content-root health from Rust.
