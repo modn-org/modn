@@ -205,11 +205,11 @@ A writable open migrates version 1, 2 or 3 state in the same transaction that op
 The migration assigns every owned path to the `game` root, records one game root per installation, and adds root labels to pending rows.
 If any step fails, for example because two recorded installations fold to one root,
 SQLite rolls the transaction back and the old state stays unchanged and readable.
-A second open of version 3 state changes nothing.
+A second open of migrated state changes nothing.
 A read-only open of version 1 or 2 state presents the same rows through temporary views and writes nothing.
 
 Older Modn builds accept only schema versions 1 and 2.
-They refuse version 3 state with `unsupported manager state schema; start with a fresh state directory`.
+They refuse version 3 or 4 state with `unsupported manager state schema; start with a fresh state directory`.
 They do not misread it, but that message suggests a fresh state directory.
 Do not follow that advice for state that holds ownership; install a current build instead.
 
