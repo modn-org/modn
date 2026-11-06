@@ -1,8 +1,9 @@
 use crate::catalog_install;
 use crate::commands::InstallArgs;
+use crate::modules::content_root_appdata;
 use crate::state_access::{InstallationAccess, ManagerState};
 use anyhow::{bail, Result};
-use modn_core::planning::preview_install_zip_with_permissions;
+use modn_core::planning::{preview_install_zip_with_appdata, preview_install_zip_with_permissions};
 use std::path::{Path, PathBuf};
 
 fn is_standalone_archive(args: &InstallArgs) -> bool {
@@ -57,8 +58,12 @@ fn install_archive(
     let game_id = selected.game_id;
     let game = selected.root;
     let archive = PathBuf::from(&args.target);
-    let report =
-        preview_install_zip_with_permissions(&game_id, &game, &archive, &args.allow_executable)?;
+    let report = match content_root_appdata(&game_id)? {
+        Some(appdata) => preview_install_zip_with_appdata(&game_id, &game, &archive, &appdata)?,
+        None => {
+            preview_install_zip_with_permissions(&game_id, &game, &archive, &args.allow_executable)?
+        }
+    };
     if args.dry_run {
         if json {
             println!("{}", serde_json::to_string_pretty(&report)?);

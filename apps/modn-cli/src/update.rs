@@ -3,6 +3,7 @@ use crate::commands::UpdateArgs;
 use crate::dependency_plan::acquisition;
 use crate::download;
 use crate::install_consent::{self, UpdateRequest};
+use crate::modules::content_root_appdata;
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use crate::update_report::{self, DependentCheck, FileChanges, Preview};
@@ -10,7 +11,9 @@ use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::inspect;
 use modn_core::buckets::{BucketPackage, BucketStore};
-use modn_core::planning::{preview_update_with_permissions, InstallPlan, PlanStatus};
+use modn_core::planning::{
+    preview_update_with_appdata, preview_update_with_permissions, InstallPlan, PlanStatus,
+};
 use modn_core::transactions::ManagedPackage;
 use std::collections::BTreeMap;
 use std::io;
@@ -102,8 +105,14 @@ fn plan_update(
     replaced: &[String],
     explicit: &[String],
 ) -> Result<Candidate> {
+    let appdata = content_root_appdata(game_id)?;
     let preview = |approved: &[String]| -> Result<InstallPlan> {
-        let plan = preview_update_with_permissions(game_id, game, archive, approved, replaced)?;
+        let plan = match &appdata {
+            Some(appdata) => {
+                preview_update_with_appdata(game_id, game, archive, approved, replaced, appdata)?
+            }
+            None => preview_update_with_permissions(game_id, game, archive, approved, replaced)?,
+        };
         if plan.archive_sha256 != target.package.sha256 {
             bail!(
                 "{}: source changed after catalog verification",

@@ -119,7 +119,7 @@ fn rejected_updates_keep_previous_bucket_unchanged() {
     let original = modn_core::bucket_digest::directory_digest(&main).unwrap();
     let module = "games/cyberpunk-2077/module.json";
     let current = fs::read_to_string(repository().join(module)).unwrap();
-    let future = current.replace("\"api_version\":1", "\"api_version\":2");
+    let future = current.replace("\"api_version\":1", "\"api_version\":3");
     assert_ne!(future, current, "fixture module declares host API 1");
     for failure in ["checksum", "traversal", "module", "api", "http", "name"] {
         pack(&repository(), &zip, None);

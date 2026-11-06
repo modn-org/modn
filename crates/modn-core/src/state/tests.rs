@@ -187,7 +187,7 @@ fn fresh_packages_require_archive_provenance() {
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(schema_version, 3);
+    assert_eq!(schema_version, 4);
     let columns: Vec<(String, i64)> = store
         .connection
         .prepare("PRAGMA table_info(managed_packages)")
@@ -319,7 +319,7 @@ fn concurrent_fresh_opens_finish_one_complete_schema() {
                         .connection
                         .pragma_query_value(None, "user_version", |row| row.get(0))
                         .unwrap();
-                    assert_eq!(version, 3);
+                    assert_eq!(version, 4);
                 })
             })
             .collect();

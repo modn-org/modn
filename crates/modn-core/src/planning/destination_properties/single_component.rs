@@ -106,9 +106,12 @@ fn single_component_destinations_keep_every_rule() {
             }
             same_file_pairs.set(same_file_pairs.get() + 1);
             let mut reserved = BTreeSet::new();
-            prop_assert_eq!(insert_destination(&mut reserved, &destination), None);
+            prop_assert_eq!(
+                insert_destination(&mut reserved, "game", &destination),
+                None
+            );
             prop_assert!(
-                insert_destination(&mut reserved, &second).is_some(),
+                insert_destination(&mut reserved, "game", &second).is_some(),
                 "{:?} and {:?} are one file, but their ownership keys differ",
                 destination,
                 second

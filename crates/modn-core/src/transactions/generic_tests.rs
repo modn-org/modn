@@ -37,6 +37,7 @@ pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
             .files
             .into_iter()
             .map(|entry| PlannedFile {
+                root: "game".into(),
                 destination: format!("data/mods/{}", entry.entry.rsplit('/').next().unwrap()),
                 source: entry.entry,
                 bytes: entry.bytes,
@@ -46,6 +47,8 @@ pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
             .collect(),
         blockers: Vec::new(),
         skipped_generated_files: Vec::new(),
+        content_base: None,
+        content_root: None,
     }
 }
 #[test]
@@ -427,6 +430,7 @@ fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
         status: crate::planning::PlanStatus::Reviewable,
         metadata_only: true,
         operations: vec![PlannedFile {
+            root: "game".into(),
             source: "engine/tools/scc.exe".into(),
             destination: "engine/tools/scc.exe".into(),
             kind: "redscript-runtime".into(),
@@ -435,6 +439,8 @@ fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
         }],
         blockers: Vec::new(),
         skipped_generated_files: Vec::new(),
+        content_base: None,
+        content_root: None,
     };
     assert!(store
         .install_operations_zip(&game, &archive, &proposal)

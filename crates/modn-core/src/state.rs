@@ -414,7 +414,7 @@ fn validate_package_schema(connection: &Connection) -> Result<()> {
 mod roots;
 #[cfg(test)]
 pub(crate) use roots::tests::{link_directory, unlink_directory};
-pub(crate) use roots::{is_recorded, record_root, resolve_root, RootKind};
+pub(crate) use roots::{is_recorded, record_root, recorded_root, resolve_root, RootKind};
 
 #[cfg(test)]
 mod tests;

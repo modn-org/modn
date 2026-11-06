@@ -28,7 +28,9 @@ pub struct ManagedPackage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct OwnedFile {
-    /// Game-relative destination path.
+    /// Installation root that contains the destination: `game` or `content`.
+    pub root: String,
+    /// Root-relative destination path.
     pub destination: String,
     /// Verified installed SHA-256 digest.
     pub sha256: String,
@@ -39,14 +41,39 @@ pub struct OwnedFile {
 #[derive(Clone)]
 pub(super) struct JournalFile {
     pub(super) ordinal: usize,
+    pub(super) root: RootKind,
     pub(super) destination: String,
     pub(super) sha256: String,
     pub(super) bytes: u64,
 }
 
 pub(super) struct JournalDirectory {
-    pub(super) root: String,
+    pub(super) root: RootKind,
+    pub(super) path: String,
     pub(super) identity: Option<String>,
+}
+
+/// Resolved physical paths for one installation's roots.
+#[derive(Clone)]
+pub(super) struct Roots {
+    pub(super) game: PathBuf,
+    pub(super) content: Option<PathBuf>,
+}
+
+impl Roots {
+    pub(super) fn path(&self, root: RootKind) -> Result<&Path> {
+        match root {
+            RootKind::Game => Ok(&self.game),
+            RootKind::Content => self
+                .content
+                .as_deref()
+                .context("installation has no content root"),
+        }
+    }
+
+    pub(super) fn target(&self, root: RootKind, relative: &str) -> Result<PathBuf> {
+        target_path(self.path(root)?, relative)
+    }
 }
 
 pub(super) struct Journal {
@@ -161,30 +188,31 @@ impl Store {
         )?;
         for f in files {
             tx.execute(
-                "INSERT INTO pending_files(transaction_id,ord,relative_path,sha256,bytes)
-                VALUES (?1,?2,?3,?4,?5)",
+                "INSERT INTO pending_files(transaction_id,ord,root,relative_path,sha256,bytes)
+                VALUES (?1,?2,?3,?4,?5,?6)",
                 params![
                     id,
                     f.ordinal as i64,
+                    f.root.label(),
                     f.destination,
                     f.sha256,
                     f.bytes as i64
                 ],
             )?;
         }
-        for (ordinal, root) in directories.iter().enumerate() {
+        for (ordinal, directory) in directories.iter().enumerate() {
             let identity: Option<String> = if matches!(action, "uninstall" | "cleanup") {
                 Some(tx.query_row(
-                    "SELECT identity FROM managed_directories WHERE package_id=?1 AND relative_path=?2",
-                    params![package_id, root],
+                    "SELECT identity FROM managed_directories WHERE package_id=?1 AND root=?2 AND relative_path=?3",
+                    params![package_id, RootKind::Game.label(), directory],
                     |row| row.get::<_, Option<String>>(0),
                 )?.context("owned directory identity missing")?)
             } else {
                 None
             };
             tx.execute(
-                "INSERT INTO pending_directories(transaction_id,ord,relative_path,identity) VALUES (?1,?2,?3,?4)",
-                params![id, ordinal as i64, root, identity])?;
+                "INSERT INTO pending_directories(transaction_id,ord,root,relative_path,identity) VALUES (?1,?2,?3,?4,?5)",
+                params![id, ordinal as i64, RootKind::Game.label(), directory, identity])?;
         }
         tx.commit()?;
         Ok(())
@@ -217,26 +245,27 @@ impl Store {
         &mut self,
         id: &str,
         files: &[JournalFile],
-        directories: &[String],
+        directories: &[JournalDirectory],
     ) -> Result<()> {
         let tx = self.connection.transaction()?;
         for f in files {
             tx.execute(
-                "INSERT INTO pending_files(transaction_id,ord,relative_path,sha256,bytes)
-                VALUES (?1,?2,?3,?4,?5)",
+                "INSERT INTO pending_files(transaction_id,ord,root,relative_path,sha256,bytes)
+                VALUES (?1,?2,?3,?4,?5,?6)",
                 params![
                     id,
                     f.ordinal as i64,
+                    f.root.label(),
                     f.destination,
                     f.sha256,
                     f.bytes as i64
                 ],
             )?;
         }
-        for (index, root) in directories.iter().enumerate() {
+        for (index, directory) in directories.iter().enumerate() {
             tx.execute(
-                "INSERT INTO pending_directories(transaction_id,ord,relative_path) VALUES (?1,?2,?3)",
-                params![id, index as i64, root])?;
+                "INSERT INTO pending_directories(transaction_id,ord,root,relative_path) VALUES (?1,?2,?3,?4)",
+                params![id, index as i64, directory.root.label(), directory.path])?;
         }
         tx.execute(
             "UPDATE pending_transactions SET status='pending' WHERE id=?1 AND status='staging'",
@@ -249,13 +278,14 @@ impl Store {
     pub(super) fn record_directory_identity(
         &mut self,
         journal_id: &str,
+        kind: RootKind,
         root: &str,
         identity: &str,
     ) -> Result<()> {
         let updated = self.connection.execute(
-            "UPDATE pending_directories SET identity=?3
-             WHERE transaction_id=?1 AND relative_path=?2 AND identity IS NULL",
-            params![journal_id, root, identity],
+            "UPDATE pending_directories SET identity=?4
+             WHERE transaction_id=?1 AND root=?2 AND relative_path=?3 AND identity IS NULL",
+            params![journal_id, kind.label(), root, identity],
         )?;
         if updated != 1 {
             bail!("cannot persist exclusive directory identity: {root}");
@@ -263,13 +293,18 @@ impl Store {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the commit names the root and catalog context separately"
+    )]
     pub(super) fn commit_install(
         &mut self,
         id: &str,
         game: &Path,
         hash: &str,
         files: &[JournalFile],
-        directories: &[String],
+        directories: &[JournalDirectory],
+        content: Option<&Path>,
         catalog: Option<&super::catalog::CatalogRecord>,
     ) -> Result<()> {
         let tx = self.connection.transaction()?;
@@ -278,6 +313,9 @@ impl Store {
             super::update::vacate(&tx, replaced)?;
         }
         record_root(&tx, game, RootKind::Game, game)?;
+        if let Some(content) = content {
+            record_root(&tx, game, RootKind::Content, content)?;
+        }
         tx.execute(
             "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES (?1,?2,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
@@ -285,21 +323,21 @@ impl Store {
         for f in files {
             tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,sha256,bytes)
                 VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                params![game.to_string_lossy().as_ref(), RootKind::Game.label(),
+                params![game.to_string_lossy().as_ref(), f.root.label(),
                     super::ownership_key(&f.destination),
                     f.destination, id, f.sha256, f.bytes as i64])?;
         }
-        for root in directories {
+        for directory in directories {
             let identity: String = tx.query_row(
-                "SELECT identity FROM pending_directories WHERE transaction_id=?1 AND relative_path=?2",
-                params![id, root],
+                "SELECT identity FROM pending_directories WHERE transaction_id=?1 AND root=?2 AND relative_path=?3",
+                params![id, directory.root.label(), directory.path],
                 |row| row.get::<_, Option<String>>(0),
             )?.context("exclusive directory identity must be persisted before commit")?;
             tx.execute(
                 "INSERT INTO managed_directories(game_path,root,path_key,relative_path,package_id,identity)
                  VALUES (?1,?2,?3,?4,?5,?6)",
-                params![game.to_string_lossy().as_ref(), RootKind::Game.label(),
-                    super::ownership_key(root), root, id, identity],
+                params![game.to_string_lossy().as_ref(), directory.root.label(),
+                    super::ownership_key(&directory.path), directory.path, id, identity],
             )?;
         }
         if let Some(catalog) = catalog {
@@ -308,7 +346,7 @@ impl Store {
         if let Some(replaced) = replaced {
             super::update::retire(&tx, replaced, id)?;
         }
-        super::created_dirs::commit(&tx, id, game)?;
+        super::created_dirs::commit(&tx, id, game, content)?;
         tx.execute(
             "UPDATE pending_transactions SET status='committed' WHERE id=?1",
             [id],

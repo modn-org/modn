@@ -13,6 +13,8 @@ pub mod archive;
 pub mod bucket_digest;
 /// Versioned bucket metadata, validation and local registration.
 pub mod buckets;
+/// Resolve module-declared content roots below a known folder.
+pub mod content_root;
 /// Resolve manager-owned data locations.
 pub mod data_dir;
 /// Validate installations and discover registered game locations.

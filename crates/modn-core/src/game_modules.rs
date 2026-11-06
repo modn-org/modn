@@ -6,6 +6,14 @@ mod registry;
 mod resolver;
 mod runtime;
 
-pub use loader::{check_module, check_module_with_roots, GameModuleInfo, HOST_API_VERSION};
+pub use loader::{
+    check_module, check_module_with_roots, ContentRootSpec, GameModuleInfo, HOST_API_VERSION,
+    MIN_HOST_API_VERSION,
+};
 pub use registry::{ModuleRegistry, ModuleTrust, RegisteredModule};
 pub use resolver::with_module_source;
+
+/// Read the selected module's declared content root without executing it.
+pub fn content_root_spec(game_id: &str) -> anyhow::Result<Option<ContentRootSpec>> {
+    Ok(resolver::read_policy(game_id)?.0.content_root)
+}

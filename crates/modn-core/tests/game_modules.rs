@@ -1,4 +1,4 @@
-use modn_core::game_modules::{check_module, HOST_API_VERSION};
+use modn_core::game_modules::check_module;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -39,7 +39,7 @@ fn local_fixture_is_loaded_without_host_rebuild() {
     let first = check_module(&directory).expect("initial module loads");
     assert_eq!(first.game_id, "fixture-game");
     assert_eq!(first.version, "1.2.3");
-    assert_eq!(first.api_version, HOST_API_VERSION);
+    assert_eq!(first.api_version, 1);
 
     write_script(
         &directory,
@@ -72,7 +72,7 @@ fn standard_lua54_syntax_loads_and_luau_assignment_is_rejected() {
 #[test]
 fn incompatible_manifest_or_script_fails_closed() {
     let (_root, directory) = fixture();
-    write_manifest(&directory, "fixture-game", 2, "main.lua");
+    write_manifest(&directory, "fixture-game", 3, "main.lua");
     assert!(
         format!("{:#}", check_module(&directory).unwrap_err()).contains("incompatible host API")
     );

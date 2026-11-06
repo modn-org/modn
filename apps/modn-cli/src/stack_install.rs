@@ -3,11 +3,14 @@ use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, StackRequest};
+use crate::modules::content_root_appdata;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse};
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
-use modn_core::planning::{preview_install_zip_with_permissions, PlanStatus};
+use modn_core::planning::{
+    preview_install_zip_with_appdata, preview_install_zip_with_permissions, PlanStatus,
+};
 use modn_core::transactions::StackMember;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
@@ -164,12 +167,20 @@ pub(super) fn run(
     })?;
     let installed = store.install_catalog_stack(&stack.installation, &members, |member| {
         let reference = member.release.reference.to_string();
-        let plan = preview_install_zip_with_permissions(
-            &stack.game_id,
-            &stack.installation,
-            &member.archive,
-            &member.approved_executables,
-        )?;
+        let plan = match content_root_appdata(&stack.game_id)? {
+            Some(appdata) => preview_install_zip_with_appdata(
+                &stack.game_id,
+                &stack.installation,
+                &member.archive,
+                &appdata,
+            )?,
+            None => preview_install_zip_with_permissions(
+                &stack.game_id,
+                &stack.installation,
+                &member.archive,
+                &member.approved_executables,
+            )?,
+        };
         if Some(&&plan.archive_sha256) != digests.get(&reference) {
             bail!("{reference}: source changed after catalog verification");
         }

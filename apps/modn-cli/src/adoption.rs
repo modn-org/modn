@@ -1,4 +1,5 @@
 use crate::commands::AdoptArgs;
+use crate::modules::content_root_appdata;
 use crate::state_access::{InstallationAccess, ManagerState, ProtectedTarget};
 use anyhow::{bail, Result};
 use modn_core::planning::{self, PlanStatus};
@@ -17,7 +18,16 @@ pub(super) fn run(
     let selected = ManagerState::load(state_path)?
         .for_installation(args.path.clone(), requested)?
         .open(InstallationAccess::ArchivePreview)?;
-    let plan = planning::preview_adoption(&selected.game_id, &selected.root, &args.archive)?;
+    let appdata = content_root_appdata(&selected.game_id)?;
+    let plan = match &appdata {
+        Some(appdata) => planning::preview_adoption_with_appdata(
+            &selected.game_id,
+            &selected.root,
+            &args.archive,
+            appdata,
+        )?,
+        None => planning::preview_adoption(&selected.game_id, &selected.root, &args.archive)?,
+    };
     if args.dry_run {
         let status = if plan.status == PlanStatus::Blocked {
             "blocked"
@@ -70,13 +80,23 @@ pub(super) fn run(
         game: Some(game_id.clone()),
         root: Some(game.clone()),
     })?;
-    let package = store.adopt_archive(
-        &game_id,
-        &game,
-        &args.archive,
-        &plan.archive_sha256,
-        AdoptionApproval::Acknowledged,
-    )?;
+    let package = match &appdata {
+        Some(appdata) => store.adopt_archive_with_appdata(
+            &game_id,
+            &game,
+            &args.archive,
+            &plan.archive_sha256,
+            AdoptionApproval::Acknowledged,
+            appdata,
+        )?,
+        None => store.adopt_archive(
+            &game_id,
+            &game,
+            &args.archive,
+            &plan.archive_sha256,
+            AdoptionApproval::Acknowledged,
+        )?,
+    };
     if json {
         println!("{}", serde_json::to_string_pretty(&package)?);
     } else {

@@ -142,3 +142,23 @@ The module does not validate plugin dependencies, game versions, BSA contents, o
 
 Synthetic fixtures cover the managed lifecycle. They do not establish real-game compatibility.
 The example is documentation and test input; Modn does not embed it.
+## Host API v2 and content roots
+
+API 2 modules accept the API 1 manifest fields plus an optional `content_root`.
+The host accepts API 1 and API 2 modules. An API 1 module with `content_root` is rejected.
+
+```json
+{"game_id":"balatro","version":"0.1.0","api_version":2,"entrypoint":"module.lua",
+ "content_root":{"base":"appdata","path":"Balatro/Mods"}}
+```
+
+`base` must be `appdata`, the Windows Roaming AppData known folder.
+`path` must be relative and safe: no absolute path, `..`, empty, reserved or stream component.
+Rust resolves the base, rejects links or junctions on the path, a content root that overlaps the game root, a drive root and a canonical root already recorded by another installation.
+A missing content folder is created only inside a managed transaction below the validated base, and rollback removes only folders Modn created.
+
+A schema-v1 plan operation may add `"root": "content"`; an absent or `"game"` root keeps the game installation.
+An operation with `"root": "content"` is blocked when the module did not declare `content_root`.
+Exclusive `owned_directory` claims are limited to the game root in this release.
+Modn records content files with a root-qualified ownership key, so plan, install, dry-run, update, uninstall, adoption and recovery use the same root model.
+`validate` and `scan` still receive only the game root.

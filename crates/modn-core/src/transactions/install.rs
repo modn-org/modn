@@ -1,7 +1,7 @@
 use super::catalog::{CatalogInstall, CatalogRecord, CatalogRelease};
 use super::directory::exclusive_roots;
 use super::journal::{
-    digest, lock_store, target_path, temp_path, JournalFile, ManagedPackage, OwnedFile,
+    digest, lock_store, temp_path, JournalDirectory, JournalFile, ManagedPackage, OwnedFile, Roots,
 };
 use super::validation::{
     validate_directory_reservations, validate_execution_plan, validate_ownership,
@@ -137,8 +137,32 @@ impl Store {
         if self.state_root.starts_with(&game) || game.starts_with(&self.state_root) {
             bail!("manager state must be separate from the game directory");
         }
+        let content = match (&proposal.content_base, &proposal.content_root) {
+            (Some(base), Some(root)) => Some(crate::content_root::validate(&game, base, root)?),
+            _ => None,
+        };
+        let roots = Roots {
+            game: game.clone(),
+            content,
+        };
+        if let Some(content) = &roots.content {
+            crate::state::record_root(
+                &self.connection,
+                &roots.game,
+                crate::state::RootKind::Content,
+                content,
+            )?;
+        }
+        if self.state_root.starts_with(roots.game.as_path())
+            || roots.game.starts_with(&self.state_root)
+            || roots.content.as_ref().is_some_and(|content| {
+                self.state_root.starts_with(content) || content.starts_with(&self.state_root)
+            })
+        {
+            bail!("manager state must be separate from every installation root");
+        }
         let inspection = inspect(archive)?;
-        validate_execution_plan(&inspection, &game, proposal, approved)?;
+        validate_execution_plan(&inspection, &roots, proposal, approved)?;
         validate_ownership(self, &game, proposal, replaced_package)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories, replaced_package)?;
@@ -177,6 +201,7 @@ impl Store {
             .to_string_lossy()
             .to_string();
         self.begin_staging(&id, &game, &inspection.sha256, replaced_journal)?;
+        self.ensure_content_root(&id, &roots, proposal.content_base.as_deref())?;
         let staged = (|| -> Result<Vec<JournalFile>> {
             if inspection.format == crate::archive::ArchiveFormat::SevenZ {
                 let files =
@@ -219,6 +244,8 @@ impl Store {
                 }
                 files.push(JournalFile {
                     ordinal: n,
+                    root: crate::state::RootKind::from_label(&op.root)
+                        .context("plan operation has an unknown root")?,
                     destination: op.destination.clone(),
                     sha256: digest(&stage)?,
                     bytes: copied,
@@ -244,7 +271,15 @@ impl Store {
                 return Err(err);
             }
         };
-        if let Err(err) = self.stage_ready(&id, &files, &directories) {
+        let journal_directories: Vec<JournalDirectory> = directories
+            .iter()
+            .map(|path| JournalDirectory {
+                root: crate::state::RootKind::Game,
+                path: path.clone(),
+                identity: None,
+            })
+            .collect();
+        if let Err(err) = self.stage_ready(&id, &files, &journal_directories) {
             drop(staging);
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
@@ -257,12 +292,12 @@ impl Store {
         let attempt = (|| -> Result<()> {
             for (ordinal, root) in directories.iter().enumerate() {
                 let identity = super::directory::prepare_install(&game, root, &id, ordinal)?;
-                self.record_directory_identity(&id, root, &identity)?;
+                self.record_directory_identity(&id, crate::state::RootKind::Game, root, &identity)?;
                 super::directory::activate_install(&game, root, &id, ordinal, &identity)?;
             }
             for f in &files {
-                self.create_parents(&id, &game, &f.destination)?;
-                let dest = target_path(&game, &f.destination)?;
+                self.create_parents(&id, &roots, f.root, &f.destination)?;
+                let dest = roots.target(f.root, &f.destination)?;
                 if fs::symlink_metadata(&dest).is_ok() {
                     bail!("existing unmanaged destination: {}", dest.display());
                 }
@@ -299,7 +334,8 @@ impl Store {
                 &game,
                 &inspection.sha256,
                 &files,
-                &directories,
+                &journal_directories,
+                roots.content.as_deref(),
                 catalog.as_ref(),
             )
         })();
@@ -326,6 +362,7 @@ impl Store {
             files: files
                 .into_iter()
                 .map(|f| OwnedFile {
+                    root: f.root.label().to_owned(),
                     destination: f.destination,
                     sha256: f.sha256,
                     bytes: f.bytes,

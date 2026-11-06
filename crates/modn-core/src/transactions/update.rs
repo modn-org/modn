@@ -1,6 +1,6 @@
 use super::catalog::{CatalogInstall, CatalogRelease};
 use super::install::Fault;
-use super::journal::{lock_store, ManagedPackage};
+use super::journal::{lock_store, ManagedPackage, Roots};
 use super::uninstall::Dependents;
 use crate::planning::InstallPlan;
 use crate::state::Store;
@@ -106,8 +106,11 @@ impl Store {
         };
         match self.install_locked(&game, archive, proposal, fault, approved, Some(catalog)) {
             Ok(package) => {
-                self.prune_created(&game)
-                    .context("update committed; folder cleanup incomplete, run 'modn recover'")?;
+                self.prune_created(&Roots {
+                    game: game.clone(),
+                    content: proposal.content_root.clone(),
+                })
+                .context("update committed; folder cleanup incomplete, run 'modn recover'")?;
                 Ok(package)
             }
             Err(err) if matches!(fault, Some(Fault::CrashAfter(_))) => Err(err),
