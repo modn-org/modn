@@ -1,4 +1,5 @@
 use crate::state::Store;
+use crate::transactions::ManagedPackage;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -64,7 +65,7 @@ impl Lab {
         }
     }
 
-    fn install_and_uninstall(&mut self, entries: &[&str], unowned: &[&Path]) {
+    fn install(&mut self, game: &Path, entries: &[&str]) -> anyhow::Result<ManagedPackage> {
         let archive = self.temp.path().join("mod.zip");
         let mut zip = zip::ZipWriter::new(File::create(&archive).unwrap());
         for name in entries {
@@ -76,22 +77,23 @@ impl Lab {
         crate::game_modules::with_module_source(Some(&module), || {
             let plan = crate::planning::preview_install_zip_with_appdata(
                 "content-game",
-                &self.game,
+                game,
                 &archive,
                 &self.appdata,
-            )
-            .unwrap();
-            let package = self
-                .store
-                .install_operations_zip(&self.game, &archive, &plan)
-                .unwrap();
-            assert_eq!(package.files.len(), entries.len());
-            assert_eq!(self.created(), entries.len());
-            for path in unowned {
-                fs::write(path, b"user").unwrap();
-            }
-            self.store.uninstall(&self.game, &package.id).unwrap();
-        });
+            )?;
+            self.store.install_operations_zip(game, &archive, &plan)
+        })
+    }
+
+    fn install_and_uninstall(&mut self, entries: &[&str], unowned: &[&Path]) {
+        let game = self.game.clone();
+        let package = self.install(&game, entries).unwrap();
+        assert_eq!(package.files.len(), entries.len());
+        assert_eq!(self.created(), entries.len());
+        for path in unowned {
+            fs::write(path, b"user").unwrap();
+        }
+        self.store.uninstall(&game, &package.id).unwrap();
     }
 
     fn created(&self) -> usize {
@@ -145,5 +147,32 @@ fn uninstall_keeps_created_folders_that_hold_unowned_files_in_each_root() {
             ("content".to_owned(), "d".to_owned()),
             ("game".to_owned(), "h".to_owned())
         ]
+    );
+}
+
+#[test]
+fn a_second_installation_cannot_claim_a_recorded_content_root() {
+    let mut lab = Lab::new();
+    let first = lab.game.clone();
+    lab.install(&first, &["c/a.lua"]).unwrap();
+    let second = lab.temp.path().join("second");
+    fs::create_dir_all(&second).unwrap();
+    fs::write(second.join("ContentGame.exe"), b"marker").unwrap();
+    let state = fs::read(lab.temp.path().join("state/state.sqlite")).unwrap();
+
+    let error = lab
+        .install(&second, &["game/g/a.lua", "d/b.lua"])
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("two installations cannot share a root"),
+        "{error:#}"
+    );
+    assert!(lab.store.installed(&second).unwrap().is_empty());
+    assert!(!second.join("g").exists());
+    assert!(!lab.content.join("d").exists());
+    assert_eq!(fs::read(lab.content.join("c/a.lua")).unwrap(), b"c/a.lua");
+    assert_eq!(
+        fs::read(lab.temp.path().join("state/state.sqlite")).unwrap(),
+        state
     );
 }
