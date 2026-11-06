@@ -1,3 +1,4 @@
+use crate::content_root::{self, ContentRootHealth};
 use crate::game_modules::policy;
 use anyhow::Result;
 use serde::Serialize;
@@ -6,14 +7,66 @@ use std::path::{Path, PathBuf};
 
 const MAX_ENTRIES: usize = 20_000;
 
+/// Installation root that contains a scan result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ScanRoot {
+    /// The selected game installation.
+    Game,
+    /// The module-declared content root outside the game installation.
+    Content,
+}
+
+impl ScanRoot {
+    /// Stable label used in text and JSON output.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Game => "game",
+            Self::Content => "content",
+        }
+    }
+
+    /// Parse a module-provided root label.
+    #[must_use]
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "game" => Some(Self::Game),
+            "content" => Some(Self::Content),
+            _ => None,
+        }
+    }
+
+    const fn is_game(&self) -> bool {
+        matches!(self, Self::Game)
+    }
+
+    pub(crate) const fn order(self) -> u8 {
+        match self {
+            Self::Game => 0,
+            Self::Content => 1,
+        }
+    }
+}
+
+impl fmt::Display for ScanRoot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 /// Detected mod entry and optional ownership attribution.
 #[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DetectedMod {
     pub kind: String,
-    /// Game-relative file or directory path.
+    /// Root-relative file or directory path.
     pub relative_path: PathBuf,
+    /// Installation root that contains this entry.
+    #[serde(skip_serializing_if = "ScanRoot::is_game")]
+    pub root: ScanRoot,
     /// Whether a recorded manager-owned file matched.
     pub managed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,6 +86,9 @@ pub struct ScanReport {
     pub scan_issues: Vec<String>,
     pub game_id: String,
     pub installation: PathBuf,
+    /// Declared content root, when the module has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_root: Option<PathBuf>,
     pub redmod_available: bool,
     pub mods: Vec<DetectedMod>,
     /// Owned-file checks, including absent files.
@@ -93,7 +149,10 @@ impl fmt::Display for IntegrityStatus {
 #[non_exhaustive]
 pub struct OwnedFileCheck {
     pub package_id: String,
-    /// Recorded game-relative destination.
+    /// Installation root that contains the recorded destination.
+    #[serde(skip_serializing_if = "ScanRoot::is_game")]
+    pub root: ScanRoot,
+    /// Recorded root-relative destination.
     pub relative_path: String,
     pub status: IntegrityStatus,
     /// SHA-256 recorded during installation.
@@ -108,8 +167,11 @@ pub struct OwnedFileCheck {
 #[non_exhaustive]
 pub struct FrameworkSignal {
     pub name: String,
-    /// Path supporting the presence hint.
+    /// Root-relative path supporting the presence hint.
     pub relative_path: String,
+    /// Installation root that contains this signal.
+    #[serde(skip_serializing_if = "ScanRoot::is_game")]
+    pub root: ScanRoot,
     /// Observed `file` or `directory` type.
     pub kind: String,
 }
@@ -147,22 +209,68 @@ pub fn scan_for(game_id: &str, installation: &Path) -> ScanReport {
 }
 
 fn scan_bounded_for(game_id: &str, installation: &Path, limit: usize) -> ScanReport {
-    policy::scan(game_id, installation, limit).unwrap_or_else(|_| ScanReport {
-        incomplete: true,
-        scan_issues: vec!["SCAN_UNREADABLE_ENTRY".into()],
-        game_id: game_id.into(),
-        installation: installation.to_owned(),
-        redmod_available: false,
-        mods: Vec::new(),
-        owned_files: Vec::new(),
-        framework_signals: Vec::new(),
-    })
+    scan_bounded_with_health(game_id, installation, None, limit).0
+}
+
+fn scan_bounded_with_health(
+    game_id: &str,
+    installation: &Path,
+    appdata: Option<&Path>,
+    limit: usize,
+) -> (ScanReport, Option<ContentRootHealth>) {
+    let health = crate::game_modules::content_root_spec(game_id)
+        .ok()
+        .flatten()
+        .and_then(|spec| {
+            let base = appdata
+                .map(Path::to_path_buf)
+                .or_else(|| content_root::appdata_directory().ok())?;
+            Some(content_root::inspect(installation, &spec, &base, None))
+        });
+    let content = health.as_ref().and_then(|health| health.root.as_deref());
+    let content_path = health.as_ref().map(|health| health.path.clone());
+    let report =
+        policy::scan(game_id, installation, content, limit).unwrap_or_else(|_| ScanReport {
+            incomplete: true,
+            scan_issues: vec!["SCAN_UNREADABLE_ENTRY".into()],
+            game_id: game_id.into(),
+            installation: installation.to_owned(),
+            content_root: content_path.clone(),
+            redmod_available: false,
+            mods: Vec::new(),
+            owned_files: Vec::new(),
+            framework_signals: Vec::new(),
+        });
+    let mut report = report;
+    if report.content_root.is_none() {
+        report.content_root = content_path;
+    }
+    (report, health)
 }
 
 /// Diagnose a runtime-selected game's read-only inventory.
 #[must_use]
 pub fn doctor_for(game_id: &str, installation: &Path) -> DoctorReport {
-    diagnose(scan_for(game_id, installation))
+    let (report, health) = scan_bounded_with_health(game_id, installation, None, MAX_ENTRIES);
+    let mut doctor = diagnose(report);
+    doctor
+        .diagnostics
+        .extend(content_root_diagnostics(health.as_ref()));
+    doctor
+}
+
+/// Diagnostics for a content root that cannot be read safely.
+pub(crate) fn content_root_diagnostics(health: Option<&ContentRootHealth>) -> Vec<Diagnostic> {
+    health
+        .and_then(ContentRootHealth::diagnostic)
+        .map(|(code, message, action)| Diagnostic {
+            code: code.into(),
+            severity: "warning".into(),
+            message,
+            action: Some(action),
+        })
+        .into_iter()
+        .collect()
 }
 
 pub(crate) fn diagnose_checked(report: ScanReport) -> Result<DoctorReport> {

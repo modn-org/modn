@@ -1,7 +1,7 @@
 use crate::state_access::{InstallationAccess, ManagerState};
 use anyhow::Result;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
-use modn_core::scan::IntegrityStatus;
+use modn_core::scan::{IntegrityStatus, ScanRoot};
 use modn_core::state::Store;
 use std::path::{Path, PathBuf};
 
@@ -36,10 +36,18 @@ pub(super) fn scan(
         return Ok(());
     }
     println!("{}: {}", game_id, report.installation.display());
+    if let Some(content_root) = &report.content_root {
+        println!("Content root: {}", content_root.display());
+    }
     println!("REDmod executable present: {}", report.redmod_available);
     for entry in report.mods {
+        let root = if entry.root == ScanRoot::Content {
+            "content "
+        } else {
+            ""
+        };
         println!(
-            "{}: {} [{}{}]",
+            "{root}{}: {} [{}{}]",
             entry.kind,
             entry.relative_path.display(),
             if entry.managed {
@@ -55,14 +63,24 @@ pub(super) fn scan(
     }
     for file in report.owned_files {
         if file.status != IntegrityStatus::Intact {
-            println!(
-                "OWNED {}: {} ({})",
-                file.status, file.relative_path, file.package_id
-            );
+            let path = if file.root == ScanRoot::Content {
+                format!("content/{}", file.relative_path)
+            } else {
+                file.relative_path
+            };
+            println!("OWNED {}: {} ({})", file.status, path, file.package_id);
         }
     }
     for signal in report.framework_signals {
-        println!("FRAMEWORK SIGNAL {}: {}", signal.name, signal.relative_path);
+        let root = if signal.root == ScanRoot::Content {
+            "content "
+        } else {
+            ""
+        };
+        println!(
+            "{root}FRAMEWORK SIGNAL {}: {}",
+            signal.name, signal.relative_path
+        );
     }
     Ok(())
 }
@@ -96,8 +114,13 @@ pub(super) fn doctor(
     println!("Owned files checked: {}", report.scan.owned_files.len());
     println!("Folders Modn created: {}", report.created_directories.len());
     for entry in report.scan.mods.iter().filter(|entry| !entry.managed) {
+        let root = if entry.root == ScanRoot::Content {
+            "content "
+        } else {
+            ""
+        };
         println!(
-            "UNMANAGED {}: {}",
+            "UNMANAGED {root}{}: {}",
             entry.kind,
             entry.relative_path.display()
         );

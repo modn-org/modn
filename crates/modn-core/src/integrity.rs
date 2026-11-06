@@ -1,10 +1,19 @@
-use crate::scan::{IntegrityStatus, OwnedFileCheck};
+use crate::scan::{IntegrityStatus, OwnedFileCheck, ScanRoot};
 use crate::state::Store;
 use crate::transactions::ManagedPackage;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+
+/// Readable roots used to verify recorded ownership.
+pub(crate) struct FileRoots<'a> {
+    pub(crate) game: &'a Path,
+    /// Canonical content root when it is safe to read.
+    pub(crate) content: Option<&'a Path>,
+    /// Status for content files when no readable content root exists.
+    pub(crate) content_unavailable: IntegrityStatus,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PathState {
@@ -148,27 +157,45 @@ fn covering_root<'a>(
 
 pub(crate) fn owned_file_checks(
     store: &Store,
-    game: &Path,
+    roots: &FileRoots<'_>,
     packages: Vec<ManagedPackage>,
 ) -> (Vec<OwnedFileCheck>, Vec<DirectoryRootCheck>) {
     let mut owned_files = Vec::new();
     let mut directory_roots = Vec::new();
     for package in packages {
-        let roots = directory_root_checks(store, game, &package);
+        let game_roots = directory_root_checks(store, roots.game, &package);
         for file in package.files {
-            let status = match covering_root(&roots, &file.destination) {
-                Some(check) => check.status,
-                None => verify_owned(game, &file.destination, file.bytes, &file.sha256),
+            let (root, status) = match ScanRoot::from_label(&file.root) {
+                Some(ScanRoot::Content) => {
+                    let status = match roots.content {
+                        Some(content) => {
+                            verify_owned(content, &file.destination, file.bytes, &file.sha256)
+                        }
+                        None => roots.content_unavailable,
+                    };
+                    (ScanRoot::Content, status)
+                }
+                Some(ScanRoot::Game) => {
+                    let status = match covering_root(&game_roots, &file.destination) {
+                        Some(check) => check.status,
+                        None => {
+                            verify_owned(roots.game, &file.destination, file.bytes, &file.sha256)
+                        }
+                    };
+                    (ScanRoot::Game, status)
+                }
+                None => (ScanRoot::Game, IntegrityStatus::Unsafe),
             };
             owned_files.push(OwnedFileCheck {
                 package_id: package.id.clone(),
+                root,
                 relative_path: file.destination,
                 status,
                 expected_sha256: file.sha256,
                 expected_bytes: file.bytes,
             });
         }
-        directory_roots.extend(roots);
+        directory_roots.extend(game_roots);
     }
     (owned_files, directory_roots)
 }

@@ -2,7 +2,7 @@ use super::capabilities::{AllowedRoots, ReadProfile};
 use super::resolver::read_policy;
 use super::runtime;
 use crate::planning::{RequestedFile, RequestedPlan};
-use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport};
+use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport, ScanRoot};
 
 use anyhow::{bail, Context, Result};
 use mlua::{Function, Lua, Table};
@@ -103,7 +103,26 @@ fn relative_path(value: &str) -> mlua::Result<PathBuf> {
     Ok(path.to_owned())
 }
 
-fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanReport> {
+fn scan_root(entry: &Table, content_authorized: bool) -> mlua::Result<ScanRoot> {
+    match entry.get::<Option<String>>("root")? {
+        None => Ok(ScanRoot::Game),
+        Some(label) if label == "game" => Ok(ScanRoot::Game),
+        Some(label) if label == "content" && content_authorized => Ok(ScanRoot::Content),
+        Some(label) if label == "content" => Err(mlua::Error::RuntimeError(
+            "Lua scan entry uses a content root that the module did not declare".into(),
+        )),
+        Some(label) => Err(mlua::Error::RuntimeError(format!(
+            "unknown Lua scan entry root {label:?}"
+        ))),
+    }
+}
+
+fn decode_scan(
+    root: &Path,
+    content_root: Option<&Path>,
+    game_id: &str,
+    table: Table,
+) -> mlua::Result<ScanReport> {
     let raw_mods: Table = table.get("mods")?;
     let mut mods = Vec::new();
     for entry in raw_mods.sequence_values::<Table>() {
@@ -116,12 +135,18 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
         mods.push(DetectedMod {
             kind: entry.get("kind")?,
             relative_path: relative_path(&entry.get::<String>("relative_path")?)?,
+            root: scan_root(&entry, content_root.is_some())?,
             managed: false,
             package_id: None,
             integrity: None,
         });
     }
-    mods.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    mods.sort_by(|a, b| {
+        a.root
+            .order()
+            .cmp(&b.root.order())
+            .then(a.relative_path.cmp(&b.relative_path))
+    });
     let raw_signals: Table = table.get("framework_signals")?;
     let mut signals = Vec::new();
     for entry in raw_signals.sequence_values::<Table>() {
@@ -131,12 +156,15 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
             relative_path: relative_path(&entry.get::<String>("relative_path")?)?
                 .to_string_lossy()
                 .into_owned(),
+            root: scan_root(&entry, content_root.is_some())?,
             kind: entry.get("kind")?,
         });
     }
     signals.sort_by(|a, b| {
-        a.name
-            .cmp(&b.name)
+        a.root
+            .order()
+            .cmp(&b.root.order())
+            .then(a.name.cmp(&b.name))
             .then(a.relative_path.cmp(&b.relative_path))
     });
     let scan_issues = match table.get::<Option<Table>>("scan_issues")? {
@@ -162,6 +190,7 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
         scan_issues,
         game_id: game_id.into(),
         installation: root.to_owned(),
+        content_root: content_root.map(Path::to_path_buf),
         redmod_available: table.get("redmod_available")?,
         mods,
         owned_files: Vec::new(),
@@ -169,19 +198,22 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
     })
 }
 
-pub(crate) fn scan(game_id: &str, root: &Path, limit: usize) -> Result<ScanReport> {
+pub(crate) fn scan(
+    game_id: &str,
+    root: &Path,
+    content_root: Option<&Path>,
+    limit: usize,
+) -> Result<ScanReport> {
     let canonical = root.canonicalize()?;
-    evaluate_with_profile(
-        game_id,
-        std::slice::from_ref(&canonical),
-        ReadProfile::Scan,
-        &[],
-        |_, policy| {
-            let scan: Function = policy.get("scan")?;
-            let report: Table = scan.call(limit.min(MAX_ITEMS))?;
-            decode_scan(&canonical, game_id, report)
-        },
-    )
+    let mut roots = vec![canonical.clone()];
+    if let Some(content_root) = content_root {
+        roots.push(content_root.to_path_buf());
+    }
+    evaluate_with_profile(game_id, &roots, ReadProfile::Scan, &[], |_, policy| {
+        let scan: Function = policy.get("scan")?;
+        let report: Table = scan.call(limit.min(MAX_ITEMS))?;
+        decode_scan(&canonical, content_root, game_id, report)
+    })
 }
 
 pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
