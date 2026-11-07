@@ -384,3 +384,7 @@ fn same_or_nested(left: &Path, right: &Path) -> bool {
         || left.starts_with(&format!("{right}\\"))
         || right.starts_with(&format!("{left}\\"))
 }
+
+#[cfg(test)]
+#[path = "content_root_tests.rs"]
+mod tests;
