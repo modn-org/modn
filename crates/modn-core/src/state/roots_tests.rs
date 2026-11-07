@@ -32,22 +32,42 @@ fn rows(connection: &Connection, query: &str) -> Vec<String> {
         .expect("rows")
 }
 
-fn ownership_rows(connection: &Connection) -> Vec<String> {
+type OwnershipRow = (&'static str, String, String, String);
+
+fn ownership_rows(connection: &Connection) -> Vec<OwnershipRow> {
     let mut all = Vec::new();
     for table in [
         "managed_files",
         "managed_directories",
         "created_directories",
     ] {
-        all.extend(rows(
-            connection,
-            &format!(
-                "SELECT '{table}|' || game_path || '|' || path_key || '|' || relative_path
-                 FROM {table} ORDER BY game_path, path_key"
-            ),
-        ));
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT game_path, path_key, relative_path FROM {table}
+                 ORDER BY game_path, relative_path"
+            ))
+            .expect("query");
+        let table_rows = statement
+            .query_map([], |row| Ok((table, row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("rows")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("rows");
+        all.extend(table_rows);
     }
     all
+}
+
+fn with_platform_keys(rows: &[OwnershipRow]) -> Vec<OwnershipRow> {
+    rows.iter()
+        .map(|(table, game, _, relative)| {
+            let key = if *table == "created_directories" {
+                crate::transactions::directory_candidate_key(relative)
+            } else {
+                crate::transactions::ownership_key(relative)
+            };
+            (*table, game.clone(), key, relative.clone())
+        })
+        .collect()
 }
 
 #[test]
@@ -69,7 +89,10 @@ fn v2_state_migrates_to_v3_with_every_owned_path_on_the_game_root() {
 
     let store = Store::open(&db).expect("migration");
     assert_eq!(user_version(&db), 4);
-    assert_eq!(ownership_rows(&store.connection), before);
+    assert_eq!(
+        ownership_rows(&store.connection),
+        with_platform_keys(&before)
+    );
     for table in [
         "managed_files",
         "managed_directories",
