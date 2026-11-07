@@ -21,6 +21,7 @@ mod install;
 mod journal;
 #[cfg(test)]
 mod lifecycle_tests;
+mod native_injector;
 mod recovery;
 #[cfg(test)]
 mod roots_tests;
@@ -45,6 +46,10 @@ pub use catalog::{
 pub use cleanup::CleanupApproval;
 pub(crate) use journal::lock_store;
 pub use journal::{ManagedPackage, OwnedFile};
+pub use native_injector::{
+    NativeInjectorNotAllowed, NativeInjectorPolicy, NATIVE_INJECTOR_FLAG,
+    NATIVE_INJECTOR_NOT_ALLOWED,
+};
 pub use stack::StackMember;
 pub use uninstall_plan::{PlannedRemoval, UninstallScope};
 pub(crate) use validation::validate_transaction_root;

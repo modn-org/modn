@@ -14,7 +14,7 @@ use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::planning::{
     preview_update_with_appdata, preview_update_with_permissions, InstallPlan, PlanStatus,
 };
-use modn_core::transactions::ManagedPackage;
+use modn_core::transactions::{ManagedPackage, NativeInjectorPolicy};
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -162,6 +162,12 @@ pub(super) fn run(
         .map(|r| (r.package.sha256.clone(), r.package.version.clone()))
         .collect();
     let target = choose_release(releases, args.version.as_deref(), &label)?;
+    let policy = if args.allow_native_injector {
+        NativeInjectorPolicy::Allow
+    } else {
+        NativeInjectorPolicy::Refuse
+    };
+    policy.check(&reference, target.package.native_injector)?;
     let interactive = !args.yes && !args.dry_run;
     let state = ManagerState::load_deferred(state_path)?;
     let store = state
@@ -311,6 +317,7 @@ pub(super) fn run(
         archive,
         &candidate.plan,
         &release,
+        policy,
         &approved,
     )?;
     if json {

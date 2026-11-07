@@ -13,11 +13,12 @@ games/<game-id>/module.lua        # official main only
 `bucket.json` declares `schema_version` (integer 1), `name` and `title`.
 Each package manifest declares `schema_version`, `id`, `game`, `name`,
 `version`, `archive_format`, `sha256`, `source`, and optional
-`dependencies`, `homepage` and `executables`. `executables` lists up to 16
+`dependencies`, `homepage`, `executables` and `native_injector`.
+`executables` lists up to 16
 exact game-relative `.exe` paths inside a `tools` directory that the archive
 installs. It is a declaration shown at the install prompt, never an approval.
 
-Two more optional fields describe compatibility:
+Additional optional fields describe compatibility and native code:
 
 - `dependency_versions` maps a listed dependency ID to a version
   requirement, for example `{"red4ext": ">=1.31.0"}`. A requirement is up to
@@ -32,6 +33,11 @@ Two more optional fields describe compatibility:
   package's conflicts, so the check holds in both directions. As with
   dependencies, a managed package with the archive digest that the bucket
   pins for a mod counts as that mod.
+- `native_injector` is a boolean that defaults to `false`. Set it to `true`
+  when the archive places a native library that the game process loads. A
+  non-boolean value is malformed. `modn install` and `modn update` refuse such
+  a release, including as a dependency, unless the caller passes
+  `--allow-native-injector`.
 
 IDs use lowercase ASCII letters, digits and
 hyphens, beginning with a letter and not ending with a hyphen.

@@ -36,6 +36,10 @@ pub struct PackageManifest {
     /// with this one, in either order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<String>,
+    /// True when the archive places a native library that the game process
+    /// loads, such as `winmm.dll` beside the game executable.
+    #[serde(default)]
+    pub native_injector: bool,
 }
 
 /// Format of the original, unextracted download.
@@ -249,7 +253,7 @@ mod tests {
         }
     }
 
-    fn manifest(extra: serde_json::Value) -> anyhow::Result<()> {
+    fn parse(extra: serde_json::Value) -> anyhow::Result<super::PackageManifest> {
         let mut value = serde_json::json!({
             "schema_version": 1, "id": "top", "game": "test-game", "name": "Top",
             "version": "1.0", "archive_format": "zip", "sha256": "0".repeat(64),
@@ -259,8 +263,45 @@ mod tests {
         if let (Some(value), serde_json::Value::Object(extra)) = (value.as_object_mut(), extra) {
             value.extend(extra);
         }
-        let manifest: super::PackageManifest = serde_json::from_value(value)?;
-        manifest.validate("test-game", "top")
+        Ok(serde_json::from_value(value)?)
+    }
+
+    fn manifest(extra: serde_json::Value) -> anyhow::Result<()> {
+        parse(extra)?.validate("test-game", "top")
+    }
+
+    #[test]
+    fn native_injector_parses_true_false_and_absent() {
+        assert!(
+            !parse(serde_json::json!({}))
+                .expect("absent")
+                .native_injector
+        );
+        assert!(
+            !parse(serde_json::json!({"native_injector": false}))
+                .expect("false")
+                .native_injector
+        );
+        assert!(
+            parse(serde_json::json!({"native_injector": true}))
+                .expect("true")
+                .native_injector
+        );
+    }
+
+    #[test]
+    fn non_boolean_native_injector_is_rejected_as_malformed() {
+        for value in [
+            serde_json::json!("true"),
+            serde_json::json!(1),
+            serde_json::json!(null),
+        ] {
+            let error = format!(
+                "{:#}",
+                parse(serde_json::json!({"native_injector": value})).unwrap_err()
+            );
+            assert!(error.contains("boolean"), "{value}: {error}");
+        }
     }
 
     #[test]

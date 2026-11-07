@@ -47,12 +47,20 @@ and `games/<game-id>/<package-id>.json` files. Each package record
 has schema_version, id, game, name, version, archive_format (`zip`/`7z`),
 sha256, source (`manual` with filename, or `https` with URL),
 optional dependencies (same-game IDs), dependency_versions, conflicts,
-executables and homepage. Unknown fields and
+executables, native_injector and homepage. Unknown fields and
 unsupported schemas are rejected. See [`modn-org/main`](https://github.com/modn-org/main) for examples.
 Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. Only the official `main` bucket may contain
 `module.json` and `module.lua`. Modn rejects those files in registered local
 buckets and rejects `modules/` directories. See [bucket contract v1](../buckets/README.md).
+
+`native_injector` is an optional boolean and defaults to `false`. A manifest
+sets it to `true` when the release places a native library that the game process
+loads. Any other JSON type is malformed and is rejected. `modn install` and
+`modn update` refuse a plan that contains such a release, including a
+dependency, unless the caller passes `--allow-native-injector`. The refusal
+happens before any download or game write. See
+[Native injector approval](cli.md#native-injector-approval).
 
 Bucket registration, listing, searching and manifest inspection are
 **metadata-only** and never modify game files. A catalog entry can be

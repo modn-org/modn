@@ -23,11 +23,11 @@ use clap::Parser;
 use commands::{Cli, Command};
 use modn_core::archive::inspect;
 use modn_core::game_modules::with_module_source;
+use modn_core::transactions::NativeInjectorNotAllowed;
 use state_access::database_path;
 use std::path::Path;
 
-fn run() -> Result<()> {
-    let cli = Cli::parse();
+fn run(cli: Cli) -> Result<()> {
     if let Command::Asset { command } = &cli.command {
         return assets::run(command, cli.json);
     }
@@ -84,10 +84,18 @@ fn inspect_archive(archive: &Path, json: bool) -> Result<()> {
 }
 
 fn main() {
-    if let Err(error) = run() {
+    let cli = Cli::parse();
+    let json = cli.json;
+    if let Err(error) = run(cli) {
         if let Some(ambiguous) = error.downcast_ref::<catalog_install::AmbiguousTarget>() {
             if ambiguous.json {
                 eprintln!("{}", ambiguous.as_json());
+                std::process::exit(1);
+            }
+        }
+        if json {
+            if let Some(refusal) = error.downcast_ref::<NativeInjectorNotAllowed>() {
+                eprintln!("{}", refusal.as_json());
                 std::process::exit(1);
             }
         }

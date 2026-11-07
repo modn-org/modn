@@ -1,5 +1,6 @@
 use super::super::install::Fault;
 use crate::state::Store;
+use crate::transactions::NativeInjectorPolicy;
 use std::fs::{self, File};
 use std::io::Write;
 use tempfile::tempdir;
@@ -74,6 +75,7 @@ fn content_root_rollback_and_recovery_remove_only_created_state() {
                 Some(Fault::CrashAfter(1)),
                 &[],
                 None,
+                NativeInjectorPolicy::Refuse,
             )
             .expect_err("simulated crash");
         assert!(appdata.join("Fixture/Mods/a.lua").exists());

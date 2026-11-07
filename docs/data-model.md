@@ -85,6 +85,7 @@ a missing or mismatched override fails without falling back.
 | `sha256` | SHA-256 of the original distribution archive. |
 | `sources` | Download addresses or manual acquisition instructions. |
 | `dependencies` | Documented required/optional/conflicting relations. |
+| `native_injector` | True when the release loads native code into the game process; the caller must opt in. |
 | `compatibility` | Verified known game/framework requirements, if any. |
 
 An eventual fully qualified identity may be

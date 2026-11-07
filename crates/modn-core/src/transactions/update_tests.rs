@@ -1,7 +1,7 @@
 use super::catalog_tests::{plan_into, reference, Fixture};
 use super::install::Fault;
 use super::journal::{target_path, temp_path};
-use super::{CatalogDependency, CatalogRelease, ManagedPackage};
+use super::{CatalogDependency, CatalogRelease, ManagedPackage, NativeInjectorPolicy};
 use crate::archive::inspect;
 use std::fs::{self, File};
 use std::io::Write;
@@ -94,6 +94,7 @@ fn pin_after_preview_blocks_update_before_withdrawal() {
             &installed.new_base,
             &proposal,
             &CatalogRelease::new(reference("base"), vec![]).with_version("2.0".into()),
+            NativeInjectorPolicy::Refuse,
             &[],
         )
         .expect_err("pinned dependent blocks update");
@@ -132,6 +133,7 @@ impl Installed {
             &proposal,
             &release,
             &[],
+            NativeInjectorPolicy::Refuse,
             fault,
         )
     }
