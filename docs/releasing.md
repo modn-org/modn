@@ -733,7 +733,8 @@ modn game remove balatro --path $game
 
 Expect `Unregistered balatro (<path>)`.
 Keep `$live` and `$live\balatro-appdata-backup` until you write the record and every comparison passes.
-Then remove `$live`. If a check failed, keep `$live` for the bug report.
+Copy the evidence you cite to a durable path, then remove `$live`.
+If a check failed, keep `$live` for the bug report.
 Do not delete `%APPDATA%\Balatro`, `Mods` or any unmanaged file during cleanup.
 
 #### What to record for Balatro
@@ -741,7 +742,7 @@ Do not delete `%APPDATA%\Balatro`, `Mods` or any unmanaged file during cleanup.
 ```text
 Balatro live validation, <date>
 - Modn <tag or build>, commit <sha>, modn.exe SHA-256 <hash>, state <path>
-- main bucket <digest or source>; search <main/balatro/lovely, version 0.10.0 | missing>
+- main bucket <digest or source>; search <two package lines | missing>
 - OS <caption> <version>, build <build>, <physical|VM>
 - Game <version>, Steam app 2379780, installation <path>
 - Steamodded tag 26.1002.0, commit af0fdb1eb2c9e191262c128bc88bbc4da991e12d
