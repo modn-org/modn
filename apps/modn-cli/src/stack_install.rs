@@ -21,6 +21,7 @@ pub(super) struct Stack<'a> {
     pub(super) order: &'a [BucketPackage],
     pub(super) dependencies: &'a [PlannedDependency],
     pub(super) archives: BTreeMap<String, PathBuf>,
+    pub(super) digests: BTreeMap<String, String>,
     pub(super) catalog: &'a BucketSnapshot,
     pub(super) cache: &'a ArchiveCache,
     pub(super) cache_use: CacheUse,
@@ -38,7 +39,7 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
         .filter(|(_, dependency)| dependency.missing())
         .map(|(release, _)| release);
     for release in missing {
-        let Some(digest) = release.package.sha256.as_deref() else {
+        let Some(digest) = download::digest(release, &stack.digests) else {
             needed.push(release);
             continue;
         };

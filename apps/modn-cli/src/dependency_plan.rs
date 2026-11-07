@@ -1,4 +1,5 @@
 use crate::catalog_install::reference_of;
+use crate::download;
 use anyhow::Result;
 use modn_core::buckets::{BucketPackage, BucketSnapshot, PackageSource};
 use modn_core::planning::InstallPlan;
@@ -66,6 +67,7 @@ impl PlannedDependency {
 pub(super) fn plan(
     order: &[BucketPackage],
     archives: &BTreeMap<String, PathBuf>,
+    digests: &BTreeMap<String, String>,
     store: Option<&Store>,
     game: &Path,
 ) -> Result<Vec<PlannedDependency>> {
@@ -74,7 +76,9 @@ pub(super) fn plan(
         .map(|release| {
             CatalogDependency::new(
                 reference_of(release),
-                release.package.sha256.clone().unwrap_or_default(),
+                download::digest(release, digests)
+                    .unwrap_or_default()
+                    .to_owned(),
             )
         })
         .collect();
@@ -91,7 +95,9 @@ pub(super) fn plan(
                 archive: archives.get(&reference).cloned(),
                 reference,
                 version: release.package.version.clone(),
-                sha256: release.package.sha256.clone().unwrap_or_default(),
+                sha256: download::digest(release, digests)
+                    .unwrap_or_default()
+                    .to_owned(),
                 source: release.package.source.clone(),
                 state,
             }
@@ -102,6 +108,7 @@ pub(super) fn plan(
 pub(super) fn conflicts(
     releases: &[&BucketPackage],
     catalog: &BucketSnapshot,
+    digests: &BTreeMap<String, String>,
     store: Option<&Store>,
     game: &Path,
 ) -> Result<Vec<String>> {
@@ -115,7 +122,7 @@ pub(super) fn conflicts(
         for package in store.conflicting_packages(
             game,
             Some(&catalog_release),
-            release.package.sha256.as_deref().unwrap_or_default(),
+            download::digest(release, digests).unwrap_or_default(),
         )? {
             found.push(format!("{reference} conflicts with installed {package}"));
         }
@@ -132,6 +139,10 @@ pub(super) fn acquisition(source: &PackageSource) -> String {
             tag,
             asset,
         } => format!("Modn resolves GitHub release {repository} {tag} asset {asset}"),
+        PackageSource::Git {
+            repository,
+            commit,
+        } => format!("Modn needs to download pinned commit {commit} from {repository}"),
         _ => "unsupported source".to_owned(),
     }
 }
@@ -157,6 +168,9 @@ pub(super) fn report(
                 "version": selected.package.version,
                 "source": selected.package.source,
                 "plan": archive.as_ref().map(|preview| preview.plan),
+                "archive_needed": archive
+                    .is_none()
+                    .then(|| acquisition(&selected.package.source)),
                 "unapproved_declared_executables":
                     archive.as_ref().map(|preview| preview.unapproved_declared_executables),
                 "dependencies": dependencies
@@ -175,9 +189,9 @@ pub(super) fn report(
     }
     let Some(preview) = archive else {
         let next = match &selected.package.source {
-            PackageSource::Https { .. } | PackageSource::GithubRelease { .. } => {
-                "when you install it"
-            }
+            PackageSource::Https { .. }
+            | PackageSource::GithubRelease { .. }
+            | PackageSource::Git { .. } => "when you install it",
             _ => "then add --file <archive>",
         };
         println!(
