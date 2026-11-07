@@ -5,12 +5,14 @@ use sha2::{Digest, Sha256};
 use std::cell::Cell;
 use std::fs::{self, File};
 use std::io::Read;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+mod paths;
+
+use paths::{authorized_path, relative_components, safe_target, selected_root, EmptyPath};
+
 const MAX_ROOTS: usize = 8;
-const MAX_RELATIVE_BYTES: usize = 256;
-const MAX_DEPTH: usize = 16;
 const MAX_CALLS: u32 = 128;
 const MAX_SCAN_CALLS: u32 = 20_128;
 const MAX_TOTAL_DIRECTORY_ENTRIES: usize = 20_000;
@@ -63,69 +65,6 @@ impl AllowedRoots {
     }
 }
 
-fn relative_components(value: &str) -> Result<Vec<&str>> {
-    if value.is_empty()
-        || value.len() > MAX_RELATIVE_BYTES
-        || value.contains('\\')
-        || value.contains(':')
-        || value.contains('\0')
-    {
-        bail!("unsafe relative path");
-    }
-    let parts: Vec<_> = value.split('/').collect();
-    if parts.len() > MAX_DEPTH
-        || parts.iter().any(|part| {
-            part.is_empty()
-                || *part == "."
-                || *part == ".."
-                || part.ends_with([' ', '.'])
-                || part.chars().any(char::is_control)
-        })
-    {
-        bail!("unsafe relative path");
-    }
-    let path = Path::new(value);
-    if path
-        .components()
-        .any(|part| !matches!(part, Component::Normal(_)))
-    {
-        bail!("unsafe relative path");
-    }
-    Ok(parts)
-}
-
-fn safe_target(root: &Path, relative: &str) -> Result<(PathBuf, fs::Metadata)> {
-    let parts = relative_components(relative)?;
-    let mut current = root.to_path_buf();
-    for (index, part) in parts.iter().enumerate() {
-        current.push(part);
-        let metadata = fs::symlink_metadata(&current)
-            .with_context(|| format!("cannot inspect requested path {relative:?}"))?;
-        if metadata.file_type().is_symlink()
-            || (!metadata.file_type().is_file() && !metadata.file_type().is_dir())
-        {
-            bail!("linked or special paths are not allowed");
-        }
-        if index + 1 < parts.len() && !metadata.is_dir() {
-            bail!("non-directory component in requested path");
-        }
-        let canonical = current.canonicalize()?;
-        if !canonical.starts_with(root) {
-            bail!("requested path escapes authorized root");
-        }
-    }
-    let metadata = fs::symlink_metadata(&current)?;
-    if metadata.file_type().is_symlink()
-        || (!metadata.file_type().is_file() && !metadata.file_type().is_dir())
-    {
-        bail!("linked or special paths are not allowed");
-    }
-    if !current.canonicalize()?.starts_with(root) {
-        bail!("requested path escapes authorized root");
-    }
-    Ok((current, metadata))
-}
-
 struct Budget {
     calls: Cell<u32>,
     bytes: Cell<u64>,
@@ -167,31 +106,6 @@ impl Budget {
     }
 }
 
-fn selected_root(roots: &AllowedRoots, id: u32) -> Result<&Path> {
-    if id == 0 {
-        bail!("invalid authorized root identifier");
-    }
-    roots
-        .roots
-        .get((id - 1) as usize)
-        .map(PathBuf::as_path)
-        .context("unknown authorized root identifier")
-}
-
-fn authorized_path(
-    roots: &AllowedRoots,
-    budget: &Budget,
-    root_id: u32,
-    relative: &str,
-) -> Result<(PathBuf, fs::Metadata)> {
-    budget.operation()?;
-    let root = selected_root(roots, root_id)?;
-    if roots.hides(root_id, relative) {
-        bail!("cannot inspect requested path {relative:?}: the update replaces it");
-    }
-    safe_target(root, relative)
-}
-
 fn regular_file(metadata: &fs::Metadata) -> Result<()> {
     if !metadata.file_type().is_file() {
         bail!("capability requires a regular file");
@@ -228,7 +142,8 @@ fn metadata_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> m
         "metadata",
         lua.create_function(move |lua, (id, relative): (u32, String)| {
             let (_path, metadata) =
-                authorized_path(&roots, &budget, id, &relative).map_err(mlua::Error::external)?;
+                authorized_path(&roots, &budget, id, &relative, EmptyPath::Rejected)
+                    .map_err(mlua::Error::external)?;
             let answer = lua.create_table()?;
             answer.set(
                 "kind",
@@ -251,7 +166,8 @@ fn hashing_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
         "sha256",
         lua.create_function(move |_, (id, relative): (u32, String)| {
             let (path, metadata) =
-                authorized_path(&roots, &budget, id, &relative).map_err(mlua::Error::external)?;
+                authorized_path(&roots, &budget, id, &relative, EmptyPath::Rejected)
+                    .map_err(mlua::Error::external)?;
             regular_file(&metadata).map_err(mlua::Error::external)?;
             budget
                 .charge(metadata.len())
@@ -268,7 +184,8 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
         "inspect",
         lua.create_function(move |lua, (id, relative): (u32, String)| {
             let (path, metadata) =
-                authorized_path(&roots, &budget, id, &relative).map_err(mlua::Error::external)?;
+                authorized_path(&roots, &budget, id, &relative, EmptyPath::Rejected)
+                    .map_err(mlua::Error::external)?;
             regular_file(&metadata).map_err(mlua::Error::external)?;
             let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("");
             if !extension.eq_ignore_ascii_case("zip") && !extension.eq_ignore_ascii_case("jar") {
@@ -323,8 +240,9 @@ fn directory_service(
                 let max_items = max_items
                     .unwrap_or(MAX_DIRECTORY_ENTRIES)
                     .min(MAX_DIRECTORY_ENTRIES);
-                let (path, metadata) = authorized_path(&read_roots, &read_budget, id, &relative)
-                    .map_err(mlua::Error::external)?;
+                let (path, metadata) =
+                    authorized_path(&read_roots, &read_budget, id, &relative, EmptyPath::Root)
+                        .map_err(mlua::Error::external)?;
                 if !metadata.is_dir() {
                     return Err(mlua::Error::RuntimeError(
                         "listing requires a directory".into(),
@@ -355,8 +273,12 @@ fn directory_service(
                         unreadable = true;
                         continue;
                     };
-                    let relative_entry = format!("{relative}/{name}");
-                    if relative_components(&relative_entry).is_err() {
+                    let relative_entry = if relative.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{relative}/{name}")
+                    };
+                    if relative_components(&relative_entry, EmptyPath::Rejected).is_err() {
                         incomplete = true;
                         unreadable = true;
                         continue;
@@ -364,7 +286,8 @@ fn directory_service(
                     if read_roots.hides(id, &relative_entry) {
                         continue;
                     }
-                    let Ok((_, metadata)) = safe_target(root, &relative_entry) else {
+                    let Ok((_, metadata)) = safe_target(root, &relative_entry, EmptyPath::Rejected)
+                    else {
                         incomplete = true;
                         match fs::symlink_metadata(root.join(&relative_entry)) {
                             Ok(meta)
@@ -426,7 +349,8 @@ fn directory_service(
         "read_text",
         lua.create_function(move |_, (id, relative): (u32, String)| {
             let (path, metadata) =
-                authorized_path(&roots, &budget, id, &relative).map_err(mlua::Error::external)?;
+                authorized_path(&roots, &budget, id, &relative, EmptyPath::Rejected)
+                    .map_err(mlua::Error::external)?;
             regular_file(&metadata).map_err(mlua::Error::external)?;
             if metadata.len() > MAX_TEXT_BYTES {
                 return Err(mlua::Error::RuntimeError(

@@ -1,4 +1,4 @@
-use super::validation::validate_transaction_root;
+use super::NativeInjectorPolicy;
 use crate::integrity::package_intact;
 use crate::state::Store;
 use anyhow::{bail, Result};
@@ -92,7 +92,15 @@ impl CatalogRelease {
             dependencies,
             conflicts: Vec::new(),
             version: None,
+            native_injector: false,
         }
+    }
+
+    /// Mark whether this release is a native injector.
+    #[must_use]
+    pub fn with_native_injector(mut self, native_injector: bool) -> Self {
+        self.native_injector = native_injector;
+        self
     }
 
     #[must_use]
@@ -106,6 +114,11 @@ impl CatalogRelease {
     pub fn with_version(mut self, version: String) -> Self {
         self.version = Some(version);
         self
+    }
+
+    /// Refuse this release under `policy` when it is a native injector.
+    pub fn ensure_native_injector_allowed(&self, policy: NativeInjectorPolicy) -> Result<()> {
+        policy.check(&self.reference, self.native_injector)
     }
 }
 
@@ -139,6 +152,8 @@ pub struct CatalogRelease {
     pub dependencies: Vec<CatalogDependency>,
     /// Catalog mods that must not be managed in the same game installation.
     pub conflicts: Vec<CatalogConflict>,
+    /// True when the release places a native library that the game process loads.
+    pub native_injector: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -215,15 +230,23 @@ impl Store {
         if dependencies.is_empty() {
             return Ok(Vec::new());
         }
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         let installed = self.installed(&game)?;
         dependencies
             .iter()
             .map(|dependency| {
-                let (intact, damaged): (Vec<_>, Vec<_>) = installed
-                    .iter()
-                    .filter(|package| package.archive_sha256 == dependency.archive_sha256)
-                    .partition(|package| package_intact(self, &game, package));
+                let (intact, damaged): (Vec<_>, Vec<_>) = if dependency.archive_sha256.is_empty() {
+                    let recorded = provenance_packages(self, &dependency.reference)?;
+                    installed
+                        .iter()
+                        .filter(|package| recorded.contains(&package.id))
+                        .partition(|package| package_intact(self, &game, package))
+                } else {
+                    installed
+                        .iter()
+                        .filter(|package| package.archive_sha256 == dependency.archive_sha256)
+                        .partition(|package| package_intact(self, &game, package))
+                };
                 if !intact.is_empty() {
                     return Ok(DependencyState::Ready {
                         package_ids: intact.iter().map(|p| p.id.clone()).collect(),

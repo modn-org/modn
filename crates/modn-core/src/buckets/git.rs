@@ -5,7 +5,6 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// An explicitly selected community catalog remote and branch, tag or commit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,34 +29,15 @@ pub struct GitCatalogRevision {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
-    let result = Command::new("git")
-        .arg("-c")
-        .arg("protocol.ext.allow=never")
-        .arg("-c")
-        .arg("core.hooksPath=")
-        .arg("-c")
-        .arg("credential.interactive=false")
-        .args(arguments)
-        .current_dir(directory)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env(
-            "GIT_CONFIG_GLOBAL",
-            if cfg!(windows) { "NUL" } else { "/dev/null" },
-        )
-        .env_remove("GIT_CONFIG_COUNT")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .output()
-        .context("cannot run Git")?;
-    if !result.status.success() {
-        bail!(
-            "Git catalog operation failed: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-    }
-    Ok(String::from_utf8(result.stdout)?.trim().to_owned())
+    let hooks = crate::git::empty_hooks()?;
+    crate::git::run(
+        &crate::git::GitEnvironment {
+            directory,
+            hooks: hooks.path(),
+            allow_file: true,
+        },
+        arguments,
+    )
 }
 
 fn validate_tree(root: &Path) -> Result<()> {

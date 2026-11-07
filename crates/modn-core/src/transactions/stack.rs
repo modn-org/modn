@@ -1,6 +1,6 @@
 use super::catalog::{CatalogInstall, CatalogRelease};
 use super::journal::{lock_store, ManagedPackage};
-use super::validation::validate_transaction_root;
+use super::native_injector::NativeInjectorPolicy;
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{anyhow, bail, Context, Result};
@@ -48,11 +48,15 @@ impl Store {
         &mut self,
         game: &Path,
         members: &[StackMember],
+        policy: NativeInjectorPolicy,
         mut plan: impl FnMut(&StackMember) -> Result<InstallPlan>,
     ) -> Result<Vec<ManagedPackage>> {
+        for member in members {
+            member.release.ensure_native_injector_allowed(policy)?;
+        }
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         if members.is_empty() {
             bail!("installation stack is empty");
         }
@@ -72,6 +76,7 @@ impl Store {
                         stack_id: Some(&stack_id),
                         replacing: None,
                     }),
+                    policy,
                 )
             });
             match result {

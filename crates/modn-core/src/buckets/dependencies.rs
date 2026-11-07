@@ -117,8 +117,8 @@ mod tests {
                 game: "test-game".into(),
                 name: id.into(),
                 version: "1.0".into(),
-                archive_format: ArchiveFormat::Zip,
-                sha256: "0".repeat(64),
+                archive_format: Some(ArchiveFormat::Zip),
+                sha256: Some("0".repeat(64)),
                 source: PackageSource::Manual {
                     filename: format!("{id}.zip"),
                 },
@@ -127,6 +127,7 @@ mod tests {
                 executables: Vec::new(),
                 dependency_versions: BTreeMap::new(),
                 conflicts: Vec::new(),
+                native_injector: false,
             },
         }
     }

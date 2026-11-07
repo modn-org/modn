@@ -42,7 +42,7 @@ fn version_one_migrates_all_packages_to_unpinned() {
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("version");
-    assert_eq!(version, 2);
+    assert_eq!(version, 4);
     let packages = store.installed(&game).expect("migrated packages");
     assert_eq!(packages.len(), 2);
     assert!(packages.iter().all(|package| !package.pinned));

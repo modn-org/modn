@@ -1,11 +1,10 @@
 use super::capabilities::{AllowedRoots, ReadProfile};
-use super::loader::HOST_API_VERSION;
 use super::resolver::read_policy;
 use super::runtime;
 use crate::planning::{RequestedFile, RequestedPlan};
-use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport};
+use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport, ScanRoot};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use mlua::{Function, Lua, Table};
 use std::path::{Component, Path, PathBuf};
 
@@ -43,6 +42,7 @@ fn evaluate_with_profile<T>(
     runtime::evaluate(
         &source,
         &manifest.entrypoint,
+        manifest.api_version,
         roots,
         profile,
         |lua, policy| {
@@ -50,7 +50,7 @@ fn evaluate_with_profile<T>(
             let version: u32 = policy.get("api_version")?;
             let module_version: Option<String> = policy.get("version")?;
             if id != game_id
-                || version != HOST_API_VERSION
+                || version != manifest.api_version
                 || module_version.is_some_and(|version| version != manifest.version)
             {
                 return Err(mlua::Error::RuntimeError(
@@ -103,7 +103,26 @@ fn relative_path(value: &str) -> mlua::Result<PathBuf> {
     Ok(path.to_owned())
 }
 
-fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanReport> {
+fn scan_root(entry: &Table, content_authorized: bool) -> mlua::Result<ScanRoot> {
+    match entry.get::<Option<String>>("root")? {
+        None => Ok(ScanRoot::Game),
+        Some(label) if label == "game" => Ok(ScanRoot::Game),
+        Some(label) if label == "content" && content_authorized => Ok(ScanRoot::Content),
+        Some(label) if label == "content" => Err(mlua::Error::RuntimeError(
+            "Lua scan entry uses a content root that the module did not declare".into(),
+        )),
+        Some(label) => Err(mlua::Error::RuntimeError(format!(
+            "unknown Lua scan entry root {label:?}"
+        ))),
+    }
+}
+
+fn decode_scan(
+    root: &Path,
+    content_root: Option<&Path>,
+    game_id: &str,
+    table: Table,
+) -> mlua::Result<ScanReport> {
     let raw_mods: Table = table.get("mods")?;
     let mut mods = Vec::new();
     for entry in raw_mods.sequence_values::<Table>() {
@@ -116,12 +135,18 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
         mods.push(DetectedMod {
             kind: entry.get("kind")?,
             relative_path: relative_path(&entry.get::<String>("relative_path")?)?,
+            root: scan_root(&entry, content_root.is_some())?,
             managed: false,
             package_id: None,
             integrity: None,
         });
     }
-    mods.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    mods.sort_by(|a, b| {
+        a.root
+            .order()
+            .cmp(&b.root.order())
+            .then(a.relative_path.cmp(&b.relative_path))
+    });
     let raw_signals: Table = table.get("framework_signals")?;
     let mut signals = Vec::new();
     for entry in raw_signals.sequence_values::<Table>() {
@@ -131,12 +156,15 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
             relative_path: relative_path(&entry.get::<String>("relative_path")?)?
                 .to_string_lossy()
                 .into_owned(),
+            root: scan_root(&entry, content_root.is_some())?,
             kind: entry.get("kind")?,
         });
     }
     signals.sort_by(|a, b| {
-        a.name
-            .cmp(&b.name)
+        a.root
+            .order()
+            .cmp(&b.root.order())
+            .then(a.name.cmp(&b.name))
             .then(a.relative_path.cmp(&b.relative_path))
     });
     let scan_issues = match table.get::<Option<Table>>("scan_issues")? {
@@ -162,6 +190,7 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
         scan_issues,
         game_id: game_id.into(),
         installation: root.to_owned(),
+        content_root: content_root.map(Path::to_path_buf),
         redmod_available: table.get("redmod_available")?,
         mods,
         owned_files: Vec::new(),
@@ -169,19 +198,22 @@ fn decode_scan(root: &Path, game_id: &str, table: Table) -> mlua::Result<ScanRep
     })
 }
 
-pub(crate) fn scan(game_id: &str, root: &Path, limit: usize) -> Result<ScanReport> {
+pub(crate) fn scan(
+    game_id: &str,
+    root: &Path,
+    content_root: Option<&Path>,
+    limit: usize,
+) -> Result<ScanReport> {
     let canonical = root.canonicalize()?;
-    evaluate_with_profile(
-        game_id,
-        std::slice::from_ref(&canonical),
-        ReadProfile::Scan,
-        &[],
-        |_, policy| {
-            let scan: Function = policy.get("scan")?;
-            let report: Table = scan.call(limit.min(MAX_ITEMS))?;
-            decode_scan(&canonical, game_id, report)
-        },
-    )
+    let mut roots = vec![canonical.clone()];
+    if let Some(content_root) = content_root {
+        roots.push(content_root.to_path_buf());
+    }
+    evaluate_with_profile(game_id, &roots, ReadProfile::Scan, &[], |_, policy| {
+        let scan: Function = policy.get("scan")?;
+        let report: Table = scan.call(limit.min(MAX_ITEMS))?;
+        decode_scan(&canonical, content_root, game_id, report)
+    })
 }
 
 pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
@@ -272,9 +304,21 @@ pub(crate) fn plan(
     root: &Path,
     inspection: &crate::archive::Inspection,
     replaced: &[String],
+    appdata: Option<&Path>,
 ) -> Result<RequestedPlan> {
     const MAX_PROPOSALS: usize = 2_048;
     let root = root.canonicalize()?;
+    let (manifest, _) = read_policy(game_id)?;
+    let content_root = match &manifest.content_root {
+        Some(spec) => {
+            let base = appdata.context(
+                "module declares content_root but no appdata base was supplied to the planner",
+            )?;
+            Some(crate::content_root::resolve(&root, spec, base)?)
+        }
+        None => None,
+    };
+    let declared_content = content_root.is_some();
     if inspection.files.len() > MAX_PROPOSALS {
         return Ok(RequestedPlan {
             operations: Vec::new(),
@@ -283,6 +327,7 @@ pub(crate) fn plan(
                 "TOO_MANY_FILES".into(),
                 format!("Read-only preview supports at most {MAX_PROPOSALS} files"),
             )],
+            content_root,
         });
     }
     evaluate_hiding(game_id, &[root], replaced, |lua, policy| {
@@ -317,6 +362,16 @@ pub(crate) fn plan(
                     destination: plan_field(&value, "destination", 1_024, &mut result_budget)?,
                     kind: plan_field(&value, "kind", 64, &mut result_budget)?,
                     package_root: plan_field(&value, "package_root", 256, &mut result_budget)?,
+                    root: match value.get::<Option<String>>("root")? {
+                        None => crate::state::RootKind::Game,
+                        Some(root) if root == "game" => crate::state::RootKind::Game,
+                        Some(root) if root == "content" => crate::state::RootKind::Content,
+                        Some(root) => {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "unknown operation root {root:?}"
+                            )))
+                        }
+                    },
                     owned_directory: match value.get::<Option<String>>("owned_directory")? {
                         Some(root) if root.len() <= 1024 => Some(root),
                         Some(_) => {
@@ -329,7 +384,7 @@ pub(crate) fn plan(
                 })
             })
             .collect::<mlua::Result<Vec<_>>>()?;
-        let blockers = issues
+        let mut blockers = issues
             .sequence_values::<Table>()
             .map(|value| {
                 let value = value?;
@@ -339,6 +394,16 @@ pub(crate) fn plan(
                 ))
             })
             .collect::<mlua::Result<Vec<_>>>()?;
+        if operations
+            .iter()
+            .any(|operation| operation.root == crate::state::RootKind::Content)
+            && !declared_content
+        {
+            blockers.push((
+                "CONTENT_ROOT_UNDECLARED".into(),
+                "module did not declare content_root for content destinations".into(),
+            ));
+        }
         let skipped_generated_files = match output
             .get::<Option<Table>>("skipped_generated_files")?
         {
@@ -366,6 +431,7 @@ pub(crate) fn plan(
             operations,
             blockers,
             skipped_generated_files,
+            content_root,
         })
     })
 }

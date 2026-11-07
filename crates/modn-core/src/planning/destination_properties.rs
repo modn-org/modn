@@ -8,6 +8,8 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use tempfile::tempdir;
 
+mod single_component;
+
 const FIXED_SEED: u64 = 0x6d6f_646e;
 
 fn config(default_cases: u32) -> Config {
@@ -43,7 +45,6 @@ fn run<S: Strategy>(
 fn accepted(destination: &str) -> bool {
     destination.len() <= 1024
         && validated_name(destination).is_ok_and(|normalized| normalized == destination)
-        && destination.contains('/')
 }
 
 const HOSTILE: &[&str] = &[
@@ -313,9 +314,9 @@ fn same_file_spellings_share_one_ownership_key() {
         }
         same_file_pairs.set(same_file_pairs.get() + 1);
         let mut reserved = BTreeSet::new();
-        prop_assert_eq!(insert_destination(&mut reserved, &first), None);
+        prop_assert_eq!(insert_destination(&mut reserved, "game", &first), None);
         prop_assert!(
-            insert_destination(&mut reserved, &second).is_some(),
+            insert_destination(&mut reserved, "game", &second).is_some(),
             "{:?} and {:?} are one file, but the ownership keys are {:?} and {:?}",
             first,
             second,
@@ -336,4 +337,31 @@ fn same_file_spellings_share_one_ownership_key() {
             "too few same-file pairs: {same_file_pairs}"
         );
     }
+}
+
+#[test]
+fn destinations_are_unique_per_root_and_fail_closed_across_roots() {
+    let mut reserved = BTreeSet::new();
+    assert_eq!(
+        insert_destination(&mut reserved, "game", "Mods/core.lua"),
+        None
+    );
+    assert_eq!(
+        insert_destination(&mut reserved, "content", "Mods/core.lua"),
+        None,
+        "one relative path may exist below two roots"
+    );
+    assert_eq!(
+        insert_destination(&mut reserved, "content", "mods/CORE.lua"),
+        if cfg!(windows) {
+            Some("DUPLICATE_DESTINATION")
+        } else {
+            None
+        },
+        "content-root keys use the same platform case folding"
+    );
+    assert_eq!(
+        insert_destination(&mut reserved, "content", "Mods"),
+        Some("FILE_DIRECTORY_COLLISION")
+    );
 }

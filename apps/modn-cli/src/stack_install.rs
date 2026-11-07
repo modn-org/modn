@@ -3,12 +3,15 @@ use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, StackRequest};
+use crate::modules::content_root_appdata;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse};
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
-use modn_core::planning::{preview_install_zip_with_permissions, PlanStatus};
-use modn_core::transactions::StackMember;
+use modn_core::planning::{
+    preview_install_zip_with_appdata, preview_install_zip_with_permissions, PlanStatus,
+};
+use modn_core::transactions::{NativeInjectorPolicy, StackMember};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::PathBuf;
@@ -18,6 +21,7 @@ pub(super) struct Stack<'a> {
     pub(super) order: &'a [BucketPackage],
     pub(super) dependencies: &'a [PlannedDependency],
     pub(super) archives: BTreeMap<String, PathBuf>,
+    pub(super) digests: BTreeMap<String, String>,
     pub(super) catalog: &'a BucketSnapshot,
     pub(super) cache: &'a ArchiveCache,
     pub(super) cache_use: CacheUse,
@@ -35,8 +39,12 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
         .filter(|(_, dependency)| dependency.missing())
         .map(|(release, _)| release);
     for release in missing {
-        let Some(kept) = by_digest.get(release.package.sha256.as_str()) else {
-            by_digest.insert(&release.package.sha256, release);
+        let Some(digest) = download::digest(release, &stack.digests) else {
+            needed.push(release);
+            continue;
+        };
+        let Some(kept) = by_digest.get(digest) else {
+            by_digest.insert(digest, release);
             needed.push(release);
             continue;
         };
@@ -55,7 +63,13 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
             );
         }
     }
-    if by_digest.contains_key(stack.selected.package.sha256.as_str()) {
+    if stack
+        .selected
+        .package
+        .sha256
+        .as_deref()
+        .is_some_and(|digest| by_digest.contains_key(digest))
+    {
         bail!(
             "{}: its archive is also the archive of a missing dependency; install that dependency first",
             reference_of(stack.selected)
@@ -96,6 +110,11 @@ pub(super) fn run(
 ) -> Result<()> {
     let releases = releases(&stack)?;
     let interactive = !args.yes;
+    let policy = if args.allow_native_injector {
+        NativeInjectorPolicy::Allow
+    } else {
+        NativeInjectorPolicy::Refuse
+    };
     let explicit = &args.allow_executable;
     let unapproved: Vec<String> = releases
         .iter()
@@ -136,6 +155,7 @@ pub(super) fn run(
         stack.cache_use,
         &releases,
         &mut stack.archives,
+        &mut stack.digests,
         json,
     )?;
     let mut digests = BTreeMap::new();
@@ -150,7 +170,10 @@ pub(super) fn run(
             if interactive {
                 approved.extend(release.package.executables.iter().cloned());
             }
-            digests.insert(reference_of(release).to_string(), &release.package.sha256);
+            let digest = download::digest(release, &stack.digests)
+                .with_context(|| format!("{} has no archive digest", reference_of(release)))?
+                .to_owned();
+            digests.insert(reference_of(release).to_string(), digest);
             Ok(StackMember::new(
                 archive.clone(),
                 stack.catalog.release(release)?,
@@ -162,27 +185,36 @@ pub(super) fn run(
         game: Some(stack.game_id.clone()),
         root: Some(stack.installation.clone()),
     })?;
-    let installed = store.install_catalog_stack(&stack.installation, &members, |member| {
-        let reference = member.release.reference.to_string();
-        let plan = preview_install_zip_with_permissions(
-            &stack.game_id,
-            &stack.installation,
-            &member.archive,
-            &member.approved_executables,
-        )?;
-        if Some(&&plan.archive_sha256) != digests.get(&reference) {
-            bail!("{reference}: source changed after catalog verification");
-        }
-        if plan.status != PlanStatus::Reviewable {
-            let blockers: Vec<String> = plan
-                .blockers
-                .iter()
-                .map(|issue| format!("{}: {}", issue.code, issue.message))
-                .collect();
-            bail!("{reference}: installation blocked: {}", blockers.join("; "));
-        }
-        Ok(plan)
-    })?;
+    let installed =
+        store.install_catalog_stack(&stack.installation, &members, policy, |member| {
+            let reference = member.release.reference.to_string();
+            let plan = match content_root_appdata(&stack.game_id)? {
+                Some(appdata) => preview_install_zip_with_appdata(
+                    &stack.game_id,
+                    &stack.installation,
+                    &member.archive,
+                    &appdata,
+                )?,
+                None => preview_install_zip_with_permissions(
+                    &stack.game_id,
+                    &stack.installation,
+                    &member.archive,
+                    &member.approved_executables,
+                )?,
+            };
+            if digests.get(&reference).map(String::as_str) != Some(plan.archive_sha256.as_str()) {
+                bail!("{reference}: source changed after catalog verification");
+            }
+            if plan.status != PlanStatus::Reviewable {
+                let blockers: Vec<String> = plan
+                    .blockers
+                    .iter()
+                    .map(|issue| format!("{}: {}", issue.code, issue.message))
+                    .collect();
+                bail!("{reference}: installation blocked: {}", blockers.join("; "));
+            }
+            Ok(plan)
+        })?;
     let report: Vec<_> = members
         .iter()
         .zip(&installed)

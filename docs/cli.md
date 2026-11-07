@@ -23,6 +23,7 @@ modn install cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install main/cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install "./unlisted-mod.zip" --dry-run
 modn install "./unlisted-mod.zip" --yes
+modn install <mod> --allow-native-injector --yes
 modn update cet --dry-run
 modn update cet --yes
 modn pin cet
@@ -71,8 +72,26 @@ its own, once nothing else needs it. Review the dry run first. `--yes` and
 removal under one lock. If one fails, the earlier removals stay done, the rest
 stay installed, and the error names both.
 
+## Native injector approval
+
+A package manifest sets `native_injector: true` when its release places a
+native library that the game process loads. `modn install` and `modn update`
+refuse such a plan, including a native-injector dependency, before any download
+or game write. The error names the package and the flag. Under `--json` it is
+`{"error":"NATIVE_INJECTOR_NOT_ALLOWED","package":"<reference>","flag":"--allow-native-injector"}`.
+`--dry-run` refuses with the same code. Pass the flag to allow the package:
+
+```sh
+modn install main/cyberpunk-2077/example --allow-native-injector --yes
+modn update example --allow-native-injector --yes
+```
+
+An already-installed native dependency does not require the flag again.
+`modn uninstall` never needs it.
+
 ## Additional commands
 
+- `modn scan --path <game>` and `modn doctor --path <game>` read the game root and an API 2 module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
 - `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. See [sources.md](sources.md).
 - `modn adopt <archive> --dry-run` previews manual adoption. Commit requires `--acknowledge --yes`.
 - `modn uninstall <package> --force --yes` approves cleanup of modified owned files.

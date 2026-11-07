@@ -2,6 +2,7 @@ use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, Request};
+use crate::modules::content_root_appdata;
 use crate::selection::selected_installation;
 use crate::stack_install;
 use crate::state_access::{ManagerState, ProtectedTarget};
@@ -9,8 +10,10 @@ use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
-use modn_core::planning::{preview_install_zip_with_permissions, InstallPlan, PlanStatus};
-use modn_core::transactions::CatalogReference;
+use modn_core::planning::{
+    preview_install_zip_with_appdata, preview_install_zip_with_permissions, InstallPlan, PlanStatus,
+};
+use modn_core::transactions::{CatalogReference, NativeInjectorPolicy};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
@@ -90,10 +93,10 @@ pub(super) fn resolve(query: &str, catalog: &BucketSnapshot, json: bool) -> Resu
     }
 }
 
-pub(super) fn expected_format(format: &ArchiveFormat) -> Option<archive::ArchiveFormat> {
+pub(super) fn expected_format(format: Option<&ArchiveFormat>) -> Option<archive::ArchiveFormat> {
     match format {
-        ArchiveFormat::Zip => Some(archive::ArchiveFormat::Zip),
-        ArchiveFormat::SevenZ => Some(archive::ArchiveFormat::SevenZ),
+        Some(ArchiveFormat::Zip) => Some(archive::ArchiveFormat::Zip),
+        Some(ArchiveFormat::SevenZ) => Some(archive::ArchiveFormat::SevenZ),
         _ => None,
     }
 }
@@ -117,7 +120,7 @@ fn match_archives(
         let matches: Vec<&BucketPackage> = dependencies
             .iter()
             .chain([selected])
-            .filter(|release| release.package.sha256 == inspected.sha256)
+            .filter(|release| release.package.sha256.as_deref() == Some(inspected.sha256.as_str()))
             .collect();
         if matches.is_empty() {
             bail!(
@@ -127,13 +130,56 @@ fn match_archives(
         }
         for release in matches {
             let matched = reference_of(release);
-            if Some(inspected.format) != expected_format(&release.package.archive_format) {
+            if Some(inspected.format) != expected_format(release.package.archive_format.as_ref()) {
                 bail!("{matched}: archive format does not match catalog manifest");
             }
             archives.insert(matched.to_string(), file.clone());
         }
     }
     Ok(archives)
+}
+
+fn ensure_native_injectors_allowed(
+    selected: &BucketPackage,
+    order: &[BucketPackage],
+    args: &InstallArgs,
+    state_path: &Path,
+) -> Result<()> {
+    if args.allow_native_injector {
+        return Ok(());
+    }
+    let state = ManagerState::load_deferred(state_path)?;
+    let installing: Vec<&BucketPackage> = match selected_installation(
+        state.existing(),
+        args.path.clone(),
+        Some(&selected.package.game),
+    ) {
+        Ok((_, installation)) => {
+            let planned = dependency_plan::plan(
+                order,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                state.existing(),
+                &installation,
+            )?;
+            order
+                .iter()
+                .zip(&planned)
+                .filter(|(_, dependency)| dependency.missing())
+                .map(|(release, _)| release)
+                .chain([selected])
+                .collect()
+        }
+        // Game selection can fail for ordinary reasons, such as no registration
+        // or a missing --path. Refuse native injectors conservatively so the
+        // policy error still precedes those generic errors.
+        Err(_) => order.iter().chain([selected]).collect(),
+    };
+    for package in installing {
+        NativeInjectorPolicy::Refuse
+            .check(&reference_of(package), package.package.native_injector)?;
+    }
+    Ok(())
 }
 
 fn install_mod(
@@ -147,12 +193,19 @@ fn install_mod(
     let mut order = catalog.install_order(&selected)?;
     order.pop();
     let interactive = !args.yes && !args.dry_run;
+    ensure_native_injectors_allowed(&selected, &order, args, state_path)?;
     let mut archives = match_archives(&args.file, &selected, &order)?;
+    let mut digests = BTreeMap::new();
     let cache = download::cache_for(state_path)?;
     let cache_use = if args.no_cache {
         CacheUse::Refresh
     } else {
-        download::add_cached(&cache, order.iter().chain([&selected]), &mut archives)?;
+        download::add_cached(
+            &cache,
+            order.iter().chain([&selected]),
+            &mut archives,
+            &mut digests,
+        )?;
         CacheUse::Reuse
     };
     if !archives.contains_key(&reference) && !args.dry_run && !download::downloadable(&selected) {
@@ -168,6 +221,11 @@ fn install_mod(
         args.path.clone(),
         Some(&selected.package.game),
     )?;
+    let policy = if args.allow_native_injector {
+        NativeInjectorPolicy::Allow
+    } else {
+        NativeInjectorPolicy::Refuse
+    };
     let release = catalog.release(&selected)?;
     if !args.dry_run || args.download {
         state.validate_download(
@@ -179,7 +237,7 @@ fn install_mod(
         )?;
     }
     let mut dependencies =
-        dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+        dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
     let installing: Vec<&BucketPackage> = order
         .iter()
         .zip(&dependencies)
@@ -188,11 +246,24 @@ fn install_mod(
         .chain([&selected])
         .collect();
     if args.download {
-        download::download(&cache, cache_use, &installing, &mut archives, json)?;
-        dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+        download::download(
+            &cache,
+            cache_use,
+            &installing,
+            &mut archives,
+            &mut digests,
+            json,
+        )?;
+        dependencies =
+            dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
     }
-    let conflicts =
-        dependency_plan::conflicts(&installing, catalog, state.existing(), &installation)?;
+    let conflicts = dependency_plan::conflicts(
+        &installing,
+        catalog,
+        &digests,
+        state.existing(),
+        &installation,
+    )?;
     if !args.dry_run && !conflicts.is_empty() {
         bail!(
             "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
@@ -208,6 +279,7 @@ fn install_mod(
             order: &order,
             dependencies: &dependencies,
             archives,
+            digests,
             catalog,
             cache: &cache,
             cache_use,
@@ -243,7 +315,14 @@ fn install_mod(
                 bail!("{reference}: download cancelled");
             }
         }
-        download::download(&cache, cache_use, &[&selected], &mut archives, json)?;
+        download::download(
+            &cache,
+            cache_use,
+            &[&selected],
+            &mut archives,
+            &mut digests,
+            json,
+        )?;
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
         return dependency_plan::report(
@@ -256,9 +335,15 @@ fn install_mod(
         );
     };
     let preview = |approved: &[String]| -> Result<InstallPlan> {
-        let plan =
-            preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?;
-        if plan.archive_sha256 != selected.package.sha256 {
+        let plan = match content_root_appdata(&game_id)? {
+            Some(appdata) => {
+                preview_install_zip_with_appdata(&game_id, &installation, archive, &appdata)?
+            }
+            None => {
+                preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?
+            }
+        };
+        if Some(plan.archive_sha256.as_str()) != download::digest(&selected, &digests) {
             bail!("{reference}: source changed after catalog verification");
         }
         Ok(plan)
@@ -334,6 +419,7 @@ fn install_mod(
         archive,
         &plan,
         &release,
+        policy,
         &approved,
     )?;
     if json {

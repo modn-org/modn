@@ -4,7 +4,7 @@ use modn_core::planning::{
     preview_install_zip_with_permissions, preview_update_with_permissions, PlanStatus,
 };
 use modn_core::state::Store;
-use modn_core::transactions::{CatalogReference, CatalogRelease};
+use modn_core::transactions::{CatalogReference, CatalogRelease, NativeInjectorPolicy};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -39,7 +39,7 @@ fn update_preview_plans_as_if_the_installed_release_were_removed() {
         );
         let first = preview_install_zip_with_permissions(GAME, &game, &old, &[]).expect("preview");
         let installed = store
-            .install_catalog_release(&game, &old, &first, &release)
+            .install_catalog_release(&game, &old, &first, &release, NativeInjectorPolicy::Refuse)
             .expect("install");
         assert_eq!(installed.directories, ["red4ext/plugins/Foo"]);
         fs::write(game.join("red4ext/plugins/Foo/runtime.log"), b"log").expect("log");
@@ -63,7 +63,15 @@ fn update_preview_plans_as_if_the_installed_release_were_removed() {
         );
 
         let updated = store
-            .update_catalog_release(&game, &installed.id, &new, &plan, &release, &[])
+            .update_catalog_release(
+                &game,
+                &installed.id,
+                &new,
+                &plan,
+                &release,
+                NativeInjectorPolicy::Refuse,
+                &[],
+            )
             .expect("update");
         assert_eq!(updated.directories, ["red4ext/plugins/Foo"]);
         assert_eq!(

@@ -5,7 +5,16 @@ use modn_core::buckets::BucketStore;
 use modn_core::data_dir;
 use modn_core::game_modules::{check_module_with_roots, ModuleRegistry, ModuleTrust};
 use modn_core::state::Store;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Appdata base needed by the selected module, if it declares a content root.
+pub(super) fn content_root_appdata(game_id: &str) -> Result<Option<PathBuf>> {
+    if modn_core::game_modules::content_root_spec(game_id)?.is_some() {
+        Ok(Some(modn_core::content_root::appdata_directory()?))
+    } else {
+        Ok(None)
+    }
+}
 
 pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) -> Result<()> {
     let data = data_dir::data_directory()?;

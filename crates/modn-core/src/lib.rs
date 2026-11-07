@@ -13,12 +13,15 @@ pub mod archive;
 pub mod bucket_digest;
 /// Versioned bucket metadata, validation and local registration.
 pub mod buckets;
+/// Resolve module-declared content roots below a known folder.
+pub mod content_root;
 /// Resolve manager-owned data locations.
 pub mod data_dir;
 /// Validate installations and discover registered game locations.
 pub mod discovery;
 /// Local, sandboxed Lua game module inspection without host filesystem capabilities.
 pub mod game_modules;
+mod git;
 mod integrity;
 pub mod inventory;
 pub mod planning;

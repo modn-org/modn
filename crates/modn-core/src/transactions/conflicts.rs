@@ -1,5 +1,4 @@
 use super::catalog::{CatalogConflict, CatalogReference, CatalogRelease};
-use super::validation::validate_transaction_root;
 use crate::state::Store;
 use anyhow::Result;
 use rusqlite::{params, Transaction};
@@ -40,7 +39,7 @@ impl Store {
         release: Option<&CatalogRelease>,
         archive_sha256: &str,
     ) -> Result<Vec<String>> {
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         let game_path = game.to_string_lossy().into_owned();
         let mut statement = self
             .connection

@@ -1,7 +1,7 @@
 use super::catalog::CatalogInstall;
 use super::{
     CatalogDependency, CatalogReference, CatalogRelease, DependencyState, ManagedPackage,
-    StackMember,
+    NativeInjectorPolicy, StackMember,
 };
 use crate::archive::inspect;
 use crate::game_modules::with_module_source;
@@ -60,8 +60,13 @@ impl Fixture {
         let proposal = plan(&self.game, archive);
         let game = self.game.clone();
         with_module_source(Some(&module_source()), || {
-            self.store
-                .install_catalog_release(&game, archive, &proposal, &release)
+            self.store.install_catalog_release(
+                &game,
+                archive,
+                &proposal,
+                &release,
+                NativeInjectorPolicy::Refuse,
+            )
         })
     }
 
@@ -117,6 +122,7 @@ pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> Install
             .files
             .into_iter()
             .map(|entry| PlannedFile {
+                root: "game".into(),
                 destination: format!("{directory}/{}", entry.entry.rsplit('/').next().unwrap()),
                 source: entry.entry,
                 bytes: entry.bytes,
@@ -126,6 +132,8 @@ pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> Install
             .collect(),
         blockers: Vec::new(),
         skipped_generated_files: Vec::new(),
+        content_base: None,
+        content_root: None,
     }
 }
 
@@ -332,13 +340,18 @@ impl Fixture {
     ) -> anyhow::Result<Vec<ManagedPackage>> {
         let game = self.game.clone();
         with_module_source(Some(&module_source()), || {
-            self.store.install_catalog_stack(&game, members, |member| {
-                if fail_on == Some(member.release.reference.mod_id.as_str()) {
-                    fail_on = None;
-                    anyhow::bail!("injected plan failure");
-                }
-                Ok(plan(&game, &member.archive))
-            })
+            self.store.install_catalog_stack(
+                &game,
+                members,
+                NativeInjectorPolicy::Refuse,
+                |member| {
+                    if fail_on == Some(member.release.reference.mod_id.as_str()) {
+                        fail_on = None;
+                        anyhow::bail!("injected plan failure");
+                    }
+                    Ok(plan(&game, &member.archive))
+                },
+            )
         })
     }
 
@@ -358,14 +371,17 @@ fn stack_installs_members_in_order_as_separate_packages() {
         member(&top, "top", vec![dependency_on(&base, "base")]),
     ];
     let packages = with_module_source(Some(&module_source()), || {
-        fixture
-            .store
-            .install_catalog_stack(&game, &members, |member| {
+        fixture.store.install_catalog_stack(
+            &game,
+            &members,
+            NativeInjectorPolicy::Refuse,
+            |member| {
                 if member.release.reference.mod_id == "top" {
                     assert!(game.join("addons/base.plugin").is_file());
                 }
                 Ok(plan(&game, &member.archive))
-            })
+            },
+        )
     })
     .unwrap();
     assert_eq!(packages.len(), 2);
@@ -435,6 +451,7 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
                 stack_id: Some(&stack_id),
                 replacing: None,
             }),
+            NativeInjectorPolicy::Refuse,
         )
     })
     .unwrap();

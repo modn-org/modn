@@ -1,5 +1,6 @@
 use crate::catalog_install::reference_of;
 use crate::commands::CacheCommand;
+use crate::git_source;
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse, GithubReleaseAsset};
 use modn_core::buckets::{BucketPackage, PackageSource};
@@ -62,22 +63,47 @@ fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
         &release.package.id,
         &release.package.version,
         url,
-        &release.package.sha256,
+        release.package.sha256.as_deref().unwrap_or_default(),
     )
 }
 
 pub(super) fn downloadable(release: &BucketPackage) -> bool {
-    source_url(release).is_some()
+    matches!(
+        release.package.source,
+        PackageSource::Https { .. }
+            | PackageSource::GithubRelease { .. }
+            | PackageSource::Git { .. }
+    )
+}
+
+/// Archive digest the pipeline uses for one release.
+///
+/// Git sources publish no manifest digest; their packed ZIP digest becomes
+/// known after a cache hit or fetch and is stored in `digests`.
+pub(super) fn digest<'a>(
+    release: &'a BucketPackage,
+    digests: &'a BTreeMap<String, String>,
+) -> Option<&'a str> {
+    digests
+        .get(&reference_of(release).to_string())
+        .map(String::as_str)
+        .or(release.package.sha256.as_deref())
 }
 
 pub(super) fn add_cached<'a>(
     cache: &ArchiveCache,
     releases: impl IntoIterator<Item = &'a BucketPackage>,
     archives: &mut BTreeMap<String, PathBuf>,
+    digests: &mut BTreeMap<String, String>,
 ) -> Result<()> {
     for release in releases {
         let reference = reference_of(release).to_string();
         if archives.contains_key(&reference) {
+            continue;
+        }
+        if let Some(archive) = git_source::cached(cache, release)? {
+            archives.insert(reference.clone(), archive.path);
+            digests.insert(reference, archive.sha256);
             continue;
         }
         if let Some(path) = source_url(release)
@@ -96,16 +122,29 @@ pub(super) fn download(
     cache_use: CacheUse,
     releases: &[&BucketPackage],
     archives: &mut BTreeMap<String, PathBuf>,
+    digests: &mut BTreeMap<String, String>,
     json: bool,
 ) -> Result<()> {
     for release in releases {
         let reference = reference_of(release).to_string();
-        let Some(url) = source_url(release) else {
-            continue;
-        };
         if archives.contains_key(&reference) {
             continue;
         }
+        if let PackageSource::Git { repository, commit } = &release.package.source {
+            if !json {
+                eprintln!(
+                    "Fetching {reference} {} commit {commit} from {repository}",
+                    release.package.version
+                );
+            }
+            let archive = git_source::acquire(cache, release, cache_use)?;
+            archives.insert(reference.clone(), archive.path);
+            digests.insert(reference, archive.sha256);
+            continue;
+        }
+        let Some(url) = source_url(release) else {
+            continue;
+        };
         if let PackageSource::GithubRelease {
             repository,
             tag,

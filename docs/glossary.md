@@ -113,6 +113,12 @@ A resolved proposal of packages, versions, sources, destination operations,
 conflicts and required approvals before any game files change.
 _Avoid_: Installation, transaction
 
+**Native injector**:
+A mod release whose manifest sets `native_injector: true` because it places a
+native library that the game process loads. Modn refuses to install or update it,
+including as a dependency, unless the caller passes `--allow-native-injector`.
+_Avoid_: Any DLL mod, trusted publisher
+
 ### Installed state and recovery
 
 **Managed package**:
@@ -179,3 +185,9 @@ It changes no game bytes and claims no directory or unknown descendant.
 **Owned cleanup**:
 Explicitly approved removal of one managed package's recorded files, including modified files.
 It preserves unrecorded descendants and retains transaction backups and recovery checks.
+## Content root
+
+A module-declared directory outside the game installation that holds mod content, such as `%APPDATA%\Balatro\Mods` for Balatro.
+An API 2 module declares it in `module.json` as `content_root` with `base` (`appdata` only) and a relative `path`.
+Rust resolves and validates it, records it as the `content` installation root, and qualifies every owned file, owned directory and created folder by that root.
+A plan operation selects it with `"root": "content"`.

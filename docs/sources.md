@@ -93,3 +93,39 @@ Deterministic command tests cover metadata identity, URL and hash failures befor
 Tags and asset names accept ASCII letters, digits, dots, underscores, and hyphens.
 `latest`, authentication, pagination, arbitrary providers, and release discovery remain unsupported.
 Transport rate limits, retries, redirect policy, and timeouts remain caller responsibilities.
+
+## Git source
+
+A package manifest can name one Git commit as its artifact source:
+
+```json
+{"kind":"git","repository":"owner/project","commit":"<40 lowercase hex characters>"}
+```
+
+The remote is `https://github.com/<owner>/<project>.git`.
+The commit is the integrity pin, so the package has no `sha256`.
+A branch, tag, shortened commit, uppercase commit or extra field is refused.
+`archive_format` may be `zip` when present; no other format is accepted.
+
+Modn fetches into a private staging directory.
+It runs `git init --bare` and then `git fetch --depth 1 --no-tags`.
+Git runs as an argv-only child process, without system or global configuration.
+The hooks directory is empty, and credential prompts are disabled.
+Only HTTPS transport is allowed.
+Git must be on PATH.
+A fetch or tree-read failure returns `GIT_SOURCE_FETCH_FAILED`.
+A commit that Git cannot resolve, or resolves to another object, returns `GIT_SOURCE_COMMIT_MISMATCH`.
+
+Modn reads the tree with `ls-tree` and `cat-file`.
+It does not check out files and does not read attributes.
+It refuses symbolic links, submodules and other non-regular entries with `GIT_SOURCE_UNSUPPORTED_ENTRY`.
+It writes the regular files into a deterministic ZIP.
+The ZIP SHA-256 is the archive digest.
+The cache is keyed by the package release, commit and digest.
+A later install of the same release reuses the cached ZIP and makes no Git call.
+
+Modn fetches only after you approve a download or installation.
+`install --dry-run` without `--download` makes no Git call.
+It reports that a download is needed.
+`install --dry-run --download` may fetch without game writes.
+Branches, tags, authentication, Git LFS and submodules are unsupported.

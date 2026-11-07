@@ -9,6 +9,8 @@ use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
 mod adoption;
+mod content_prune;
+mod content_root;
 
 struct Fixture {
     root: TempDir,

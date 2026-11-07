@@ -18,7 +18,7 @@ fn fixture() -> (TempDir, Store, PathBuf, PathBuf) {
     make_zip(&archive, &[("pack/a.bin", b"one"), ("pack/b.bin", b"two")]);
     (dir, store, game, archive)
 }
-fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
+pub(super) fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
     let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
     for (name, bytes) in entries {
         zip.start_file(*name, SimpleFileOptions::default()).unwrap();
@@ -26,7 +26,7 @@ fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
     }
     zip.finish().unwrap();
 }
-fn plan(game: &Path, archive: &Path) -> InstallPlan {
+pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
     let checked = inspect(archive).unwrap();
     InstallPlan {
         archive_sha256: checked.sha256,
@@ -37,6 +37,7 @@ fn plan(game: &Path, archive: &Path) -> InstallPlan {
             .files
             .into_iter()
             .map(|entry| PlannedFile {
+                root: "game".into(),
                 destination: format!("data/mods/{}", entry.entry.rsplit('/').next().unwrap()),
                 source: entry.entry,
                 bytes: entry.bytes,
@@ -46,6 +47,8 @@ fn plan(game: &Path, archive: &Path) -> InstallPlan {
             .collect(),
         blockers: Vec::new(),
         skipped_generated_files: Vec::new(),
+        content_base: None,
+        content_root: None,
     }
 }
 #[test]
@@ -60,6 +63,69 @@ fn non_cyberpunk_root_install_list_uninstall_and_recover() {
     store.uninstall(&game, &package.id).unwrap();
     assert_eq!(store.recover().unwrap(), 0);
     assert!(!game.join("data/mods/a.bin").exists());
+}
+#[test]
+fn single_component_destination_installs_and_uninstalls() {
+    let (_dir, mut store, game, archive) = fixture();
+    let mut proposal = plan(&game, &archive);
+    proposal.operations[0].destination = "a.lua".into();
+    proposal.operations[1].destination = "Mods/b.lua".into();
+    let package = store
+        .install_operations_zip(&game, &archive, &proposal)
+        .unwrap();
+    assert_eq!(fs::read(game.join("a.lua")).unwrap(), b"one");
+    assert_eq!(fs::read(game.join("Mods/b.lua")).unwrap(), b"two");
+    let mut collision = plan(&game, &archive);
+    collision.operations[0].destination = "a.lua".into();
+    assert!(store
+        .install_operations_zip(&game, &archive, &collision)
+        .is_err());
+    #[cfg(windows)]
+    {
+        collision.operations[0].destination = "A.LUA".into();
+        assert!(store
+            .install_operations_zip(&game, &archive, &collision)
+            .is_err());
+    }
+    store.uninstall(&game, &package.id).unwrap();
+    assert_eq!(store.recover().unwrap(), 0);
+    assert_eq!(fs::read_dir(&game).unwrap().count(), 0);
+}
+#[test]
+fn unsafe_single_component_destinations_are_refused_without_writes() {
+    let (_dir, mut store, game, archive) = fixture();
+    for destination in [
+        "",
+        ".",
+        "..",
+        "/a.lua",
+        "a.lua/",
+        "C:a.lua",
+        "C:",
+        "\\\\server\\share\\a.lua",
+        "a\\b.lua",
+        "a.lua:stream",
+        "a.lua.",
+        "a.lua ",
+        "CON",
+        "nul.lua",
+        "COM1",
+        "lpt9.lua",
+        "COM\u{b9}",
+        "a*b.lua",
+        "install.exe",
+    ] {
+        let mut proposal = plan(&game, &archive);
+        proposal.operations[0].destination = destination.into();
+        assert!(
+            store
+                .install_operations_zip(&game, &archive, &proposal)
+                .is_err(),
+            "{destination:?}"
+        );
+        assert_eq!(fs::read_dir(&game).unwrap().count(), 0, "{destination:?}");
+        assert!(store.pending().unwrap().is_empty());
+    }
 }
 #[test]
 fn independently_rejects_forged_plans_without_writes_or_journals() {
@@ -364,6 +430,7 @@ fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
         status: crate::planning::PlanStatus::Reviewable,
         metadata_only: true,
         operations: vec![PlannedFile {
+            root: "game".into(),
             source: "engine/tools/scc.exe".into(),
             destination: "engine/tools/scc.exe".into(),
             kind: "redscript-runtime".into(),
@@ -372,6 +439,8 @@ fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
         }],
         blockers: Vec::new(),
         skipped_generated_files: Vec::new(),
+        content_base: None,
+        content_root: None,
     };
     assert!(store
         .install_operations_zip(&game, &archive, &proposal)

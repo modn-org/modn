@@ -37,6 +37,9 @@ const SHARED: &[&str] = &[
     "r6/scripts/dir/two.reds",
     "r6/scripts/dir",
     "bin/x64/plugins/note.txt",
+    "single.lua",
+    "Single.LUA",
+    "r6",
 ];
 const HOSTILE: &[&str] = &[
     "../outside.archive",
@@ -52,6 +55,16 @@ const HOSTILE: &[&str] = &[
     "bin/x64/Cyberpunk2077.exe",
     "bin/x64/Cyberpunk2077.exe/inner.archive",
     "r6/scripts/run.cmd",
+    "..",
+    "CON",
+    "nul.lua",
+    "COM1.lua",
+    "single.lua.",
+    "single.lua ",
+    "C:single.lua",
+    "//server/share/single.lua",
+    "\\\\server\\share\\single.lua",
+    "run.bat",
 ];
 
 fn destination() -> impl Strategy<Value = String> {
@@ -455,6 +468,19 @@ fn dry_run_install_and_uninstall_keep_ownership_promises() {
     let installs = run_cases(64, |_| Ok(()));
     println!("ownership: {installs} approved installs checked");
     assert!(installs >= 5, "too few approved installs: {installs}");
+}
+
+#[test]
+fn single_component_destination_plans_installs_and_uninstalls() {
+    let case = Case {
+        user_files: Vec::new(),
+        first: vec!["single.lua".into(), "Mods/inner.lua".into()],
+        second: Vec::new(),
+    };
+    let mut observed = Observed::default();
+    let result = ownership_case(&case, &mut observed);
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(observed.installs, 1);
 }
 
 #[test]

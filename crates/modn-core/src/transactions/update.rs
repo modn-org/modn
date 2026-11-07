@@ -1,8 +1,8 @@
 use super::catalog::{CatalogInstall, CatalogRelease};
 use super::install::Fault;
-use super::journal::{lock_store, ManagedPackage};
+use super::journal::{lock_store, ManagedPackage, Roots};
+use super::native_injector::NativeInjectorPolicy;
 use super::uninstall::Dependents;
-use super::validation::validate_transaction_root;
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{anyhow, bail, Context, Result};
@@ -22,6 +22,20 @@ pub(super) struct Replacement<'a> {
     pub(super) journal_id: &'a str,
 }
 
+/// Test-only stop that drives the same rollback path as a real failure.
+#[cfg(feature = "test-instruction-budget")]
+fn test_fault() -> Option<Fault> {
+    std::env::var("MODN_TEST_UPDATE_FAULT_AFTER")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(Fault::FailAfter)
+}
+
+#[cfg(not(feature = "test-instruction-budget"))]
+const fn test_fault() -> Option<Fault> {
+    None
+}
+
 impl Store {
     /// Replace managed package `package_id` with another release of the same
     /// catalog mod, in one recoverable transaction.
@@ -34,6 +48,15 @@ impl Store {
     /// new package. A failure before that commit restores the old release
     /// under its package ID. After an interruption, [`Store::recover`] does
     /// the same. An update never overwrites a file that Modn does not own.
+    ///
+    /// A build with the `test-instruction-budget` feature may inject a stop
+    /// through `MODN_TEST_UPDATE_FAULT_AFTER`, so integration tests can
+    /// observe the rollback through the real command. Regular builds compile
+    /// that hook out.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the public update keeps the explicit native-injector policy beside the release"
+    )]
     pub fn update_catalog_release(
         &mut self,
         game: &Path,
@@ -41,9 +64,19 @@ impl Store {
         archive: &Path,
         proposal: &InstallPlan,
         release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
         approved: &[String],
     ) -> Result<ManagedPackage> {
-        self.update_inner(game, package_id, archive, proposal, release, approved, None)
+        self.update_inner(
+            game,
+            package_id,
+            archive,
+            proposal,
+            release,
+            approved,
+            policy,
+            test_fault(),
+        )
     }
 
     #[expect(
@@ -58,11 +91,13 @@ impl Store {
         proposal: &InstallPlan,
         release: &CatalogRelease,
         approved: &[String],
+        policy: NativeInjectorPolicy,
         fault: Option<Fault>,
     ) -> Result<ManagedPackage> {
+        release.ensure_native_injector_allowed(policy)?;
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         let old = self
             .installed(&game)?
             .into_iter()
@@ -105,10 +140,21 @@ impl Store {
                 journal_id: &journal_id,
             }),
         };
-        match self.install_locked(&game, archive, proposal, fault, approved, Some(catalog)) {
+        match self.install_locked(
+            &game,
+            archive,
+            proposal,
+            fault,
+            approved,
+            Some(catalog),
+            policy,
+        ) {
             Ok(package) => {
-                self.prune_created(&game)
-                    .context("update committed; folder cleanup incomplete, run 'modn recover'")?;
+                self.prune_created(&Roots {
+                    game: game.clone(),
+                    content: proposal.content_root.clone(),
+                })
+                .context("update committed; folder cleanup incomplete, run 'modn recover'")?;
                 Ok(package)
             }
             Err(err) if matches!(fault, Some(Fault::CrashAfter(_))) => Err(err),

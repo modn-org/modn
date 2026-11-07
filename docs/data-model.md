@@ -85,6 +85,7 @@ a missing or mismatched override fails without falling back.
 | `sha256` | SHA-256 of the original distribution archive. |
 | `sources` | Download addresses or manual acquisition instructions. |
 | `dependencies` | Documented required/optional/conflicting relations. |
+| `native_injector` | True when the release loads native code into the game process; the caller must opt in. |
 | `compatibility` | Verified known game/framework requirements, if any. |
 
 An eventual fully qualified identity may be
@@ -160,8 +161,10 @@ fixture exercises game-agnostic support.
 | Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at, pinned)` |
 | Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
 | Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
-| File ownership | `state.sqlite / managed_files(...)` |
-| Directory ownership | `state.sqlite / managed_directories(...)` |
+| Installation root | `state.sqlite / installation_roots(game_path, root, path, path_key)` |
+| File ownership | `state.sqlite / managed_files(game_path, root, path_key, ...)` |
+| Directory ownership | `state.sqlite / managed_directories(game_path, root, path_key, ...)` |
+| Created folder | `state.sqlite / created_directories(game_path, root, path_key, ...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
 | Official game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
 | Trusted module snapshot | `<data-directory>/game-modules/<game-id>/`, with a verified registration receipt |
@@ -172,6 +175,44 @@ Manager schema version 2 stores each pin as `pinned INTEGER NOT NULL DEFAULT 0`.
 Migration preserves existing packages and leaves them unpinned.
 A pin belongs to one managed package and disappears when that package is uninstalled.
 Pin changes hold the manager transaction lock and change no ownership or game files.
+
+### Installation roots (schema version 4)
+
+Manager schema version 4 records the roots of each installation.
+Schema version 3 introduced the root model with the `game` root.
+Version 4 adds the `content` root and records the root label on pending journal rows.
+An installation is identified by its canonical `game_path`.
+A root is identified by its label within that installation and by its canonical `path`.
+The labels are `game` and, for an API 2 module that declares `content_root`, `content`.
+The game root's path is the installation path.
+The content root is resolved from the declared appdata base and recorded when an installation first writes content there.
+
+- Every owned file, owned directory and created folder names its root.
+  Its ownership key is `(game_path, root, path_key)`.
+- `path_key` in `installation_roots` is the ownership key of the canonical root path.
+  It is unique, so two installations cannot record one canonical root.
+  On Windows the key folds case, so case spellings of one folder collide.
+- Modn records the game root when it registers a game and when an install commits ownership.
+  It records a content root before staging files below it.
+- Pending journal rows name the root of each file, directory and created folder.
+  A created folder may instead name an appdata base, so recovery removes only folders the interrupted transaction created.
+- Transactions and recovery resolve the root through its record.
+  If the recorded path is missing, is a link or junction,
+  or now canonicalizes to a different path, the operation refuses and writes nothing.
+- An installation without a recorded root has committed no ownership.
+  It resolves its game root as before, from the canonical game path.
+
+A writable open migrates version 1, 2 or 3 state in the same transaction that opens it.
+The migration assigns every owned path to the `game` root, records one game root per installation, and adds root labels to pending rows.
+If any step fails, for example because two recorded installations fold to one root,
+SQLite rolls the transaction back and the old state stays unchanged and readable.
+A second open of migrated state changes nothing.
+A read-only open of version 1 or 2 state presents the same rows through temporary views and writes nothing.
+
+Older Modn builds accept only schema versions 1 and 2.
+They refuse version 3 or 4 state with `unsupported manager state schema; start with a fresh state directory`.
+They do not misread it, but that message suggests a fresh state directory.
+Do not follow that advice for state that holds ownership; install a current build instead.
 
 The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>.json` and other releases at

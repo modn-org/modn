@@ -1,11 +1,11 @@
 use super::catalog::{CatalogInstall, CatalogRecord, CatalogRelease};
 use super::directory::exclusive_roots;
 use super::journal::{
-    digest, lock_store, target_path, temp_path, JournalFile, ManagedPackage, OwnedFile,
+    digest, lock_store, temp_path, JournalDirectory, JournalFile, ManagedPackage, OwnedFile, Roots,
 };
+use super::native_injector::NativeInjectorPolicy;
 use super::validation::{
     validate_directory_reservations, validate_execution_plan, validate_ownership,
-    validate_transaction_root,
 };
 use crate::archive::inspect;
 use crate::planning::InstallPlan;
@@ -57,7 +57,15 @@ impl Store {
         proposal: &InstallPlan,
         approved: &[String],
     ) -> Result<ManagedPackage> {
-        self.install_inner_with_permissions(game, archive, proposal, None, approved, None)
+        self.install_inner_with_permissions(
+            game,
+            archive,
+            proposal,
+            None,
+            approved,
+            None,
+            NativeInjectorPolicy::Refuse,
+        )
     }
 
     /// Install a catalog release, recording its provenance and dependency links.
@@ -71,8 +79,9 @@ impl Store {
         archive: &Path,
         proposal: &InstallPlan,
         release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
     ) -> Result<ManagedPackage> {
-        self.install_catalog_release_with_permissions(game, archive, proposal, release, &[])
+        self.install_catalog_release_with_permissions(game, archive, proposal, release, policy, &[])
     }
 
     /// Install a catalog release with caller-authorized tool executable destinations.
@@ -86,9 +95,18 @@ impl Store {
         archive: &Path,
         proposal: &InstallPlan,
         release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
         approved: &[String],
     ) -> Result<ManagedPackage> {
-        self.install_inner_with_permissions(game, archive, proposal, None, approved, Some(release))
+        self.install_inner_with_permissions(
+            game,
+            archive,
+            proposal,
+            None,
+            approved,
+            Some(release),
+            policy,
+        )
     }
 
     pub(super) fn install_operations_inner(
@@ -99,9 +117,21 @@ impl Store {
         fail_after: Option<usize>,
     ) -> Result<ManagedPackage> {
         let fault = fail_after.map(Fault::FailAfter);
-        self.install_inner_with_permissions(game, archive, proposal, fault, &[], None)
+        self.install_inner_with_permissions(
+            game,
+            archive,
+            proposal,
+            fault,
+            &[],
+            None,
+            NativeInjectorPolicy::Refuse,
+        )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the internal install path threads the native-injector policy through journaled steps"
+    )]
     fn install_inner_with_permissions(
         &mut self,
         game: &Path,
@@ -110,7 +140,11 @@ impl Store {
         fault: Option<Fault>,
         approved: &[String],
         release: Option<&CatalogRelease>,
+        policy: NativeInjectorPolicy,
     ) -> Result<ManagedPackage> {
+        if let Some(release) = release {
+            release.ensure_native_injector_allowed(policy)?;
+        }
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
         let catalog = release.map(|release| CatalogInstall {
@@ -118,9 +152,13 @@ impl Store {
             stack_id: None,
             replacing: None,
         });
-        self.install_locked(game, archive, proposal, fault, approved, catalog)
+        self.install_locked(game, archive, proposal, fault, approved, catalog, policy)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the locked install path keeps the catalog policy explicit beside the proposal"
+    )]
     pub(super) fn install_locked(
         &mut self,
         game: &Path,
@@ -129,17 +167,45 @@ impl Store {
         fault: Option<Fault>,
         approved: &[String],
         catalog: Option<CatalogInstall<'_>>,
+        policy: NativeInjectorPolicy,
     ) -> Result<ManagedPackage> {
+        if let Some(release) = catalog.map(|catalog| catalog.release) {
+            release.ensure_native_injector_allowed(policy)?;
+        }
         let replacing = catalog.and_then(|catalog| catalog.replacing);
         let replaced_journal = replacing.map(|replaced| replaced.journal_id);
         let replaced_package = replacing.map(|replaced| replaced.package_id);
         self.ensure_pending_only(replaced_journal)?;
-        let game = validate_transaction_root(game)?;
+        let game = self.transaction_root(game)?;
         if self.state_root.starts_with(&game) || game.starts_with(&self.state_root) {
             bail!("manager state must be separate from the game directory");
         }
+        let content = match (&proposal.content_base, &proposal.content_root) {
+            (Some(base), Some(root)) => Some(crate::content_root::validate(&game, base, root)?),
+            _ => None,
+        };
+        let roots = Roots {
+            game: game.clone(),
+            content,
+        };
+        if let Some(content) = &roots.content {
+            crate::state::record_root(
+                &self.connection,
+                &roots.game,
+                crate::state::RootKind::Content,
+                content,
+            )?;
+        }
+        if self.state_root.starts_with(roots.game.as_path())
+            || roots.game.starts_with(&self.state_root)
+            || roots.content.as_ref().is_some_and(|content| {
+                self.state_root.starts_with(content) || content.starts_with(&self.state_root)
+            })
+        {
+            bail!("manager state must be separate from every installation root");
+        }
         let inspection = inspect(archive)?;
-        validate_execution_plan(&inspection, &game, proposal, approved)?;
+        validate_execution_plan(&inspection, &roots, proposal, approved)?;
         validate_ownership(self, &game, proposal, replaced_package)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories, replaced_package)?;
@@ -178,6 +244,7 @@ impl Store {
             .to_string_lossy()
             .to_string();
         self.begin_staging(&id, &game, &inspection.sha256, replaced_journal)?;
+        self.ensure_content_root(&id, &roots, proposal.content_base.as_deref())?;
         let staged = (|| -> Result<Vec<JournalFile>> {
             if inspection.format == crate::archive::ArchiveFormat::SevenZ {
                 let files =
@@ -220,6 +287,8 @@ impl Store {
                 }
                 files.push(JournalFile {
                     ordinal: n,
+                    root: crate::state::RootKind::from_label(&op.root)
+                        .context("plan operation has an unknown root")?,
                     destination: op.destination.clone(),
                     sha256: digest(&stage)?,
                     bytes: copied,
@@ -245,7 +314,15 @@ impl Store {
                 return Err(err);
             }
         };
-        if let Err(err) = self.stage_ready(&id, &files, &directories) {
+        let journal_directories: Vec<JournalDirectory> = directories
+            .iter()
+            .map(|path| JournalDirectory {
+                root: crate::state::RootKind::Game,
+                path: path.clone(),
+                identity: None,
+            })
+            .collect();
+        if let Err(err) = self.stage_ready(&id, &files, &journal_directories) {
             drop(staging);
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
@@ -258,12 +335,12 @@ impl Store {
         let attempt = (|| -> Result<()> {
             for (ordinal, root) in directories.iter().enumerate() {
                 let identity = super::directory::prepare_install(&game, root, &id, ordinal)?;
-                self.record_directory_identity(&id, root, &identity)?;
+                self.record_directory_identity(&id, crate::state::RootKind::Game, root, &identity)?;
                 super::directory::activate_install(&game, root, &id, ordinal, &identity)?;
             }
             for f in &files {
-                self.create_parents(&id, &game, &f.destination)?;
-                let dest = target_path(&game, &f.destination)?;
+                self.create_parents(&id, &roots, f.root, &f.destination)?;
+                let dest = roots.target(f.root, &f.destination)?;
                 if fs::symlink_metadata(&dest).is_ok() {
                     bail!("existing unmanaged destination: {}", dest.display());
                 }
@@ -300,7 +377,8 @@ impl Store {
                 &game,
                 &inspection.sha256,
                 &files,
-                &directories,
+                &journal_directories,
+                roots.content.as_deref(),
                 catalog.as_ref(),
             )
         })();
@@ -327,6 +405,7 @@ impl Store {
             files: files
                 .into_iter()
                 .map(|f| OwnedFile {
+                    root: f.root.label().to_owned(),
                     destination: f.destination,
                     sha256: f.sha256,
                     bytes: f.bytes,

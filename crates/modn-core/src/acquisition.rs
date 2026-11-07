@@ -13,7 +13,9 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
+mod git;
 mod provider;
+pub use git::{GitAcquired, GitCacheKey, GitSource};
 pub use provider::GithubReleaseAsset;
 
 /// Largest archive Modn downloads; a longer response is refused.
@@ -295,19 +297,34 @@ fn parse_entry_name(name: &str) -> Option<[&str; 3]> {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
     };
-    let (url_hash, ext) = rest.split_at_checked(7)?;
-    let valid_ext = ext.is_empty()
-        || ext.strip_prefix('.').is_some_and(|ext| {
-            (1..=8).contains(&ext.len())
-                && ext
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-        });
-    (named(game_id)
-        && named(mod_id)
-        && named(version)
-        && url_hash.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
-        && valid_ext)
+    let hex = |value: &str, len: usize| {
+        value.len() == len
+            && value
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    };
+    let length_and_extension = |ext: &str| {
+        ext.is_empty()
+            || ext.strip_prefix('.').is_some_and(|ext| {
+                (1..=8).contains(&ext.len())
+                    && ext
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+            })
+    };
+    let rest = *rest;
+    let valid_rest = if let Some(git) = rest.strip_prefix("git-") {
+        git.split_once('-').is_some_and(|(commit, archive)| {
+            hex(commit, 40)
+                && archive
+                    .strip_suffix(".zip")
+                    .is_some_and(|digest| hex(digest, 64))
+        })
+    } else {
+        rest.split_at_checked(7)
+            .is_some_and(|(url_hash, ext)| hex(url_hash, 7) && length_and_extension(ext))
+    };
+    (named(game_id) && named(mod_id) && named(version) && valid_rest)
         .then_some([*game_id, *mod_id, *version])
 }
 

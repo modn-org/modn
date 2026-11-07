@@ -109,7 +109,7 @@ impl BucketSnapshot {
                 })?;
                 Ok(CatalogDependency::new(
                     dependency.reference(),
-                    dependency.package.sha256.clone(),
+                    dependency.package.sha256.clone().unwrap_or_default(),
                 )
                 .with_requirement(selected.package.dependency_versions.get(id).cloned()))
             })
@@ -125,12 +125,13 @@ impl BucketSnapshot {
                         selected.package.game.clone(),
                         id.clone(),
                     ),
-                    published(id).map(|candidate| candidate.package.sha256.clone()),
+                    published(id).and_then(|candidate| candidate.package.sha256.clone()),
                 )
             })
             .collect();
         Ok(CatalogRelease::new(selected.reference(), dependencies)
             .with_conflicts(conflicts)
-            .with_version(selected.package.version.clone()))
+            .with_version(selected.package.version.clone())
+            .with_native_injector(selected.package.native_injector))
     }
 }

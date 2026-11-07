@@ -1,7 +1,13 @@
 //! Deterministic, metadata-only plans. No game writes or extraction.
 mod adoption;
 use crate::archive::Inspection;
-pub use adoption::preview_adoption;
+pub use adoption::{preview_adoption, preview_adoption_with_appdata};
+mod preview;
+pub(crate) use preview::preview_install_zip_optional_appdata;
+pub use preview::{
+    preview_install_zip, preview_install_zip_with_appdata, preview_install_zip_with_permissions,
+    preview_update_with_appdata, preview_update_with_permissions,
+};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -23,6 +29,8 @@ pub struct PlannedFile {
     /// Exclusive, newly created subdirectory owned as a unit, when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owned_directory: Option<String>,
+    /// Installation root that contains the destination: `game` or `content`.
+    pub root: String,
 }
 
 /// Blocker that prevents a proposed installation.
@@ -69,6 +77,12 @@ pub struct InstallPlan {
     pub blockers: Vec<PlanIssue>,
     /// Generated outputs intentionally omitted from installation and future ownership.
     pub skipped_generated_files: Vec<String>,
+    /// Canonical appdata base, when the module declares a content root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_base: Option<PathBuf>,
+    /// Validated content root, when the module declares one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_root: Option<PathBuf>,
 }
 
 pub(crate) fn prohibited_payload(path: &str) -> bool {
@@ -158,9 +172,10 @@ pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'
 }
 pub(crate) fn insert_destination(
     targets: &mut BTreeSet<String>,
+    root: &str,
     destination: &str,
 ) -> Option<&'static str> {
-    let key = crate::transactions::ownership_key(destination);
+    let key = format!("{root}:{}", crate::transactions::ownership_key(destination));
     let mut ancestor = key.as_str();
     while let Some((parent, _)) = ancestor.rsplit_once('/') {
         if targets.contains(parent) {
@@ -188,11 +203,13 @@ pub(crate) struct RequestedFile {
     pub(crate) kind: String,
     pub(crate) package_root: String,
     pub(crate) owned_directory: Option<String>,
+    pub(crate) root: crate::state::RootKind,
 }
 pub(crate) struct RequestedPlan {
     pub(crate) operations: Vec<RequestedFile>,
     pub(crate) blockers: Vec<(String, String)>,
     pub(crate) skipped_generated_files: Vec<String>,
+    pub(crate) content_root: Option<(PathBuf, PathBuf)>,
 }
 fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
     issues.push(PlanIssue {
@@ -203,22 +220,30 @@ fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
 /// Resolve untrusted module mappings into a read-only preview. Tool
 /// executable permissions must come from a trusted caller, never from Lua.
 pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::Result<InstallPlan> {
-    resolve_with_permissions(game_id, inspection, game, &[], &[])
+    resolve_with_permissions(game_id, inspection, game, &[], &[], None)
 }
 
-fn resolve_with_permissions(
+pub(crate) fn resolve_with_permissions(
     game_id: &str,
     inspection: &Inspection,
     game: &Path,
     approved: &[String],
     replaced: &[String],
+    appdata: Option<&Path>,
 ) -> anyhow::Result<InstallPlan> {
     use anyhow::bail;
     if !fs::symlink_metadata(game)?.file_type().is_dir() {
         bail!("installation root must be a real directory, not a link");
     }
     let game = game.canonicalize()?;
-    let proposed = crate::game_modules::policy::plan(game_id, &game, inspection, replaced)?;
+    let proposed =
+        crate::game_modules::policy::plan(game_id, &game, inspection, replaced, appdata)?;
+    let (content_base, content_root) = proposed
+        .content_root
+        .as_ref()
+        .map_or((None, None), |(base, root)| {
+            (Some(base.clone()), Some(root.clone()))
+        });
     let mut blockers = Vec::new();
     let mut sources = HashMap::new();
     let approved_sources: HashSet<_> = proposed
@@ -317,7 +342,6 @@ fn resolve_with_permissions(
         if request.destination.len() > 1024
             || !crate::archive::validated_name(&request.destination)
                 .is_ok_and(|normalized| normalized == request.destination)
-            || !request.destination.contains('/')
         {
             issue(
                 &mut blockers,
@@ -377,7 +401,9 @@ fn resolve_with_permissions(
         if total > 8 * 1024 * 1024 * 1024 {
             issue(&mut blockers, "TOTAL_TOO_LARGE", "Total exceeds 8 GiB");
         }
-        if let Some(code) = insert_destination(&mut destinations, &request.destination) {
+        let root_label = request.root.label();
+        if let Some(code) = insert_destination(&mut destinations, root_label, &request.destination)
+        {
             issue(
                 &mut blockers,
                 code,
@@ -385,7 +411,21 @@ fn resolve_with_permissions(
             );
             continue;
         }
-        if let Some(code) = existing_destination_issue(&game, &request.destination)
+        let root_path = match request.root {
+            crate::state::RootKind::Game => &game,
+            crate::state::RootKind::Content => match &content_root {
+                Some(root) => root,
+                None => {
+                    issue(
+                        &mut blockers,
+                        "CONTENT_ROOT_UNDECLARED",
+                        "Content destination without a declared content_root",
+                    );
+                    continue;
+                }
+            },
+        };
+        if let Some(code) = existing_destination_issue(root_path, &request.destination)
             .filter(|&code| code != "EXISTING_FILE" || !is_replaced(replaced, &request.destination))
         {
             issue(
@@ -400,6 +440,7 @@ fn resolve_with_permissions(
             bytes,
             kind: request.kind,
             owned_directory: request.owned_directory,
+            root: request.root.label().to_owned(),
         });
     }
     if operations.is_empty() {
@@ -426,50 +467,9 @@ fn resolve_with_permissions(
         operations,
         blockers,
         skipped_generated_files,
+        content_base,
+        content_root,
     })
-}
-
-/// Produce a read-only ZIP installation preview through a selected game module.
-/// A reviewable proposal is not an approval to write game files.
-pub fn preview_install_zip(
-    game_id: &str,
-    game: &Path,
-    archive: &Path,
-) -> anyhow::Result<InstallPlan> {
-    preview_install_zip_with_permissions(game_id, game, archive, &[])
-}
-
-/// Preview with explicit, trusted per-destination tool-executable permissions.
-pub fn preview_install_zip_with_permissions(
-    game_id: &str,
-    game: &Path,
-    archive: &Path,
-    approved: &[String],
-) -> anyhow::Result<InstallPlan> {
-    preview_update_with_permissions(game_id, game, archive, approved, &[])
-}
-
-/// Preview `archive` as an update that replaces `replaced`: the game-relative
-/// files and exclusive folders of the installed release. The game policy
-/// plans as if those paths were already removed. Installation revalidates
-/// the proposal against the real disk after it removes them.
-pub fn preview_update_with_permissions(
-    game_id: &str,
-    game: &Path,
-    archive: &Path,
-    approved: &[String],
-    replaced: &[String],
-) -> anyhow::Result<InstallPlan> {
-    let inspection = crate::archive::inspect(archive)?;
-    let mut proposal = resolve_with_permissions(game_id, &inspection, game, approved, replaced)?;
-    if !inspection.format.is_installable() {
-        proposal.status = PlanStatus::Blocked;
-        proposal.blockers.push(PlanIssue {
-            code: "NOT_INSTALLABLE".into(),
-            message: "Only ZIP and 7z archives can be installed".into(),
-        });
-    }
-    Ok(proposal)
 }
 
 #[cfg(test)]
