@@ -184,10 +184,7 @@ impl Store {
     pub(super) fn prune_created(&mut self, roots: &Roots) -> Result<usize> {
         let mut removed = 0;
         for kind in [RootKind::Game, RootKind::Content] {
-            let Some(root) = roots.content.as_deref().map_or_else(
-                || (kind == RootKind::Game).then_some(roots.game.as_path()),
-                Some,
-            ) else {
+            let Ok(root) = roots.path(kind) else {
                 continue;
             };
             let metadata = fs::symlink_metadata(root)?;

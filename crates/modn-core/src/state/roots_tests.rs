@@ -236,3 +236,147 @@ fn a_moved_or_linked_root_fails_closed() {
     let error = resolve_root(&store.connection, &game, RootKind::Game).expect_err("link");
     assert!(format!("{error:#}").contains("not a link"));
 }
+
+const PENDING_ROWS: &str =
+    "SELECT 'tx|' || id || '|' || action || '|' || status || '|' || game_path
+        FROM pending_transactions
+    UNION ALL SELECT 'file|' || ord || '|' || relative_path || '|' || sha256 || '|' || bytes
+        FROM pending_files
+    UNION ALL SELECT 'dir|' || ord || '|' || relative_path || '|' || identity
+        FROM pending_directories
+    UNION ALL SELECT 'created|' || ord || '|' || relative_path || '|' || identity
+        FROM pending_created_directories
+    ORDER BY 1";
+
+const V4_PENDING_COLUMNS: [(&str, &str); 4] = [
+    ("pending_files", "root"),
+    ("pending_directories", "root"),
+    ("pending_created_directories", "root"),
+    ("pending_created_directories", "base_path"),
+];
+
+fn has_column(connection: &Connection, table: &str, column: &str) -> bool {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",
+            [table, column],
+            |row| row.get(0),
+        )
+        .expect("table info")
+}
+
+fn v3_fixture_with_pending_rows(dir: &Path) -> (PathBuf, String) {
+    let db = dir.join("state.sqlite");
+    let game = dir.join("game");
+    fs::create_dir_all(&game).expect("game");
+    let game = game.canonicalize().expect("canonical game");
+    let game_text = game.to_string_lossy().into_owned();
+    let store = Store::open(&db).expect("state");
+    record_root(&store.connection, &game, RootKind::Game, &game).expect("game root");
+    store
+        .connection
+        .execute_batch(&format!(
+            "INSERT INTO managed_packages(id,game_path,archive_sha256)
+                 VALUES ('kept','{game_text}','aa');
+             INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,sha256,bytes)
+                 VALUES ('{game_text}','game','mods/kept.bin','mods/kept.bin','kept','bb',3);
+             INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
+                 VALUES ('t1','install','prepared','{game_text}','next','cc');
+             INSERT INTO pending_files(transaction_id,ord,relative_path,sha256,bytes)
+                 VALUES ('t1',0,'mods/a.bin','dd',1), ('t1',1,'mods/b.bin','ee',2);
+             INSERT INTO pending_directories(transaction_id,ord,relative_path,identity)
+                 VALUES ('t1',0,'mods/own','id-own');
+             INSERT INTO pending_created_directories(transaction_id,ord,relative_path,identity)
+                 VALUES ('t1',0,'mods','id-mods');"
+        ))
+        .expect("v3 rows");
+    for (table, column) in V4_PENDING_COLUMNS {
+        store
+            .connection
+            .execute_batch(&format!("ALTER TABLE {table} DROP COLUMN {column};"))
+            .expect("drop v4 column");
+    }
+    store
+        .connection
+        .pragma_update(None, "user_version", 3)
+        .expect("v3");
+    drop(store);
+    (db, game_text)
+}
+
+#[test]
+fn v3_state_migrates_to_v4_with_pending_rows_on_the_game_root() {
+    let temp = tempdir().expect("fixture");
+    let (db, game) = v3_fixture_with_pending_rows(temp.path());
+    let v3 = Connection::open(&db).expect("v3");
+    let pending = rows(&v3, PENDING_ROWS);
+    let owned = ownership_rows(&v3);
+    assert_eq!(pending.len(), 5);
+    assert!(V4_PENDING_COLUMNS
+        .iter()
+        .all(|(table, column)| !has_column(&v3, table, column)));
+    drop(v3);
+    assert_eq!(user_version(&db), 3);
+
+    let store = Store::open(&db).expect("migration");
+    assert_eq!(user_version(&db), 4);
+    assert_eq!(rows(&store.connection, PENDING_ROWS), pending);
+    assert_eq!(ownership_rows(&store.connection), owned);
+    assert_eq!(
+        rows(
+            &store.connection,
+            "SELECT root FROM pending_files UNION SELECT root FROM pending_directories
+             UNION SELECT root || '|' || COALESCE(base_path, 'none')
+                 FROM pending_created_directories"
+        ),
+        ["game", "game|none"]
+    );
+    assert_eq!(
+        rows(
+            &store.connection,
+            "SELECT game_path || '|' || root || '|' || path FROM installation_roots"
+        ),
+        [format!("{game}|game|{game}")]
+    );
+    drop(store);
+
+    let migrated = fs::read(&db).expect("migrated bytes");
+    drop(Store::open(&db).expect("second open"));
+    assert_eq!(fs::read(&db).expect("reopened bytes"), migrated);
+    assert_eq!(user_version(&db), 4);
+}
+
+#[test]
+fn failed_v4_migration_leaves_v3_state_intact_and_readable() {
+    let temp = tempdir().expect("fixture");
+    let (db, game) = v3_fixture_with_pending_rows(temp.path());
+    Connection::open(&db)
+        .expect("v3")
+        .execute(
+            "UPDATE installation_roots SET game_path='elsewhere' WHERE game_path=?1",
+            [&game],
+        )
+        .expect("conflicting root claim");
+    let v3 = Connection::open(&db).expect("v3");
+    let pending = rows(&v3, PENDING_ROWS);
+    let owned = ownership_rows(&v3);
+    drop(v3);
+    let before = fs::read(&db).expect("v3 bytes");
+
+    let error = Store::open(&db).err().expect("conflict fails migration");
+    assert!(format!("{error:#}").contains("two installations cannot share a root"));
+    assert_eq!(fs::read(&db).expect("after bytes"), before);
+    assert_eq!(user_version(&db), 3);
+    let store = Store::open_readonly(&db).expect("v3 stays readable");
+    assert_eq!(
+        store.installed(Path::new(&game)).expect("packages").len(),
+        1
+    );
+    assert_eq!(rows(&store.connection, PENDING_ROWS), pending);
+    assert_eq!(ownership_rows(&store.connection), owned);
+    assert!(V4_PENDING_COLUMNS.iter().all(|(table, column)| !has_column(
+        &store.connection,
+        table,
+        column
+    )));
+}
