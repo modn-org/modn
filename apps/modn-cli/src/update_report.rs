@@ -107,7 +107,9 @@ fn legacy_requirement(
         .and_then(|releases| {
             releases
                 .into_iter()
-                .find(|release| release.package.sha256 == dependent.archive_sha256)
+                .find(|release| {
+                    release.package.sha256.as_deref() == Some(dependent.archive_sha256.as_str())
+                })
         });
     match installed {
         Some(release)
@@ -222,7 +224,7 @@ pub(super) struct Preview<'a> {
 
 impl Preview<'_> {
     pub(super) fn up_to_date(&self) -> bool {
-        self.old.archive_sha256 == self.target.package.sha256
+        self.target.package.sha256.as_deref() == Some(self.old.archive_sha256.as_str())
     }
 
     pub(super) fn print(&self, json: bool) -> Result<()> {

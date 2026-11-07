@@ -72,7 +72,10 @@ pub(super) fn plan(
     let required: Vec<CatalogDependency> = order
         .iter()
         .map(|release| {
-            CatalogDependency::new(reference_of(release), release.package.sha256.clone())
+            CatalogDependency::new(
+                reference_of(release),
+                release.package.sha256.clone().unwrap_or_default(),
+            )
         })
         .collect();
     let states = match store {
@@ -88,7 +91,7 @@ pub(super) fn plan(
                 archive: archives.get(&reference).cloned(),
                 reference,
                 version: release.package.version.clone(),
-                sha256: release.package.sha256.clone(),
+                sha256: release.package.sha256.clone().unwrap_or_default(),
                 source: release.package.source.clone(),
                 state,
             }
@@ -110,7 +113,11 @@ pub(super) fn conflicts(
         let reference = reference_of(release);
         let catalog_release = catalog.release(release)?;
         for package in
-            store.conflicting_packages(game, Some(&catalog_release), &release.package.sha256)?
+            store.conflicting_packages(
+                game,
+                Some(&catalog_release),
+                release.package.sha256.as_deref().unwrap_or_default(),
+            )?
         {
             found.push(format!("{reference} conflicts with installed {package}"));
         }

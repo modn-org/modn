@@ -93,10 +93,10 @@ pub(super) fn resolve(query: &str, catalog: &BucketSnapshot, json: bool) -> Resu
     }
 }
 
-pub(super) fn expected_format(format: &ArchiveFormat) -> Option<archive::ArchiveFormat> {
+pub(super) fn expected_format(format: Option<&ArchiveFormat>) -> Option<archive::ArchiveFormat> {
     match format {
-        ArchiveFormat::Zip => Some(archive::ArchiveFormat::Zip),
-        ArchiveFormat::SevenZ => Some(archive::ArchiveFormat::SevenZ),
+        Some(ArchiveFormat::Zip) => Some(archive::ArchiveFormat::Zip),
+        Some(ArchiveFormat::SevenZ) => Some(archive::ArchiveFormat::SevenZ),
         _ => None,
     }
 }
@@ -120,7 +120,9 @@ fn match_archives(
         let matches: Vec<&BucketPackage> = dependencies
             .iter()
             .chain([selected])
-            .filter(|release| release.package.sha256 == inspected.sha256)
+            .filter(|release| {
+                release.package.sha256.as_deref() == Some(inspected.sha256.as_str())
+            })
             .collect();
         if matches.is_empty() {
             bail!(
@@ -130,7 +132,9 @@ fn match_archives(
         }
         for release in matches {
             let matched = reference_of(release);
-            if Some(inspected.format) != expected_format(&release.package.archive_format) {
+            if Some(inspected.format)
+                != expected_format(release.package.archive_format.as_ref())
+            {
                 bail!("{matched}: archive format does not match catalog manifest");
             }
             archives.insert(matched.to_string(), file.clone());
@@ -311,7 +315,7 @@ fn install_mod(
                 preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?
             }
         };
-        if plan.archive_sha256 != selected.package.sha256 {
+        if Some(plan.archive_sha256.as_str()) != selected.package.sha256.as_deref() {
             bail!("{reference}: source changed after catalog verification");
         }
         Ok(plan)
