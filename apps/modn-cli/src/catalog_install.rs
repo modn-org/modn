@@ -155,8 +155,13 @@ fn ensure_native_injectors_allowed(
         Some(&selected.package.game),
     ) {
         Ok((_, installation)) => {
-            let planned =
-                dependency_plan::plan(order, &BTreeMap::new(), state.existing(), &installation)?;
+            let planned = dependency_plan::plan(
+                order,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                state.existing(),
+                &installation,
+            )?;
             order
                 .iter()
                 .zip(&planned)
@@ -190,11 +195,17 @@ fn install_mod(
     let interactive = !args.yes && !args.dry_run;
     ensure_native_injectors_allowed(&selected, &order, args, state_path)?;
     let mut archives = match_archives(&args.file, &selected, &order)?;
+    let mut digests = BTreeMap::new();
     let cache = download::cache_for(state_path)?;
     let cache_use = if args.no_cache {
         CacheUse::Refresh
     } else {
-        download::add_cached(&cache, order.iter().chain([&selected]), &mut archives)?;
+        download::add_cached(
+            &cache,
+            order.iter().chain([&selected]),
+            &mut archives,
+            &mut digests,
+        )?;
         CacheUse::Reuse
     };
     if !archives.contains_key(&reference) && !args.dry_run && !download::downloadable(&selected) {
@@ -226,7 +237,7 @@ fn install_mod(
         )?;
     }
     let mut dependencies =
-        dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+        dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
     let installing: Vec<&BucketPackage> = order
         .iter()
         .zip(&dependencies)
@@ -235,11 +246,24 @@ fn install_mod(
         .chain([&selected])
         .collect();
     if args.download {
-        download::download(&cache, cache_use, &installing, &mut archives, json)?;
-        dependencies = dependency_plan::plan(&order, &archives, state.existing(), &installation)?;
+        download::download(
+            &cache,
+            cache_use,
+            &installing,
+            &mut archives,
+            &mut digests,
+            json,
+        )?;
+        dependencies =
+            dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
     }
-    let conflicts =
-        dependency_plan::conflicts(&installing, catalog, state.existing(), &installation)?;
+    let conflicts = dependency_plan::conflicts(
+        &installing,
+        catalog,
+        &digests,
+        state.existing(),
+        &installation,
+    )?;
     if !args.dry_run && !conflicts.is_empty() {
         bail!(
             "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
@@ -255,6 +279,7 @@ fn install_mod(
             order: &order,
             dependencies: &dependencies,
             archives,
+            digests,
             catalog,
             cache: &cache,
             cache_use,
@@ -290,7 +315,14 @@ fn install_mod(
                 bail!("{reference}: download cancelled");
             }
         }
-        download::download(&cache, cache_use, &[&selected], &mut archives, json)?;
+        download::download(
+            &cache,
+            cache_use,
+            &[&selected],
+            &mut archives,
+            &mut digests,
+            json,
+        )?;
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
         return dependency_plan::report(
@@ -311,7 +343,7 @@ fn install_mod(
                 preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?
             }
         };
-        if Some(plan.archive_sha256.as_str()) != selected.package.sha256.as_deref() {
+        if Some(plan.archive_sha256.as_str()) != download::digest(&selected, &digests) {
             bail!("{reference}: source changed after catalog verification");
         }
         Ok(plan)

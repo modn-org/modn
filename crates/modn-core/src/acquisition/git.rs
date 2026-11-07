@@ -80,6 +80,19 @@ fn valid_commit(commit: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+/// Test-only repository base override. Release builds always use GitHub.
+#[cfg(any(test, feature = "test-instruction-budget"))]
+fn remote_base() -> Option<String> {
+    std::env::var("MODN_TEST_GIT_REMOTE_BASE")
+        .ok()
+        .filter(|base| !base.is_empty())
+}
+
+#[cfg(not(any(test, feature = "test-instruction-budget")))]
+fn remote_base() -> Option<String> {
+    None
+}
+
 fn segment(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -109,7 +122,8 @@ impl GitSource {
         if !valid_commit(&self.commit) {
             bail!("Git source commit must be exactly 40 lowercase hex characters");
         }
-        Ok(format!("https://github.com/{}.git", self.repository))
+        let base = remote_base().unwrap_or_else(|| "https://github.com".to_owned());
+        Ok(format!("{base}/{}.git", self.repository))
     }
 
     fn test_transport(&self, url: &str) -> bool {
