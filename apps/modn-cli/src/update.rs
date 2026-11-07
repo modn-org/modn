@@ -48,14 +48,14 @@ fn supplied_archive(file: &Path, target: &BucketPackage) -> Result<PathBuf> {
     }
     let inspected = inspect(file)?;
     let reference = reference_of(target);
-    if inspected.sha256 != target.package.sha256 {
+    if target.package.sha256.as_deref() != Some(inspected.sha256.as_str()) {
         bail!(
             "{}: archive SHA-256 does not match {reference} {}",
             file.display(),
             target.package.version
         );
     }
-    if Some(inspected.format) != expected_format(&target.package.archive_format) {
+    if Some(inspected.format) != expected_format(target.package.archive_format.as_ref()) {
         bail!("{reference}: archive format does not match catalog manifest");
     }
     Ok(file.to_path_buf())
@@ -113,7 +113,7 @@ fn plan_update(
             }
             None => preview_update_with_permissions(game_id, game, archive, approved, replaced)?,
         };
-        if plan.archive_sha256 != target.package.sha256 {
+        if Some(plan.archive_sha256.as_str()) != target.package.sha256.as_deref() {
             bail!(
                 "{}: source changed after catalog verification",
                 reference_of(target)
@@ -159,7 +159,12 @@ pub(super) fn run(
     let releases = catalog.releases(&current.bucket, &current.package.game, &current.package.id)?;
     let installed_versions: Vec<(String, String)> = releases
         .iter()
-        .map(|r| (r.package.sha256.clone(), r.package.version.clone()))
+        .map(|r| {
+            (
+                r.package.sha256.clone().unwrap_or_default(),
+                r.package.version.clone(),
+            )
+        })
         .collect();
     let target = choose_release(releases, args.version.as_deref(), &label)?;
     let policy = if args.allow_native_injector {
@@ -205,7 +210,7 @@ pub(super) fn run(
         &dependents,
         &current.package.id,
     ));
-    let up_to_date = old.archive_sha256 == target.package.sha256;
+    let up_to_date = target.package.sha256.as_deref() == Some(old.archive_sha256.as_str());
     let mut archives = BTreeMap::new();
     if let Some(file) = &args.file {
         archives.insert(label.clone(), supplied_archive(file, &target)?);

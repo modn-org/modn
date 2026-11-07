@@ -17,8 +17,12 @@ pub struct PackageManifest {
     pub game: String,
     pub name: String,
     pub version: String,
-    pub archive_format: ArchiveFormat,
-    pub sha256: String,
+    /// Required for every source except `git`, whose archive is always ZIP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_format: Option<ArchiveFormat>,
+    /// Archive digest. Required except for `git`, whose commit is the pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
     pub source: PackageSource,
     #[serde(default)]
     pub dependencies: Vec<String>,
@@ -76,6 +80,11 @@ pub enum PackageSource {
         repository: String,
         tag: String,
         asset: String,
+    },
+    Git {
+        repository: String,
+        /// Full lowercase 40-character commit, the integrity pin.
+        commit: String,
     },
 }
 
@@ -136,20 +145,37 @@ impl PackageManifest {
         {
             bail!("invalid package version");
         }
-        if self.sha256.len() != 64
-            || !self
-                .sha256
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            bail!("package sha256 must be 64 lowercase hex characters");
-        }
         match &self.source {
+            PackageSource::Git { repository, commit } => {
+                if self.sha256.is_some() {
+                    bail!("git source packages must not declare sha256; the commit is the pin");
+                }
+                if self
+                    .archive_format
+                    .as_ref()
+                    .is_some_and(|format| !matches!(format, ArchiveFormat::Zip))
+                {
+                    bail!("git source archive_format must be zip when present");
+                }
+                crate::acquisition::GitSource::new(repository.clone(), commit.clone())
+                    .remote_url()?;
+            }
             PackageSource::GithubRelease {
                 repository,
                 tag,
                 asset,
             } => {
+                let sha256 = self
+                    .sha256
+                    .as_deref()
+                    .context("package sha256 is required for non-git sources")?;
+                if sha256.len() != 64
+                    || !sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                {
+                    bail!("package sha256 must be 64 lowercase hex characters");
+                }
                 crate::acquisition::GithubReleaseAsset::new(
                     repository.clone(),
                     tag.clone(),
@@ -158,7 +184,22 @@ impl PackageManifest {
                 .metadata_url()?;
             }
             PackageSource::Manual { filename } => {
-                let extension = match self.archive_format {
+                let sha256 = self
+                    .sha256
+                    .as_deref()
+                    .context("package sha256 is required for non-git sources")?;
+                if sha256.len() != 64
+                    || !sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                {
+                    bail!("package sha256 must be 64 lowercase hex characters");
+                }
+                let format = self
+                    .archive_format
+                    .as_ref()
+                    .context("archive_format is required for non-git sources")?;
+                let extension = match format {
                     ArchiveFormat::Zip => ".zip",
                     ArchiveFormat::SevenZ => ".7z",
                 };
@@ -174,10 +215,25 @@ impl PackageManifest {
                     bail!("invalid manual archive filename");
                 }
             }
-            PackageSource::Https { url } if !valid_https(url) => {
-                bail!("download URL must be HTTPS")
+            PackageSource::Https { url } => {
+                let sha256 = self
+                    .sha256
+                    .as_deref()
+                    .context("package sha256 is required for non-git sources")?;
+                if sha256.len() != 64
+                    || !sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                {
+                    bail!("package sha256 must be 64 lowercase hex characters");
+                }
+                self.archive_format
+                    .as_ref()
+                    .context("archive_format is required for non-git sources")?;
+                if !valid_https(url) {
+                    bail!("download URL must be HTTPS")
+                }
             }
-            _ => {}
         }
         if self.homepage.as_ref().is_some_and(|url| !valid_https(url)) {
             bail!("homepage URL must be HTTPS");
@@ -329,6 +385,89 @@ mod tests {
         ] {
             let error = format!("{:#}", manifest(extra.clone()).unwrap_err());
             assert!(error.contains(message), "{extra}: {error}");
+        }
+    }
+
+    fn parse_git(extra: serde_json::Value) -> anyhow::Result<super::PackageManifest> {
+        let mut value = serde_json::json!({
+            "schema_version": 1, "id": "top", "game": "test-game", "name": "Top",
+            "version": "1.0",
+            "source": {"kind": "git", "repository": "owner/project", "commit": "a".repeat(40)}
+        });
+        if let (Some(value), serde_json::Value::Object(extra)) = (value.as_object_mut(), extra) {
+            value.extend(extra);
+        }
+        Ok(serde_json::from_value(value)?)
+    }
+
+    fn git(extra: serde_json::Value) -> anyhow::Result<()> {
+        parse_git(extra)?.validate("test-game", "top")
+    }
+
+    #[test]
+    fn git_source_parses_with_a_full_commit_and_no_digest() {
+        use serde_json::json;
+        let parsed = parse_git(json!({})).expect("valid git source");
+        assert!(parsed.sha256.is_none());
+        assert!(parsed.archive_format.is_none());
+        assert!(matches!(
+            parsed.source,
+            super::PackageSource::Git { repository, commit }
+                if repository == "owner/project" && commit == "a".repeat(40)
+        ));
+        git(json!({"archive_format": "zip"})).expect("zip is allowed when present");
+        for commit in ["abc", &"A".repeat(40), &"a".repeat(64)] {
+            let error = format!(
+                "{:#}",
+                git(json!({
+                    "source": {"kind": "git", "repository": "owner/project", "commit": commit}
+                }))
+                .unwrap_err()
+            );
+            assert!(error.contains("40 lowercase hex"), "{commit}: {error}");
+        }
+    }
+
+    #[test]
+    fn git_source_rejects_a_branch_name_an_unknown_field_and_a_digest() {
+        use serde_json::json;
+        let branch = format!(
+            "{:#}",
+            git(json!({
+                "source": {"kind": "git", "repository": "owner/project", "commit": "main"}
+            }))
+            .unwrap_err()
+        );
+        assert!(branch.contains("40 lowercase hex"), "{branch}");
+
+        let unknown = format!(
+            "{:#}",
+            parse_git(json!({
+                "source": {"kind": "git", "repository": "owner/project",
+                    "commit": "a".repeat(40), "tag": "v1"}
+            }))
+            .unwrap_err()
+        );
+        assert!(unknown.contains("unknown field"), "{unknown}");
+
+        let digest = format!("{:#}", git(json!({"sha256": "0".repeat(64)})).unwrap_err());
+        assert!(digest.contains("must not declare sha256"), "{digest}");
+    }
+
+    #[test]
+    fn non_git_sources_still_require_sha256() {
+        use serde_json::json;
+        for source in [
+            json!({"kind": "manual", "filename": "top.zip"}),
+            json!({"kind": "https", "url": "https://example.invalid/top.zip"}),
+            json!({"kind": "github-release", "repository": "owner/project",
+                "tag": "v1", "asset": "top.zip"}),
+        ] {
+            let error = format!(
+                "{:#}",
+                manifest(json!({"sha256": null, "source": source})).unwrap_err()
+            );
+            assert!(error.contains("sha256 is required"), "{error}");
         }
     }
 }

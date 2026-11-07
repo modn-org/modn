@@ -62,7 +62,7 @@ fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
         &release.package.id,
         &release.package.version,
         url,
-        &release.package.sha256,
+        release.package.sha256.as_deref().unwrap_or_default(),
     )
 }
 

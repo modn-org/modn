@@ -235,10 +235,18 @@ impl Store {
         dependencies
             .iter()
             .map(|dependency| {
-                let (intact, damaged): (Vec<_>, Vec<_>) = installed
-                    .iter()
-                    .filter(|package| package.archive_sha256 == dependency.archive_sha256)
-                    .partition(|package| package_intact(self, &game, package));
+                let (intact, damaged): (Vec<_>, Vec<_>) = if dependency.archive_sha256.is_empty() {
+                    let recorded = provenance_packages(self, &dependency.reference)?;
+                    installed
+                        .iter()
+                        .filter(|package| recorded.contains(&package.id))
+                        .partition(|package| package_intact(self, &game, package))
+                } else {
+                    installed
+                        .iter()
+                        .filter(|package| package.archive_sha256 == dependency.archive_sha256)
+                        .partition(|package| package_intact(self, &game, package))
+                };
                 if !intact.is_empty() {
                     return Ok(DependencyState::Ready {
                         package_ids: intact.iter().map(|p| p.id.clone()).collect(),

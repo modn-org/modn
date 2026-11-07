@@ -38,8 +38,12 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
         .filter(|(_, dependency)| dependency.missing())
         .map(|(release, _)| release);
     for release in missing {
-        let Some(kept) = by_digest.get(release.package.sha256.as_str()) else {
-            by_digest.insert(&release.package.sha256, release);
+        let Some(digest) = release.package.sha256.as_deref() else {
+            needed.push(release);
+            continue;
+        };
+        let Some(kept) = by_digest.get(digest) else {
+            by_digest.insert(digest, release);
             needed.push(release);
             continue;
         };
@@ -58,7 +62,13 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
             );
         }
     }
-    if by_digest.contains_key(stack.selected.package.sha256.as_str()) {
+    if stack
+        .selected
+        .package
+        .sha256
+        .as_deref()
+        .is_some_and(|digest| by_digest.contains_key(digest))
+    {
         bail!(
             "{}: its archive is also the archive of a missing dependency; install that dependency first",
             reference_of(stack.selected)
@@ -158,7 +168,10 @@ pub(super) fn run(
             if interactive {
                 approved.extend(release.package.executables.iter().cloned());
             }
-            digests.insert(reference_of(release).to_string(), &release.package.sha256);
+            digests.insert(
+                reference_of(release).to_string(),
+                release.package.sha256.as_deref(),
+            );
             Ok(StackMember::new(
                 archive.clone(),
                 stack.catalog.release(release)?,
@@ -187,7 +200,7 @@ pub(super) fn run(
                     &member.approved_executables,
                 )?,
             };
-            if Some(&&plan.archive_sha256) != digests.get(&reference) {
+            if digests.get(&reference).copied().flatten() != Some(plan.archive_sha256.as_str()) {
                 bail!("{reference}: source changed after catalog verification");
             }
             if plan.status != PlanStatus::Reviewable {
