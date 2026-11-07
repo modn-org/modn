@@ -99,4 +99,9 @@ It does not prove that Balatro or Steamodded loads the mod.
 
 ## Verification
 
-Verification: fixture tests only; the real-installation check is pending the maintainer's run of the runbook in docs/releasing.md.
+Balatro support needs Modn 0.4.0 or later and `main` bucket release `v2026.11.07.1` or later.
+
+Fixture tests cover detection, layouts, refusals, the native injector opt-in and the Git source.
+A live run on 2026-11-07 used Modn v0.4.0 on Windows 11 with the Steam game.
+It installed Lovely and Steamodded and loaded Steamodded v26.1002.0, and uninstall removed both.
+The record is on [issue #52](https://github.com/modn-org/modn/issues/52).
