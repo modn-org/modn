@@ -703,14 +703,15 @@ Unmanaged mods outside these paths stay untouched.
 Then install:
 
 ```powershell
-modn --game balatro install main/balatro/steamodded --yes --download --path $game
+modn --game balatro install main/balatro/steamodded --yes --path $game
 modn --game balatro list --path $game
 ```
 
 Expect `Installed main/balatro/steamodded (<n> owned files)`.
 Expect no `Installed` line for Lovely, because that dependency is ready.
 Expect `list` to show both packages. Record the package ID and `n`.
-Pass `--download` on the install. The preview and the install then use the same explicit fetch.
+Do not pass `--download` on the install. It only prepares a dry run, and `install --yes` refuses it.
+The install reuses the Git tree that the preview fetched.
 
 #### Step 7: Confirm that Steamodded loads
 
