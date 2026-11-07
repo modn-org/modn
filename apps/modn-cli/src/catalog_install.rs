@@ -155,8 +155,13 @@ fn ensure_native_injectors_allowed(
         Some(&selected.package.game),
     ) {
         Ok((_, installation)) => {
-            let planned =
-                dependency_plan::plan(order, &BTreeMap::new(), &BTreeMap::new(), state.existing(), &installation)?;
+            let planned = dependency_plan::plan(
+                order,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                state.existing(),
+                &installation,
+            )?;
             order
                 .iter()
                 .zip(&planned)

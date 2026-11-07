@@ -139,10 +139,9 @@ pub(super) fn acquisition(source: &PackageSource) -> String {
             tag,
             asset,
         } => format!("Modn resolves GitHub release {repository} {tag} asset {asset}"),
-        PackageSource::Git {
-            repository,
-            commit,
-        } => format!("Modn needs to download pinned commit {commit} from {repository}"),
+        PackageSource::Git { repository, commit } => {
+            format!("Modn needs to download pinned commit {commit} from {repository}")
+        }
         _ => "unsupported source".to_owned(),
     }
 }

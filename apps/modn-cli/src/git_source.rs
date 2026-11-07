@@ -30,10 +30,7 @@ fn key<'a>(release: &'a BucketPackage, source: &'a GitSource) -> GitCacheKey<'a>
     )
 }
 
-pub(super) fn cached(
-    cache: &ArchiveCache,
-    release: &BucketPackage,
-) -> Result<Option<GitArchive>> {
+pub(super) fn cached(cache: &ArchiveCache, release: &BucketPackage) -> Result<Option<GitArchive>> {
     let Some(source) = source(release) else {
         return Ok(None);
     };

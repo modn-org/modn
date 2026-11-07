@@ -130,11 +130,7 @@ pub(super) fn download(
         if archives.contains_key(&reference) {
             continue;
         }
-        if let PackageSource::Git {
-            repository,
-            commit,
-        } = &release.package.source
-        {
+        if let PackageSource::Git { repository, commit } = &release.package.source {
             if !json {
                 eprintln!(
                     "Fetching {reference} {} commit {commit} from {repository}",
