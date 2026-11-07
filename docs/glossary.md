@@ -113,6 +113,12 @@ A resolved proposal of packages, versions, sources, destination operations,
 conflicts and required approvals before any game files change.
 _Avoid_: Installation, transaction
 
+**Native injector**:
+A mod release whose manifest sets `native_injector: true` because it places a
+native library that the game process loads. Modn refuses to install or update it,
+including as a dependency, unless the caller passes `--allow-native-injector`.
+_Avoid_: Any DLL mod, trusted publisher
+
 ### Installed state and recovery
 
 **Managed package**:
