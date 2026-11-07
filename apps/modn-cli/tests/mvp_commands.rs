@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 fn cli(data: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_modn"))
+    Command::new(main_bucket::modn_binary())
         .env("LOCALAPPDATA", data)
         .env_remove("MODN_GAME_MODULES_DIR")
         .args(args)

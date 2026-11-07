@@ -1,10 +1,12 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn cli(root: &Path, input: &Path, json: bool) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_modn"));
+    let mut command = Command::new(main_bucket::modn_binary());
     command
         .env("LOCALAPPDATA", root.join("data"))
         .env("MODN_GAME_MODULES_DIR", root.join("missing-modules"))
@@ -150,7 +152,7 @@ fn malformed_and_unsupported_assets_fail_without_writes() {
 #[test]
 fn help_describes_asset_inspection() {
     let fixture = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_modn"))
+    let output = Command::new(main_bucket::modn_binary())
         .env("LOCALAPPDATA", fixture.path())
         .args(["asset", "inspect", "--help"])
         .output()

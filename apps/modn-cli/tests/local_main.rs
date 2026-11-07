@@ -4,7 +4,7 @@ use std::fs;
 use std::process::{Command, Output};
 
 fn run(data: &std::path::Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_modn"))
+    Command::new(main_bucket::modn_binary())
         .env("LOCALAPPDATA", data)
         .env_remove("MODN_GAME_MODULES_DIR")
         .args(args)
