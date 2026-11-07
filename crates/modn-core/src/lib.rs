@@ -21,6 +21,7 @@ pub mod data_dir;
 pub mod discovery;
 /// Local, sandboxed Lua game module inspection without host filesystem capabilities.
 pub mod game_modules;
+mod git;
 mod integrity;
 pub mod inventory;
 pub mod planning;
