@@ -68,12 +68,12 @@ fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
 }
 
 pub(super) fn downloadable(release: &BucketPackage) -> bool {
-    match release.package.source {
+    matches!(
+        release.package.source,
         PackageSource::Https { .. }
-        | PackageSource::GithubRelease { .. }
-        | PackageSource::Git { .. } => true,
-        _ => false,
-    }
+            | PackageSource::GithubRelease { .. }
+            | PackageSource::Git { .. }
+    )
 }
 
 /// Archive digest the pipeline uses for one release.
