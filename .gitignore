@@ -1,5 +1,6 @@
 target/
 *.sqlite
+!**/fixtures/*.sqlite
 *.sqlite-shm
 *.sqlite-wal
 .DS_Store
