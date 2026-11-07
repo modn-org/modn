@@ -40,8 +40,8 @@ shipped behavior.
   folders, created directories and recovery.
 - [`development.md`](development.md): build, test, `verify-modn` and the
   read-only Cyberpunk archive benchmark.
-- [`releasing.md`](releasing.md): the `Release` workflow and the release smoke
-  test.
+- [`releasing.md`](releasing.md): the `Release` workflow, the release gates and
+  real-game validation.
 
 ## Buckets and verification
 
