@@ -1,6 +1,7 @@
 use super::catalog::{CatalogInstall, CatalogRelease};
 use super::install::Fault;
 use super::journal::{lock_store, ManagedPackage, Roots};
+use super::native_injector::NativeInjectorPolicy;
 use super::uninstall::Dependents;
 use crate::planning::InstallPlan;
 use crate::state::Store;
@@ -52,6 +53,10 @@ impl Store {
     /// through `MODN_TEST_UPDATE_FAULT_AFTER`, so integration tests can
     /// observe the rollback through the real command. Regular builds compile
     /// that hook out.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the public update keeps the explicit native-injector policy beside the release"
+    )]
     pub fn update_catalog_release(
         &mut self,
         game: &Path,
@@ -59,6 +64,7 @@ impl Store {
         archive: &Path,
         proposal: &InstallPlan,
         release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
         approved: &[String],
     ) -> Result<ManagedPackage> {
         self.update_inner(
@@ -68,6 +74,7 @@ impl Store {
             proposal,
             release,
             approved,
+            policy,
             test_fault(),
         )
     }
@@ -84,8 +91,10 @@ impl Store {
         proposal: &InstallPlan,
         release: &CatalogRelease,
         approved: &[String],
+        policy: NativeInjectorPolicy,
         fault: Option<Fault>,
     ) -> Result<ManagedPackage> {
+        release.ensure_native_injector_allowed(policy)?;
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
         let game = self.transaction_root(game)?;
@@ -131,7 +140,15 @@ impl Store {
                 journal_id: &journal_id,
             }),
         };
-        match self.install_locked(&game, archive, proposal, fault, approved, Some(catalog)) {
+        match self.install_locked(
+            &game,
+            archive,
+            proposal,
+            fault,
+            approved,
+            Some(catalog),
+            policy,
+        ) {
             Ok(package) => {
                 self.prune_created(&Roots {
                     game: game.clone(),

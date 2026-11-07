@@ -131,6 +131,7 @@ impl BucketSnapshot {
             .collect();
         Ok(CatalogRelease::new(selected.reference(), dependencies)
             .with_conflicts(conflicts)
-            .with_version(selected.package.version.clone()))
+            .with_version(selected.package.version.clone())
+            .with_native_injector(selected.package.native_injector))
     }
 }

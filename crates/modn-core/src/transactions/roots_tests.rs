@@ -1,6 +1,7 @@
 use super::generic_tests::{make_zip, plan};
 use super::install::Fault;
 use super::journal::lock_store;
+use super::NativeInjectorPolicy;
 use crate::state::{link_directory, unlink_directory, Store};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,7 +45,8 @@ impl Lab {
                 &proposal,
                 Some(Fault::CrashAfter(1)),
                 &[],
-                None
+                None,
+                NativeInjectorPolicy::Refuse,
             )
             .is_err());
         assert_eq!(self.store.pending().unwrap().len(), 1);

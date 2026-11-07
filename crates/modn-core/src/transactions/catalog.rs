@@ -1,3 +1,4 @@
+use super::NativeInjectorPolicy;
 use crate::integrity::package_intact;
 use crate::state::Store;
 use anyhow::{bail, Result};
@@ -91,7 +92,15 @@ impl CatalogRelease {
             dependencies,
             conflicts: Vec::new(),
             version: None,
+            native_injector: false,
         }
+    }
+
+    /// Mark whether this release is a native injector.
+    #[must_use]
+    pub fn with_native_injector(mut self, native_injector: bool) -> Self {
+        self.native_injector = native_injector;
+        self
     }
 
     #[must_use]
@@ -105,6 +114,11 @@ impl CatalogRelease {
     pub fn with_version(mut self, version: String) -> Self {
         self.version = Some(version);
         self
+    }
+
+    /// Refuse this release under `policy` when it is a native injector.
+    pub fn ensure_native_injector_allowed(&self, policy: NativeInjectorPolicy) -> Result<()> {
+        policy.check(&self.reference, self.native_injector)
     }
 }
 
@@ -138,6 +152,8 @@ pub struct CatalogRelease {
     pub dependencies: Vec<CatalogDependency>,
     /// Catalog mods that must not be managed in the same game installation.
     pub conflicts: Vec<CatalogConflict>,
+    /// True when the release places a native library that the game process loads.
+    pub native_injector: bool,
 }
 
 #[derive(Clone, Copy)]

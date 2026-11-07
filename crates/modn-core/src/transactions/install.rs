@@ -3,6 +3,7 @@ use super::directory::exclusive_roots;
 use super::journal::{
     digest, lock_store, temp_path, JournalDirectory, JournalFile, ManagedPackage, OwnedFile, Roots,
 };
+use super::native_injector::NativeInjectorPolicy;
 use super::validation::{
     validate_directory_reservations, validate_execution_plan, validate_ownership,
 };
@@ -56,7 +57,15 @@ impl Store {
         proposal: &InstallPlan,
         approved: &[String],
     ) -> Result<ManagedPackage> {
-        self.install_inner_with_permissions(game, archive, proposal, None, approved, None)
+        self.install_inner_with_permissions(
+            game,
+            archive,
+            proposal,
+            None,
+            approved,
+            None,
+            NativeInjectorPolicy::Refuse,
+        )
     }
 
     /// Install a catalog release, recording its provenance and dependency links.
@@ -70,8 +79,9 @@ impl Store {
         archive: &Path,
         proposal: &InstallPlan,
         release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
     ) -> Result<ManagedPackage> {
-        self.install_catalog_release_with_permissions(game, archive, proposal, release, &[])
+        self.install_catalog_release_with_permissions(game, archive, proposal, release, policy, &[])
     }
 
     /// Install a catalog release with caller-authorized tool executable destinations.
@@ -85,9 +95,18 @@ impl Store {
         archive: &Path,
         proposal: &InstallPlan,
         release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
         approved: &[String],
     ) -> Result<ManagedPackage> {
-        self.install_inner_with_permissions(game, archive, proposal, None, approved, Some(release))
+        self.install_inner_with_permissions(
+            game,
+            archive,
+            proposal,
+            None,
+            approved,
+            Some(release),
+            policy,
+        )
     }
 
     pub(super) fn install_operations_inner(
@@ -98,9 +117,21 @@ impl Store {
         fail_after: Option<usize>,
     ) -> Result<ManagedPackage> {
         let fault = fail_after.map(Fault::FailAfter);
-        self.install_inner_with_permissions(game, archive, proposal, fault, &[], None)
+        self.install_inner_with_permissions(
+            game,
+            archive,
+            proposal,
+            fault,
+            &[],
+            None,
+            NativeInjectorPolicy::Refuse,
+        )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the internal install path threads the native-injector policy through journaled steps"
+    )]
     fn install_inner_with_permissions(
         &mut self,
         game: &Path,
@@ -109,7 +140,11 @@ impl Store {
         fault: Option<Fault>,
         approved: &[String],
         release: Option<&CatalogRelease>,
+        policy: NativeInjectorPolicy,
     ) -> Result<ManagedPackage> {
+        if let Some(release) = release {
+            release.ensure_native_injector_allowed(policy)?;
+        }
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
         let catalog = release.map(|release| CatalogInstall {
@@ -117,9 +152,13 @@ impl Store {
             stack_id: None,
             replacing: None,
         });
-        self.install_locked(game, archive, proposal, fault, approved, catalog)
+        self.install_locked(game, archive, proposal, fault, approved, catalog, policy)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the locked install path keeps the catalog policy explicit beside the proposal"
+    )]
     pub(super) fn install_locked(
         &mut self,
         game: &Path,
@@ -128,7 +167,11 @@ impl Store {
         fault: Option<Fault>,
         approved: &[String],
         catalog: Option<CatalogInstall<'_>>,
+        policy: NativeInjectorPolicy,
     ) -> Result<ManagedPackage> {
+        if let Some(release) = catalog.map(|catalog| catalog.release) {
+            release.ensure_native_injector_allowed(policy)?;
+        }
         let replacing = catalog.and_then(|catalog| catalog.replacing);
         let replaced_journal = replacing.map(|replaced| replaced.journal_id);
         let replaced_package = replacing.map(|replaced| replaced.package_id);
