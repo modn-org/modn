@@ -462,7 +462,7 @@ Record its commit and SHA-256.
 The `main` bucket must also contain the two Balatro packages.
 At the time of writing, that bucket release is a draft pull request in `modn-org/main`.
 Install that draft copy before the run.
-Every command and flag below exists in the built CLI; check one with `modn <command> --help`.
+Every command and flag below exists in the built CLI. Check one with `modn <command> --help`.
 
 Set these values once. Reuse `$live` and `$game` from [Before any live step](#before-any-live-step).
 
