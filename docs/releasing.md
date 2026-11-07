@@ -158,7 +158,7 @@ The gates above use disposable fixtures and prove no real-game compatibility or 
 The Milestone 3 exit gate needs live evidence from Windows 10 and Windows 11.
 Run [Cyberpunk 2077 (#88)](#cyberpunk-2077-88) on Windows 11 and
 [Windows 10 (#89)](#windows-10-89) on Windows 10.
-A Balatro subsection follows when its game module ships.
+[Balatro](#balatro) covers the native injector, the Git source and the content root.
 
 ### Before any live step
 
@@ -451,6 +451,318 @@ Cyberpunk 2077 live validation, <date>
 Differences from fixture results
 - <none, or command, observed value and fixture value>
 ```
+
+### Balatro
+
+This run records the first live check of the Balatro packages.
+It covers a native injector, a Git source and an AppData content root.
+Use the release from [Before any live step](#before-any-live-step) when it contains Balatro support.
+Otherwise use the build from the Balatro support change.
+Record its commit and SHA-256.
+The `main` bucket must also contain the two Balatro packages.
+At the time of writing, that bucket release is a draft pull request in `modn-org/main`.
+Install that draft copy before the run.
+Every command and flag below exists in the built CLI; check one with `modn <command> --help`.
+
+Set these values once. Reuse `$live` and `$game` from [Before any live step](#before-any-live-step).
+
+```powershell
+$appdata = "$env:APPDATA\Balatro"
+$mods = "$appdata\Mods"
+```
+
+The game root is the Steam folder that contains `Balatro.exe` (app `2379780`).
+The content root is `%APPDATA%\Balatro\Mods`.
+Modn never reads or writes the save folders `1`, `2` and `3`, or the game settings.
+The backup in Step 2 covers the whole `%APPDATA%\Balatro` folder.
+
+#### Step 1: Confirm Balatro support
+
+**Authorize this step.** This step reads local files and prints catalog entries. It writes no game file.
+
+```powershell
+modn bucket list
+modn --game balatro search
+git --version
+(Get-Command modn).Source
+(Get-FileHash (Get-Command modn).Source -Algorithm SHA256).Hash
+```
+
+Expect `main: <title>` from `bucket list`.
+Expect `main/balatro/lovely, version 0.10.0` and a line that names `main/balatro/steamodded`.
+Expect a `git version <n>` line and a 64-character hash for `modn.exe`.
+Record the bucket source, the Modn path, the hash and the Git version.
+Stop if either package line is absent. Stop if Git is not on `PATH`.
+Do not run `modn bucket update` on a draft bucket. It can replace the draft copy.
+
+#### Step 2: Back up the user data and existing Lovely files
+
+**Authorize this step.** This step reads the Balatro folders and writes only under `$live`.
+Close Balatro before the copy.
+
+```powershell
+if (Test-Path -LiteralPath $appdata) {
+  if (Test-Path -LiteralPath "$live\balatro-appdata-backup") { throw "Stop: backup destination exists" }
+  Copy-Item -LiteralPath $appdata -Destination "$live\balatro-appdata-backup" -Recurse
+  "AppData backup: $live\balatro-appdata-backup"
+} else {
+  "AppData absent: $appdata"
+}
+$before = @(Get-ChildItem -LiteralPath $mods -Recurse -File -ErrorAction SilentlyContinue |
+  Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash) $($_.Path)" })
+$before | Set-Content "$live\mods-before.txt"
+"Mods present: $(Test-Path -LiteralPath $mods)"
+"Mods baseline: $($before.Count) files"
+if (Test-Path -LiteralPath "$live\balatro-game-dlls") { throw "Stop: DLL backup destination exists" }
+New-Item -ItemType Directory -Force "$live\balatro-game-dlls" | Out-Null
+foreach ($dll in 'winmm.dll','version.dll') {
+  $path = Join-Path $game $dll
+  if (Test-Path -LiteralPath $path) {
+    Copy-Item -LiteralPath $path -Destination "$live\balatro-game-dlls\$dll"
+    "$dll present; SHA-256 $((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash)"
+  } else {
+    "$dll absent"
+  }
+}
+```
+
+Expect one `AppData ...` line, one `Mods present: <bool>` line, one `Mods baseline: <n> files` line and one line for each DLL.
+Record the backup path, the time and both DLL results.
+Stop if any copy fails.
+The game can change saves and settings when it runs. Compare only `Mods` and the two DLLs.
+A present `winmm.dll` or `version.dll` is an unmanaged Lovely installation.
+Complete Step 3 to record its state, then stop. Do not overwrite it.
+
+#### Step 3: Register, scan and check the Lovely state
+
+**Authorize this step.** Modn reads both roots and writes only its own state.
+
+```powershell
+modn game add balatro --path $game
+modn --game balatro scan --path $game | Tee-Object "$live\scan-before.txt"
+modn --game balatro doctor --path $game | Tee-Object "$live\doctor-before.txt"
+```
+
+Expect `Registered <path> (manual)`.
+The source is `manual` because the command passes `--path`.
+Expect these scan lines:
+
+```text
+balatro: <path>
+Content root: <APPDATA>\Balatro\Mods
+REDmod executable present: false
+```
+
+Expect these doctor lines:
+
+```text
+balatro: <path>
+REDmod executable present: false
+Detected unmanaged entries: <n>
+Owned files checked: 0
+Folders Modn created: 0
+```
+
+Expect a `LOVELY_MISSING` diagnostic on a clean installation.
+A missing `Mods` folder also reports `CONTENT_ROOT_MISSING`. This is expected before the first install.
+Record the unmanaged entries and the doctor diagnostics. Do not remove unmanaged content.
+
+Stop the run in these cases:
+- The doctor reports `LOVELY_PRESENT` or `LOVELY_LEGACY`.
+- `winmm.dll` or `version.dll` exists in the game folder.
+- The doctor reports `CONTENT_ROOT_LINKED`, `CONTENT_ROOT_NOT_DIRECTORY`, `CONTENT_ROOT_MOVED` or `CONTENT_ROOT_UNAVAILABLE`.
+
+Record the state and the Lovely file. Do not install Lovely over an unmanaged copy.
+An incomplete scan cannot prove the game is clean. Record it and use the destination check.
+If the run stops here, unregister the game with `modn game remove balatro --path $game`. That command deletes no file.
+
+#### Step 4: Refuse and preview Lovely
+
+**Authorize this step.** The first command must fail. The second downloads Lovely into the cache. Neither writes a game file.
+
+```powershell
+modn --game balatro install main/balatro/lovely --dry-run --path $game --json 2> "$live\lovely-refusal.json"
+if ($LASTEXITCODE -ne 1) { throw "Stop: expected a native injector refusal" }
+Get-Content "$live\lovely-refusal.json"
+```
+
+Expect exit 1 and a `NATIVE_INJECTOR_NOT_ALLOWED` error.
+The error names `main/balatro/lovely` and the `--allow-native-injector` flag.
+No download and no game write occur. Stop if the command succeeds.
+
+Then preview the allowed install:
+
+```powershell
+modn --game balatro install main/balatro/lovely --dry-run --download --allow-native-injector --path $game --json | Set-Content "$live\lovely-plan.json"
+```
+
+Expect `"version": "0.10.0"` and `"status": "reviewable"`.
+Expect one operation with `"destination": "winmm.dll"` and `"root": "game"`.
+Expect no blockers and no conflicts.
+Check every planned destination before the install:
+
+```powershell
+$plan = Get-Content "$live\lovely-plan.json" -Raw | ConvertFrom-Json
+if (-not $plan.plan -or $plan.plan.status -ne 'reviewable') { throw "Stop: no reviewable plan" }
+$roots = @{ game = $game; content = $mods }
+$taken = $plan.plan.operations | Where-Object { Test-Path -LiteralPath (Join-Path $roots[$_.root] $_.destination) }
+if ($taken) { throw "Stop: destinations already exist: $($taken.destination -join ', ')" }
+```
+
+Expect no output from the check. Stop on any output.
+Never overwrite an existing file.
+
+#### Step 5: Install Lovely
+
+**Authorize this step.** Modn writes `winmm.dll` beside `Balatro.exe`.
+
+```powershell
+modn --game balatro install main/balatro/lovely --yes --allow-native-injector --path $game
+modn --game balatro list --path $game
+modn --game balatro doctor --path $game
+```
+
+Expect `Installed main/balatro/lovely (<n> owned files)`.
+Expect `list` to show `<package-id>: main/balatro/lovely, <n> owned files`.
+Expect the doctor to report `LOVELY_PRESENT`.
+Record the package ID and `n`.
+Close Balatro before this step. Do not run it during a write.
+
+#### Step 6: Preview and install Steamodded
+
+**Authorize this step.** The preview fetches the pinned Git commit. The install writes only `smods` files under `Mods`.
+
+```powershell
+modn --game balatro install main/balatro/steamodded --dry-run --download --path $game --json | Set-Content "$live\steamodded-plan.json"
+```
+
+Expect `"status": "reviewable"` and `"dependencies_ready": true`.
+Expect a dependency record for `main/balatro/lovely` at version `0.10.0` in the `ready` state.
+Expect the Git source to pin commit `af0fdb1eb2c9e191262c128bc88bbc4da991e12d` (tag `26.1002.0`).
+Expect each operation to have `"root": "content"` and a destination under `smods/`.
+The dry run needs `--download` to fetch the Git tree. It writes no game file.
+Stop if `plan.blockers` is not empty or a dependency is not ready.
+
+Check every planned destination:
+
+```powershell
+$plan = Get-Content "$live\steamodded-plan.json" -Raw | ConvertFrom-Json
+if (-not $plan.plan -or $plan.plan.status -ne 'reviewable') { throw "Stop: no reviewable plan" }
+$roots = @{ game = $game; content = $mods }
+$taken = $plan.plan.operations | Where-Object { Test-Path -LiteralPath (Join-Path $roots[$_.root] $_.destination) }
+if ($taken) { throw "Stop: destinations already exist: $($taken.destination -join ', ')" }
+```
+
+Expect no output. Stop on any output.
+Unmanaged mods outside these paths stay untouched.
+
+Then install:
+
+```powershell
+modn --game balatro install main/balatro/steamodded --yes --download --path $game
+modn --game balatro list --path $game
+```
+
+Expect `Installed main/balatro/steamodded (<n> owned files)`.
+Expect no `Installed` line for Lovely, because that dependency is ready.
+Expect `list` to show both packages. Record the package ID and `n`.
+Pass `--download` on the install. The preview and the install then use the same explicit fetch.
+
+#### Step 7: Confirm that Steamodded loads
+
+**Authorize this step.** This step starts Balatro. The game writes saves and settings, which the backup covers.
+
+Launch Balatro through Steam.
+Expect a `Mods` entry in the main menu. Open it and record the Steamodded version.
+Quit the game before any later step.
+If the entry is absent, stop. Record the result and keep all files for inspection.
+Do not reinstall over the installed tree.
+
+#### Step 8: Uninstall Steamodded and Lovely
+
+**Authorize this step.** Modn removes only files that it installed for this run.
+
+```powershell
+modn --game balatro uninstall main/balatro/steamodded --dry-run --path $game
+modn --game balatro uninstall main/balatro/steamodded --yes --path $game
+modn --game balatro uninstall main/balatro/lovely --dry-run --path $game
+modn --game balatro uninstall main/balatro/lovely --yes --path $game
+modn --game balatro list --path $game
+```
+
+Expect `Would uninstall, in this order:` from each dry run, with one package line.
+Expect `Uninstalled <package-id>` for each removal.
+Expect `No manager-owned packages installed.` from the final `list`.
+Remove Steamodded first. Lovely is its dependency.
+
+Then compare both roots with the baseline:
+
+```powershell
+$after = @(Get-ChildItem -LiteralPath $mods -Recurse -File -ErrorAction SilentlyContinue |
+  Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash) $($_.Path)" })
+$before = if (Test-Path -LiteralPath "$live\mods-before.txt") { @(Get-Content "$live\mods-before.txt") } else { @() }
+if ($before.Count -eq 0 -and $after.Count -eq 0) {
+  "Mods restored: empty"
+} elseif ($before.Count -eq 0 -or $after.Count -eq 0) {
+  "DIFF before=$($before.Count) files, after=$($after.Count) files"
+} else {
+  Compare-Object $before $after
+}
+"Mods present: $(Test-Path -LiteralPath $mods)"
+foreach ($dll in 'winmm.dll','version.dll') {
+  if (Test-Path -LiteralPath (Join-Path $game $dll)) { "REMAINS $dll" } else { "absent $dll" }
+}
+```
+
+Expect `Mods restored: empty` or no `Compare-Object` output.
+Expect the same `Mods present` value as Step 2.
+Expect `absent` for both DLLs.
+A difference must be a runtime file that the game created. Record it.
+A missing or changed unmanaged file is a failure. Keep the backup and file a bug.
+Do not delete an unmanaged file without separate authorization.
+
+#### Step 9: Clean up
+
+**Authorize this step.** Modn unregisters the installation. It deletes no game or AppData file.
+
+```powershell
+modn game remove balatro --path $game
+```
+
+Expect `Unregistered balatro (<path>)`.
+Keep `$live` and `$live\balatro-appdata-backup` until you write the record and every comparison passes.
+Then remove `$live`. If a check failed, keep `$live` for the bug report.
+Do not delete `%APPDATA%\Balatro`, `Mods` or any unmanaged file during cleanup.
+
+#### What to record for Balatro
+
+```text
+Balatro live validation, <date>
+- Modn <tag or build>, commit <sha>, modn.exe SHA-256 <hash>, state <path>
+- main bucket <digest or source>; search <main/balatro/lovely, version 0.10.0 | missing>
+- OS <caption> <version>, build <build>, <physical|VM>
+- Game <version>, Steam app 2379780, installation <path>
+- Steamodded tag 26.1002.0, commit af0fdb1eb2c9e191262c128bc88bbc4da991e12d
+- Backup %APPDATA%\Balatro at <path>, <time>; Mods <present|absent>; DLLs <none|winmm.dll|version.dll, backed up at ...>
+- Baseline <n> files under Mods; unmanaged entries <n>
+
+| Step | Command | Exit | Key output line | Game-side check |
+| --- | --- | --- | --- | --- |
+| 1 | modn --game balatro search | 0 | main/balatro/lovely, version 0.10.0 | none |
+| 2 | Copy-Item ... | 0 | AppData backup: ... | none |
+| 3 | modn --game balatro doctor | 0 | LOVELY_MISSING | game not launched |
+| 4 | modn ... --dry-run (no flag) | 1 | NATIVE_INJECTOR_NOT_ALLOWED | none |
+| 5 | modn ... lovely --yes | 0 | Installed main/balatro/lovely (<n> owned files) | none |
+| 6 | modn ... steamodded --yes | 0 | Installed main/balatro/steamodded (<n> owned files) | none |
+| 7 | Steam launch | n/a | Mods menu present | Mods menu opened |
+| 8 | modn ... uninstall | 0 | Uninstalled <id>, No manager-owned packages installed. | none |
+| 9 | modn game remove balatro | 0 | Unregistered balatro (<path>) | none |
+
+Differences from fixture results
+- <none, or command, observed value and fixture value>
+```
+
+Record the Lovely refusal text, both package IDs, the owned-file counts and the `Mods` menu label.
 
 ### Windows 10 (#89)
 
