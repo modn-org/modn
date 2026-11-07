@@ -203,7 +203,7 @@ impl World {
     }
 
     fn modn(&self, args: &[&str]) -> Result<Output, TestCaseError> {
-        Ok(Command::new(env!("CARGO_BIN_EXE_modn"))
+        Ok(Command::new(main_bucket::modn_binary())
             .env("LOCALAPPDATA", self._temp.path())
             .env("MODN_GAME_MODULES_DIR", &self.modules)
             .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])

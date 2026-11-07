@@ -1,3 +1,5 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
@@ -57,7 +59,7 @@ fn repository() -> std::path::PathBuf {
 }
 
 fn run(data: &Path, source: &str, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_modn"))
+    Command::new(main_bucket::modn_binary())
         .env("LOCALAPPDATA", data)
         .env("MODN_MAIN_BUCKET_SOURCE", source)
         .env_remove("MODN_GAME_MODULES_DIR")

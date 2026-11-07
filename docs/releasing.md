@@ -184,6 +184,19 @@ gh api "repos/modn-org/modn/commits/$tag" --jq .sha
 Expect the two hashes to match, in any case, and a full commit SHA.
 Record the tag, the commit and the SHA-256. Install Python 3, Git, `gh` and 7-Zip on `PATH`.
 
+**Bucket release.** `modn bucket update` installs the latest `modn-org/main` release, not the bucket commit that `$tag` pins.
+Confirm that the bucket release contains that commit:
+
+```powershell
+$pin = gh api "repos/modn-org/modn/contents/buckets/main?ref=$tag" --jq .sha
+$bucket = gh release view --repo modn-org/main --json tagName --jq .tagName
+gh api "repos/modn-org/main/compare/$pin...$bucket" --jq .status
+```
+
+Expect `identical` or `ahead`. Record the pin and the bucket tag.
+On `behind` or `diverged`, stop: the bucket release lacks module changes that this Modn release expects.
+Publish a bucket release from `modn-org/main`, then start again.
+
 **OS version.** Run these commands and record the results:
 
 ```powershell

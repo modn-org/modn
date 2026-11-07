@@ -23,6 +23,9 @@ jobs:
       - name: Verify desktop backend contracts (Windows)
         if: runner.os == 'Windows'
         run: cargo test -p modn-desktop --all-features --locked
+      - name: Check documented script commands
+        if: runner.os == 'Linux'
+        run: python3 .github/scripts/check-doc-commands.py
       - name: Verify game-agnostic CLI (Linux)
         if: runner.os == 'Linux'
         run: python3 .agents/skills/verify-modn/scripts/verify.py --build
