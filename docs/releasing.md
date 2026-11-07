@@ -490,7 +490,7 @@ git --version
 
 Expect `main: <title>` from `bucket list`.
 Expect `main/balatro/lovely, version 0.10.0` and a line that names `main/balatro/steamodded`.
-Expect a `git version <n>` line and a 64-character hash for `modn.exe`.
+Expect a `git version <n>` line and a 64-character hash for the Modn binary.
 Record the bucket source, the Modn path, the hash and the Git version.
 Stop if either package line is absent. Stop if Git is not on `PATH`.
 Do not run `modn bucket update` on a draft bucket. It can replace the draft copy.
@@ -588,7 +588,8 @@ Get-Content "$live\lovely-refusal.json"
 
 Expect exit 1 and a `NATIVE_INJECTOR_NOT_ALLOWED` error.
 The error names `main/balatro/lovely` and the `--allow-native-injector` flag.
-No download and no game write occur. Stop if the command succeeds.
+No download and no game write occur.
+Stop if the command succeeds. Stop if the error code is different.
 
 Then preview the allowed install:
 
@@ -654,6 +655,7 @@ if ($taken) { throw "Stop: destinations already exist: $($taken.destination -joi
 ```
 
 Expect no output. Stop on any output.
+A plan that claims an existing exclusive folder is not reviewable. Stop.
 Unmanaged mods outside these paths stay untouched.
 
 Then install:
