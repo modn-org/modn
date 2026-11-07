@@ -84,6 +84,19 @@ fn inspect_archive(archive: &Path, json: bool) -> Result<()> {
     Ok(())
 }
 
+fn error_code(message: &str) -> &str {
+    let code = message.split(':').next().unwrap_or_default();
+    if code.len() >= 3
+        && code
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        code
+    } else {
+        "ERROR"
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     let json = cli.json;
@@ -99,6 +112,10 @@ fn main() {
                 eprintln!("{}", refusal.as_json());
                 std::process::exit(1);
             }
+            let message = format!("{error:#}");
+            let code = error_code(&message).to_owned();
+            eprintln!("{}", serde_json::json!({"error": code, "message": message}));
+            std::process::exit(1);
         }
         eprintln!("error: {error:#}");
         std::process::exit(1);
