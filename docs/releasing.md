@@ -212,6 +212,21 @@ Record the caption, version, full build, architecture and whether the machine is
 (Get-Item -LiteralPath "$game\bin\x64\Cyberpunk2077.exe").VersionInfo | Select-Object ProductVersion, FileVersion
 ```
 
+**Clean installation.** Do this before the backup, so the baseline shows the game as the run starts:
+
+```powershell
+modn list
+$present = 'bin\x64\plugins\cyber_engine_tweaks', 'bin\x64\version.dll', 'bin\x64\winmm.dll',
+  'red4ext', 'r6\scripts', 'engine\tools\scc.exe' |
+  Where-Object { Test-Path -LiteralPath (Join-Path $game $_) }
+if ($present) { throw "Stop: framework files present: $($present -join ', ')" }
+```
+
+Expect `No manager-owned packages installed.` and no error.
+Otherwise, clean the installation first, then repeat this check.
+Remove Modn-owned packages with `modn uninstall`, and other mods by their own instructions.
+If the game folder changes after the backup and before step 1, take the backup again.
+
 **Protect user data.** Do this before step 1. Choose one option and record the choice:
 - A full copy of the game installation on another disk, with its path and time.
 - A SHA-256 manifest. The store's "verify integrity of game files" action is then the restore path.
@@ -342,11 +357,14 @@ Copy only the planned files, then commit the adoption:
 $plan = Get-Content "$live\adopt-preview.json" -Raw | ConvertFrom-Json
 $taken = $plan.plan.operations | Where-Object { Test-Path -LiteralPath (Join-Path $game $_.destination) }
 if ($taken) { throw "Stop: destinations already exist: $($taken.destination -join ', ')" }
+$created = @()
 foreach ($op in $plan.plan.operations) {
   $to = Join-Path $game $op.destination
+  for ($dir = Split-Path $to; -not (Test-Path -LiteralPath $dir); $dir = Split-Path $dir) { $created += $dir }
   New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
   Copy-Item -LiteralPath (Join-Path "$live\adopt-staging" $op.source) -Destination $to
 }
+$created | Select-Object -Unique | Set-Content "$live\adopt-created-folders.txt"
 modn adopt $adopt --acknowledge --yes --path $game
 modn list --path $game --json | Set-Content "$live\list-after-adopt.json"
 ```
@@ -366,6 +384,17 @@ modn uninstall <package-id> --force --yes --path $game
 
 Expect the strict uninstall to exit nonzero and name the modified file, and the force removal to print
 `Uninstalled <package-id>`. Unrecorded files stay.
+
+Modn does not own the folders that the copy created. Remove each one that is now empty:
+
+```powershell
+Get-Content "$live\adopt-created-folders.txt" | Sort-Object { $_.Length } -Descending |
+  Where-Object { (Test-Path -LiteralPath $_) -and -not (Get-ChildItem -LiteralPath $_ -Force) } |
+  ForEach-Object { Remove-Item -LiteralPath $_; "Removed empty $_" }
+```
+
+Expect one `Removed empty` line per created folder, such as `r6\scripts`.
+A folder that still holds a file stays. Record it.
 
 #### Step 5: Uninstall the remaining managed packages
 
