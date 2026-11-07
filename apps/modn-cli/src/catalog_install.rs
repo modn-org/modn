@@ -13,7 +13,7 @@ use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketSto
 use modn_core::planning::{
     preview_install_zip_with_appdata, preview_install_zip_with_permissions, InstallPlan, PlanStatus,
 };
-use modn_core::transactions::CatalogReference;
+use modn_core::transactions::{CatalogReference, NativeInjectorPolicy};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
@@ -139,6 +139,44 @@ fn match_archives(
     Ok(archives)
 }
 
+fn ensure_native_injectors_allowed(
+    selected: &BucketPackage,
+    order: &[BucketPackage],
+    args: &InstallArgs,
+    state_path: &Path,
+) -> Result<()> {
+    if args.allow_native_injector {
+        return Ok(());
+    }
+    let state = ManagerState::load_deferred(state_path)?;
+    let installing: Vec<&BucketPackage> = match selected_installation(
+        state.existing(),
+        args.path.clone(),
+        Some(&selected.package.game),
+    ) {
+        Ok((_, installation)) => {
+            let planned =
+                dependency_plan::plan(order, &BTreeMap::new(), state.existing(), &installation)?;
+            order
+                .iter()
+                .zip(&planned)
+                .filter(|(_, dependency)| dependency.missing())
+                .map(|(release, _)| release)
+                .chain([selected])
+                .collect()
+        }
+        // Game selection can fail for ordinary reasons, such as no registration
+        // or a missing --path. Refuse native injectors conservatively so the
+        // policy error still precedes those generic errors.
+        Err(_) => order.iter().chain([selected]).collect(),
+    };
+    for package in installing {
+        NativeInjectorPolicy::Refuse
+            .check(&reference_of(package), package.package.native_injector)?;
+    }
+    Ok(())
+}
+
 fn install_mod(
     selected: BucketPackage,
     catalog: &BucketSnapshot,
@@ -150,6 +188,7 @@ fn install_mod(
     let mut order = catalog.install_order(&selected)?;
     order.pop();
     let interactive = !args.yes && !args.dry_run;
+    ensure_native_injectors_allowed(&selected, &order, args, state_path)?;
     let mut archives = match_archives(&args.file, &selected, &order)?;
     let cache = download::cache_for(state_path)?;
     let cache_use = if args.no_cache {
@@ -171,6 +210,11 @@ fn install_mod(
         args.path.clone(),
         Some(&selected.package.game),
     )?;
+    let policy = if args.allow_native_injector {
+        NativeInjectorPolicy::Allow
+    } else {
+        NativeInjectorPolicy::Refuse
+    };
     let release = catalog.release(&selected)?;
     if !args.dry_run || args.download {
         state.validate_download(
@@ -343,6 +387,7 @@ fn install_mod(
         archive,
         &plan,
         &release,
+        policy,
         &approved,
     )?;
     if json {

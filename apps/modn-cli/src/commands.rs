@@ -205,6 +205,9 @@ pub(super) struct InstallArgs {
     /// Independently authorize one exact game-relative tool executable in the archive.
     #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
     pub(super) allow_executable: Vec<String>,
+    /// Manage a package whose manifest marks it as a native injector.
+    #[arg(long)]
+    pub(super) allow_native_injector: bool,
 }
 
 /// Options for replacing an installed catalog mod with another release.
@@ -241,6 +244,9 @@ pub(super) struct UpdateArgs {
     /// Independently authorize one exact game-relative tool executable in the archive.
     #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
     pub(super) allow_executable: Vec<String>,
+    /// Manage a package whose manifest marks it as a native injector.
+    #[arg(long)]
+    pub(super) allow_native_injector: bool,
 }
 
 /// Options for changing a managed package's pin.

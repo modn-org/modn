@@ -11,7 +11,7 @@ use modn_core::buckets::{BucketPackage, BucketSnapshot};
 use modn_core::planning::{
     preview_install_zip_with_appdata, preview_install_zip_with_permissions, PlanStatus,
 };
-use modn_core::transactions::StackMember;
+use modn_core::transactions::{NativeInjectorPolicy, StackMember};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::PathBuf;
@@ -99,6 +99,11 @@ pub(super) fn run(
 ) -> Result<()> {
     let releases = releases(&stack)?;
     let interactive = !args.yes;
+    let policy = if args.allow_native_injector {
+        NativeInjectorPolicy::Allow
+    } else {
+        NativeInjectorPolicy::Refuse
+    };
     let explicit = &args.allow_executable;
     let unapproved: Vec<String> = releases
         .iter()
@@ -165,35 +170,36 @@ pub(super) fn run(
         game: Some(stack.game_id.clone()),
         root: Some(stack.installation.clone()),
     })?;
-    let installed = store.install_catalog_stack(&stack.installation, &members, |member| {
-        let reference = member.release.reference.to_string();
-        let plan = match content_root_appdata(&stack.game_id)? {
-            Some(appdata) => preview_install_zip_with_appdata(
-                &stack.game_id,
-                &stack.installation,
-                &member.archive,
-                &appdata,
-            )?,
-            None => preview_install_zip_with_permissions(
-                &stack.game_id,
-                &stack.installation,
-                &member.archive,
-                &member.approved_executables,
-            )?,
-        };
-        if Some(&&plan.archive_sha256) != digests.get(&reference) {
-            bail!("{reference}: source changed after catalog verification");
-        }
-        if plan.status != PlanStatus::Reviewable {
-            let blockers: Vec<String> = plan
-                .blockers
-                .iter()
-                .map(|issue| format!("{}: {}", issue.code, issue.message))
-                .collect();
-            bail!("{reference}: installation blocked: {}", blockers.join("; "));
-        }
-        Ok(plan)
-    })?;
+    let installed =
+        store.install_catalog_stack(&stack.installation, &members, policy, |member| {
+            let reference = member.release.reference.to_string();
+            let plan = match content_root_appdata(&stack.game_id)? {
+                Some(appdata) => preview_install_zip_with_appdata(
+                    &stack.game_id,
+                    &stack.installation,
+                    &member.archive,
+                    &appdata,
+                )?,
+                None => preview_install_zip_with_permissions(
+                    &stack.game_id,
+                    &stack.installation,
+                    &member.archive,
+                    &member.approved_executables,
+                )?,
+            };
+            if Some(&&plan.archive_sha256) != digests.get(&reference) {
+                bail!("{reference}: source changed after catalog verification");
+            }
+            if plan.status != PlanStatus::Reviewable {
+                let blockers: Vec<String> = plan
+                    .blockers
+                    .iter()
+                    .map(|issue| format!("{}: {}", issue.code, issue.message))
+                    .collect();
+                bail!("{reference}: installation blocked: {}", blockers.join("; "));
+            }
+            Ok(plan)
+        })?;
     let report: Vec<_> = members
         .iter()
         .zip(&installed)
