@@ -98,7 +98,10 @@ The shared read-only host adds `mods_host.directory.list(root_id,relative[,max_e
 (default and maximum 2,048 entries; an optional per-call bound reports
 `incomplete=true` when truncated) and `mods_host.directory.read_text(root_id,relative)`
 (UTF-8, max 64 KiB). Existing root containment, link denial, budgets and
-no-write guarantees remain. Rust retains platform access, CLI path selection,
+no-write guarantees remain. An empty relative path names the authorized root
+itself, so `directory.list(root_id, "")` lists the top level of that root; all
+other host calls still reject an empty path, and listing never creates or
+follows a missing root. Rust retains platform access, CLI path selection,
 SQLite ownership, file identity and integrity checks, transactions and recovery.
 Lua presence signals do not certify runtime compatibility.
 

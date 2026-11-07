@@ -30,8 +30,12 @@ fn fixture() -> (TempDir, PathBuf, PathBuf) {
 }
 
 fn run(script: &str, root: &Path, module: &Path) -> anyhow::Result<()> {
+    run_with_roots(script, &[root.to_path_buf()], module)
+}
+
+fn run_with_roots(script: &str, roots: &[PathBuf], module: &Path) -> anyhow::Result<()> {
     fs::write(module.join("main.lua"), script).expect("replace module");
-    check_module_with_roots(module, &[root.to_path_buf()]).map(|_| ())
+    check_module_with_roots(module, roots).map(|_| ())
 }
 
 fn failure(script: &str, root: &Path, module: &Path) -> String {
@@ -329,6 +333,71 @@ fn bounded_directory_listing_and_utf8_text_reads_are_root_scoped() {
         &module,
     )
     .expect("read-only directory and UTF-8 metadata");
+}
+
+#[test]
+fn empty_relative_path_lists_game_and_content_root_top_level() {
+    let (base, module, game) = fixture();
+    let content = base.path().join("test-content");
+    fs::create_dir(&content).expect("content root");
+    fs::create_dir(content.join("smods")).expect("content directory");
+    fs::write(content.join("core.lua"), b"return {}").expect("content file");
+    run_with_roots(
+        r#"
+        local function kinds(listing)
+            assert(not listing.incomplete and not listing.truncated)
+            local seen = {}
+            for _, item in ipairs(listing.items) do
+                seen[item.name] = item.kind
+            end
+            return seen
+        end
+        local game_top = kinds(mods_host.directory.list(1, ""))
+        assert(game_top["game.marker"] == "file")
+        assert(game_top["packages"] == "directory")
+        local content_top = kinds(mods_host.directory.list(2, ""))
+        assert(content_top["smods"] == "directory")
+        assert(content_top["core.lua"] == "file")
+        local limited = mods_host.directory.list(1, "", 1)
+        assert(#limited.items == 1 and limited.truncated and limited.incomplete)
+        return {game_id="example-game", api_version=mods_host.api_version}
+    "#,
+        &[game.clone(), content.clone()],
+        &module,
+    )
+    .expect("empty relative path lists each authorized root top level");
+    assert!(content.join("smods").is_dir());
+}
+
+#[test]
+fn empty_relative_path_is_rejected_outside_root_listing() {
+    let (base, module, game) = fixture();
+    for relative in [".", "..", "/", "a/../..", "packages/"] {
+        let script = format!(
+            r#"
+            assert(not pcall(function()
+                return mods_host.directory.list(1, {relative:?})
+            end))
+            return {{game_id="example-game", api_version=mods_host.api_version}}
+        "#
+        );
+        run(&script, &game, &module).unwrap_or_else(|error| {
+            panic!("unsafe list path {relative:?} unexpectedly accepted: {error:#}")
+        });
+    }
+    for call in [
+        "mods_host.directory.read_text(1, '')",
+        "mods_host.fs.metadata(1, '')",
+        "mods_host.hash.sha256(1, '')",
+        "mods_host.archive.inspect(1, '')",
+    ] {
+        let error = failure(&format!("{call}; return {{}}"), &game, &module);
+        assert!(error.contains("unsafe relative path"), "{call}: {error}");
+    }
+    let missing = base.path().join("missing-content");
+    fs::write(module.join("main.lua"), SUCCESS).expect("script");
+    assert!(check_module_with_roots(&module, &[game, missing.clone()]).is_err());
+    assert!(!missing.exists(), "listing must not create a missing root");
 }
 
 #[test]
