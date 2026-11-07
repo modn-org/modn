@@ -216,10 +216,11 @@ pub(super) fn run(
         archives.insert(label.clone(), supplied_archive(file, &target)?);
     }
     let cache = download::cache_for(state_path)?;
+    let mut digests = BTreeMap::new();
     let cache_use = if args.no_cache {
         CacheUse::Refresh
     } else {
-        download::add_cached(&cache, [&target], &mut archives)?;
+        download::add_cached(&cache, [&target], &mut archives, &mut digests)?;
         CacheUse::Reuse
     };
     let protected = ProtectedTarget {
@@ -243,7 +244,14 @@ pub(super) fn run(
                 bail!("{label}: download cancelled");
             }
         }
-        download::download(&cache, cache_use, &[&target], &mut archives, json)?;
+        download::download(
+            &cache,
+            cache_use,
+            &[&target],
+            &mut archives,
+            &mut digests,
+            json,
+        )?;
     }
     let archive = archives.get(&label).cloned();
     let candidate = match (&archive, up_to_date) {

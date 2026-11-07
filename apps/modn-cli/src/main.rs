@@ -6,6 +6,7 @@ mod commands;
 mod dependency_plan;
 mod download;
 mod games;
+mod git_source;
 mod install;
 mod install_consent;
 mod inventory;

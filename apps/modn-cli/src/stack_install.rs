@@ -155,6 +155,7 @@ pub(super) fn run(
         stack.cache_use,
         &releases,
         &mut stack.archives,
+        &mut stack.digests,
         json,
     )?;
     let mut digests = BTreeMap::new();
@@ -169,10 +170,10 @@ pub(super) fn run(
             if interactive {
                 approved.extend(release.package.executables.iter().cloned());
             }
-            digests.insert(
-                reference_of(release).to_string(),
-                release.package.sha256.as_deref(),
-            );
+            let digest = download::digest(release, &stack.digests)
+                .with_context(|| format!("{} has no archive digest", reference_of(release)))?
+                .to_owned();
+            digests.insert(reference_of(release).to_string(), digest);
             Ok(StackMember::new(
                 archive.clone(),
                 stack.catalog.release(release)?,
@@ -201,7 +202,7 @@ pub(super) fn run(
                     &member.approved_executables,
                 )?,
             };
-            if digests.get(&reference).copied().flatten() != Some(plan.archive_sha256.as_str()) {
+            if digests.get(&reference).map(String::as_str) != Some(plan.archive_sha256.as_str()) {
                 bail!("{reference}: source changed after catalog verification");
             }
             if plan.status != PlanStatus::Reviewable {
