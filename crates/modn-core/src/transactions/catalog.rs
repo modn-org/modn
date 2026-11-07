@@ -244,9 +244,7 @@ impl Store {
                 } else {
                     installed
                         .iter()
-                        .filter(|package| {
-                            package.archive_sha256 == dependency.archive_sha256
-                        })
+                        .filter(|package| package.archive_sha256 == dependency.archive_sha256)
                         .partition(|package| package_intact(self, &game, package))
                 };
                 if !intact.is_empty() {
