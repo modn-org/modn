@@ -24,6 +24,8 @@ shipped behavior.
   local buckets and manifest rules.
 - [`cyberpunk.md`](cyberpunk.md): Cyberpunk 2077 detection, supported package
   layouts and framework installation.
+- [`balatro.md`](balatro.md): Balatro detection, mod folder, package layouts,
+  Lovely and Steamodded installation.
 
 ## Engineering reference
 
