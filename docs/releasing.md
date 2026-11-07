@@ -155,9 +155,10 @@ The released `modn.exe` SHA-256 is `2dade4e26e3db81ebf2dd62f0fc38a487184fc696813
 ## Real-game validation
 
 The gates above use disposable fixtures and prove no real-game compatibility or REDmod activation.
-The Milestone 3 exit gate needs live evidence from Windows 10 and Windows 11.
-Run [Cyberpunk 2077 (#88)](#cyberpunk-2077-88) on Windows 11 and
-[Windows 10 (#89)](#windows-10-89) on Windows 10.
+The Milestone 3 exit gate needs live evidence from Windows 11.
+Run [Cyberpunk 2077 (#88)](#cyberpunk-2077-88) and [Windows 11 (#89)](#windows-11-89) on Windows 11.
+Windows 10 stays unverified: the maintainer has no Windows 10 machine.
+CI runs on Windows Server and runs no desktop verifier, so it does not cover either client OS.
 [Balatro](#balatro) covers the native injector, the Git source and the content root.
 
 ### Before any live step
@@ -806,7 +807,7 @@ Differences from fixture results
 
 Record the Lovely refusal text, both package IDs, the owned-file counts and the `Mods` menu label.
 
-### Windows 10 (#89)
+### Windows 11 (#89)
 
 This run closes [issue #89](https://github.com/modn-org/modn/issues/89) with the released `modn.exe`
 from [Before any live step](#before-any-live-step) and verifier binaries from the same commit.
@@ -818,8 +819,8 @@ Download it before it expires, 30 days after the release.
 **Authorize this step.** Allow read-only OS queries.
 
 Run the OS version commands in [Before any live step](#before-any-live-step).
-Expect `10.0.19045` for Windows 10 22H2 and a `Microsoft Windows 10` caption.
-Stop if the build is 22000 or higher: that is Windows 11, not #89.
+Expect build 22000 or higher and a `Microsoft Windows 11` caption.
+Stop if the build is lower than 22000: that is Windows 10, which #89 does not cover.
 
 #### Step 2: Download and verify the verifier binaries
 
@@ -877,7 +878,7 @@ The v0.3.0 fixture run reported 51 and 8 assertions. Record both counts and keep
 Write these facts into one record:
 
 ```text
-Windows 10 validation, <date>
+Windows 11 validation, <date>
 - Release <tag>, commit <sha>, modn.exe SHA-256 <hash>, workflow run <id>
 - Verifier SHA-256: modn-desktop.exe <hash>, test backend <hash>
 - OS <caption> <version>, build <build>, <physical|VM>; gate game <fake fixture>
