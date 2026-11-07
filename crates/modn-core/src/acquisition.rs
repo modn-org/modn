@@ -321,9 +321,8 @@ fn parse_entry_name(name: &str) -> Option<[&str; 3]> {
                     .is_some_and(|digest| hex(digest, 64))
         })
     } else {
-        rest.split_at_checked(7).is_some_and(|(url_hash, ext)| {
-            hex(url_hash, 7) && length_and_extension(ext)
-        })
+        rest.split_at_checked(7)
+            .is_some_and(|(url_hash, ext)| hex(url_hash, 7) && length_and_extension(ext))
     };
     (named(game_id) && named(mod_id) && named(version) && valid_rest)
         .then_some([*game_id, *mod_id, *version])

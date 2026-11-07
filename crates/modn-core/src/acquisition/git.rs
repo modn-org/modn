@@ -41,12 +41,7 @@ pub struct GitCacheKey<'a> {
 impl<'a> GitCacheKey<'a> {
     /// Name the package release and pinned commit of one cache entry.
     #[must_use]
-    pub fn new(
-        game_id: &'a str,
-        mod_id: &'a str,
-        version: &'a str,
-        commit: &'a str,
-    ) -> Self {
+    pub fn new(game_id: &'a str, mod_id: &'a str, version: &'a str, commit: &'a str) -> Self {
         Self {
             game_id,
             mod_id,
@@ -99,10 +94,7 @@ impl GitSource {
     /// Construct a source. Validation happens before any Git call.
     #[must_use]
     pub fn new(repository: String, commit: String) -> Self {
-        Self {
-            repository,
-            commit,
-        }
+        Self { repository, commit }
     }
 
     /// Validate the source and return the remote URL.
@@ -116,17 +108,6 @@ impl GitSource {
         }
         if !valid_commit(&self.commit) {
             bail!("Git source commit must be exactly 40 lowercase hex characters");
-        }
-        #[cfg(any(test, feature = "test-instruction-budget"))]
-        if let Some(base) = std::env::var_os("MODN_TEST_GIT_REMOTE_BASE") {
-            let base = base.to_string_lossy();
-            if base.starts_with("file://") {
-                return Ok(format!(
-                    "{}/{}.git",
-                    base.trim_end_matches('/'),
-                    self.repository
-                ));
-            }
         }
         Ok(format!("https://github.com/{}.git", self.repository))
     }
@@ -146,11 +127,6 @@ impl GitSource {
 
     /// Fetch, verify and pack the pinned commit into a deterministic ZIP in
     /// `staging`. The caller owns `staging` and removes it afterwards.
-    pub(crate) fn pack(&self, staging: &Path) -> Result<PackedArchive> {
-        let url = self.remote_url()?;
-        self.pack_url(&url, staging)
-    }
-
     pub(crate) fn pack_url(&self, url: &str, staging: &Path) -> Result<PackedArchive> {
         let allow_file = self.test_transport(url);
         let hooks = git::empty_hooks()?;
@@ -166,7 +142,9 @@ impl GitSource {
             ..environment
         };
         git::run(&environment, &["init", "--bare", "--quiet"]).map_err(|error| {
-            anyhow!("GIT_SOURCE_FETCH_FAILED: cannot initialize the private Git repository: {error:#}")
+            anyhow!(
+                "GIT_SOURCE_FETCH_FAILED: cannot initialize the private Git repository: {error:#}"
+            )
         })?;
         git::run(
             &environment,
@@ -176,22 +154,24 @@ impl GitSource {
                 "1",
                 "--no-tags",
                 "--",
-                &url,
+                url,
                 &self.commit,
             ],
         )
         .map_err(|error| {
-            anyhow!("GIT_SOURCE_FETCH_FAILED: fetching {url} commit {} failed: {error:#}", self.commit)
+            anyhow!(
+                "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {} failed: {error:#}",
+                self.commit
+            )
         })?;
         let pinned = format!("{}^{{commit}}", self.commit);
-        let resolved = git::run(&environment, &["rev-parse", "--verify", &pinned]).map_err(
-            |error| {
+        let resolved =
+            git::run(&environment, &["rev-parse", "--verify", &pinned]).map_err(|error| {
                 anyhow!(
                     "GIT_SOURCE_COMMIT_MISMATCH: commit {} is not present after fetch: {error:#}",
                     self.commit
                 )
-            },
-        )?;
+            })?;
         if resolved != self.commit {
             bail!(
                 "GIT_SOURCE_COMMIT_MISMATCH: requested {} but Git resolved {resolved}",
@@ -221,6 +201,17 @@ impl GitSource {
         key: &GitCacheKey<'_>,
         cache_use: CacheUse,
     ) -> Result<GitAcquired> {
+        let url = self.remote_url()?;
+        self.acquire_url(&url, cache, key, cache_use)
+    }
+
+    fn acquire_url(
+        &self,
+        url: &str,
+        cache: &ArchiveCache,
+        key: &GitCacheKey<'_>,
+        cache_use: CacheUse,
+    ) -> Result<GitAcquired> {
         if key.commit != self.commit {
             bail!("Git source cache key does not name the pinned commit");
         }
@@ -233,13 +224,12 @@ impl GitSource {
                 });
             }
         }
-        fs::create_dir_all(cache.root()).with_context(|| {
-            format!("cannot create cache directory {}", cache.root().display())
-        })?;
+        fs::create_dir_all(cache.root())
+            .with_context(|| format!("cannot create cache directory {}", cache.root().display()))?;
         let staging = tempfile::Builder::new()
             .prefix("git-source-")
             .tempdir_in(cache.root())?;
-        let packed = self.pack(staging.path())?;
+        let packed = self.pack_url(url, staging.path())?;
         let path = cache.git_path(key, &packed.sha256);
         if path.exists() {
             fs::remove_file(&path)
@@ -257,7 +247,10 @@ impl GitSource {
 
 fn parse_tree(tree: &[u8]) -> Result<Vec<TreeEntry>> {
     let mut entries = Vec::new();
-    for record in tree.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
+    for record in tree
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty())
+    {
         let Some(tab) = record.iter().position(|byte| *byte == b'\t') else {
             bail!("GIT_SOURCE_UNSUPPORTED_ENTRY: malformed Git tree entry");
         };
@@ -332,8 +325,8 @@ fn write_archive(repository: &Path, entries: Vec<TreeEntry>, archive: &Path) -> 
     });
     let output = child.stdout.take().context("git cat-file stdout")?;
     let mut reader = BufReader::new(output);
-    let file = File::create(archive)
-        .with_context(|| format!("cannot create {}", archive.display()))?;
+    let file =
+        File::create(archive).with_context(|| format!("cannot create {}", archive.display()))?;
     let mut zip = zip::ZipWriter::new(file);
     let mut unpacked = 0u64;
     for entry in entries {
@@ -342,8 +335,7 @@ fn write_archive(repository: &Path, entries: Vec<TreeEntry>, archive: &Path) -> 
             .read_line(&mut header)
             .context("GIT_SOURCE_FETCH_FAILED: git cat-file ended early")?;
         let mut fields = header.trim_end().split(' ');
-        let (Some(_object), Some(kind), Some(size)) =
-            (fields.next(), fields.next(), fields.next())
+        let (Some(_object), Some(kind), Some(size)) = (fields.next(), fields.next(), fields.next())
         else {
             bail!("GIT_SOURCE_FETCH_FAILED: unexpected git cat-file output");
         };
@@ -396,7 +388,7 @@ fn write_archive(repository: &Path, entries: Vec<TreeEntry>, archive: &Path) -> 
     if finished.metadata()?.len() > super::MAX_DOWNLOAD_BYTES {
         bail!("GIT_SOURCE_UNSUPPORTED_ENTRY: packed archive exceeds 4 GiB");
     }
-    Ok(file_sha256(archive)?)
+    file_sha256(archive)
 }
 
 impl ArchiveCache {

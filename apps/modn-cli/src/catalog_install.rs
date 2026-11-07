@@ -120,9 +120,7 @@ fn match_archives(
         let matches: Vec<&BucketPackage> = dependencies
             .iter()
             .chain([selected])
-            .filter(|release| {
-                release.package.sha256.as_deref() == Some(inspected.sha256.as_str())
-            })
+            .filter(|release| release.package.sha256.as_deref() == Some(inspected.sha256.as_str()))
             .collect();
         if matches.is_empty() {
             bail!(
@@ -132,9 +130,7 @@ fn match_archives(
         }
         for release in matches {
             let matched = reference_of(release);
-            if Some(inspected.format)
-                != expected_format(release.package.archive_format.as_ref())
-            {
+            if Some(inspected.format) != expected_format(release.package.archive_format.as_ref()) {
                 bail!("{matched}: archive format does not match catalog manifest");
             }
             archives.insert(matched.to_string(), file.clone());

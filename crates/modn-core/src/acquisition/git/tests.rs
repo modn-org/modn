@@ -89,7 +89,10 @@ fn pinned_commit_is_fetched_packed_and_cached() {
     let cache = ArchiveCache::new(root.path().join("cache"));
     let key = GitCacheKey::new("test-game", "fixture", "1.0", &pinned);
 
-    let first = source.acquire(&cache, &key, CacheUse::Reuse).unwrap();
+    let url = file_url(&bare);
+    let first = source
+        .acquire_url(&url, &cache, &key, CacheUse::Reuse)
+        .unwrap();
     assert_eq!(first.origin, Origin::Download);
     assert_eq!(first.sha256.len(), 64);
     assert!(first.path.is_file());
@@ -108,12 +111,16 @@ fn pinned_commit_is_fetched_packed_and_cached() {
     assert_eq!(names, ["mod/info.json", "plugins/one.lua"]);
     assert_eq!(entries[1].1, b"return 'one'", "the pinned commit, not HEAD");
 
-    let second = source.acquire(&cache, &key, CacheUse::Reuse).unwrap();
+    let second = source
+        .acquire_url(&url, &cache, &key, CacheUse::Reuse)
+        .unwrap();
     assert_eq!(second.origin, Origin::Cache);
     assert_eq!(second.path, first.path);
     assert_eq!(second.sha256, first.sha256);
 
-    let refreshed = source.acquire(&cache, &key, CacheUse::Refresh).unwrap();
+    let refreshed = source
+        .acquire_url(&url, &cache, &key, CacheUse::Refresh)
+        .unwrap();
     assert_eq!(refreshed.origin, Origin::Download);
     assert_eq!(refreshed.sha256, first.sha256);
 
@@ -130,21 +137,21 @@ fn pinned_commit_is_fetched_packed_and_cached() {
 #[test]
 fn an_unknown_commit_fails_before_a_cache_entry_exists() {
     let root = tempfile::tempdir().unwrap();
-    let (_bare, _) = bare_repository(root.path());
+    let (bare, _) = bare_repository(root.path());
     let missing = "0".repeat(40);
     let source = GitSource::new("fixture/project".into(), missing.clone());
     let cache = ArchiveCache::new(root.path().join("cache"));
     let key = GitCacheKey::new("test-game", "fixture", "1.0", &missing);
-    let error = source.acquire(&cache, &key, CacheUse::Reuse).unwrap_err();
+    let error = source
+        .acquire_url(&file_url(&bare), &cache, &key, CacheUse::Reuse)
+        .unwrap_err();
     let message = format!("{error:#}");
     assert!(message.contains("GIT_SOURCE_FETCH_FAILED"), "{message}");
-    assert!(
-        fs::read_dir(cache.root())
-            .map(|entries| entries
-                .filter_map(Result::ok)
-                .all(|entry| !entry.path().extension().is_some_and(|e| e == "zip")))
-            .unwrap_or(true)
-    );
+    assert!(fs::read_dir(cache.root())
+        .map(|entries| entries
+            .filter_map(Result::ok)
+            .all(|entry| !entry.path().extension().is_some_and(|e| e == "zip")))
+        .unwrap_or(true));
 }
 
 fn indexed_entry(directory: &Path, mode: &str, name: &str) -> String {
@@ -155,12 +162,7 @@ fn indexed_entry(directory: &Path, mode: &str, name: &str) -> String {
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"target")
-        .unwrap();
+    child.stdin.take().unwrap().write_all(b"target").unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success());
     let object = String::from_utf8(output.stdout).unwrap().trim().to_owned();
@@ -215,11 +217,12 @@ fn a_tree_with_a_symlink_or_submodule_is_rejected() {
         let source = GitSource::new("fixture/project".into(), pinned);
         let staging = root.path().join("staging");
         fs::create_dir_all(&staging).unwrap();
-        let error = source
-            .pack_url(&file_url(&bare), &staging)
-            .unwrap_err();
+        let error = source.pack_url(&file_url(&bare), &staging).unwrap_err();
         let message = format!("{error:#}");
-        assert!(message.contains("GIT_SOURCE_UNSUPPORTED_ENTRY"), "{message}");
+        assert!(
+            message.contains("GIT_SOURCE_UNSUPPORTED_ENTRY"),
+            "{message}"
+        );
         let expected = if mode == "120000" {
             "symbolic links"
         } else {

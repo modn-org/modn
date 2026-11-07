@@ -450,10 +450,7 @@ mod tests {
         );
         assert!(unknown.contains("unknown field"), "{unknown}");
 
-        let digest = format!(
-            "{:#}",
-            git(json!({"sha256": "0".repeat(64)})).unwrap_err()
-        );
+        let digest = format!("{:#}", git(json!({"sha256": "0".repeat(64)})).unwrap_err());
         assert!(digest.contains("must not declare sha256"), "{digest}");
     }
 
