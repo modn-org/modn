@@ -1,8 +1,13 @@
+#[path = "nexus_download.rs"]
+pub(super) mod nexus_download;
+
 use crate::catalog_install::reference_of;
 use crate::commands::CacheCommand;
 use crate::git_source;
+use crate::nexus_auth;
+use crate::nxm::NxmLink;
 use anyhow::{bail, Context, Result};
-use modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse, GithubReleaseAsset};
+use modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse, GithubReleaseAsset, NexusFile};
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -43,8 +48,8 @@ pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
     Ok(ArchiveCache::new(root))
 }
 
-fn source_url(release: &BucketPackage) -> Option<String> {
-    match &release.package.source {
+fn source_url(release: &BucketPackage) -> Result<Option<String>> {
+    Ok(match &release.package.source {
         PackageSource::Https { url } => Some(url.clone()),
         PackageSource::GithubRelease {
             repository,
@@ -53,8 +58,14 @@ fn source_url(release: &BucketPackage) -> Option<String> {
         } => Some(format!(
             "https://github.com/{repository}/releases/download/{tag}/{asset}"
         )),
+        PackageSource::Nexus {
+            game_domain,
+            mod_id,
+            file_id,
+            file_name,
+        } => Some(NexusFile::new(game_domain, *mod_id, *file_id, file_name)?.cache_url()),
         PackageSource::Manual { .. } | _ => None,
-    }
+    })
 }
 
 fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
@@ -73,7 +84,42 @@ pub(super) fn downloadable(release: &BucketPackage) -> bool {
         PackageSource::Https { .. }
             | PackageSource::GithubRelease { .. }
             | PackageSource::Git { .. }
+            | PackageSource::Nexus { .. }
     )
+}
+
+/// Refuse `--nxm` links that match no package this command installs or updates.
+pub(super) fn validate_links(links: &[NxmLink], releases: &[&BucketPackage]) -> Result<()> {
+    let packages: Vec<(&str, u64, u64)> = releases
+        .iter()
+        .filter_map(|release| match &release.package.source {
+            PackageSource::Nexus {
+                game_domain,
+                mod_id,
+                file_id,
+                ..
+            } => Some((game_domain.as_str(), *mod_id, *file_id)),
+            _ => None,
+        })
+        .collect();
+    nexus_download::validate_links(links, &packages)
+}
+
+fn nexus_label(game_domain: &str, mod_id: u64, file_id: u64, file_name: &str) -> String {
+    format!("Nexus Mods: {game_domain} mod {mod_id} file {file_id} ({file_name})")
+}
+
+/// A download consent label that never includes a secret-bearing URL.
+pub(super) fn source_label(release: &BucketPackage) -> Option<String> {
+    match &release.package.source {
+        PackageSource::Nexus {
+            game_domain,
+            mod_id,
+            file_id,
+            file_name,
+        } => Some(nexus_label(game_domain, *mod_id, *file_id, file_name)),
+        _ => source_url(release).ok().flatten(),
+    }
 }
 
 /// Archive digest the pipeline uses for one release.
@@ -106,7 +152,7 @@ pub(super) fn add_cached<'a>(
             digests.insert(reference, archive.sha256);
             continue;
         }
-        if let Some(path) = source_url(release)
+        if let Some(path) = source_url(release)?
             .map(|url| cache.cached(&key(release, &url)))
             .transpose()?
             .flatten()
@@ -123,6 +169,7 @@ pub(super) fn download(
     releases: &[&BucketPackage],
     archives: &mut BTreeMap<String, PathBuf>,
     digests: &mut BTreeMap<String, String>,
+    links: &[NxmLink],
     json: bool,
 ) -> Result<()> {
     for release in releases {
@@ -142,7 +189,39 @@ pub(super) fn download(
             digests.insert(reference, archive.sha256);
             continue;
         }
-        let Some(url) = source_url(release) else {
+        if let PackageSource::Nexus {
+            game_domain,
+            mod_id,
+            file_id,
+            file_name,
+        } = &release.package.source
+        {
+            let file = NexusFile::new(game_domain, *mod_id, *file_id, file_name)?;
+            let link = nexus_download::matching_link(links, game_domain, *mod_id, *file_id);
+            let url = file.cache_url();
+            let key = key(release, &url);
+            if !json {
+                eprintln!(
+                    "Downloading {reference} {} from {}",
+                    key.version,
+                    nexus_label(game_domain, *mod_id, *file_id, file_name)
+                );
+            }
+            if cache_use == CacheUse::Reuse {
+                if let Some(path) = cache.cached(&key)? {
+                    archives.insert(reference, path);
+                    continue;
+                }
+            }
+            let api_key = nexus_auth::load_key()?;
+            let download_url = nexus_download::resolve(&file, &api_key, link)?;
+            let acquired = cache.acquire(&key, cache_use, |_cache_url| {
+                nexus_download::open(&download_url)
+            })?;
+            archives.insert(reference, acquired.path);
+            continue;
+        }
+        let Some(url) = source_url(release)? else {
             continue;
         };
         if let PackageSource::GithubRelease {

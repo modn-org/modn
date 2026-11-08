@@ -191,7 +191,7 @@ fn a_manual_source_is_never_downloaded() {
 }
 
 #[test]
-fn a_nexus_source_is_never_downloaded_without_a_supplied_file() {
+fn a_nexus_source_needs_a_valid_api_key_without_a_supplied_file() {
     let fixture = Fixture::new();
     let (archive, hash) = plugin_archive(&fixture, "nexus");
     fixture.bucket("deps", "test-game", "nexus", &hash, &[]);
@@ -208,16 +208,21 @@ fn a_nexus_source_is_never_downloaded_without_a_supplied_file() {
     )
     .expect("manifest");
     fixture.register();
-    let blocked = modn(&fixture, &["install", "nexus", "--yes"]);
+    let blocked = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .env("MODN_CACHE", cache_dir(&fixture))
+        .env("MODN_NEXUS_API_KEY", "bad\tkey")
+        .args(["install", "nexus", "--yes"])
+        .output()
+        .expect("run CLI");
     assert!(!blocked.status.success());
     let message = error(&blocked);
     assert!(
-        message.contains(
-            "download \"Equipment-EX-1.2.10.zip\" from Nexus Mods (mod 6945, file 123456)"
-        ),
+        message.contains("MODN_NEXUS_API_KEY is not a valid Nexus API key"),
         "{message}"
     );
-    assert!(message.contains("--file <archive>"), "{message}");
     assert!(!cache_dir(&fixture).exists());
     let supplied = modn(
         &fixture,
