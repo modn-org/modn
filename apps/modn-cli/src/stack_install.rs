@@ -109,6 +109,7 @@ pub(super) fn run(
     json: bool,
 ) -> Result<()> {
     let releases = releases(&stack)?;
+    download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes;
     let policy = if args.allow_native_injector {
         NativeInjectorPolicy::Allow
@@ -156,6 +157,7 @@ pub(super) fn run(
         &releases,
         &mut stack.archives,
         &mut stack.digests,
+        &args.nxm_links,
         json,
     )?;
     let mut digests = BTreeMap::new();

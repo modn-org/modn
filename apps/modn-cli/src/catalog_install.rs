@@ -245,6 +245,7 @@ fn install_mod(
         .map(|(release, _)| release)
         .chain([&selected])
         .collect();
+    download::validate_links(&args.nxm_links, &installing)?;
     if args.download {
         download::download(
             &cache,
@@ -252,6 +253,7 @@ fn install_mod(
             &installing,
             &mut archives,
             &mut digests,
+            &args.nxm_links,
             json,
         )?;
         dependencies =
@@ -321,6 +323,7 @@ fn install_mod(
             &[&selected],
             &mut archives,
             &mut digests,
+            &args.nxm_links,
             json,
         )?;
     }

@@ -7,15 +7,7 @@ const MAX_ID: u64 = 9_999_999_999;
 /// A parsed Nexus "Mod Manager Download" link.
 #[derive(Clone)]
 pub(super) struct NxmLink {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by the Nexus download task")
-    )]
     pub(super) file: (NexusGameDomain, u64, u64),
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by the Nexus download task")
-    )]
     pub(super) grant: NexusDownloadGrant,
 }
 

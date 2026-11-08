@@ -167,6 +167,7 @@ pub(super) fn run(
         })
         .collect();
     let target = choose_release(releases, args.version.as_deref(), &label)?;
+    download::validate_links(&args.nxm_links, &[&target])?;
     let policy = if args.allow_native_injector {
         NativeInjectorPolicy::Allow
     } else {
@@ -235,7 +236,11 @@ pub(super) fn run(
         }
         state.validate_download(cache.root(), &protected)?;
         if interactive {
-            let download = format!("{label} {}", target.package.version);
+            let download = format!(
+                "{label} {}; {}",
+                target.package.version,
+                acquisition(&target.package.source)
+            );
             if !install_consent::confirm_download(
                 &[download],
                 &mut io::stdin().lock(),
@@ -250,6 +255,7 @@ pub(super) fn run(
             &[&target],
             &mut archives,
             &mut digests,
+            &args.nxm_links,
             json,
         )?;
     }

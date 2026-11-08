@@ -238,12 +238,8 @@ fn store_key(store: &dyn SecretStore) -> Result<Option<NexusApiKey>> {
     }
 }
 
-/// Resolve the key for later download wiring: a non-empty environment value
-/// wins over the credential store.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired by the Nexus download task")
-)]
+/// Resolve the key for downloads: a non-empty environment value wins over the
+/// credential store.
 pub(super) fn resolve_key(
     store: &dyn SecretStore,
     env: impl Fn(&str) -> Option<String>,
@@ -252,6 +248,50 @@ pub(super) fn resolve_key(
         Some(key) => Ok(Some(key)),
         None => store_key(store),
     }
+}
+
+pub(super) const MISSING_KEY: &str =
+    "Nexus Mods needs an API key; run `modn auth nexus set` or set MODN_NEXUS_API_KEY.";
+
+/// Load the key only when a Nexus package actually needs a download.
+pub(super) fn load_key() -> Result<NexusApiKey> {
+    #[cfg(test)]
+    if let Some(key) = TEST_KEY.with(|cell| cell.borrow().clone()) {
+        return match key {
+            TestKey::Missing => bail!(MISSING_KEY),
+            TestKey::Present(key) => Ok(key),
+        };
+    }
+    resolve_key(&KeyringStore::modn(), |name| env::var(name).ok())?.context(MISSING_KEY)
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(super) enum TestKey {
+    Missing,
+    Present(NexusApiKey),
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_KEY: std::cell::RefCell<Option<TestKey>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+struct TestKeyGuard;
+
+#[cfg(test)]
+impl Drop for TestKeyGuard {
+    fn drop(&mut self) {
+        TEST_KEY.with(|cell| cell.borrow_mut().take());
+    }
+}
+
+#[cfg(test)]
+pub(super) fn with_test_key<T>(key: TestKey, run: impl FnOnce() -> T) -> T {
+    TEST_KEY.with(|cell| cell.borrow_mut().replace(key));
+    let _guard = TestKeyGuard;
+    run()
 }
 
 #[cfg(test)]

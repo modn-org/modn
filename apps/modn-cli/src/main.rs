@@ -14,6 +14,8 @@ mod main_key;
 mod managed;
 mod modules;
 mod nexus_auth;
+#[cfg(test)]
+mod nexus_fixture_tests;
 mod nxm;
 #[cfg(test)]
 mod provider_fixture_tests;
