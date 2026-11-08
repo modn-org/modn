@@ -92,7 +92,7 @@ An already-installed native dependency does not require the flag again.
 ## Additional commands
 
 - `modn scan --path <game>` and `modn doctor --path <game>` read the game root and an API 2 module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
-- `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. See [sources.md](sources.md).
+- `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key, and later syncs refuse a key change. See [sources.md](sources.md).
 - `modn adopt <archive> --dry-run` previews manual adoption. Commit requires `--acknowledge --yes`.
 - `modn uninstall <package> --force --yes` approves cleanup of modified owned files.
 

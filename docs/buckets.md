@@ -7,16 +7,77 @@ Modn tells the user to run `modn bucket update`. Modn never fetches it implicitl
 The install script runs that command once. The local copy works offline.
 `MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP for an update.
 
-`modn bucket update` downloads `main-bucket.zip` and `main-bucket.zip.sha256`
+`modn bucket update` downloads `main-bucket.zip` and `main-bucket.zip.minisig`
 from the latest [`modn-org/main`](https://github.com/modn-org/main) release over
-HTTPS. It verifies the digest and validates the bucket and modules before an
-atomic swap. The checksum shares the release origin, as in Scoop. Release
-signing is future work. Failure preserves the previous copy. A module whose
-`api_version` this Modn does not support makes the whole update fail. Only
-`main` contains modules. The bucket has its own release cycle, so a catalog
-change needs no Modn release.
+HTTPS. It extracts the ZIP, verifies the minisign signature and validates the
+bucket and modules before an atomic swap. Failure preserves the previous copy.
+A module whose `api_version` this Modn does not support makes the whole update
+fail. Only `main` contains modules, and only `main` can be updated. The bucket
+has its own release cycle, so a catalog change needs no Modn release.
 Modn refreshes the copy only when requested. Trusted third-party game modules use a separate registry.
 Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
+
+### Main catalog signature
+
+Modn verifies a minisign (Ed25519) signature with the catalog signer key built
+into the release. The key ID is `0E250AD52A3BA2AA`.
+Modn accepts only the prehashed signature format and refuses the legacy format.
+The signature covers this signed statement:
+
+```text
+modn-catalog-signature/v1
+catalog: main
+digest: blake3:<hex>
+```
+
+The `catalog:` line is the `name` field of the extracted root `bucket.json`.
+The `digest:` line is the [catalog digest](#catalog-digest) of the extracted
+files.
+On success, the command prints `Verified main bucket signed by 0E250AD52A3BA2AA.`
+
+Modn refuses an unsigned release, an invalid signature, a signature from another
+key, and a release whose `bucket.json` name is not `main`. The refusal keeps the
+installed copy. The `main-bucket.zip.sha256` sidecar is no longer used.
+
+Each `modn-org/main` release must include `main-bucket.zip.minisig` next to the
+ZIP. The bucket repository's release pipeline does not produce that file yet.
+Key rotation and revocation are planned (#122).
+
+### Catalog digest
+
+The catalog digest is BLAKE3. Its input starts with the domain prefix
+`modn-catalog-blake3/v1` and one NUL byte. Then each regular file follows in
+byte-wise path order: its relative UTF-8 path, one NUL byte, its little-endian
+u64 size and its bytes. Root `catalog.sig` and `catalog.pub` are excluded from
+the digest. The digest prints as `blake3:<hex>`.
+
+Modn refuses a symbolic link, another non-regular entry, two paths that differ
+only by case, a root `.git` entry and a non-UTF-8 path. It refuses a root
+`bucket.json` that is not a regular file, exceeds 32 KiB, or is malformed.
+
+### Signing a catalog
+
+Install the stock `minisign` CLI, then run these commands. Replace `<dir>` with
+the catalog path. The statement file must hold the bytes exactly, with no
+byte-order mark and no added newline.
+
+```powershell
+cmd /c "cargo run -p modn-core --example catalog_digest -- <dir> > statement.txt"
+minisign -S -s <secret key> -m statement.txt -x <dir>/catalog.sig
+Copy-Item <public key> <dir>/catalog.pub
+```
+
+Windows PowerShell 5.1 `>` writes UTF-16, so keep the `cmd /c` redirection.
+
+`catalog_digest` prints the statement for the catalog tree. `minisign -S` signs
+that file and writes `catalog.sig` at the catalog root. Do not pass `-l`, which
+writes the legacy format that Modn refuses. `catalog.pub` holds the signer
+public key as a bare key line or a two-line `minisign.pub` file.
+
+Sign the tree that you ship. Any change to a catalog file changes the digest and
+invalidates the signature. A Git catalog publishes `catalog.sig` and `catalog.pub`
+at its root. A `main` release also uploads the same signature as
+`main-bucket.zip.minisig`.
 
 ## Catalog contents
 
@@ -55,7 +116,9 @@ optional dependencies (same-game IDs), dependency_versions, conflicts,
 executables, native_injector and homepage. Unknown fields and
 unsupported schemas are rejected. See [`modn-org/main`](https://github.com/modn-org/main) for examples.
 Registrations point to explicitly selected directories. Package manifests
-are revalidated on every read. Only the official `main` bucket may contain
+are revalidated on every read. A local folder bucket needs no signature, because
+it holds your own files. `catalog.sig` and `catalog.pub` serve distributed
+catalogs. Only the official `main` bucket may contain
 `module.json` and `module.lua`. Modn rejects those files in registered local
 buckets and rejects `modules/` directories. See [bucket contract v1](../buckets/README.md).
 

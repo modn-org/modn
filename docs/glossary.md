@@ -68,7 +68,33 @@ _Avoid_: Sandboxed module, bucket module, development override
 **Git catalog revision**:
 The explicit source and full commit published with a validated community catalog snapshot.
 Only an explicit `bucket sync` fetches this source.
+The registration also records the pinned signer key ID.
 _Avoid_: Automatically refreshed catalog
+
+**Catalog signature**:
+A minisign (Ed25519) signature over the signed catalog statement.
+Modn verifies it before it uses a distributed catalog.
+_Avoid_: Archive checksum, transport security
+
+**Signed catalog statement**:
+The canonical text that a catalog signature covers: format
+`modn-catalog-signature/v1`, the catalog name and the catalog digest.
+_Avoid_: Package manifest, release notes
+
+**Catalog digest**:
+The BLAKE3 digest of a distributed catalog's files, shown as `blake3:<hex>`.
+It excludes the root `catalog.sig` and `catalog.pub` files.
+_Avoid_: Archive checksum, commit ID
+
+**Signer key**:
+The minisign public key whose signatures Modn accepts for one catalog.
+`main` uses the key built into Modn. A Git catalog pins its signer key at first sync.
+_Avoid_: Certificate, user account
+
+**Key ID (fingerprint)**:
+The 16 uppercase hexadecimal digits that name a minisign key, for example
+`0E250AD52A3BA2AA`. Modn shows the key ID as the signer fingerprint.
+_Avoid_: Full public key, commit ID
 
 ### Packages and acquisition
 
