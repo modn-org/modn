@@ -9,6 +9,7 @@ workspace = true
 
 [features]
 test-instruction-budget = []
+test-main-key = []
 
 [dependencies]
 anyhow = "1"

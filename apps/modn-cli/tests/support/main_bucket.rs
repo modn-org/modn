@@ -2,8 +2,10 @@
     dead_code,
     reason = "shared fixture exposes helpers for different test crates"
 )]
+use minisign::KeyPair;
 use std::ffi::OsStr;
 use std::fs;
+use std::io::Cursor;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -54,6 +56,43 @@ fn program(binary: &OsStr) -> PathBuf {
     }
 }
 
+fn keypair() -> &'static KeyPair {
+    static KEY: OnceLock<KeyPair> = OnceLock::new();
+    KEY.get_or_init(|| KeyPair::generate_unencrypted_keypair().expect("fixture signing key"))
+}
+
+pub fn test_public_key() -> String {
+    keypair()
+        .pk
+        .to_box()
+        .expect("fixture public key")
+        .into_string()
+}
+
+fn sign(pair: &KeyPair, root: &Path) -> String {
+    let statement = modn_core::buckets::catalog_statement(root).expect("fixture catalog statement");
+    minisign::sign(
+        Some(&pair.pk),
+        &pair.sk,
+        Cursor::new(statement.as_bytes()),
+        Some("main bucket fixture"),
+        Some("main bucket fixture signature"),
+    )
+    .expect("fixture signature")
+    .into_string()
+}
+
+pub fn write_signature(root: &Path, zip: &Path) {
+    fs::write(format!("{}.minisig", zip.display()), sign(keypair(), root))
+        .expect("fixture signature file");
+}
+
+pub fn write_foreign_signature(root: &Path, zip: &Path) {
+    let pair = KeyPair::generate_unencrypted_keypair().expect("foreign fixture signing key");
+    fs::write(format!("{}.minisig", zip.display()), sign(&pair, root))
+        .expect("fixture signature file");
+}
+
 pub fn seed(data: &Path) {
     fn copy(source: &Path, target: &Path) {
         fs::create_dir_all(target).expect("bucket directory");
@@ -95,7 +134,9 @@ pub fn command(binary: impl AsRef<OsStr>) -> SeededCommand {
     let data = tempfile::tempdir().expect("data directory");
     seed(data.path());
     let mut command = Command::new(program(binary.as_ref()));
-    command.env("LOCALAPPDATA", data.path());
+    command
+        .env("LOCALAPPDATA", data.path())
+        .env("MODN_TEST_MAIN_BUCKET_PUBLIC_KEY", test_public_key());
     SeededCommand {
         command,
         _data: data,
