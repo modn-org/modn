@@ -14,8 +14,14 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 mod git;
+mod index;
+mod nexus;
 mod provider;
 pub use git::{GitAcquired, GitCacheKey, GitSource};
+use index::{ArchiveIndex, ArchivePin};
+pub use nexus::{
+    NexusApiKey, NexusDownloadGrant, NexusDownloadUrl, NexusFile, NexusGameDomain, NexusRequest,
+};
 pub use provider::GithubReleaseAsset;
 
 /// Largest archive Modn downloads; a longer response is refused.
@@ -95,6 +101,12 @@ pub struct CacheEntry {
     pub path: PathBuf,
 }
 
+/// A scan's verified hit plus the index it built from every entry.
+struct ScannedIndex {
+    index: ArchiveIndex,
+    hit: Option<PathBuf>,
+}
+
 #[expect(missing_docs, reason = "The name states the item's meaning")]
 #[derive(Debug, Clone)]
 pub struct ArchiveCache {
@@ -145,15 +157,48 @@ impl ArchiveCache {
         self.cached_alias(key)
     }
 
+    /// Find an entry with the requested digest through the on-disk index.
+    ///
+    /// A recorded entry is used only after its bytes match the pin again. A
+    /// missing, stale or corrupt index falls back to a scan that rebuilds it.
     fn cached_alias(&self, key: &CacheKey<'_>) -> Result<Option<PathBuf>> {
-        for entry in self.entries(None)? {
-            if fs::symlink_metadata(&entry.path)?.file_type().is_file()
-                && file_sha256(&entry.path)? == key.sha256
-            {
-                return Ok(Some(entry.path));
+        let Some(pin) = ArchivePin::sha256(key.sha256) else {
+            return Ok(None);
+        };
+        let existing = ArchiveIndex::read(&self.root);
+        if let Some(name) = existing
+            .as_ref()
+            .and_then(|index| index.file_name(&pin).map(str::to_owned))
+        {
+            let path = self.root.join(name);
+            if file_has_digest(&path, key.sha256)? {
+                return Ok(Some(path));
             }
         }
-        Ok(None)
+        let scanned = self.scan_index(key.sha256)?;
+        let unchanged = existing.as_ref() == Some(&scanned.index);
+        if !unchanged && (existing.is_some() || !scanned.index.is_empty()) {
+            let _ = scanned.index.write(&self.root);
+        }
+        Ok(scanned.hit)
+    }
+
+    /// Hash each listed entry once and index it by its actual digest.
+    fn scan_index(&self, sha256: &str) -> Result<ScannedIndex> {
+        let mut index = ArchiveIndex::default();
+        let mut hit = None;
+        for entry in self.entries(None)? {
+            let Ok(digest) = file_sha256(&entry.path) else {
+                continue;
+            };
+            if hit.is_none() && digest == sha256 {
+                hit = Some(entry.path.clone());
+            }
+            if let (Some(pin), Some(name)) = (ArchivePin::sha256(&digest), entry.path.file_name()) {
+                index.insert_first(pin, name.to_string_lossy().into_owned());
+            }
+        }
+        Ok(ScannedIndex { index, hit })
     }
 
     /// Return a verified archive for `key`, downloading it when needed.
@@ -214,6 +259,9 @@ impl ArchiveCache {
         partial
             .persist(&path)
             .with_context(|| format!("cannot store cache entry {}", path.display()))?;
+        if let (Some(pin), Some(name)) = (ArchivePin::sha256(key.sha256), path.file_name()) {
+            ArchiveIndex::record(&self.root, pin, name.to_string_lossy().into_owned());
+        }
         Ok(Acquired {
             path,
             origin: Origin::Download,
@@ -350,6 +398,14 @@ fn file_sha256(path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     io::copy(&mut file, &mut hasher)?;
     Ok(hex(&hasher.finalize()))
+}
+
+/// Whether `path` is a regular file whose bytes still match `sha256`.
+fn file_has_digest(path: &Path, sha256: &str) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(file_sha256(path)? == sha256),
+        _ => Ok(false),
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {

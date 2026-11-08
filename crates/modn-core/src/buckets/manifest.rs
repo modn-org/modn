@@ -3,6 +3,8 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
+mod nexus;
+
 /// One immutable package version, independent of installer policy.
 #[expect(
     missing_docs,
@@ -72,6 +74,12 @@ pub enum PackageSource {
     Manual {
         filename: String,
     },
+    Nexus {
+        game_domain: String,
+        mod_id: u64,
+        file_id: u64,
+        file_name: String,
+    },
     Https {
         url: String,
     },
@@ -126,6 +134,21 @@ fn valid_https(url: &str) -> bool {
 }
 
 impl PackageManifest {
+    fn required_sha256(&self) -> Result<&str> {
+        let sha256 = self
+            .sha256
+            .as_deref()
+            .context("package sha256 is required for non-git sources")?;
+        if sha256.len() != 64
+            || !sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            bail!("package sha256 must be 64 lowercase hex characters");
+        }
+        Ok(sha256)
+    }
+
     pub(super) fn validate(&self, game: &str, id: &str) -> Result<()> {
         if self.schema_version != 1 {
             bail!("unsupported bucket package schema");
@@ -165,17 +188,7 @@ impl PackageManifest {
                 tag,
                 asset,
             } => {
-                let sha256 = self
-                    .sha256
-                    .as_deref()
-                    .context("package sha256 is required for non-git sources")?;
-                if sha256.len() != 64
-                    || !sha256
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                {
-                    bail!("package sha256 must be 64 lowercase hex characters");
-                }
+                self.required_sha256()?;
                 crate::acquisition::GithubReleaseAsset::new(
                     repository.clone(),
                     tag.clone(),
@@ -184,17 +197,7 @@ impl PackageManifest {
                 .metadata_url()?;
             }
             PackageSource::Manual { filename } => {
-                let sha256 = self
-                    .sha256
-                    .as_deref()
-                    .context("package sha256 is required for non-git sources")?;
-                if sha256.len() != 64
-                    || !sha256
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                {
-                    bail!("package sha256 must be 64 lowercase hex characters");
-                }
+                self.required_sha256()?;
                 let format = self
                     .archive_format
                     .as_ref()
@@ -215,18 +218,14 @@ impl PackageManifest {
                     bail!("invalid manual archive filename");
                 }
             }
+            PackageSource::Nexus {
+                game_domain,
+                mod_id,
+                file_id,
+                file_name,
+            } => nexus::validate(self, game_domain, *mod_id, *file_id, file_name)?,
             PackageSource::Https { url } => {
-                let sha256 = self
-                    .sha256
-                    .as_deref()
-                    .context("package sha256 is required for non-git sources")?;
-                if sha256.len() != 64
-                    || !sha256
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                {
-                    bail!("package sha256 must be 64 lowercase hex characters");
-                }
+                self.required_sha256()?;
                 self.archive_format
                     .as_ref()
                     .context("archive_format is required for non-git sources")?;

@@ -14,8 +14,8 @@ $results = [Collections.Generic.List[object]]::new()
 $work = Join-Path ([IO.Path]::GetTempPath()) "modn-m2-$([guid]::NewGuid().ToString('N'))"
 $saved = @{}
 $names = @('Path', 'LOCALAPPDATA', 'APPDATA', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
-  'MODN_CACHE', 'MODN_MAIN_BUCKET_SOURCE', 'MODN_GAME_MODULES_DIR', 'TEMP', 'TMP',
-  'AGENT_DESKTOP_HOME', 'PYTHONDONTWRITEBYTECODE')
+  'MODN_CACHE', 'MODN_MAIN_BUCKET_SOURCE', 'MODN_TEST_MAIN_BUCKET_PUBLIC_KEY',
+  'MODN_GAME_MODULES_DIR', 'TEMP', 'TMP', 'AGENT_DESKTOP_HOME', 'PYTHONDONTWRITEBYTECODE')
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 
 function Snapshot([string] $Root) {
@@ -41,8 +41,9 @@ function Check([string] $Name, [scriptblock] $Action) {
   }
 }
 
-function Invoke-GateModn([string[]] $Arguments, [switch] $Refuse) {
-  $output = & $script:modn --json --state-dir (Join-Path $work 'state') --game cyberpunk-2077 @Arguments 2>&1 | Out-String
+function Invoke-GateModn([string[]] $Arguments, [switch] $Refuse, [string] $Executable = '') {
+  if (-not $Executable) { $Executable = $script:modn }
+  $output = & $Executable --json --state-dir (Join-Path $work 'state') --game cyberpunk-2077 @Arguments 2>&1 | Out-String
   $code = $LASTEXITCODE
   if ($Refuse) {
     Require ($code -ne 0) "Expected refusal: $($Arguments -join ' ')"
@@ -67,6 +68,18 @@ function Zip([string] $Name, [hashtable] $Files) {
     }
   } finally { $archive.Dispose() }
   return $path
+}
+
+# Sign the extracted catalog with an ephemeral key so `bucket update` verifies it
+# without the owner's main signer secret.
+function Set-SignedBucket([string] $Zip) {
+  $extracted = Join-Path $work ((Split-Path -Leaf $Zip) + '.tree')
+  Expand-Archive -LiteralPath $Zip -DestinationPath $extracted -Force
+  & $script:SignCatalog $extracted "$Zip.minisig" "$Zip.pub"
+  Require ($LASTEXITCODE -eq 0) "Cannot sign $Zip"
+  $script:BucketPublicKey = (Get-Content -LiteralPath "$Zip.pub" -Raw).Trim()
+  $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $script:BucketPublicKey
+  $env:MODN_MAIN_BUCKET_SOURCE = $Zip
 }
 
 function Run-Python([string] $Driver, [string[]] $Arguments) {
@@ -125,6 +138,15 @@ try {
   $env:MODN_MAIN_BUCKET_SOURCE = $null
   $env:MODN_GAME_MODULES_DIR = $null
   $env:PYTHONDONTWRITEBYTECODE = '1'
+  # The disposable main bucket is signed with an ephemeral key and updated by a
+  # `test-main-key` build. Build both before the clean-machine PATH check.
+  $tools = Join-Path $work 'tools'
+  cargo build --quiet --locked -p modn-core --example sign_catalog --target-dir $tools
+  Require ($LASTEXITCODE -eq 0) 'Cannot build the bucket signer (sign_catalog)'
+  $script:SignCatalog = Join-Path $tools 'debug/examples/sign_catalog.exe'
+  cargo build --quiet --release --locked -p modn-cli --features modn-core/test-main-key --target-dir $tools
+  Require ($LASTEXITCODE -eq 0) 'Cannot build the test-key binary for bucket update'
+  $script:BucketModn = Join-Path $tools 'release/modn.exe'
   $env:Path = ($env:Path -split ';' | Where-Object {
     $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'cargo.exe')) -and
       -not (Test-Path -LiteralPath (Join-Path $_ 'rustc.exe'))
@@ -150,20 +172,43 @@ try {
     Require ((Get-FileHash $script:modn -Algorithm SHA256).Hash -ieq $expected) 'Checksum mismatch'
   }
   Require ($results[-1].status -eq 'PASS') 'Cannot run an unverified executable'
+  $mainZip = Join-Path $work 'main.zip'
+  Check 'Sign the disposable main bucket' {
+    & python -B (Join-Path $repo 'buckets/main/.github/scripts/pack.py') (Join-Path $repo 'buckets/main') $mainZip
+    Require ($LASTEXITCODE -eq 0) 'Bucket packing failed'
+    Set-SignedBucket $mainZip
+  }
+  Require ($results[-1].status -eq 'PASS') 'Cannot continue without a signed main bucket'
   Check 'Milestone 1 exit gate' {
     $gate = Join-Path $PSScriptRoot 'milestone1-gate.ps1'
     if ($localBinary) {
-      & pwsh -NoProfile -File $gate -Binary $script:modn -Checksum (Join-Path $work 'modn.exe.sha256')
+      $env:MODN_MAIN_BUCKET_SOURCE = $mainZip
+      $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $script:BucketPublicKey
+      try {
+        & pwsh -NoProfile -File $gate -Binary $script:modn -Checksum (Join-Path $work 'modn.exe.sha256') `
+          -BucketBinary $script:BucketModn
+      } finally {
+        $env:MODN_MAIN_BUCKET_SOURCE = $null
+        $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $null
+      }
     } else {
-      & pwsh -NoProfile -File $gate -Tag $Tag -Repository $Repository
+      $savedSource = $env:MODN_MAIN_BUCKET_SOURCE
+      $savedKey = $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY
+      $env:MODN_MAIN_BUCKET_SOURCE = $null
+      $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $null
+      try {
+        & pwsh -NoProfile -File $gate -Tag $Tag -Repository $Repository
+      } finally {
+        $env:MODN_MAIN_BUCKET_SOURCE = $savedSource
+        $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $savedKey
+      }
     }
     Require ($LASTEXITCODE -eq 0) 'Milestone 1 gate failed'
   }
   Check 'Disposable main bucket' {
-    & python -B (Join-Path $repo 'buckets/main/.github/scripts/pack.py') (Join-Path $repo 'buckets/main') (Join-Path $work 'main.zip')
-    Require ($LASTEXITCODE -eq 0) 'Bucket packing failed'
-    $env:MODN_MAIN_BUCKET_SOURCE = Join-Path $work 'main.zip'
-    [void] (Invoke-GateModn @('bucket', 'update'))
+    $env:MODN_MAIN_BUCKET_SOURCE = $mainZip
+    $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $script:BucketPublicKey
+    [void] (Invoke-GateModn @('bucket', 'update') -Executable $script:BucketModn)
   }
   $game = Join-Path $work 'game'
   Write-File (Join-Path $game 'bin/x64/Cyberpunk2077.exe') 'disposable marker'
@@ -227,15 +272,14 @@ try {
   Check 'Newer minimum host version refusal' {
     $manifest = Get-Content (Join-Path $repo 'buckets/main/games/cyberpunk-2077/module.json') -Raw | ConvertFrom-Json
     $manifest | Add-Member -NotePropertyName min_modn_version -NotePropertyValue '99.0.0' -Force
-    $env:MODN_MAIN_BUCKET_SOURCE = Zip 'future-main' @{
+    $future = Zip 'future-main' @{
       'bucket.json' = (Get-Content (Join-Path $repo 'buckets/main/bucket.json') -Raw)
       'games/cyberpunk-2077/module.json' = ($manifest | ConvertTo-Json)
       'games/cyberpunk-2077/module.lua' = 'error("future module must not execute")'
     }
-    $hash = (Get-FileHash $env:MODN_MAIN_BUCKET_SOURCE -Algorithm SHA256).Hash.ToLowerInvariant()
-    Write-File "$env:MODN_MAIN_BUCKET_SOURCE.sha256" "$hash *future-main.zip`n"
+    Set-SignedBucket $future
     $before = Snapshot (Join-Path $env:LOCALAPPDATA 'modn/buckets/main')
-    $message = Invoke-GateModn @('bucket', 'update') -Refuse
+    $message = Invoke-GateModn @('bucket', 'update') -Refuse -Executable $script:BucketModn
     Write-Host $message
     $runningVersion = $Tag -replace '^v', ''
     if ($localBinary) {

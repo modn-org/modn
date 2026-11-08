@@ -104,6 +104,17 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
         ],
     );
     assert!(add.status.success(), "{}", output(&add));
+    let listed = run(&state, &["list"]);
+    assert!(listed.status.success(), "{}", output(&listed));
+    let entries: serde_json::Value =
+        serde_json::from_slice(&listed.stdout).expect("test fixture invariant");
+    let local = entries
+        .as_array()
+        .expect("test fixture invariant")
+        .iter()
+        .find(|entry| entry["name"] == "community")
+        .expect("registered local bucket");
+    assert!(local.get("signer_key_id").is_none());
     let search = catalog_search(&state);
     assert!(search.status.success(), "{}", output(&search));
     let entries: serde_json::Value =

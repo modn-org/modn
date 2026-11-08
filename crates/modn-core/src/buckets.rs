@@ -1,14 +1,20 @@
 mod dependencies;
 mod git;
 mod manifest;
+mod signature;
 mod snapshot;
 mod store;
 mod update;
 mod version;
 
+pub use crate::bucket_digest::CatalogDigest;
 pub use dependencies::install_order;
-pub use git::{GitCatalogRevision, GitCatalogSource};
+pub use git::{CatalogSigner, GitCatalogRevision, GitCatalogSource, GitCatalogSync};
 pub use manifest::{ArchiveFormat, PackageManifest, PackageSource};
+pub use signature::{
+    catalog_statement, verify_catalog, verify_catalog_directory, CatalogKeyId, CatalogPublicKey,
+    CatalogStatement, VerifiedCatalog,
+};
 pub use snapshot::BucketSnapshot;
 pub use store::{BucketInfo, BucketPackage, BucketStore};
 pub use version::VersionReq;

@@ -1,3 +1,4 @@
+use crate::nxm::NxmLink;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -73,6 +74,11 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: ModuleCommand,
     },
+    /// Manage credentials for remote mod sources.
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
     Game {
         #[command(subcommand)]
         command: GameCommand,
@@ -114,6 +120,25 @@ pub(super) enum ModuleCommand {
         #[arg(long = "allow-root", value_name = "DIR")]
         allow_roots: Vec<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub(super) enum AuthCommand {
+    /// Store, clear or report the Nexus Mods API key.
+    Nexus {
+        #[command(subcommand)]
+        command: NexusAuthCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub(super) enum NexusAuthCommand {
+    /// Read a Nexus API key from stdin and save it in the OS credential store.
+    Set,
+    /// Remove the saved Nexus API key from the OS credential store.
+    Clear,
+    /// Report whether a Nexus API key is available.
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -183,6 +208,10 @@ pub(super) struct InstallArgs {
     /// Repeat for each archive; Modn matches each one to its release by SHA-256.
     #[arg(long, value_name = "ARCHIVE")]
     pub(super) file: Vec<PathBuf>,
+    /// Nexus "Mod Manager Download" link for a free Nexus account. The link
+    /// expires quickly and may remain in your shell history.
+    #[arg(long, value_name = "LINK")]
+    pub(super) nxm: Vec<String>,
     #[arg(
         long,
         help = "Confirm writing files into the game",
@@ -208,6 +237,8 @@ pub(super) struct InstallArgs {
     /// Manage a package whose manifest marks it as a native injector.
     #[arg(long)]
     pub(super) allow_native_injector: bool,
+    #[arg(skip)]
+    pub(super) nxm_links: Vec<NxmLink>,
 }
 
 /// Options for replacing an installed catalog mod with another release.
@@ -223,6 +254,10 @@ pub(super) struct UpdateArgs {
     /// Manually acquired archive of the target release.
     #[arg(long, value_name = "ARCHIVE")]
     pub(super) file: Option<PathBuf>,
+    /// Nexus "Mod Manager Download" link for a free Nexus account. The link
+    /// expires quickly and may remain in your shell history.
+    #[arg(long, value_name = "LINK")]
+    pub(super) nxm: Vec<String>,
     #[arg(
         long,
         help = "Confirm replacing the installed release in the game",
@@ -247,6 +282,8 @@ pub(super) struct UpdateArgs {
     /// Manage a package whose manifest marks it as a native injector.
     #[arg(long)]
     pub(super) allow_native_injector: bool,
+    #[arg(skip)]
+    pub(super) nxm_links: Vec<NxmLink>,
 }
 
 /// Options for changing a managed package's pin.

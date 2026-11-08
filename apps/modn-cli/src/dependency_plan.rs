@@ -133,6 +133,14 @@ pub(super) fn conflicts(
 pub(super) fn acquisition(source: &PackageSource) -> String {
     match source {
         PackageSource::Manual { filename } => format!("download {filename:?} manually"),
+        PackageSource::Nexus {
+            game_domain,
+            mod_id,
+            file_id,
+            file_name,
+        } => format!(
+            "Modn downloads from Nexus Mods: {game_domain} mod {mod_id} file {file_id} ({file_name})"
+        ),
         PackageSource::Https { url } => format!("Modn downloads it from {url}"),
         PackageSource::GithubRelease {
             repository,
@@ -190,7 +198,8 @@ pub(super) fn report(
         let next = match &selected.package.source {
             PackageSource::Https { .. }
             | PackageSource::GithubRelease { .. }
-            | PackageSource::Git { .. } => "when you install it",
+            | PackageSource::Git { .. }
+            | PackageSource::Nexus { .. } => "when you install it",
             _ => "then add --file <archive>",
         };
         println!(

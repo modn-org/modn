@@ -59,6 +59,15 @@ fn cache_entry(fixture: &Fixture, id: &str) -> PathBuf {
     cache_dir(fixture).join(format!("test-game#{id}#1.0#{url_hash}.zip"))
 }
 
+/// Count archive entries, ignoring the digest index and its temporary files.
+fn archive_entry_count(fixture: &Fixture) -> usize {
+    fs::read_dir(cache_dir(fixture))
+        .expect("cache dir")
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().contains('#'))
+        .count()
+}
+
 fn seed(fixture: &Fixture, id: &str, archive: &Path) {
     fs::create_dir_all(cache_dir(fixture)).expect("cache dir");
     fs::copy(archive, cache_entry(fixture, id)).expect("seed cache");
@@ -173,6 +182,53 @@ fn a_manual_source_is_never_downloaded() {
         &[
             "install",
             "manual",
+            "--yes",
+            "--file",
+            archive.to_str().expect("UTF-8"),
+        ],
+    );
+    assert!(supplied.status.success(), "{}", error(&supplied));
+}
+
+#[test]
+fn a_nexus_source_needs_a_valid_api_key_without_a_supplied_file() {
+    let fixture = Fixture::new();
+    let (archive, hash) = plugin_archive(&fixture, "nexus");
+    fixture.bucket("deps", "test-game", "nexus", &hash, &[]);
+    let manifest = json!({
+        "schema_version":1, "id":"nexus", "game":"test-game", "name":"nexus",
+        "version":"1.0", "archive_format":"zip", "sha256":hash,
+        "source":{"kind":"nexus", "game_domain":"cyberpunk2077", "mod_id":6945,
+            "file_id":123456, "file_name":"Equipment-EX-1.2.10.zip"},
+        "dependencies":[]
+    });
+    fs::write(
+        fixture.temp.path().join("deps/games/test-game/nexus.json"),
+        serde_json::to_vec(&manifest).expect("JSON"),
+    )
+    .expect("manifest");
+    fixture.register();
+    let blocked = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .env("MODN_CACHE", cache_dir(&fixture))
+        .env("MODN_NEXUS_API_KEY", "bad\tkey")
+        .args(["install", "nexus", "--yes"])
+        .output()
+        .expect("run CLI");
+    assert!(!blocked.status.success());
+    let message = error(&blocked);
+    assert!(
+        message.contains("MODN_NEXUS_API_KEY is not a valid Nexus API key"),
+        "{message}"
+    );
+    assert!(!cache_dir(&fixture).exists());
+    let supplied = modn(
+        &fixture,
+        &[
+            "install",
+            "nexus",
             "--yes",
             "--file",
             archive.to_str().expect("UTF-8"),
@@ -367,8 +423,12 @@ fn provider_preview_is_offline_and_aliases_reuse_verified_bytes() {
         fs::read(fixture.game.join("addons/shared.plugin")).unwrap(),
         b"shared"
     );
-    let entries = fs::read_dir(cache_dir(&fixture)).unwrap().count();
+    let entries = archive_entry_count(&fixture);
     assert_eq!(entries, 1, "digest alias reuse adds no second entry");
+    assert!(
+        cache_dir(&fixture).join(".digest-index.json").is_file(),
+        "the digest index is written beside the archive entry"
+    );
     assert!(modn(&fixture, &["uninstall", "provider", "--yes"])
         .status
         .success());
@@ -381,7 +441,7 @@ fn provider_preview_is_offline_and_aliases_reuse_verified_bytes() {
     .unwrap();
     let alias = modn(&fixture, &["install", "alias", "--yes"]);
     assert!(alias.status.success(), "{}", error(&alias));
-    assert_eq!(fs::read_dir(cache_dir(&fixture)).unwrap().count(), 1);
+    assert_eq!(archive_entry_count(&fixture), 1);
     assert_eq!(
         fs::read(fixture.game.join("addons/shared.plugin")).unwrap(),
         b"shared"

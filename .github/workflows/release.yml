@@ -63,9 +63,21 @@ jobs:
           Get-Content dist/modn.exe.sha256
       - name: Package the installer
         run: Copy-Item install.ps1 dist/install.ps1
-      - name: Package the smoke test with the pinned main bucket
+      - name: Package the smoke test with a signed ephemeral main bucket
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
         run: |
           python buckets/main/.github/scripts/pack.py buckets/main smoke/main-bucket.zip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $bucket = Join-Path $env:RUNNER_TEMP 'smoke-bucket'
+          Expand-Archive -LiteralPath smoke/main-bucket.zip -DestinationPath $bucket
+          cargo run --quiet --locked -p modn-core --example sign_catalog -- $bucket smoke/main-bucket.zip.minisig smoke/main-bucket.pub
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # A separate test-key build for `bucket update`; never copied into dist/.
+          cargo build --release --locked -p modn-cli --features modn-core/test-main-key --target-dir target/smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item target/smoke/release/modn.exe smoke/modn-test.exe
           Copy-Item .github/scripts/release-smoke.ps1 smoke/release-smoke.ps1
       - uses: actions/upload-artifact@v4
         with:
@@ -104,6 +116,8 @@ jobs:
           -Binary ./dist/modn.exe
           -Checksum ./dist/modn.exe.sha256
           -MainBucket ./smoke/main-bucket.zip
+          -BucketBinary ./smoke/modn-test.exe
+          -PublicKey ./smoke/main-bucket.pub
 
   release:
     needs: smoke

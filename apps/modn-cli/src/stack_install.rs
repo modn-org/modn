@@ -109,6 +109,7 @@ pub(super) fn run(
     json: bool,
 ) -> Result<()> {
     let releases = releases(&stack)?;
+    download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes;
     let policy = if args.allow_native_injector {
         NativeInjectorPolicy::Allow
@@ -133,9 +134,12 @@ pub(super) fn run(
         .map(|release| {
             let reference = reference_of(release).to_string();
             let download = if stack.archives.contains_key(&reference) {
-                ""
+                String::new()
             } else {
-                " (downloads its archive)"
+                match download::source_label(release) {
+                    Some(source) => format!(" (downloads its archive from {source})"),
+                    None => " (downloads its archive)".to_owned(),
+                }
             };
             format!("{reference} {}{download}", release.package.version)
         })
@@ -156,6 +160,7 @@ pub(super) fn run(
         &releases,
         &mut stack.archives,
         &mut stack.digests,
+        &args.nxm_links,
         json,
     )?;
     let mut digests = BTreeMap::new();

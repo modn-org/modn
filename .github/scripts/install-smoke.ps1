@@ -4,6 +4,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $work = Join-Path ([IO.Path]::GetTempPath()) ("modn-install-smoke-" + [guid]::NewGuid().ToString('N'))
 $previousData = $env:LOCALAPPDATA
 $previousSource = $env:MODN_MAIN_BUCKET_SOURCE
+$previousTestKey = $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY
 $previousPath = $env:Path
 $registryPath = 'HKCU:\Software\modn-install-smoke-' + [guid]::NewGuid().ToString('N')
 $environmentKey = Join-Path $registryPath 'Environment'
@@ -61,13 +62,23 @@ try {
     Assert-That (($env:Path -split ';') -contains $install) 'current process PATH includes install directory'
   } finally { $key.Dispose() }
   New-Item -ItemType Directory -Path $assets | Out-Null
-  cargo build --release --locked -p modn-cli
+  # The installer bootstraps the main bucket. This smoke test signs the local
+  # bucket with an ephemeral key and installs a test-key build so that update
+  # verifies without the owner's main signer secret.
+  cargo build --release --locked -p modn-cli --features modn-core/test-main-key --target-dir target/install-smoke
   if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
-  Copy-Item (Join-Path $root 'target/release/modn.exe') (Join-Path $assets 'modn.exe')
+  Copy-Item (Join-Path $root 'target/install-smoke/release/modn.exe') (Join-Path $assets 'modn.exe')
   $hash = (Get-FileHash (Join-Path $assets 'modn.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
   [IO.File]::WriteAllText((Join-Path $assets 'modn.exe.sha256'), "$hash *modn.exe`n")
-  python (Join-Path $root 'buckets/main/.github/scripts/pack.py') (Join-Path $root 'buckets/main') (Join-Path $assets 'main-bucket.zip')
+  $bucketZip = Join-Path $assets 'main-bucket.zip'
+  python (Join-Path $root 'buckets/main/.github/scripts/pack.py') (Join-Path $root 'buckets/main') $bucketZip
   if ($LASTEXITCODE -ne 0) { throw 'bucket packing failed' }
+  $extracted = Join-Path $work 'bucket'
+  Expand-Archive -LiteralPath $bucketZip -DestinationPath $extracted
+  $publicKey = Join-Path $assets 'main-bucket.pub'
+  cargo run --quiet --locked -p modn-core --example sign_catalog -- $extracted "$bucketZip.minisig" $publicKey
+  if ($LASTEXITCODE -ne 0) { throw 'bucket signing failed' }
+  $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = (Get-Content -LiteralPath $publicKey -Raw).Trim()
   $env:LOCALAPPDATA = Join-Path $work 'data'
   $env:MODN_MAIN_BUCKET_SOURCE = $null
   $script = Join-Path $root 'install.ps1'
@@ -87,6 +98,7 @@ try {
 } finally {
   $env:LOCALAPPDATA = $previousData
   $env:MODN_MAIN_BUCKET_SOURCE = $previousSource
+  $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $previousTestKey
   $env:Path = $previousPath
   if (Test-Path -LiteralPath $registryPath) { Remove-Item -LiteralPath $registryPath -Recurse -Force }
   if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }

@@ -1,9 +1,8 @@
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn pack(source: &Path, zip: &Path, extra: Option<(&str, &[u8])>) {
@@ -39,29 +38,57 @@ fn pack(source: &Path, zip: &Path, extra: Option<(&str, &[u8])>) {
         writer.write_all(&bytes).expect("fixture ZIP bytes");
     }
     writer.finish().expect("fixture ZIP complete");
-    sidecar(zip);
 }
 
-fn sidecar(zip: &Path) {
-    let hash = format!(
-        "{:x}",
-        Sha256::digest(fs::read(zip).expect("fixture ZIP bytes"))
-    );
-    fs::write(
-        format!("{}.sha256", zip.display()),
-        format!("{hash} *main-bucket.zip\n"),
-    )
-    .expect("fixture checksum");
+fn remove_signature(zip: &Path) {
+    match fs::remove_file(format!("{}.minisig", zip.display())) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => panic!("cannot remove fixture signature: {error}"),
+    }
 }
 
-fn repository() -> std::path::PathBuf {
+fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main")
+}
+
+fn copy_tree(source: &Path, target: &Path) {
+    fs::create_dir_all(target).expect("fixture tree");
+    for entry in fs::read_dir(source).expect("fixture entries") {
+        let entry = entry.expect("fixture entry");
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let target = target.join(entry.file_name());
+        if entry.file_type().expect("fixture entry type").is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("fixture tree file");
+        }
+    }
+}
+
+fn fixture_tree() -> tempfile::TempDir {
+    let tree = tempfile::tempdir().expect("fixture tree directory");
+    copy_tree(&repository(), tree.path());
+    tree
+}
+
+fn test_key_id() -> String {
+    modn_core::buckets::CatalogPublicKey::parse(&main_bucket::test_public_key())
+        .expect("fixture public key")
+        .key_id()
+        .to_string()
 }
 
 fn run(data: &Path, source: &str, args: &[&str]) -> Output {
     Command::new(main_bucket::modn_binary())
         .env("LOCALAPPDATA", data)
         .env("MODN_MAIN_BUCKET_SOURCE", source)
+        .env(
+            "MODN_TEST_MAIN_BUCKET_PUBLIC_KEY",
+            main_bucket::test_public_key(),
+        )
         .env_remove("MODN_GAME_MODULES_DIR")
         .args(args)
         .output()
@@ -77,15 +104,29 @@ fn success(output: Output) -> String {
     String::from_utf8(output.stdout).expect("fixture command UTF-8 output")
 }
 
+fn failure(output: &Output, expected: &str) {
+    assert!(!output.status.success(), "{expected}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(expected), "{expected}: {stderr}");
+}
+
 #[test]
 fn verified_update_installs_catalog_and_module_and_reports_change() {
     let data = tempfile::tempdir().unwrap();
     let zip = data.path().join("main.zip");
-    pack(&repository(), &zip, None);
+    let tree = fixture_tree();
+    pack(tree.path(), &zip, None);
+    main_bucket::write_signature(tree.path(), &zip);
     let source = zip.to_str().unwrap();
+    let key_id = test_key_id();
+    let output = success(run(data.path(), source, &["bucket", "update"]));
+    assert!(
+        output.contains(&format!("Verified main bucket signed by {key_id}.")),
+        "{output}"
+    );
     assert!(
         success(run(data.path(), source, &["--json", "bucket", "update"]))
-            .contains("\"changed\":true")
+            .contains("\"changed\":false")
     );
     assert!(success(run(data.path(), source, &["search"])).contains("red4ext"));
     let game = data.path().join("fake-game");
@@ -114,7 +155,9 @@ fn verified_update_installs_catalog_and_module_and_reports_change() {
 fn rejected_updates_keep_previous_bucket_unchanged() {
     let data = tempfile::tempdir().unwrap();
     let zip = data.path().join("main.zip");
-    pack(&repository(), &zip, None);
+    let tree = fixture_tree();
+    pack(tree.path(), &zip, None);
+    main_bucket::write_signature(tree.path(), &zip);
     let source = zip.to_str().unwrap();
     success(run(data.path(), source, &["bucket", "update"]));
     let main = data.path().join("modn/buckets/main");
@@ -123,69 +166,98 @@ fn rejected_updates_keep_previous_bucket_unchanged() {
     let current = fs::read_to_string(repository().join(module)).unwrap();
     let future = current.replace("\"api_version\":1", "\"api_version\":3");
     assert_ne!(future, current, "fixture module declares host API 1");
-    for failure in ["checksum", "traversal", "module", "api", "http", "name"] {
-        pack(&repository(), &zip, None);
-        match failure {
-            "checksum" => fs::write(format!("{source}.sha256"), "0".repeat(64)).unwrap(),
-            "traversal" => pack(&repository(), &zip, Some(("../escaped", b"hostile"))),
-            "api" => pack(&repository(), &zip, Some((module, future.as_bytes()))),
-            "module" => {
-                let mut writer = zip::ZipWriter::new_append(
-                    fs::OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(&zip)
-                        .unwrap(),
+
+    let cases = [
+        ("unsigned", "is unsigned; Modn refuses unsigned releases"),
+        ("sidecar", "is unsigned; Modn refuses unsigned releases"),
+        ("malformed", "malformed catalog signature"),
+        ("wrong-key", "does not match public key"),
+        ("other-tree", "catalog signature verification failed"),
+        ("tree-name", "expected \"main\""),
+        ("traversal", "unsafe archive entry"),
+        ("module", "failed validation"),
+        ("api", "incompatible host API"),
+        ("http", "must be an HTTPS URL"),
+        ("name", "only main can be updated"),
+    ];
+    for (case, expected) in cases {
+        remove_signature(&zip);
+        match case {
+            "unsigned" => {
+                pack(tree.path(), &zip, None);
+                fs::write(format!("{source}.sha256"), "0".repeat(64)).unwrap();
+            }
+            "sidecar" => pack(tree.path(), &zip, None),
+            "malformed" => {
+                pack(tree.path(), &zip, None);
+                fs::write(format!("{source}.minisig"), "not a signature").unwrap();
+            }
+            "wrong-key" => {
+                pack(tree.path(), &zip, None);
+                main_bucket::write_foreign_signature(tree.path(), &zip);
+            }
+            "other-tree" => {
+                let modified = fixture_tree();
+                fs::write(modified.path().join(module), &future).unwrap();
+                pack(modified.path(), &zip, None);
+                main_bucket::write_signature(tree.path(), &zip);
+            }
+            "tree-name" => {
+                let renamed = fixture_tree();
+                let metadata = fs::read_to_string(renamed.path().join("bucket.json")).unwrap();
+                fs::write(
+                    renamed.path().join("bucket.json"),
+                    metadata.replace("\"main\"", "\"community\""),
                 )
                 .unwrap();
-                writer
-                    .start_file(
-                        "games/bad-game/module.json",
-                        zip::write::SimpleFileOptions::default(),
-                    )
-                    .unwrap();
-                writer
-                    .write_all(
-                        &fs::read(repository().join("games/cyberpunk-2077/module.json")).unwrap(),
-                    )
-                    .unwrap();
-                writer
-                    .start_file(
-                        "games/bad-game/module.lua",
-                        zip::write::SimpleFileOptions::default(),
-                    )
-                    .unwrap();
-                writer.write_all(b"this is invalid Lua!").unwrap();
-                writer.finish().unwrap();
-                sidecar(&zip);
+                pack(renamed.path(), &zip, None);
+                main_bucket::write_signature(renamed.path(), &zip);
             }
-            _ => {}
+            "traversal" => {
+                pack(tree.path(), &zip, Some(("../escaped", b"hostile")));
+                main_bucket::write_signature(tree.path(), &zip);
+            }
+            "module" => {
+                let modified = fixture_tree();
+                let game = modified.path().join("games/bad-game");
+                fs::create_dir_all(&game).unwrap();
+                fs::copy(
+                    tree.path().join("games/cyberpunk-2077/module.json"),
+                    game.join("module.json"),
+                )
+                .unwrap();
+                fs::write(game.join("module.lua"), "this is invalid Lua!").unwrap();
+                pack(modified.path(), &zip, None);
+                main_bucket::write_signature(modified.path(), &zip);
+            }
+            "api" => {
+                let modified = fixture_tree();
+                fs::write(modified.path().join(module), &future).unwrap();
+                pack(modified.path(), &zip, None);
+                main_bucket::write_signature(modified.path(), &zip);
+            }
+            "http" => remove_signature(&zip),
+            "name" => {}
+            _ => unreachable!(),
         }
         let output = run(
             data.path(),
-            if failure == "http" {
+            if case == "http" {
                 "http://example.invalid/main.zip"
             } else {
                 source
             },
-            if failure == "name" {
+            if case == "name" {
                 &["bucket", "update", "community"]
             } else {
                 &["bucket", "update"]
             },
         );
-        assert!(!output.status.success(), "{failure}");
-        if failure == "api" {
-            assert!(
-                String::from_utf8_lossy(&output.stderr).contains("incompatible host API"),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        failure(&output, expected);
         assert_eq!(
             modn_core::bucket_digest::directory_digest(&main).unwrap(),
             original,
-            "{failure}"
+            "{case}"
         );
         assert!(!data.path().join("modn/buckets/.main-staging").exists());
         assert!(!data.path().join("modn/buckets/.main-aside").exists());
@@ -197,7 +269,9 @@ fn rejected_updates_keep_previous_bucket_unchanged() {
 fn interrupted_swaps_restore_or_clean_before_failed_update() {
     let data = tempfile::tempdir().unwrap();
     let zip = data.path().join("main.zip");
-    pack(&repository(), &zip, None);
+    let tree = fixture_tree();
+    pack(tree.path(), &zip, None);
+    main_bucket::write_signature(tree.path(), &zip);
     let source = zip.to_str().unwrap();
     success(run(data.path(), source, &["bucket", "update"]));
     let root = data.path().join("modn/buckets");
@@ -210,7 +284,7 @@ fn interrupted_swaps_restore_or_clean_before_failed_update() {
         }
         fs::create_dir(root.join(".main-staging")).unwrap();
         fs::write(root.join(".main-staging/partial"), "partial").unwrap();
-        fs::write(format!("{source}.sha256"), "0".repeat(64)).unwrap();
+        remove_signature(&zip);
         assert!(!run(data.path(), source, &["bucket", "update"])
             .status
             .success());
@@ -229,10 +303,40 @@ fn interrupted_swaps_restore_or_clean_before_failed_update() {
         }
     }
     fs::rename(root.join("main"), root.join(".main-aside")).unwrap();
-    fs::remove_file(format!("{source}.sha256")).unwrap();
+    remove_signature(&zip);
     assert!(!run(data.path(), source, &["bucket", "update"])
         .status
         .success());
     assert!(root.join("main/marker").is_file());
     assert!(!root.join(".main-aside").exists());
+}
+
+#[test]
+fn embedded_signer_key_refuses_a_release_signed_by_another_key() {
+    let data = tempfile::tempdir().unwrap();
+    let zip = data.path().join("main.zip");
+    let tree = fixture_tree();
+    pack(tree.path(), &zip, None);
+    main_bucket::write_signature(tree.path(), &zip);
+    let output = Command::new(main_bucket::modn_binary())
+        .env("LOCALAPPDATA", data.path())
+        .env("MODN_MAIN_BUCKET_SOURCE", zip.to_str().unwrap())
+        .env_remove("MODN_TEST_MAIN_BUCKET_PUBLIC_KEY")
+        .env_remove("MODN_GAME_MODULES_DIR")
+        .args(["bucket", "update"])
+        .output()
+        .expect("run fixture command");
+    failure(&output, "does not match public key 0E250AD52A3BA2AA");
+    assert!(!data.path().join("modn/buckets/main").exists());
+}
+
+#[test]
+fn sidecar_only_release_is_refused() {
+    let data = tempfile::tempdir().unwrap();
+    let zip = data.path().join("main.zip");
+    pack(&repository(), &zip, None);
+    fs::write(format!("{}.sha256", zip.display()), "0".repeat(64)).unwrap();
+    let output = run(data.path(), zip.to_str().unwrap(), &["bucket", "update"]);
+    failure(&output, "is unsigned; Modn refuses unsigned releases");
+    assert!(!data.path().join("modn/buckets/main").exists());
 }

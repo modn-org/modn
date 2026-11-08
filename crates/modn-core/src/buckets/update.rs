@@ -1,3 +1,4 @@
+use super::signature::{main_bucket_public_key, verify_catalog, CatalogKeyId};
 use super::BucketStore;
 use crate::acquisition::MAX_DOWNLOAD_BYTES;
 use crate::{archive, bucket_digest};
@@ -6,6 +7,8 @@ use fs2::FileExt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::path::Path;
+
+const MAX_SIGNATURE_BYTES: u64 = 4 * 1024;
 
 fn directory_exists(path: &Path) -> Result<bool> {
     match fs::symlink_metadata(path) {
@@ -93,28 +96,20 @@ fn swap(root: &Path, had_main: bool, delete_old: impl FnOnce(&Path) -> Result<()
     Ok(())
 }
 
-fn checksum(mut reader: impl Read) -> Result<String> {
-    let mut text = String::new();
-    reader.by_ref().take(4097).read_to_string(&mut text)?;
-    if text.len() > 4096 {
-        bail!("main bucket checksum sidecar exceeds size limit");
+fn read_signature(mut reader: impl Read) -> Result<String> {
+    let mut bytes = Vec::new();
+    reader
+        .by_ref()
+        .take(MAX_SIGNATURE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_SIGNATURE_BYTES {
+        bail!("main bucket signature exceeds size limit");
     }
-    let digest = text.split_whitespace().next().unwrap_or("");
-    if digest.len() != 64
-        || !digest
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        bail!("main bucket checksum must be 64 lowercase hex characters");
-    }
-    Ok(digest.to_owned())
+    String::from_utf8(bytes).context("malformed catalog signature: not UTF-8")
 }
 
-fn extract(path: &Path, stage: &Path, expected: &str) -> Result<()> {
+fn extract(path: &Path, stage: &Path) -> Result<()> {
     let inspection = archive::inspect(path)?;
-    if inspection.sha256 != expected {
-        bail!("main bucket SHA-256 mismatch");
-    }
     fs::create_dir(stage)?;
     let mut zip = zip::ZipArchive::new(File::open(path)?)?;
     for file in inspection.files {
@@ -135,13 +130,15 @@ fn extract(path: &Path, stage: &Path, expected: &str) -> Result<()> {
 }
 
 impl BucketStore {
-    /// Verify and install a main bucket ZIP. Recover an interrupted swap before updating.
-    /// Return the installed tree digest and whether its contents changed.
+    /// Verify and install a signed main bucket ZIP. Recover an interrupted swap before updating.
+    /// Return the installed tree digest, whether its contents changed, and the signer key.
     pub fn update_main<R: Read, S: Read>(
         &self,
+        embedded_key: &str,
         source: impl FnOnce() -> Result<R>,
-        sidecar: impl FnOnce() -> Result<S>,
-    ) -> Result<(String, bool)> {
+        signature: impl FnOnce() -> Result<S>,
+    ) -> Result<(String, bool, CatalogKeyId)> {
+        let key = main_bucket_public_key(embedded_key)?;
         self.check_registry_root()?;
         fs::create_dir_all(&self.root)?;
         let lock_path = self.root.join(".main-update.lock");
@@ -158,7 +155,7 @@ impl BucketStore {
         lock.try_lock_exclusive()
             .context("main bucket update is already running")?;
         recover(&self.root)?;
-        let expected = checksum(sidecar()?)?;
+        let signature_text = read_signature(signature()?)?;
         let mut source = source()?;
         let mut zip = tempfile::Builder::new()
             .suffix(".zip")
@@ -171,13 +168,20 @@ impl BucketStore {
         let stage = self.root.join(".main-staging");
         let main = self.root.join("main");
         let result = (|| {
-            extract(zip.path(), &stage, &expected)?;
+            extract(zip.path(), &stage)?;
+            let verified = verify_catalog(&stage, &key, &signature_text)?;
+            if verified.statement.name() != "main" {
+                bail!(
+                    "main bucket release names its catalog \"{}\"; expected \"main\"",
+                    verified.statement.name()
+                );
+            }
             self.validate_main(&stage)?;
             let digest = bucket_digest::directory_digest(&stage)?;
             let had_main = directory_exists(&main)?;
             let changed = !had_main || bucket_digest::directory_digest(&main)? != digest;
             swap(&self.root, had_main, remove_directory)?;
-            Ok((digest, changed))
+            Ok((digest, changed, verified.key_id))
         })();
         let cleanup = remove_directory(&stage);
         match result {
