@@ -62,9 +62,11 @@ catalogs still refresh, and the command exits with a nonzero status. Human
 output prints one line per bucket. `--json` prints one value with a `buckets`
 array; each entry has `name`, `kind`, and `changed`, `skipped` or `error`.
 
-`--version`, `--file`, `--path` and `--game` describe one installed mod, so they
-need a target and are refused without one. Use `modn update <target>` to replace
-one installed catalog mod as before.
+The options for one installed mod need a target and are refused without one:
+`--version`, `--file`, `--path`, `--game`, `--nxm`, `--dry-run`, `--no-cache`,
+`--download`, `--allow-executable` and `--allow-native-injector`. A refresh always
+fetches, so `modn update --dry-run` is refused rather than ignored. Use
+`modn update <target>` to replace one installed catalog mod as before.
 
 ## Games, packages and uninstall
 

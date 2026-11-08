@@ -342,6 +342,30 @@ fn target_only_options_are_refused_without_a_target() {
             &["--game", "test-game", "update"][..],
             "`--game` needs an update target",
         ),
+        (
+            &["update", "--nxm", "nxm://example"][..],
+            "`--nxm` needs an update target",
+        ),
+        (
+            &["update", "--dry-run"][..],
+            "`--dry-run` needs an update target",
+        ),
+        (
+            &["update", "--no-cache"][..],
+            "`--no-cache` needs an update target",
+        ),
+        (
+            &["update", "--dry-run", "--download"][..],
+            "`--dry-run` needs an update target",
+        ),
+        (
+            &["update", "--allow-executable", "bin/tool.exe"][..],
+            "`--allow-executable` needs an update target",
+        ),
+        (
+            &["update", "--allow-native-injector"][..],
+            "`--allow-native-injector` needs an update target",
+        ),
     ] {
         let output = run(args);
         assert!(!output.status.success(), "{args:?} must be refused");

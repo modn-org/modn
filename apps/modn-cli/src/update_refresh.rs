@@ -109,6 +109,18 @@ fn refuse_target_options(args: &UpdateArgs, requested: Option<&str>) -> Result<(
     if requested.is_some() {
         bail!("`--game` needs an update target: run `modn --game <id> update <target>`");
     }
+    // A refresh always fetches, so a preview or install flag must not be ignored.
+    // `--download` needs `--dry-run`, which this check refuses first.
+    for (given, flag) in [
+        (args.dry_run, "--dry-run"),
+        (args.no_cache, "--no-cache"),
+        (!args.allow_executable.is_empty(), "--allow-executable"),
+        (args.allow_native_injector, "--allow-native-injector"),
+    ] {
+        if given {
+            bail!("`{flag}` needs an update target: run `modn update <target> {flag}`");
+        }
+    }
     Ok(())
 }
 
