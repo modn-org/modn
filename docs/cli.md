@@ -12,6 +12,7 @@ modn game remove cyberpunk-2077
 
 modn bucket list
 modn bucket update
+modn update
 modn bucket add community "/path/to/catalog"
 modn bucket remove community
 
@@ -46,6 +47,24 @@ modn uninstall red4ext --cascade --yes
 mod IDs; noninteractive invocations return candidates (structured JSON errors
 under `--json`). `modn search` matches mod ID or display name and accepts
 global `--game`.
+
+## Catalog refresh
+
+`modn update` without a target refreshes every catalog and changes no game
+files or install state. It first refreshes the official `main` bucket exactly as
+`modn bucket update` does. Then it syncs each registered Git catalog to the
+latest revision of its registered source, exactly as `modn bucket sync <name>`
+does, and verifies the signature against the pinned signer. Local folder
+buckets are skipped because they have nothing to fetch.
+
+Each catalog is independent. A failing catalog is reported, the remaining
+catalogs still refresh, and the command exits with a nonzero status. Human
+output prints one line per bucket. `--json` prints one value with a `buckets`
+array; each entry has `name`, `kind`, and `changed`, `skipped` or `error`.
+
+`--version`, `--file`, `--path` and `--game` describe one installed mod, so they
+need a target and are refused without one. Use `modn update <target>` to replace
+one installed catalog mod as before.
 
 ## Games, packages and uninstall
 

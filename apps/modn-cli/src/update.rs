@@ -147,13 +147,16 @@ pub(super) fn run(
     if args.download && !args.dry_run {
         bail!("--download only prepares a --dry-run; an update downloads what it needs");
     }
+    let Some(target) = args.target.as_deref() else {
+        return crate::update_refresh::run(args, state_path, requested, json);
+    };
     let catalog = BucketStore::new(
         state_path
             .parent()
             .context("invalid manager state directory")?,
     )
     .snapshot(requested)?;
-    let current = catalog_install::resolve(&args.target, &catalog, json)?;
+    let current = catalog_install::resolve(target, &catalog, json)?;
     let reference = reference_of(&current);
     let label = reference.to_string();
     let releases = catalog.releases(&current.bucket, &current.package.game, &current.package.id)?;

@@ -23,6 +23,7 @@ mod selection;
 mod stack_install;
 mod state_access;
 mod update;
+mod update_refresh;
 mod update_report;
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -54,7 +55,9 @@ fn prepare_nxm(command: &mut Command) -> Result<()> {
         .as_secs();
     match command {
         Command::Install(args) => args.nxm_links = nxm::parse_all(&args.nxm, now)?,
-        Command::Update(args) => args.nxm_links = nxm::parse_all(&args.nxm, now)?,
+        Command::Update(args) if args.target.is_some() => {
+            args.nxm_links = nxm::parse_all(&args.nxm, now)?;
+        }
         _ => {}
     }
     Ok(())

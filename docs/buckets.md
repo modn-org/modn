@@ -17,6 +17,15 @@ has its own release cycle, so a catalog change needs no Modn release.
 Modn refreshes the copy only when requested. Trusted third-party game modules use a separate registry.
 Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 
+`modn update` with no target refreshes the official bucket and every registered
+Git catalog in one run. It uses the same signed-release path as
+`modn bucket update` and the same pinned-signer sync as
+`modn bucket sync <name>`. Local folder buckets are skipped, because they have
+nothing to fetch. One failing catalog does not stop the others; the command
+reports each bucket and exits nonzero when any failed. It never writes game
+files or install state. `modn update <target>` still replaces one installed
+catalog mod.
+
 ### Main catalog signature
 
 Modn verifies a minisign (Ed25519) signature with the catalog signer key built
