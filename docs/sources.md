@@ -24,18 +24,32 @@ modn bucket list --json
 
 Keep existing `bucket add <name> <path>` mapped to `BucketStore::add`.
 Keep unnamed `bucket update` mapped to the official main release updater.
-Show the Git source and commit in the named catalog's output.
+Show the Git source, commit and pinned key ID in the named catalog's output.
 Do not call `sync_git` from search, resolution, installation, or listing.
 
 Sync clones into a private staging directory without shell interpolation.
 It checks out the selected revision and removes Git administrative files.
 It rejects links, non-regular entries, game modules, and invalid catalog metadata.
 Publication atomically replaces the catalog registration file.
-The registration contains both the validated tree path and its source revision.
+The registration contains the validated tree path, its source revision and the pinned signer key.
 Fetch, checkout, and validation failures preserve the previous usable registration.
 Readers that retained an older tree can continue using it.
 Old trees remain on disk. This MVP performs no catalog garbage collection.
-Git must be installed. This MVP has no credentials, signatures, or network timeout policy.
+
+A Git catalog is signed. The first revision must have `catalog.pub` and
+`catalog.sig` at its root. Modn verifies the revision with the key in
+`catalog.pub` and pins that key. It prints
+`Pinned signer key <key ID> for bucket <name>; compare this fingerprint with the catalog author.`
+Later syncs verify the revision with the pinned key only. A later revision may
+omit `catalog.pub`.
+A `catalog.pub` with another key ID is refused, because Modn does not rotate
+keys yet (#122). An unsigned or invalid revision is refused, and there is no
+`--allow-unsigned` option.
+A registration made before catalog signing fails with a request to remove the
+bucket and sync it again.
+`modn bucket list` shows the pinned key ID after the catalog title.
+
+Git must be installed. This MVP has no credentials or network timeout policy.
 Git sync serializes other Git sync calls. It does not coordinate concurrent local registration edits.
 Catalog metadata does not approve executable installation or grant game writes.
 

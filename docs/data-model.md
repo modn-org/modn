@@ -51,8 +51,10 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 
 The install script runs `modn bucket update` to fetch the official `main` bucket.
 Modn never fetches it implicitly. A missing copy prompts the user to run that command.
-The update checks the ZIP against its same-origin release SHA-256 sidecar.
-Release signing is future work. The update fetches the latest `modn-org/main`
+The update verifies a minisign signature over the catalog digest with the signer
+key built into Modn. It refuses an unsigned or invalid release and keeps the
+installed copy.
+The update fetches the latest `modn-org/main`
 release, and it refuses a bucket with a module this Modn cannot run.
 The local copy works offline and changes only on explicit update. Community buckets
 cannot contain game modules. Registering a bucket

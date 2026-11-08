@@ -15,9 +15,10 @@ The `main` official bucket and registered local community buckets describe
 mod packages: versions, hashes, sources and known dependencies. Only `main`
 may contain game modules. The local copy works offline. Only `modn bucket update` fetches it.
 If the copy is missing, Modn asks the user to run that command.
-The update checks the ZIP against its release SHA-256 sidecar from the same origin.
-Release signing is future work. `main` lives in the `modn-org/main` repository,
-with its own release cycle.
+The update verifies a minisign signature over the catalog digest with the signer
+key built into Modn. Each release must include `main-bucket.zip.minisig`.
+`main` lives in the `modn-org/main` repository, with its own release cycle.
+Key rotation and revocation are planned (#122).
 Trusted third-party game modules use a separate registry. Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 Package manifests never authorize changes to game files: a
 manifest may declare the tool executables its archive installs, but only the

@@ -8,9 +8,15 @@ bucket.json
 games/<game-id>/<package-id>.json
 games/<game-id>/module.json       # official main only
 games/<game-id>/module.lua        # official main only
+catalog.sig                       # distributed catalogs
+catalog.pub                       # distributed catalogs
 ```
 
 `bucket.json` declares `schema_version` (integer 1), `name` and `title`.
+A distributed catalog is signed. `catalog.sig` holds the minisign signature of
+the catalog statement, and `catalog.pub` holds the signer public key. A local
+folder bucket needs no signature. See
+[Signing a catalog](../docs/buckets.md#signing-a-catalog).
 Each package manifest declares `schema_version`, `id`, `game`, `name`,
 `version`, `archive_format`, `sha256`, `source`, and optional
 `dependencies`, `homepage`, `executables` and `native_injector`.
@@ -65,12 +71,14 @@ implicitly. If `<data dir>/buckets/main/` is missing, Modn tells the user to run
 `modn bucket update`. For development and tests, `MODN_MAIN_BUCKET_SOURCE`
 selects an HTTPS URL or local ZIP path for that command.
 
-`modn bucket update` downloads `main-bucket.zip` and its
-`main-bucket.zip.sha256` sidecar from the latest
+`modn bucket update` downloads `main-bucket.zip` and
+`main-bucket.zip.minisig` from the latest
 [`modn-org/main`](https://github.com/modn-org/main/releases) release over HTTPS.
-It verifies the digest and validates the bucket and its modules before an atomic
-swap. Failure preserves the previous copy. The checksum shares the release
-origin, as in Scoop. Release signing is future work.
+It verifies the minisign signature over the catalog digest and validates the
+bucket and its modules before an atomic swap. Failure preserves the previous copy.
+Modn refuses an unsigned, invalid or wrong-key release. The `main-bucket.zip.sha256`
+sidecar is no longer used. See
+[Main catalog signature](../docs/buckets.md#main-catalog-signature).
 
 Use `modn search` for package discovery and `modn bucket show bucket/game/package` for an exact manifest.
 `modn bucket add <name> <directory>` registers a local catalog; removing
@@ -78,7 +86,8 @@ registration does not remove its source files.
 
 Bucket operations do not install mods or modify game files. `modn install` resolves dependencies, checks these
 requirements and conflicts, and downloads `https` artifacts. Git-backed
-catalog synchronization remains deferred (#53).
+catalogs are registered with `modn bucket sync <name> --source <remote>
+--revision <ref>`; see [sources.md](../docs/sources.md).
 
 ## Adding a package to `main`
 
