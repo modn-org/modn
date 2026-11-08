@@ -1,9 +1,9 @@
+use super::lock::{acquire_lock, LOCK_WAIT};
 use super::signature::{main_bucket_public_key, verify_catalog, CatalogKeyId};
 use super::BucketStore;
 use crate::acquisition::MAX_DOWNLOAD_BYTES;
 use crate::{archive, bucket_digest};
 use anyhow::{bail, Context, Result};
-use fs2::FileExt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::path::Path;
@@ -142,18 +142,12 @@ impl BucketStore {
         self.check_registry_root()?;
         fs::create_dir_all(&self.root)?;
         let lock_path = self.root.join(".main-update.lock");
-        if let Ok(meta) = fs::symlink_metadata(&lock_path) {
-            if !meta.is_file() || meta.file_type().is_symlink() {
-                bail!("unsafe main bucket update lock");
-            }
-        }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(lock_path)?;
-        lock.try_lock_exclusive()
-            .context("main bucket update is already running")?;
+        let _lock = acquire_lock(
+            &lock_path,
+            "unsafe main bucket update lock",
+            "main bucket update is already running",
+            LOCK_WAIT,
+        )?;
         recover(&self.root)?;
         let signature_text = read_signature(signature()?)?;
         let mut source = source()?;
@@ -200,7 +194,13 @@ impl BucketStore {
 #[cfg(test)]
 mod tests {
     use super::{recover, swap};
-    use std::fs;
+    use crate::buckets::BucketStore;
+    use fs2::FileExt;
+    use minisign::KeyPair;
+    use std::fs::{self, OpenOptions};
+    use std::io;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn partial_old_copy_deletion_restores_complete_previous_tree() {
@@ -249,5 +249,57 @@ mod tests {
         assert!(!root.path().join(".main-aside").exists());
         assert!(!root.path().join(".main-rollback").exists());
         assert!(!root.path().join(".main-staging").exists());
+    }
+
+    fn held_update_lock(state: &std::path::Path) -> (std::fs::File, BucketStore, String) {
+        let store = BucketStore::new(state);
+        fs::create_dir_all(state.join("buckets")).unwrap();
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(state.join("buckets/.main-update.lock"))
+            .unwrap();
+        FileExt::lock_exclusive(&lock).unwrap();
+        let key = KeyPair::generate_unencrypted_keypair().unwrap();
+        let text = key.pk.to_box().unwrap().into_string();
+        (lock, store, text)
+    }
+
+    #[test]
+    fn update_waits_for_a_short_held_lock() {
+        let state = tempfile::tempdir().unwrap();
+        let (lock, store, text) = held_update_lock(state.path());
+
+        thread::scope(|scope| {
+            let update = scope.spawn(|| {
+                store.update_main(
+                    &text,
+                    || Ok(io::empty()),
+                    || -> anyhow::Result<io::Empty> { anyhow::bail!("injected signature failure") },
+                )
+            });
+            thread::sleep(Duration::from_millis(200));
+            drop(lock);
+            let error = update.join().unwrap().unwrap_err().to_string();
+            assert_eq!(error, "injected signature failure");
+        });
+    }
+
+    #[test]
+    fn update_reports_already_running_while_the_lock_stays_held() {
+        let state = tempfile::tempdir().unwrap();
+        let (lock, store, text) = held_update_lock(state.path());
+
+        let error = store
+            .update_main(
+                &text,
+                || Ok(io::empty()),
+                || -> anyhow::Result<io::Empty> { anyhow::bail!("unused signature") },
+            )
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error, "main bucket update is already running");
+        drop(lock);
     }
 }

@@ -1,10 +1,10 @@
+use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
 use super::BucketStore;
 use anyhow::{anyhow, bail, Context, Result};
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 const MAX_CATALOG_PUBLIC_KEY_BYTES: u64 = 4 * 1024;
@@ -265,18 +265,12 @@ impl BucketStore {
         }
         fs::create_dir_all(&self.root)?;
         let lock_path = self.root.join(".git-sync.lock");
-        if let Ok(meta) = fs::symlink_metadata(&lock_path) {
-            if !meta.is_file() || meta.file_type().is_symlink() {
-                bail!("unsafe Git catalog lock");
-            }
-        }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(lock_path)?;
-        lock.try_lock_exclusive()
-            .context("Git catalog sync already running")?;
+        let _lock = acquire_lock(
+            &lock_path,
+            "unsafe Git catalog lock",
+            "Git catalog sync already running",
+            LOCK_WAIT,
+        )?;
         let previous = self.git_revision(name)?;
         let source = match (source, previous.as_ref()) {
             (Some(source), None) => source,
