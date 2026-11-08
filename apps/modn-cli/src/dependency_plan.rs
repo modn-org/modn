@@ -133,6 +133,14 @@ pub(super) fn conflicts(
 pub(super) fn acquisition(source: &PackageSource) -> String {
     match source {
         PackageSource::Manual { filename } => format!("download {filename:?} manually"),
+        PackageSource::Nexus {
+            mod_id,
+            file_id,
+            file_name,
+            ..
+        } => format!(
+            "download {file_name:?} from Nexus Mods (mod {mod_id}, file {file_id}) and pass it with --file"
+        ),
         PackageSource::Https { url } => format!("Modn downloads it from {url}"),
         PackageSource::GithubRelease {
             repository,

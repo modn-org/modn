@@ -191,6 +191,48 @@ fn a_manual_source_is_never_downloaded() {
 }
 
 #[test]
+fn a_nexus_source_is_never_downloaded_without_a_supplied_file() {
+    let fixture = Fixture::new();
+    let (archive, hash) = plugin_archive(&fixture, "nexus");
+    fixture.bucket("deps", "test-game", "nexus", &hash, &[]);
+    let manifest = json!({
+        "schema_version":1, "id":"nexus", "game":"test-game", "name":"nexus",
+        "version":"1.0", "archive_format":"zip", "sha256":hash,
+        "source":{"kind":"nexus", "game_domain":"cyberpunk2077", "mod_id":6945,
+            "file_id":123456, "file_name":"Equipment-EX-1.2.10.zip"},
+        "dependencies":[]
+    });
+    fs::write(
+        fixture.temp.path().join("deps/games/test-game/nexus.json"),
+        serde_json::to_vec(&manifest).expect("JSON"),
+    )
+    .expect("manifest");
+    fixture.register();
+    let blocked = modn(&fixture, &["install", "nexus", "--yes"]);
+    assert!(!blocked.status.success());
+    let message = error(&blocked);
+    assert!(
+        message.contains(
+            "download \"Equipment-EX-1.2.10.zip\" from Nexus Mods (mod 6945, file 123456)"
+        ),
+        "{message}"
+    );
+    assert!(message.contains("--file <archive>"), "{message}");
+    assert!(!cache_dir(&fixture).exists());
+    let supplied = modn(
+        &fixture,
+        &[
+            "install",
+            "nexus",
+            "--yes",
+            "--file",
+            archive.to_str().expect("UTF-8"),
+        ],
+    );
+    assert!(supplied.status.success(), "{}", error(&supplied));
+}
+
+#[test]
 fn cache_show_and_rm_follow_scoop() {
     let (fixture, base, top) = catalog();
     seed(&fixture, "base", &base);
