@@ -91,9 +91,10 @@ Companions, Hide Read Shards, Limited HUD, Native Settings UI, Native Settings
 UI Side Menu Add-on, Ping, Preem Scanner, Preem Scopes, Virtual Atelier
 Delivery, Virtual Car Dealer and Weather Probability Rebalance. Each SHA-256 was checked
 against the original distribution. GitHub-hosted packages record their release URL as an `https`
-source. Nexus-only packages are `manual` sources naming the original file.
-Modn does not mirror these archives. It downloads an `https` source from its
-original URL when you install it. The snapshot does not assert compatibility with every game
+source. Manifests can also pin a Nexus Mods file with the `nexus` source kind.
+A manifest with a `nexus` source names the game domain, mod ID, file ID and file name.
+The current `main` snapshot still lists its Nexus packages as `manual` sources naming the original file.
+Modn does not mirror these archives. It downloads a source from its publisher when you install it. The snapshot does not assert compatibility with every game
 version. See [provenance](https://github.com/modn-org/main/blob/main/PROVENANCE.md) for versions, dependency
 evidence and compatibility notes.
 
@@ -111,10 +112,13 @@ modn bucket remove community
 A local bucket contains `bucket.json` (schema_version: 1, name, title)
 and `games/<game-id>/<package-id>.json` files. Each package record
 has schema_version, id, game, name, version, archive_format (`zip`/`7z`),
-sha256, source (`manual` with filename, or `https` with URL),
-optional dependencies (same-game IDs), dependency_versions, conflicts,
-executables, native_injector and homepage. Unknown fields and
-unsupported schemas are rejected. See [`modn-org/main`](https://github.com/modn-org/main) for examples.
+sha256, source (`manual` with filename, `https` with URL, `github-release`,
+`git` with repository and commit, or `nexus` with game_domain, mod_id, file_id
+and file_name), optional dependencies (same-game IDs), dependency_versions,
+conflicts, executables, native_injector and homepage. A `nexus` source
+requires `archive_format` and accepts only `.zip` or `.7z` archives; Modn
+refuses `.rar`. Unknown fields and unsupported schemas are rejected. See
+[`modn-org/main`](https://github.com/modn-org/main) for examples.
 Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. A local folder bucket needs no signature, because
 it holds your own files. `catalog.sig` and `catalog.pub` serve distributed

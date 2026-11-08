@@ -119,6 +119,67 @@ Tags and asset names accept ASCII letters, digits, dots, underscores, and hyphen
 `latest`, authentication, pagination, arbitrary providers, and release discovery remain unsupported.
 Transport rate limits, retries, redirect policy, and timeouts remain caller responsibilities.
 
+## Nexus Mods provider
+
+A package manifest can pin one Nexus Mods file:
+
+```json
+{"kind":"nexus","game_domain":"cyberpunk2077","mod_id":6945,"file_id":123456,"file_name":"Mod.zip"}
+```
+
+`game_domain` is the lowercase Nexus domain, such as `cyberpunk2077`.
+`mod_id` and `file_id` are numbers from 1 to 9999999999.
+`file_name` has no path separators, control characters or reserved characters.
+The archive SHA-256 pin and `archive_format` remain required.
+`archive_format` must match the file name: `.zip` or `.7z`.
+Modn refuses a `.rar` archive.
+The source rejects credential fields such as `key`, `expires`, `user_id` and `apikey`.
+
+### Credentials
+
+Run `modn auth nexus set` and pipe the API key as the first line of stdin.
+Modn stores the key in the operating system credential store, Windows Credential Manager on Windows.
+`modn auth nexus status` reports whether a key is available and from which source.
+`modn auth nexus clear` removes the stored key.
+A non-empty `MODN_NEXUS_API_KEY` environment variable overrides the stored key.
+Modn loads the key only when a Nexus download is needed.
+A verified cache hit needs no Nexus request and no key.
+
+Premium accounts need only the API key.
+A free account also passes the link from the Nexus "Mod Manager Download" button:
+
+```sh
+modn install main/cyberpunk-2077/example --nxm "nxm://cyberpunk2077/mods/6945/files/123456?key=...&expires=..."
+modn update example --nxm "nxm://cyberpunk2077/mods/6945/files/123457?key=...&expires=..."
+```
+
+`--nxm` is repeatable.
+Modn matches each link to a package by game domain, mod ID and file ID.
+An unmatched link is an error.
+A link expires quickly, and the shell may keep it in history.
+Modn does not register as the `nxm://` handler.
+
+### Transport and safety
+
+Modn sends the API key only to `api.nexusmods.com`.
+It requests the download link with the `apikey` header and the nxm grant as query values.
+The response must be JSON of at most 1 MiB and must name a Nexus CDN host.
+The download comes from a validated `nexus-cdn.com` or `nexusmods.com` host without the key.
+The file passes through the verified cache and must match its SHA-256 pin.
+Secrets never appear in output, state, journals or cache names.
+The cache names the file by `nexus://<game_domain>/mods/<mod_id>/files/<file_id>/<file_name>`.
+
+Errors name the action:
+- `400` means the nxm link is invalid or expired.
+- `401` means Nexus rejected the API key.
+- `403` means the account needs Premium, or a free account needs `--nxm`.
+- `404` means the Nexus file does not exist.
+- `410` means the download link expired.
+- `429` means the Nexus rate limit is reached; Modn does not retry automatically.
+
+Ordinary previews make no Nexus request.
+`--dry-run --download` may acquire the archive without game writes.
+
 ## Git source
 
 A package manifest can name one Git commit as its artifact source:

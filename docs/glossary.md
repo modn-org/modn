@@ -120,6 +120,24 @@ _Avoid_: Installed mod, package manifest
 The declared location or manual-acquisition instruction for an archive.
 _Avoid_: Bucket, install destination
 
+**Nexus source**:
+A package source that pins one Nexus Mods file by game domain, mod ID, file ID
+and file name. Modn downloads it from a validated Nexus CDN host and verifies
+the archive against its SHA-256 pin.
+_Avoid_: Manual source, HTTPS source
+
+**nxm link**:
+The link from the Nexus "Mod Manager Download" button. It carries a short-lived
+grant that lets a free Nexus account download one file. Modn matches it to a
+package by game domain, mod ID and file ID.
+_Avoid_: API key, download URL
+
+**Nexus API key**:
+The personal key that Modn sends only to `api.nexusmods.com` to request a Nexus
+download link. `modn auth nexus set` stores it in the operating system
+credential store, and `MODN_NEXUS_API_KEY` overrides the stored key.
+_Avoid_: nxm link, password
+
 **Verified artifact**:
 An archive whose bytes match the digest pinned by its package manifest.
 _Avoid_: Safe mod, trusted publisher

@@ -26,7 +26,9 @@ the bucket publishes. Name the mod as for install: `mod`, `game/mod` or
   release accepts the target version
 
 The file list needs the target archive. Without it, the dry run names the
-archive to supply. `--file` and `--download` work as for install. JSON adds
+needed archive. `--file`, `--nxm` and `--download` work as for install.
+A `nexus` target needs an API key, and a free Nexus account also needs the
+matching `--nxm` link. JSON adds
 `up_to_date`, `blockers`, `plan` and `unapproved_declared_executables`.
 
 An update needs `--yes` or an interactive confirmation, as for install. The

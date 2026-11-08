@@ -60,7 +60,7 @@ When a page disagrees with the code, fix the page in the same change.
 
 ## Additional interfaces and lifecycle
 
-- [sources.md](sources.md): Git catalogs, verified cache reuse and GitHub release sources.
+- [sources.md](sources.md): Git catalogs, verified cache reuse and GitHub release and Nexus Mods sources.
 - [lifecycle.md](lifecycle.md): REDmod content, explicit adoption and approved cleanup.
 - [mcp.md](mcp.md): scoped stdio companion, approval and limits.
 - [desktop.md](desktop.md): Windows GPUI application, setup, operation and limits.
