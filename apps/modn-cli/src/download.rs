@@ -109,6 +109,19 @@ fn nexus_label(game_domain: &str, mod_id: u64, file_id: u64, file_name: &str) ->
     format!("Nexus Mods: {game_domain} mod {mod_id} file {file_id} ({file_name})")
 }
 
+/// A download consent label that never includes a secret-bearing URL.
+pub(super) fn source_label(release: &BucketPackage) -> Option<String> {
+    match &release.package.source {
+        PackageSource::Nexus {
+            game_domain,
+            mod_id,
+            file_id,
+            file_name,
+        } => Some(nexus_label(game_domain, *mod_id, *file_id, file_name)),
+        _ => source_url(release).ok().flatten(),
+    }
+}
+
 /// Archive digest the pipeline uses for one release.
 ///
 /// Git sources publish no manifest digest; their packed ZIP digest becomes

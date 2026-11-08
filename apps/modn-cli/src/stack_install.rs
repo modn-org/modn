@@ -134,9 +134,12 @@ pub(super) fn run(
         .map(|release| {
             let reference = reference_of(release).to_string();
             let download = if stack.archives.contains_key(&reference) {
-                ""
+                String::new()
             } else {
-                " (downloads its archive)"
+                match download::source_label(release) {
+                    Some(source) => format!(" (downloads its archive from {source})"),
+                    None => " (downloads its archive)".to_owned(),
+                }
             };
             format!("{reference} {}{download}", release.package.version)
         })

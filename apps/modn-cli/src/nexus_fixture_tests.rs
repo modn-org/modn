@@ -319,6 +319,11 @@ fn free_path_downloads_with_the_nxm_grant_and_installs() {
         api.url
     );
     assert_eq!(header(api, "apikey"), Some(API_KEY));
+    assert_eq!(header(api, "application-name"), Some("Modn"));
+    assert_eq!(
+        header(api, "application-version"),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
     let cdn = requests
         .iter()
         .find(|request| request.url == CDN_URL)
@@ -363,13 +368,17 @@ fn nexus_status_errors_are_explained_without_secrets() {
         (429, "rate limit"),
     ] {
         let fixture = Fixture::new(b"v1");
+        let grant = (status != 403).then(|| expires());
         nexus_download::set_responses(response_map([(
-            api_url(FILE_ID, None),
+            api_url(FILE_ID, grant),
             FixtureResponse::status(status),
         )]));
-        let message = with_api_key(|| {
-            error_of(fixture.run(&["install", "nexusmod", "--path", fixture.path(), "--yes"]))
-        });
+        let link = grant.map(|expires| nxm_link(FILE_ID, expires));
+        let mut args = vec!["install", "nexusmod", "--path", fixture.path(), "--yes"];
+        if let Some(link) = &link {
+            args.extend(["--nxm", link.as_str()]);
+        }
+        let message = with_api_key(|| error_of(fixture.run(&args)));
         assert!(message.contains(expected), "{status}: {message}");
         assert_no_secrets(&message);
         assert!(!fixture.game.join("addons").exists());
@@ -559,10 +568,43 @@ fn update_downloads_the_new_release_and_reuses_its_cache_without_a_key() {
             .contains(&format!("files/{second_file}/download_link.json"))
     }));
 
+    fixture.release("2", second_file, b"v2", false);
+    let third_file = second_file + 1;
+    let third_cdn = "https://nexus-cdn.com/files/NexusMod-3.zip?token=SECRETCDN789";
+    fixture.release("3", third_file, b"v3", true);
+    let third = expires();
+    nexus_download::set_responses(free_responses(
+        third_file,
+        third,
+        third_cdn,
+        &fixture.archive_bytes("3"),
+    ));
+    with_api_key(|| {
+        fixture.run(&[
+            "update",
+            "nexusmod",
+            "--path",
+            fixture.path(),
+            "--dry-run",
+            "--download",
+            "--nxm",
+            &nxm_link(third_file, third),
+        ])
+    })
+    .expect("download v3 into the cache");
+    assert_eq!(
+        fs::read(fixture.game.join("addons/nexus.plugin")).expect("installed file"),
+        b"v2"
+    );
+
     nexus_download::set_responses(BTreeMap::new());
     with_missing_key(|| fixture.run(&["update", "nexusmod", "--path", fixture.path(), "--yes"]))
         .expect("cached update");
     assert!(nexus_download::requests().is_empty());
+    assert_eq!(
+        fs::read(fixture.game.join("addons/nexus.plugin")).expect("updated file"),
+        b"v3"
+    );
 }
 
 #[test]
@@ -597,6 +639,11 @@ fn free_path_keeps_secrets_out_of_output_and_state() {
     let mut text = output.stdout;
     text.extend_from_slice(&output.stderr);
     assert_bytes_have_no_secrets(&text, Path::new("<child output>"));
+    let output_text = String::from_utf8_lossy(&text);
+    assert!(
+        output_text.contains("Nexus Mods: cyberpunk2077 mod 6945 file 123456 (NexusMod.zip)"),
+        "{output_text}"
+    );
     let cache = root.join("cache");
     assert!(
         fs::read_dir(&cache)
