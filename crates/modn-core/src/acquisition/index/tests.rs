@@ -194,4 +194,21 @@ fn acquire_records_the_stored_entry_in_the_index() {
     let entries = cache.entries(None).unwrap();
     assert_eq!(entries.len(), 1, "the index file is not a cache entry");
     assert_eq!(entries[0].path, entry);
+
+    fs::write(
+        cache.root().join(".digest-index-interrupted.tmp"),
+        b"partial",
+    )
+    .unwrap();
+    assert_eq!(
+        cache.entries(None).unwrap().len(),
+        1,
+        "an index temporary file is not a cache entry"
+    );
+    assert_eq!(cache.remove(None).unwrap().len(), 1);
+    assert!(
+        index_path(cache.root()).is_file(),
+        "removing entries leaves the index; a stale pin falls back to a scan"
+    );
+    assert_eq!(cache.cached(&alias_key(&digest)).unwrap(), None);
 }
