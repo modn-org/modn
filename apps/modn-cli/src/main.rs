@@ -10,6 +10,7 @@ mod git_source;
 mod install;
 mod install_consent;
 mod inventory;
+mod main_key;
 mod managed;
 mod modules;
 #[cfg(test)]

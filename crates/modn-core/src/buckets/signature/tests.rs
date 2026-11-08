@@ -1,5 +1,6 @@
 use super::{
-    catalog_statement, verify_catalog, verify_catalog_directory, CatalogPublicKey, CatalogStatement,
+    catalog_statement, main_bucket_public_key, verify_catalog, verify_catalog_directory,
+    CatalogPublicKey, CatalogStatement,
 };
 use crate::bucket_digest::{catalog_digest, directory_digest, reject_case_collisions};
 use base64::engine::general_purpose::STANDARD;
@@ -230,6 +231,39 @@ fn both_public_key_formats_parse_with_sixteen_digit_fingerprint() {
         .bytes()
         .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte)));
     assert!(key.two_line.contains(&fingerprint));
+}
+
+#[cfg(not(feature = "test-main-key"))]
+#[test]
+fn main_bucket_key_uses_embedded_text_and_ignores_override() {
+    let embedded = test_key();
+    let foreign = test_key();
+    std::env::set_var("MODN_TEST_MAIN_BUCKET_PUBLIC_KEY", &foreign.bare);
+    let resolved = main_bucket_public_key(&embedded.two_line).unwrap();
+    std::env::remove_var("MODN_TEST_MAIN_BUCKET_PUBLIC_KEY");
+    assert_eq!(resolved.key_id(), embedded.public.key_id());
+}
+
+#[cfg(feature = "test-main-key")]
+#[test]
+fn main_bucket_key_prefers_override_and_refuses_placeholder() {
+    let placeholder =
+        "UNSET: replace this file with the minisign public key of the main bucket signer";
+    let embedded = test_key();
+    let foreign = test_key();
+
+    std::env::set_var("MODN_TEST_MAIN_BUCKET_PUBLIC_KEY", &foreign.bare);
+    let overridden = main_bucket_public_key(placeholder).unwrap();
+    assert_eq!(overridden.key_id(), foreign.public.key_id());
+    std::env::remove_var("MODN_TEST_MAIN_BUCKET_PUBLIC_KEY");
+
+    let error = main_bucket_public_key(placeholder).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("This Modn build has no main bucket signer key."));
+
+    let resolved = main_bucket_public_key(&embedded.two_line).unwrap();
+    assert_eq!(resolved.key_id(), embedded.public.key_id());
 }
 
 #[test]

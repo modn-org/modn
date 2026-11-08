@@ -6,6 +6,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use minisign_verify::{PublicKey as MinisignPublicKey, Signature};
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::fmt;
 use std::fs;
 use std::io::{self, Read};
@@ -15,6 +16,8 @@ const CATALOG_KEY_BYTES: usize = 42;
 const CATALOG_SIGNATURE_BYTES: usize = 74;
 const MAX_BUCKET_JSON_BYTES: u64 = 32 * 1024;
 const MAX_SIGNATURE_BYTES: u64 = 4 * 1024;
+const MAIN_KEY_PLACEHOLDER: &str = "UNSET";
+const NO_MAIN_KEY: &str = "This Modn build has no main bucket signer key.";
 
 /// Minisign key identifier shown as 16 uppercase hexadecimal digits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,6 +187,29 @@ fn key_id_from(bytes: &[u8]) -> Result<CatalogKeyId> {
         .and_then(|slice| slice.try_into().ok())
         .ok_or_else(|| anyhow!("malformed catalog key: missing key identifier"))?;
     Ok(CatalogKeyId(u64::from_le_bytes(key_id)))
+}
+
+#[cfg(feature = "test-main-key")]
+fn main_bucket_key_text(embedded: &str) -> Cow<'_, str> {
+    match std::env::var("MODN_TEST_MAIN_BUCKET_PUBLIC_KEY") {
+        Ok(text) if !text.trim().is_empty() => Cow::Owned(text),
+        _ => Cow::Borrowed(embedded),
+    }
+}
+
+#[cfg(not(feature = "test-main-key"))]
+fn main_bucket_key_text(embedded: &str) -> Cow<'_, str> {
+    Cow::Borrowed(embedded)
+}
+
+/// Resolve the main bucket signer key from the text built into Modn.
+pub(crate) fn main_bucket_public_key(embedded: &str) -> Result<CatalogPublicKey> {
+    let text = main_bucket_key_text(embedded);
+    let text = text.trim();
+    if text.starts_with(MAIN_KEY_PLACEHOLDER) {
+        bail!(NO_MAIN_KEY);
+    }
+    CatalogPublicKey::parse(text).context("invalid main bucket signer key")
 }
 
 fn parse_signature(text: &str) -> Result<ParsedSignature> {
