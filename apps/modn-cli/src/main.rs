@@ -13,6 +13,8 @@ mod inventory;
 mod main_key;
 mod managed;
 mod modules;
+mod nexus_auth;
+mod nxm;
 #[cfg(test)]
 mod provider_fixture_tests;
 mod selection;
@@ -20,7 +22,7 @@ mod stack_install;
 mod state_access;
 mod update;
 mod update_report;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use commands::{Cli, Command};
 use modn_core::archive::inspect;
@@ -28,14 +30,32 @@ use modn_core::game_modules::with_module_source;
 use modn_core::transactions::NativeInjectorNotAllowed;
 use state_access::database_path;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-fn run(cli: Cli) -> Result<()> {
+fn run(mut cli: Cli) -> Result<()> {
     if let Command::Asset { command } = &cli.command {
         return assets::run(command, cli.json);
     }
+    if let Command::Auth { command } = &cli.command {
+        return nexus_auth::run(command, cli.json);
+    }
+    prepare_nxm(&mut cli.command)?;
     let state_path = database_path(cli.state_dir.as_deref())?;
     let module_source = cli.module_source.clone();
     with_module_source(module_source.as_deref(), || run_cli(cli, &state_path))
+}
+
+fn prepare_nxm(command: &mut Command) -> Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before the Unix epoch")?
+        .as_secs();
+    match command {
+        Command::Install(args) => args.nxm_links = nxm::parse_all(&args.nxm, now)?,
+        Command::Update(args) => args.nxm_links = nxm::parse_all(&args.nxm, now)?,
+        _ => {}
+    }
+    Ok(())
 }
 
 fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
@@ -51,6 +71,7 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
         Command::Bucket { command } => buckets::run(command, state_path, json, requested),
         Command::Cache { command } => download::run(command, state_path, json),
         Command::Module { command } => modules::run(command, state_path, json),
+        Command::Auth { command } => nexus_auth::run(&command, json),
         Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
         Command::Install(args) => install::run(&args, state_path, requested, json),
         Command::Adopt(args) => adoption::run(&args, state_path, requested, json),
