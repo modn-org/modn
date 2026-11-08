@@ -106,6 +106,13 @@ impl Fixture {
         for file in ["module.json", "module.lua"] {
             fs::copy(cyberpunk.join(file), cyberpunk_target.join(file)).expect("official source");
         }
+        let balatro =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/balatro");
+        let balatro_target = modules.join("balatro");
+        fs::create_dir_all(&balatro_target).expect("balatro module");
+        for file in ["module.json", "module.lua"] {
+            fs::copy(balatro.join(file), balatro_target.join(file)).expect("balatro source");
+        }
         Self {
             temp,
             game,

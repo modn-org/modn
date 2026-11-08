@@ -1,7 +1,7 @@
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -58,10 +58,13 @@ fn checkout_copy(destination: &Path) -> PathBuf {
 }
 
 fn modn(state: &Path, args: &[&str]) -> Value {
+    let appdata = state.parent().expect("state parent").join("appdata");
+    fs::create_dir_all(&appdata).expect("appdata");
     let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(state)
         .arg("--json")
+        .env("APPDATA", appdata)
         .args(args)
         .output()
         .expect("run modn");
@@ -95,15 +98,22 @@ fn bundled_snapshot_lists_every_official_package() {
     let temp = TempDir::new().expect("fixture");
     let search = modn(&temp.path().join("state"), &["search"]);
     let main = entries_in(&search, "main");
-    let ids: Vec<&str> = main
+    let ids: BTreeSet<String> = main
         .iter()
-        .map(|entry| entry["id"].as_str().expect("id"))
+        .map(|entry| entry["id"].as_str().expect("id").to_owned())
         .collect();
-    assert_eq!(ids, checked_in_ids());
-    let known: BTreeSet<&str> = ids.iter().copied().collect();
+    let expected: BTreeSet<String> = checked_in_ids().into_iter().collect();
+    assert_eq!(ids, expected);
+    let mut ids_by_game: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for entry in &main {
-        assert_eq!(entry["game"], "cyberpunk-2077");
-        for dependency in entry["dependencies"].as_array().expect("dependencies") {
+        let game = entry["game"].as_str().expect("game");
+        let id = entry["id"].as_str().expect("id");
+        ids_by_game.entry(game).or_default().insert(id);
+    }
+    for entry in &main {
+        let game = entry["game"].as_str().expect("game");
+        let known = ids_by_game.get(game).expect("game");
+        for dependency in entry["dependencies"].as_array().into_iter().flatten() {
             let dependency = dependency.as_str().expect("dependency ID");
             assert!(
                 known.contains(dependency),
@@ -135,14 +145,42 @@ fn bundled_snapshot_matches_the_checked_in_bucket_directory() {
 #[test]
 fn every_official_mod_resolves_with_its_version_requirements() {
     let temp = TempDir::new().expect("fixture");
-    let game = temp.path().join("game");
-    fs::create_dir_all(game.join("bin/x64")).expect("game");
-    fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").expect("marker");
     let state = temp.path().join("state");
-    let game_path = game.to_str().expect("UTF-8 game path");
-    for id in checked_in_ids() {
-        let plan = modn(&state, &["install", &id, "--dry-run", "--path", game_path]);
-        assert_eq!(plan["package"], format!("main/cyberpunk-2077/{id}"));
+    let manifests = checked_in_manifests();
+    let mut game_paths: BTreeMap<String, PathBuf> = BTreeMap::new();
+    for manifest in &manifests {
+        let game = manifest["game"].as_str().expect("game");
+        if game_paths.contains_key(game) {
+            continue;
+        }
+        let marker = match game {
+            "cyberpunk-2077" => "bin/x64/Cyberpunk2077.exe",
+            "balatro" => "Balatro.exe",
+            other => panic!("no installation marker for {other}"),
+        };
+        let game_path = temp.path().join(game);
+        let marker_path = game_path.join(marker);
+        fs::create_dir_all(marker_path.parent().expect("marker parent")).expect("game");
+        fs::write(marker_path, b"game").expect("marker");
+        game_paths.insert(game.to_owned(), game_path);
+    }
+    for manifest in &manifests {
+        let game = manifest["game"].as_str().expect("game");
+        let id = manifest["id"].as_str().expect("id");
+        let reference = format!("main/{game}/{id}");
+        let game_path = game_paths.get(game).expect("game path");
+        let plan = modn(
+            &state,
+            &[
+                "install",
+                &reference,
+                "--dry-run",
+                "--allow-native-injector",
+                "--path",
+                game_path.to_str().expect("UTF-8 game path"),
+            ],
+        );
+        assert_eq!(plan["package"], reference);
     }
     let constrained = modn(&state, &["search"])
         .as_array()
