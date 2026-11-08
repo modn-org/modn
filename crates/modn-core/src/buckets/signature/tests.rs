@@ -121,6 +121,9 @@ fn root_signature_files_are_excluded_but_nested_files_are_included() {
     fs::create_dir_all(directory.path().join("nested")).unwrap();
     fs::write(directory.path().join("nested/catalog.sig"), "signature").unwrap();
     assert_ne!(catalog_digest(directory.path()).unwrap(), baseline);
+    fs::remove_file(directory.path().join("nested/catalog.sig")).unwrap();
+    fs::write(directory.path().join("nested/catalog.pub"), "key").unwrap();
+    assert_ne!(catalog_digest(directory.path()).unwrap(), baseline);
 }
 
 #[test]
