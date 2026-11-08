@@ -15,9 +15,13 @@ use std::path::{Path, PathBuf};
 
 mod git;
 mod index;
+mod nexus;
 mod provider;
 pub use git::{GitAcquired, GitCacheKey, GitSource};
 use index::{ArchiveIndex, ArchivePin};
+pub use nexus::{
+    NexusApiKey, NexusDownloadGrant, NexusDownloadUrl, NexusFile, NexusGameDomain, NexusRequest,
+};
 pub use provider::GithubReleaseAsset;
 
 /// Largest archive Modn downloads; a longer response is refused.
