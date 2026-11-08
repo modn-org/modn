@@ -6,13 +6,19 @@ Build the binary before running the driver:
 ```powershell
 $env:RUSTFLAGS = '-C target-feature=+crt-static'
 cargo build --release --locked -p modn-cli
-python .agents/skills/verify-modn/scripts/portable_mvp.py --binary target/release/modn.exe
+cargo build --release --locked -p modn-cli --features modn-core/test-main-key --target-dir target/smoke
+python .agents/skills/verify-modn/scripts/portable_mvp.py --binary target/release/modn.exe --bucket-binary target/smoke/release/modn.exe
 ```
 
-The driver requires Windows, Python 3.10+ and Git for the outside-repository check.
+The driver requires Windows, Python 3.10+, Rust, Cargo and Git for the outside-repository check.
 It copies the executable outside the repository and removes Rust tools from the child PATH.
 It rejects dynamic Visual C++ runtime imports.
-It packs the current official bucket with the pinned bucket repository release packer and bootstraps through explicit `bucket update`.
+It packs the current official bucket with the pinned bucket repository release packer.
+It removes the packer's checksum sidecar.
+It extracts the ZIP and signs the extracted contents with an ephemeral key through `cargo run -p modn-core --example sign_catalog`, never a checkout with `.git`.
+A `test-main-key` build, passed as `--bucket-binary`, runs only the `bucket update` step with that key in `MODN_TEST_MAIN_BUCKET_PUBLIC_KEY`.
+Every other step uses `--binary`, which refuses unsigned main releases.
+Omitting `--bucket-binary` fails before any fixture work and prints the build command.
 It uses the bootstrapped first-party Cyberpunk policy without a module override.
 
 The disposable community catalog contains synthetic ZIP payloads and pinned digests.

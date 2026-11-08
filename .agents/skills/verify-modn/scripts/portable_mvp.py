@@ -32,11 +32,13 @@ def snapshot(root):
 
 
 class Run:
-    def __init__(self, binary):
+    def __init__(self, binary, bucket_binary):
         self.root = Path(tempfile.mkdtemp(prefix="modn-portable-fixture-"))
         self.evidence = Path(tempfile.mkdtemp(prefix="modn-portable-evidence-"))
         self.binary = self.root / "modn.exe"
         shutil.copy2(binary, self.binary)
+        self.bucket_binary = self.root / "modn-bucket.exe"
+        shutil.copy2(bucket_binary, self.bucket_binary)
         self.env = dict(os.environ)
         for key in list(self.env):
             if key.startswith("MODN_"):
@@ -62,8 +64,8 @@ class Run:
         self.checks.append(label)
         print(f"ok {len(self.checks)}: {label}", flush=True)
 
-    def cli(self, label, args, expected=0):
-        command = [str(self.binary), "--json", "--state-dir", str(self.state),
+    def cli(self, label, args, expected=0, executable=None):
+        command = [str(executable or self.binary), "--json", "--state-dir", str(self.state),
                    "--game", GAME, *map(str, args)]
         start = time.time()
         proc = subprocess.run(command, cwd=self.root, env=self.env,
@@ -130,13 +132,33 @@ def lifecycle(r):
     spec.loader.exec_module(pack)
     bucket = r.root / "main.zip"
     pack.pack(REPO / "buckets/main", bucket)
+    Path(f"{bucket}.sha256").unlink()
+    tree = r.root / "bucket-tree"
+    with zipfile.ZipFile(bucket) as archive:
+        archive.extractall(tree)
+    signature = Path(f"{bucket}.minisig")
+    public_key = r.root / "main.pub"
+    signer = subprocess.run(
+        ["cargo", "run", "--quiet", "--locked", "-p", "modn-core", "--example",
+         "sign_catalog", "--", str(tree), str(signature), str(public_key)],
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=600)
+    r.check(signer.returncode == 0, "sign_catalog signs the extracted main bucket")
+    key_id = signer.stdout.strip()
+    r.check(re.fullmatch(r"[0-9A-F]{16}", key_id) is not None and public_key.is_file(),
+            f"ephemeral test key {key_id} produced a public key and signature")
     r.env["MODN_MAIN_BUCKET_SOURCE"] = str(bucket)
     r.save("environment.json", dict(head=subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
-        binary_sha256=sha(r.binary), bucket_sha256=sha(bucket), path=r.env["PATH"],
-        fixture=str(r.root), evidence=str(r.evidence), static_crt=True))
-    result = r.cli("bootstrap", ["bucket", "update"])
+        binary_sha256=sha(r.binary), bucket_sha256=sha(bucket), bucket_key=key_id,
+        path=r.env["PATH"], fixture=str(r.root), evidence=str(r.evidence), static_crt=True))
+    r.env["MODN_TEST_MAIN_BUCKET_PUBLIC_KEY"] = public_key.read_text(encoding="utf-8").strip()
+    try:
+        result = r.cli("bootstrap", ["bucket", "update"], executable=r.bucket_binary)
+    finally:
+        del r.env["MODN_TEST_MAIN_BUCKET_PUBLIC_KEY"]
     r.check(result["bucket"] == "main" and result["changed"], "explicit deterministic main ZIP bootstrap")
+    r.check(result["signed_by"] == key_id, "test-key build verified the ephemeral bucket signature")
     r.cli("search", ["search"])
     (r.game / "bin/x64").mkdir(parents=True)
     (r.game / "bin/x64/Cyberpunk2077.exe").write_bytes(b"fake executable marker")
@@ -318,8 +340,17 @@ def provider(r, folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
+    parser.add_argument("--bucket-binary", type=Path,
+                        help="test-main-key build used only for bucket update")
     args = parser.parse_args()
-    r = Run(args.binary.resolve())
+    if args.bucket_binary is None:
+        parser.error("--bucket-binary is required; build it with "
+                     "`cargo build --release --locked -p modn-cli "
+                     "--features modn-core/test-main-key`")
+    for path in (args.binary, args.bucket_binary):
+        if not path.is_file():
+            parser.error(f"no executable at {path}")
+    r = Run(args.binary.resolve(), args.bucket_binary.resolve())
     error = None
     try:
         lifecycle(r)
