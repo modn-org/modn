@@ -85,7 +85,7 @@ a missing or mismatched override fails without falling back.
 | `name` | User-facing name. |
 | `archive_format` | ZIP or 7z, where supported. |
 | `sha256` | SHA-256 of the original distribution archive. |
-| `sources` | Download addresses or manual acquisition instructions. |
+| `sources` | Download addresses, pinned provider selectors or manual acquisition instructions. |
 | `dependencies` | Documented required/optional/conflicting relations. |
 | `native_injector` | True when the release loads native code into the game process; the caller must opt in. |
 | `compatibility` | Verified known game/framework requirements, if any. |
@@ -97,9 +97,13 @@ silently. The current resolver checks cycles, missing references, ambiguous name
 
 ### Artifact source and verified artifact
 
-An **ArtifactSource** describes an HTTPS URL, a pinned GitHub release asset or a manual archive
-source. GitHub selectors contain repository, tag and asset names.
-Approved acquisition validates bounded provider metadata before verified HTTPS retrieval.
+An **ArtifactSource** describes an HTTPS URL, a pinned GitHub release asset, a
+pinned Nexus Mods file, a Git commit or a manual archive source. GitHub
+selectors contain repository, tag and asset names. A Nexus selector contains
+the game domain, mod ID, file ID and file name. Approved acquisition validates
+bounded provider metadata before verified retrieval. A Nexus download sends the
+API key only to `api.nexusmods.com` and, for a free account, carries the nxm
+link grant. The key and grant never enter a cache name, state record or journal.
 Ordinary dry runs remain offline and read-only. A **VerifiedArtifact** is a cache entry whose bytes match the pinned
 archive hash. Neither is an ownership record for a game installation.
 

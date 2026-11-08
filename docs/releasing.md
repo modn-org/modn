@@ -8,7 +8,8 @@ on `PATH`. It checks the checksum, the absence of C runtime DLL imports,
 `search`, `install --dry-run` for a catalog mod and for a local archive, and
 `doctor` on a fake game. It also checks that the fake game's files and their
 contents are unchanged. The smoke test installs the pinned `buckets/main`
-submodule, packed with that repository's `pack.py`. Only
+submodule, packed with that repository's `pack.py` and signed with an
+ephemeral test key. Only
 then does the workflow publish the GitHub release with `modn.exe`, its checksum
 and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
 must include `main-bucket.zip.minisig`; the bucket repository's release pipeline
@@ -25,11 +26,24 @@ cargo build --release --locked -p modn-cli
 $hash = (Get-FileHash target/release/modn.exe -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText("$PWD/target/release/modn.exe.sha256", "$hash *modn.exe`n")
 python buckets/main/.github/scripts/pack.py buckets/main target/smoke/main-bucket.zip
+Expand-Archive -LiteralPath target/smoke/main-bucket.zip -DestinationPath target/smoke-bucket -Force
+cargo run --quiet --locked -p modn-core --example sign_catalog -- target/smoke-bucket `
+  target/smoke/main-bucket.zip.minisig target/smoke/main-bucket.pub
+cargo build --release --locked -p modn-cli --features modn-core/test-main-key --target-dir target/smoke
+Copy-Item target/smoke/release/modn.exe target/smoke/modn-test.exe
 pwsh -File .github/scripts/release-smoke.ps1 -Binary target/release/modn.exe `
-  -Checksum target/release/modn.exe.sha256 -MainBucket target/smoke/main-bucket.zip
+  -Checksum target/release/modn.exe.sha256 -MainBucket target/smoke/main-bucket.zip `
+  -BucketBinary target/smoke/modn-test.exe -PublicKey target/smoke/main-bucket.pub
 ```
 
 `modn bucket update` verifies a signature, so the packed ZIP needs its matching
+`main-bucket.zip.minisig` beside it.
+`sign_catalog` generates an ephemeral key in memory, writes the signature and
+public key, and prints the key ID. It never writes the secret key.
+The `-BucketBinary` build enables `test-main-key` so the smoke test can accept
+that ephemeral key for `bucket update`. This binary is for the test only, and
+the release publishes no copy of it.
+`-PublicKey` names the key that signed the ZIP, and the script then requires
 `main-bucket.zip.minisig` beside it.
 
 ## Milestone 1 exit gate

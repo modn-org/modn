@@ -21,11 +21,16 @@ modn install cet --file "/path/to/CET.zip" --dry-run
 modn install redscript --file "/path/to/redscript.zip"
 modn install cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
 modn install main/cyberpunk-2077/cet --file "/path/to/CET.zip" --yes
+modn install main/cyberpunk-2077/example --nxm "nxm://cyberpunk2077/mods/6945/files/123456?key=...&expires=..."
 modn install "./unlisted-mod.zip" --dry-run
 modn install "./unlisted-mod.zip" --yes
 modn install <mod> --allow-native-injector --yes
 modn update cet --dry-run
 modn update cet --yes
+modn update example --nxm "nxm://cyberpunk2077/mods/6945/files/123457?key=...&expires=1700000000" --yes
+modn auth nexus set
+modn auth nexus status
+modn auth nexus clear
 modn pin cet
 modn unpin cet
 modn update community/test-game/example --version 1.0 --file "./example-1.0.zip" --yes
@@ -88,6 +93,29 @@ modn update example --allow-native-injector --yes
 
 An already-installed native dependency does not require the flag again.
 `modn uninstall` never needs it.
+
+## Nexus Mods credentials and downloads
+
+`modn auth nexus set` reads the API key from the first line of stdin and saves it in the operating system credential store.
+The key never appears on the command line.
+`modn auth nexus status` reports whether a key is set, and whether it comes from the credential store or `MODN_NEXUS_API_KEY`.
+`modn auth nexus clear` removes the stored key.
+`MODN_NEXUS_API_KEY` overrides a stored key.
+
+A Premium account needs only the API key for a `nexus` source.
+A free account also passes the Nexus "Mod Manager Download" link with `--nxm`:
+
+```sh
+modn install main/cyberpunk-2077/example --nxm "nxm://cyberpunk2077/mods/6945/files/123456?key=...&expires=..."
+modn update example --nxm "nxm://cyberpunk2077/mods/6945/files/123457?key=...&expires=..."
+```
+
+`--nxm` is repeatable on `install` and `update`.
+Modn matches each link to a package by game domain, mod ID and file ID.
+An unmatched link is an error.
+The link expires quickly and may remain in shell history.
+Modn does not register as the `nxm://` handler.
+See [sources.md](sources.md) for transport and secrecy guarantees.
 
 ## Additional commands
 
