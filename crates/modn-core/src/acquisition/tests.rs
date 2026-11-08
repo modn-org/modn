@@ -28,7 +28,7 @@ fn aliases_reuse_verified_bytes_and_repair_corruption() {
         })
         .unwrap();
     assert_eq!(reused.path, first.path);
-    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 1);
+    assert_eq!(cache.entries(None).unwrap().len(), 1);
     fs::write(&first.path, b"corrupt").unwrap();
     assert!(cache.cached(&alias).unwrap().is_none());
     let repaired = cache
@@ -78,7 +78,7 @@ fn download_is_verified_then_reused() {
         .unwrap();
     assert_eq!(first.origin, Origin::Download);
     assert_eq!(fs::read(&first.path).unwrap(), body);
-    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 1);
+    assert_eq!(cache.entries(None).unwrap().len(), 1);
 
     let second = cache
         .acquire(&key(&digest), CacheUse::Reuse, fetch)
@@ -204,7 +204,8 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
 
     assert_eq!(cache.remove(Some("alpha")).unwrap().len(), 1);
     assert_eq!(cache.remove(None).unwrap().len(), 1);
-    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 6);
+    // Six unrelated files kept, plus the digest index.
+    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 7);
 }
 
 #[test]
@@ -235,5 +236,5 @@ fn another_attempts_partial_file_is_never_touched() {
     assert!(error.to_string().contains("hash check failed"));
     assert_eq!(fs::read(&other).unwrap(), b"still downloading");
     assert_eq!(fs::read(&acquired.path).unwrap(), body);
-    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 2);
+    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 3);
 }
