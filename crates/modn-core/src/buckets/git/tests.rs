@@ -1,9 +1,12 @@
 use super::{git, BucketStore, GitCatalogSource};
 use crate::buckets::{catalog_statement, CatalogPublicKey};
+use fs2::FileExt;
 use minisign::KeyPair;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::Cursor;
 use std::path::Path;
+use std::thread;
+use std::time::Duration;
 
 fn commit(root: &Path, title: &str) -> String {
     git(root, &["add", "."]).unwrap();
@@ -414,4 +417,50 @@ fn registration_without_a_signer_pin_is_refused() {
         .sync_git_with_signer("community", Some(first_source))
         .unwrap();
     assert!(synced.pinned);
+}
+
+#[test]
+fn sync_waits_for_a_short_held_lock() {
+    let remote = remote("1", test_key());
+    let state = tempfile::tempdir().unwrap();
+    let store = BucketStore::new(state.path());
+    fs::create_dir_all(state.path().join("buckets")).unwrap();
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(state.path().join("buckets/.git-sync.lock"))
+        .unwrap();
+    FileExt::lock_exclusive(&lock).unwrap();
+    let first_source = source(&remote);
+
+    thread::scope(|scope| {
+        let sync =
+            scope.spawn(|| store.sync_git_with_signer("community", Some(first_source.clone())));
+        thread::sleep(Duration::from_millis(200));
+        drop(lock);
+        assert!(sync.join().unwrap().is_ok());
+    });
+}
+
+#[test]
+fn sync_reports_already_running_while_the_lock_stays_held() {
+    let remote = remote("1", test_key());
+    let state = tempfile::tempdir().unwrap();
+    let store = BucketStore::new(state.path());
+    fs::create_dir_all(state.path().join("buckets")).unwrap();
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(state.path().join("buckets/.git-sync.lock"))
+        .unwrap();
+    FileExt::lock_exclusive(&lock).unwrap();
+
+    let error = store
+        .sync_git_with_signer("community", Some(source(&remote)))
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "Git catalog sync already running");
+    drop(lock);
 }

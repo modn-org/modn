@@ -50,7 +50,9 @@ bucket and sync it again.
 `modn bucket list` shows the pinned key ID after the catalog title.
 
 Git must be installed. This MVP has no credentials or network timeout policy.
-Git sync serializes other Git sync calls. It does not coordinate concurrent local registration edits.
+Git sync serializes other Git sync calls: a second sync waits up to 2 seconds
+for the first to finish, then fails with the already running error. It does not
+coordinate concurrent local registration edits.
 Catalog metadata does not approve executable installation or grant game writes.
 
 ## Verified archive reuse

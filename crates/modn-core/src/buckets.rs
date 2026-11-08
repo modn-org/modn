@@ -1,5 +1,6 @@
 mod dependencies;
 mod git;
+mod lock;
 mod manifest;
 mod signature;
 mod snapshot;
