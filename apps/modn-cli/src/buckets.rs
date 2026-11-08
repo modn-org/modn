@@ -53,7 +53,19 @@ pub(super) fn run(
             let source = source
                 .zip(revision)
                 .map(|(remote, reference)| GitCatalogSource::new(remote, reference));
-            serde_json::to_value(store.sync_git(&name, source)?)?
+            let synced = store.sync_git_with_signer(&name, source)?;
+            if synced.pinned {
+                let line = format!(
+                    "Pinned signer key {} for bucket {name}; compare this fingerprint with the catalog author.",
+                    synced.revision.signer.key_id
+                );
+                if json_output {
+                    eprintln!("{line}");
+                } else {
+                    println!("{line}");
+                }
+            }
+            serde_json::to_value(&synced.revision)?
         }
         BucketCommand::Update { name } => {
             return crate::bucket_update::run(name.as_deref(), json_output);
@@ -105,10 +117,16 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
                         game.as_str().unwrap_or(""),
                         version.as_str().unwrap_or("")
                     ),
-                    _ => format!(
-                        "{prefix}: {}",
-                        entry.get("title").and_then(Value::as_str).unwrap_or("")
-                    ),
+                    _ => {
+                        let mut line = format!(
+                            "{prefix}: {}",
+                            entry.get("title").and_then(Value::as_str).unwrap_or("")
+                        );
+                        if let Some(key_id) = entry.get("signer_key_id").and_then(Value::as_str) {
+                            line.push_str(&format!(" [signer {key_id}]"));
+                        }
+                        line
+                    }
                 }
             })
             .collect(),
