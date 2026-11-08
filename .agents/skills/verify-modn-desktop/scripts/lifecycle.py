@@ -38,7 +38,8 @@ def main():
         driver.wait("Owned packages refreshed.")
         require(not (state / "write.json").exists(), "Read fixture invoked a write")
         driver.check(True, "No write occurred")
-        process_check = subprocess.run(["tasklist", "/fi", f"PID eq {child}", "/fo", "csv", "/nh"], capture_output=True, text=True, creationflags=HIDDEN)
+        # tasklist writes the console code page, which is not UTF-8 on every locale.
+        process_check = subprocess.run(["tasklist", "/fi", f"PID eq {child}", "/fo", "csv", "/nh"], capture_output=True, encoding="oem", errors="replace", creationflags=HIDDEN)
         driver.record("backend-reaped", dict(pid=child, exit=process_check.returncode, stdout=process_check.stdout))
         driver.check(process_check.returncode == 0 and f'"{child}"' not in process_check.stdout, "Backend child remained alive")
         (state / "mode").write_text("")

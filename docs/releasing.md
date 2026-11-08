@@ -172,6 +172,25 @@ The refusal check printed `module cyberpunk-2077 needs Modn 99.0.0, you have 0.3
 The original Modn roots were unchanged.
 The released `modn.exe` SHA-256 is `2dade4e26e3db81ebf2dd62f0fc38a487184fc6968139dce43f1fd4bfa90eadb`.
 
+### Result for v0.5.0
+
+On 2026-11-08, `milestone2-gate.ps1 -Tag v0.5.0` passed against the published v0.5.0 assets.
+It reported 16 checks and 0 failures.
+The released install script verified the signed `main` release `v2026.11.08`: `Verified main bucket signed by 0E250AD52A3BA2AA.`
+The Milestone 1 gate passed for v0.5.0, including state created by v0.1.0.
+The Git catalog check synced a signed catalog and pinned its signer key.
+The MCP verifier passed 69 checks.
+The desktop verifiers passed 51 and 8 assertions.
+The refusal check printed `module cyberpunk-2077 needs Modn 99.0.0, you have 0.5.0`.
+The original Modn roots were unchanged.
+The released `modn.exe` SHA-256 is `9dd9b30fce82f5529558d9b755fd0a4a2e37724a14083c7ac134d3c0a9b73ada`.
+
+The first two runs found three gate defects, fixed before the passing run:
+
+- The Git catalog fixture was unsigned, and Modn 0.5.0 refuses unsigned catalogs.
+- The gate parsed stdout and stderr together as JSON. The new signer fingerprint notice goes to stderr.
+- `lifecycle.py` decoded `tasklist` output as UTF-8, which fails on a non-English Windows console.
+
 ## Real-game validation
 
 The gates above use disposable fixtures and prove no real-game compatibility or REDmod activation.

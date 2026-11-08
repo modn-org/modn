@@ -43,14 +43,18 @@ function Check([string] $Name, [scriptblock] $Action) {
 
 function Invoke-GateModn([string[]] $Arguments, [switch] $Refuse, [string] $Executable = '') {
   if (-not $Executable) { $Executable = $script:modn }
-  $output = & $Executable --json --state-dir (Join-Path $work 'state') --game cyberpunk-2077 @Arguments 2>&1 | Out-String
+  # Notices such as the pinned signer fingerprint go to stderr, so parse only
+  # stdout as JSON and keep both streams for messages and refusals.
+  $errors = Join-Path $work 'modn-stderr.txt'
+  $stdout = & $Executable --json --state-dir (Join-Path $work 'state') --game cyberpunk-2077 @Arguments 2> $errors | Out-String
   $code = $LASTEXITCODE
+  $output = $stdout + (Get-Content -LiteralPath $errors -Raw)
   if ($Refuse) {
     Require ($code -ne 0) "Expected refusal: $($Arguments -join ' ')"
     return $output
   }
   Require ($code -eq 0) "modn $($Arguments -join ' ') exited ${code}: $output"
-  $output | ConvertFrom-Json
+  $stdout | ConvertFrom-Json
 }
 
 function Write-File([string] $Path, [string] $Text) {
@@ -220,6 +224,10 @@ try {
     $manifest = Get-Content (Join-Path $repo 'buckets/main/games/cyberpunk-2077/redscript.json') -Raw | ConvertFrom-Json
     $manifest.source = [pscustomobject]@{ kind = 'github-release'; repository = 'jac3km4/redscript'; tag = 'v0.5.32'; asset = 'redscript-v0.5.32-windows.zip' }
     Write-File (Join-Path $catalog 'games/cyberpunk-2077/redscript.json') ($manifest | ConvertTo-Json -Depth 10)
+    # Modn refuses unsigned Git catalogs. Sign before `git init`, because the
+    # catalog digest refuses a root `.git`.
+    [void] (& $script:SignCatalog $catalog (Join-Path $catalog 'catalog.sig') (Join-Path $catalog 'catalog.pub'))
+    Require ($LASTEXITCODE -eq 0) 'Cannot sign the Git catalog fixture'
     $revision = New-GateGitCommit $catalog
     [void] (Invoke-GateModn @('bucket', 'sync', 'gate', '--source', $catalog, '--revision', $revision))
     [void] (Invoke-GateModn @('bucket', 'sync', 'gate'))
