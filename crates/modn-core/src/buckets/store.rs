@@ -21,6 +21,9 @@ pub struct BucketInfo {
     pub title: String,
     /// Directory of the read-only catalog source.
     pub path: Option<PathBuf>,
+    /// Pinned Git catalog signer key identifier, when the bucket is Git-backed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signer_key_id: Option<String>,
 }
 
 #[expect(
@@ -43,12 +46,21 @@ struct Metadata {
     title: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Registration {
     path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    git: Option<super::GitCatalogRevision>,
+    git: Option<super::git::StoredGitCatalogRevision>,
+}
+
+impl Registration {
+    fn revision(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
+        self.git
+            .clone()
+            .map(|stored| stored.revision(name))
+            .transpose()
+    }
 }
 
 /// Catalog registry, separate from game registrations and ownership state.
@@ -217,7 +229,7 @@ impl BucketStore {
         Ok(())
     }
 
-    fn registrations(&self) -> Result<BTreeMap<String, PathBuf>> {
+    fn registrations(&self) -> Result<BTreeMap<String, Registration>> {
         self.check_registry_root()?;
         let root = self.root.join("registrations");
         match fs::symlink_metadata(&root) {
@@ -244,7 +256,7 @@ impl BucketStore {
                 bail!("invalid registered bucket name");
             }
             let registration: Registration = bounded_json(&path)?;
-            registered.insert(id.into_owned(), registration.path);
+            registered.insert(id.into_owned(), registration);
         }
         Ok(registered)
     }
@@ -273,6 +285,7 @@ impl BucketStore {
                 name: name.into(),
                 title: metadata.title,
                 path: Some(path.to_path_buf()),
+                signer_key_id: None,
             },
             packages,
         ))
@@ -360,7 +373,7 @@ impl BucketStore {
             &mut temp,
             &Registration {
                 path,
-                git: Some(git),
+                git: Some(git.into()),
             },
         )?;
         temp.as_file().sync_all()?;
@@ -375,7 +388,7 @@ impl BucketStore {
         let registration: Registration =
             bounded_json(&self.root.join("registrations").join(format!("{name}.json")))?;
         registration
-            .git
+            .revision(name)?
             .context("bucket is a local source, not a Git catalog")
             .map(Some)
     }
@@ -396,8 +409,13 @@ impl BucketStore {
     /// List the local main bucket and registered local buckets.
     pub fn list(&self) -> Result<Vec<BucketInfo>> {
         let mut all = vec![self.official()?.0];
-        for (id, path) in self.registrations()? {
-            all.push(self.load(&id, &path)?.0);
+        for (id, registration) in self.registrations()? {
+            let signer_key_id = registration
+                .revision(&id)?
+                .map(|revision| revision.signer.key_id);
+            let mut info = self.load(&id, &registration.path)?.0;
+            info.signer_key_id = signer_key_id;
+            all.push(info);
         }
         Ok(all)
     }
@@ -429,8 +447,9 @@ impl BucketStore {
             bail!("invalid game ID");
         }
         let mut sources = vec![("main".to_owned(), self.official()?.1)];
-        for (id, path) in self.registrations()? {
-            sources.push((id.clone(), self.load(&id, &path)?.1));
+        for (id, registration) in self.registrations()? {
+            registration.revision(&id)?;
+            sources.push((id.clone(), self.load(&id, &registration.path)?.1));
         }
         let mut current = Vec::new();
         let mut other = Vec::new();
