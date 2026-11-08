@@ -368,7 +368,7 @@ fn nexus_status_errors_are_explained_without_secrets() {
         (429, "rate limit"),
     ] {
         let fixture = Fixture::new(b"v1");
-        let grant = (status != 403).then(|| expires());
+        let grant = (status != 403).then(expires);
         nexus_download::set_responses(response_map([(
             api_url(FILE_ID, grant),
             FixtureResponse::status(status),
