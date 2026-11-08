@@ -245,7 +245,20 @@ impl BucketStore {
     /// New catalogs require `source`; updates reuse the registered source when it is absent.
     /// A failed fetch, checkout, verification or validation leaves the old registration and tree intact.
     /// Publication atomically replaces one registration file. Old trees are retained.
-    pub fn sync_git(&self, name: &str, source: Option<GitCatalogSource>) -> Result<GitCatalogSync> {
+    pub fn sync_git(
+        &self,
+        name: &str,
+        source: Option<GitCatalogSource>,
+    ) -> Result<GitCatalogRevision> {
+        Ok(self.sync_git_with_signer(name, source)?.revision)
+    }
+
+    /// Same as [`Self::sync_git`], and reports whether this sync pinned the signer key.
+    pub fn sync_git_with_signer(
+        &self,
+        name: &str,
+        source: Option<GitCatalogSource>,
+    ) -> Result<GitCatalogSync> {
         self.check_registry_root()?;
         if !valid_id(name) || name == "main" {
             bail!("invalid or reserved Git catalog name");

@@ -126,7 +126,7 @@ fn signed_sync_pins_signer_and_tracks_later_pinned_revisions() {
     let first_source = source(&remote);
 
     let first = store
-        .sync_git("community", Some(first_source.clone()))
+        .sync_git_with_signer("community", Some(first_source.clone()))
         .unwrap();
     assert!(first.pinned);
     assert_eq!(first.revision.signer.key_id, key_id);
@@ -162,7 +162,7 @@ fn signed_sync_pins_signer_and_tracks_later_pinned_revisions() {
         git(remote.directory.path(), &["rev-parse", "HEAD"]).unwrap()
     };
 
-    let synced = store.sync_git("community", None).unwrap();
+    let synced = store.sync_git_with_signer("community", None).unwrap();
     assert!(!synced.pinned);
     assert_eq!(synced.revision.commit, second);
     assert_ne!(synced.revision.commit, first.revision.commit);
@@ -179,6 +179,7 @@ fn signed_sync_pins_signer_and_tracks_later_pinned_revisions() {
         store.git_revision("community").unwrap().unwrap().signer,
         first.revision.signer
     );
+    assert_eq!(store.sync_git("community", None).unwrap().commit, second);
 }
 
 #[test]
@@ -187,7 +188,9 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
     let new_key = test_key();
     let state = tempfile::tempdir().unwrap();
     let store = BucketStore::new(state.path());
-    let first = store.sync_git("community", Some(source(&remote))).unwrap();
+    let first = store
+        .sync_git_with_signer("community", Some(source(&remote)))
+        .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
     let before_package =
         fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap();
@@ -196,7 +199,10 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
     write_signature(remote.directory.path(), &new_key);
     commit(remote.directory.path(), "new signer");
 
-    let error = store.sync_git("community", None).unwrap_err().to_string();
+    let error = store
+        .sync_git_with_signer("community", None)
+        .unwrap_err()
+        .to_string();
     assert!(
         error.contains(&format!(
             "Signer key changed from {} to {} for bucket community.",
@@ -233,7 +239,7 @@ fn unsigned_first_sync_is_refused_without_a_registration() {
     let state = tempfile::tempdir().unwrap();
     let store = BucketStore::new(state.path());
     let error = store
-        .sync_git("community", Some(source(&remote)))
+        .sync_git_with_signer("community", Some(source(&remote)))
         .unwrap_err()
         .to_string();
     assert_eq!(
@@ -252,7 +258,7 @@ fn first_sync_requires_both_signature_and_public_key() {
     let state = tempfile::tempdir().unwrap();
     let store = BucketStore::new(state.path());
     let error = store
-        .sync_git("community", Some(source(&remote)))
+        .sync_git_with_signer("community", Some(source(&remote)))
         .unwrap_err()
         .to_string();
     assert!(error.contains("is unsigned"), "{error}");
@@ -262,7 +268,7 @@ fn first_sync_requires_both_signature_and_public_key() {
     fs::remove_file(remote.directory.path().join("catalog.pub")).unwrap();
     commit(remote.directory.path(), "signature only");
     let error = store
-        .sync_git("community", Some(source(&remote)))
+        .sync_git_with_signer("community", Some(source(&remote)))
         .unwrap_err()
         .to_string();
     assert!(error.contains("is unsigned"), "{error}");
@@ -281,7 +287,7 @@ fn invalid_signature_is_refused_at_first_and_later_sync() {
     let state = tempfile::tempdir().unwrap();
     let store = BucketStore::new(state.path());
     let error = store
-        .sync_git("community", Some(source(&tampered)))
+        .sync_git_with_signer("community", Some(source(&tampered)))
         .unwrap_err()
         .to_string();
     assert!(
@@ -291,7 +297,9 @@ fn invalid_signature_is_refused_at_first_and_later_sync() {
     assert!(!registration(state.path()).exists());
 
     let valid = remote("1", test_key());
-    let first = store.sync_git("community", Some(source(&valid))).unwrap();
+    let first = store
+        .sync_git_with_signer("community", Some(source(&valid)))
+        .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
     let before_package =
         fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap();
@@ -301,7 +309,10 @@ fn invalid_signature_is_refused_at_first_and_later_sync() {
     )
     .unwrap();
     commit(valid.directory.path(), "tampered after first sync");
-    let error = store.sync_git("community", None).unwrap_err().to_string();
+    let error = store
+        .sync_git_with_signer("community", None)
+        .unwrap_err()
+        .to_string();
     assert!(
         error.contains("catalog signature verification failed"),
         "{error}"
@@ -325,7 +336,9 @@ fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
     let remote = remote("1", test_key());
     let state = tempfile::tempdir().unwrap();
     let store = BucketStore::new(state.path());
-    let first = store.sync_git("community", Some(source(&remote))).unwrap();
+    let first = store
+        .sync_git_with_signer("community", Some(source(&remote)))
+        .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
     let before_package =
         fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap();
@@ -333,7 +346,10 @@ fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
     seed_catalog(remote.directory.path(), "2");
     fs::remove_file(remote.directory.path().join("catalog.sig")).unwrap();
     commit(remote.directory.path(), "missing signature");
-    let error = store.sync_git("community", None).unwrap_err().to_string();
+    let error = store
+        .sync_git_with_signer("community", None)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("is unsigned"), "{error}");
     assert_eq!(
         fs::read(registration(state.path())).unwrap(),
@@ -346,7 +362,10 @@ fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
 
     fs::remove_file(remote.directory.path().join("catalog.pub")).unwrap();
     commit(remote.directory.path(), "missing public key");
-    let error = store.sync_git("community", None).unwrap_err().to_string();
+    let error = store
+        .sync_git_with_signer("community", None)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("is unsigned"), "{error}");
     assert_eq!(
         fs::read(registration(state.path())).unwrap(),
@@ -369,7 +388,7 @@ fn registration_without_a_signer_pin_is_refused() {
     let store = BucketStore::new(state.path());
     let first_source = source(&remote);
     store
-        .sync_git("community", Some(first_source.clone()))
+        .sync_git_with_signer("community", Some(first_source.clone()))
         .unwrap();
     let path = registration(state.path());
     let mut pointer: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -383,11 +402,16 @@ fn registration_without_a_signer_pin_is_refused() {
         message
     );
     assert_eq!(
-        store.sync_git("community", None).unwrap_err().to_string(),
+        store
+            .sync_git_with_signer("community", None)
+            .unwrap_err()
+            .to_string(),
         message
     );
 
     store.remove("community").unwrap();
-    let synced = store.sync_git("community", Some(first_source)).unwrap();
+    let synced = store
+        .sync_git_with_signer("community", Some(first_source))
+        .unwrap();
     assert!(synced.pinned);
 }

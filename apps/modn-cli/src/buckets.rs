@@ -53,7 +53,7 @@ pub(super) fn run(
             let source = source
                 .zip(revision)
                 .map(|(remote, reference)| GitCatalogSource::new(remote, reference));
-            let synced = store.sync_git(&name, source)?;
+            let synced = store.sync_git_with_signer(&name, source)?;
             if synced.pinned {
                 let line = format!(
                     "Pinned signer key {} for bucket {name}; compare this fingerprint with the catalog author.",
