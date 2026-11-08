@@ -23,6 +23,20 @@ fn success(output: &Output) -> serde_json::Value {
     serde_json::from_slice(&output.stdout).expect("JSON")
 }
 
+fn copy_catalog(source: &Path, target: &Path) {
+    fs::create_dir_all(target).expect("catalog directory");
+    for entry in fs::read_dir(source).expect("catalog entries") {
+        let entry = entry.expect("catalog entry");
+        let target = target.join(entry.file_name());
+        if entry.file_type().expect("catalog type").is_dir() {
+            copy_catalog(&entry.path(), &target);
+        } else {
+            fs::write(&target, fs::read(entry.path()).expect("catalog bytes"))
+                .expect("catalog file");
+        }
+    }
+}
+
 #[test]
 fn trusted_registry_copies_checks_and_removes_runtime_snapshot() {
     let temp = tempfile::tempdir().unwrap();
@@ -71,13 +85,10 @@ fn git_sync_reports_revision_and_preserves_catalog_on_invalid_update() {
     let temp = tempfile::tempdir().unwrap();
     main_bucket::seed(temp.path());
     let repo = temp.path().join("source");
-    fs::create_dir(&repo).unwrap();
-    fs::write(
-        repo.join("bucket.json"),
-        r#"{"schema_version":1,"name":"community","title":"Fixture"}"#,
-    )
-    .unwrap();
-    fs::create_dir(repo.join("games")).unwrap();
+    copy_catalog(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/signed-catalog/v1"),
+        &repo,
+    );
     let git = |args: &[&str]| {
         let out = Command::new("git")
             .arg("-C")
