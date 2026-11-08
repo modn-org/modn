@@ -30,7 +30,8 @@ code, documentation, CLI and reviews.
 Project memory lives in `memory/events/`, one immutable record file per
 durable decision, finding, failure or preference. Use the `project-wiki` skill
 to look up records at the start of substantive work, to add records, and to
-supersede them. Commit each record with the change it describes. When memory
+supersede them. Commit each record with the change it describes. Push a
+memory-only record directly to `main`; do not open a pull request for it. When memory
 disagrees with the documents above or with the code, the documents and the
 code win: supersede the stale record.
 
