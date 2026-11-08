@@ -64,7 +64,7 @@ fn rejects_each_bad_link_form_without_disclosing_values() {
         format!("nxm://cyberpunk2077/mods/107/files/123?key={KEY}&expires={EXPIRES}&user_id=1&user_id=2"),
         format!("nxm://cyberpunk2077/mods/107/files/123?expires={EXPIRES}"),
         format!("nxm://cyberpunk2077/mods/107/files/123?key={KEY}"),
-        format!("nxm://cyberpunk2077/mods/107/files/123"),
+        "nxm://cyberpunk2077/mods/107/files/123".to_owned(),
         format!("nxm://cyberpunk2077/mods/107/files/123?key=&expires={EXPIRES}"),
         format!("nxm://cyberpunk2077/mods/107/files/123?key={KEY}&expires=soon"),
         format!("nxm://cyberpunk2077/mods/107/files/123?key={KEY}&expires={EXPIRES}&user_id=x"),
