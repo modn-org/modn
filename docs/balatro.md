@@ -99,7 +99,8 @@ It does not prove that Balatro or Steamodded loads the mod.
 
 ## Verification
 
-Balatro support needs Modn 0.4.0 or later and `main` bucket release `v2026.11.07.1` or later.
+Balatro support needs Modn 0.5.0 or later and `main` bucket release `v2026.11.08` or later.
+Modn 0.4.0 supports Balatro but cannot verify the signed bucket releases.
 
 Fixture tests cover detection, layouts, refusals, the native injector opt-in and the Git source.
 A live run on 2026-11-07 used Modn v0.4.0 on Windows 11 with the Steam game.

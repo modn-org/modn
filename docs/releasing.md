@@ -12,8 +12,9 @@ submodule, packed with that repository's `pack.py` and signed with an
 ephemeral test key. Only
 then does the workflow publish the GitHub release with `modn.exe`, its checksum
 and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
-must include `main-bucket.zip.minisig`; the bucket repository's release pipeline
-does not produce that file yet. A version with a pre-release
+must include `main-bucket.zip.minisig`. The bucket repository's tag release signs
+the catalog with the key built into Modn; `v2026.11.08` is the first signed
+bucket release. A version with a pre-release
 suffix, such as `0.2.0-alpha.1`, becomes a GitHub pre-release. Pull requests
 that change the workflow or the smoke script run the build and smoke jobs, but
 they never publish.
@@ -191,7 +192,7 @@ $game = "<game-root>"
 New-Item -ItemType Directory -Force $live | Out-Null
 ```
 
-**Release.** Use the latest published release for the whole run, `v0.4.0` at the time of writing.
+**Release.** Use the latest published release for the whole run, `v0.5.0` at the time of writing.
 Do not mix binaries from different tags. Download and verify it:
 
 ```powershell
@@ -519,7 +520,7 @@ Differences from fixture results
 
 This run records the first live check of the Balatro packages.
 It covers a native injector, a Git source and an AppData content root.
-Use Modn 0.4.0 or later, from [Before any live step](#before-any-live-step). Record its commit and SHA-256.
+Use Modn 0.5.0 or later, from [Before any live step](#before-any-live-step). Record its commit and SHA-256.
 Run `modn bucket update` first. The `main` bucket release must be `v2026.11.07.1` or later,
 which contains the two Balatro packages.
 Every command and flag below exists in the built CLI. Check one with `modn <command> --help`.
