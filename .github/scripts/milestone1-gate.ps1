@@ -3,6 +3,8 @@ param(
   [Parameter(ParameterSetName = 'Release')] [string] $Tag = 'v0.2.0',
   [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $Binary,
   [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $Checksum,
+  # A `test-main-key` build used only for `bucket update` from a signed local bucket.
+  [string] $BucketBinary,
   [string] $PreviousTag = 'v0.1.0',
   [string] $Repository = 'modn-org/modn'
 )
@@ -36,8 +38,9 @@ function Get-ExpectedHash([string] $ChecksumFile) {
 }
 
 $script:Modn = $null
-function Invoke-Modn([string[]] $Arguments, [switch] $AllowFailure) {
-  $text = (& $script:Modn --json --state-dir $script:State --game cyberpunk-2077 @Arguments 2>&1 | Out-String)
+function Invoke-Modn([string[]] $Arguments, [switch] $AllowFailure, [string] $Executable = '') {
+  if (-not $Executable) { $Executable = $script:Modn }
+  $text = (& $Executable --json --state-dir $script:State --game cyberpunk-2077 @Arguments 2>&1 | Out-String)
   $exit = $LASTEXITCODE
   if ($exit -ne 0 -and -not $AllowFailure) { throw "modn $($Arguments -join ' ') exited with ${exit}: $text" }
   $json = $null
@@ -90,8 +93,9 @@ $previousBucketSource = $env:MODN_MAIN_BUCKET_SOURCE
 $previousPath = $env:Path
 $localBinary = if ($Binary) { (Resolve-Path -LiteralPath $Binary).Path }
 $localChecksum = if ($Checksum) { (Resolve-Path -LiteralPath $Checksum).Path }
+$bucketBinary = if ($BucketBinary) { (Resolve-Path -LiteralPath $BucketBinary).Path } else { $localBinary }
 if ($localBinary) { $Tag = 'local binary' }
-$env:MODN_MAIN_BUCKET_SOURCE = $null
+if (-not $BucketBinary) { $env:MODN_MAIN_BUCKET_SOURCE = $null }
 $work = Join-Path ([IO.Path]::GetTempPath()) "modn-gate-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $work | Out-Null
 . (Join-Path $PSScriptRoot 'gate-git.ps1')
@@ -132,7 +136,8 @@ try {
   if ($localBinary) {
     New-Item -ItemType Directory -Path $bin | Out-Null
     Copy-Item -LiteralPath $released -Destination (Join-Path $bin 'modn.exe')
-    & (Join-Path $bin 'modn.exe') bucket update
+    $bootstrap = if ($BucketBinary) { $bucketBinary } else { Join-Path $bin 'modn.exe' }
+    & $bootstrap bucket update
     Assert-That ($LASTEXITCODE -eq 0) 'local binary bootstrapped the main bucket'
   } else {
     & (Join-Path $assets 'install.ps1') -InstallDir $bin -ReleaseBase $base -NoModifyPath
@@ -145,7 +150,7 @@ try {
   $search = @((Invoke-Modn @('search')).Json)
   Assert-That ($search.Count -ge 13 -and @($search | Where-Object id -eq 'archivexl').Count -eq 1) `
     "search lists the bootstrapped catalog ($($search.Count) mods)"
-  $again = Invoke-Modn @('bucket', 'update')
+  $again = Invoke-Modn @('bucket', 'update') -Executable $(if ($BucketBinary) { $bucketBinary } else { $script:Modn })
   Assert-That ($again.Json.bucket -eq 'main' -and -not $again.Json.changed) `
     "a second bucket update verifies the same release asset and changes nothing (digest $($again.Json.digest))"
 

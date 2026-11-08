@@ -2,7 +2,11 @@
 param(
   [Parameter(Mandatory)] [string] $Binary,
   [string] $Checksum,
-  [Parameter(Mandatory)] [string] $MainBucket
+  [Parameter(Mandatory)] [string] $MainBucket,
+  # A build with the `test-main-key` feature used only for `bucket update`.
+  [string] $BucketBinary,
+  # The ephemeral key that signed $MainBucket. Never used by the shipped binary.
+  [string] $PublicKey
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,8 +19,15 @@ function Assert-That([bool] $Condition, [string] $Message) {
 
 $source = (Resolve-Path -LiteralPath $Binary).Path
 $bucketSource = (Resolve-Path -LiteralPath $MainBucket).Path
+$bucketExecutable = if ($BucketBinary) { (Resolve-Path -LiteralPath $BucketBinary).Path } else { $source }
+$publicKeyText = if ($PublicKey) { (Get-Content -LiteralPath $PublicKey -Raw).Trim() } else { $null }
+if ($publicKeyText) {
+  $signaturePath = "$bucketSource.minisig"
+  Assert-That (Test-Path -LiteralPath $signaturePath) "the main bucket ZIP has a signature at $signaturePath"
+}
 $previousLocalAppData = $env:LOCALAPPDATA
 $previousBucketSource = $env:MODN_MAIN_BUCKET_SOURCE
+$previousTestKey = $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY
 
 if ($Checksum) {
   $expected = ((Get-Content -LiteralPath $Checksum -Raw).Trim() -split '\s+')[0]
@@ -42,6 +53,11 @@ try {
   $env:MODN_MAIN_BUCKET_SOURCE = $bucketSource
   Push-Location -LiteralPath $work
   Copy-Item -LiteralPath $source -Destination 'modn.exe'
+  $bucketExe = '.\modn.exe'
+  if ($bucketExecutable -ne $source) {
+    Copy-Item -LiteralPath $bucketExecutable -Destination 'modn-bucket.exe'
+    $bucketExe = '.\modn-bucket.exe'
+  }
   $insideRepository = (Get-Command git -ErrorAction SilentlyContinue) -and
     ($null -ne (git rev-parse --show-toplevel 2>$null))
   Assert-That (-not $insideRepository) "work directory $work is outside any Git repository"
@@ -61,13 +77,18 @@ try {
   }
   $gameBefore = Get-TreeSnapshot $game
 
-  function Invoke-Modn([string[]] $Arguments) {
-    $output = & .\modn.exe --json --state-dir state --game cyberpunk-2077 @Arguments
+  function Invoke-Modn([string[]] $Arguments, [string] $Executable = '.\modn.exe') {
+    $output = & $Executable --json --state-dir state --game cyberpunk-2077 @Arguments
     if ($LASTEXITCODE -ne 0) { throw "modn $($Arguments -join ' ') exited with $LASTEXITCODE" }
     return ($output -join "`n") | ConvertFrom-Json
   }
 
-  $updated = Invoke-Modn @('bucket', 'update')
+  $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $publicKeyText
+  try {
+    $updated = Invoke-Modn @('bucket', 'update') -Executable $bucketExe
+  } finally {
+    $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $null
+  }
   Assert-That ($updated.bucket -eq 'main' -and $updated.changed) 'bucket update installs the verified local ZIP'
   $search = Invoke-Modn @('search')
   $red4ext = @($search | Where-Object { $_.bucket -eq 'main' -and $_.id -eq 'red4ext' })
@@ -93,6 +114,7 @@ try {
 } finally {
   $env:LOCALAPPDATA = $previousLocalAppData
   $env:MODN_MAIN_BUCKET_SOURCE = $previousBucketSource
+  $env:MODN_TEST_MAIN_BUCKET_PUBLIC_KEY = $previousTestKey
   Pop-Location
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
