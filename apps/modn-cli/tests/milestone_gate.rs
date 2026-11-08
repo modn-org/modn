@@ -54,8 +54,8 @@ fn official_releases() -> Vec<Release> {
                 version: text(&manifest["version"]),
                 dependencies: manifest["dependencies"]
                     .as_array()
-                    .expect("dependencies")
-                    .iter()
+                    .into_iter()
+                    .flatten()
                     .map(text)
                     .collect(),
                 versions: manifest["dependency_versions"]

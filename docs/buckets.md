@@ -20,10 +20,15 @@ Explicit Git-backed community catalog sync is available; see [sources.md](source
 
 ## Catalog contents
 
-The official `main` bucket catalogs thirteen Cyberpunk
+The official `main` bucket catalogs thirty-one Cyberpunk
 packages: RED4ext, redscript, Cyber Engine Tweaks, ArchiveXL, TweakXL,
 Codeware, Mod Settings, Equipment-EX, Browser Extension, No Intro Videos,
-Virtual Atelier, Input Loader and BetterLootMarkers. Each SHA-256 was checked
+Virtual Atelier, Input Loader, BetterLootMarkers, All Vanilla Clothes Atelier
+Store, Autoloot, Clean Voiceovers, Custom Quickslots, Cyberarms Patch,
+Cyberpunk 2077 HD Reworked Project - Balanced, Disclosed Hidden Gems, Drone
+Companions, Hide Read Shards, Limited HUD, Native Settings UI, Native Settings
+UI Side Menu Add-on, Ping, Preem Scanner, Preem Scopes, Virtual Atelier
+Delivery, Virtual Car Dealer and Weather Probability Rebalance. Each SHA-256 was checked
 against the original distribution. GitHub-hosted packages record their release URL as an `https`
 source. Nexus-only packages are `manual` sources naming the original file.
 Modn does not mirror these archives. It downloads an `https` source from its

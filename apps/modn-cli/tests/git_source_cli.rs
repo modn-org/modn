@@ -281,7 +281,7 @@ fn git_package_stack_downloads_a_missing_native_dependency_and_reuses_the_cache(
         &[
             "--json",
             "install",
-            "steamodded",
+            "native-stack-fixture/native-injector-game/steamodded",
             "--path",
             game,
             "--dry-run",
@@ -312,7 +312,7 @@ fn git_package_stack_downloads_a_missing_native_dependency_and_reuses_the_cache(
         &[
             "--json",
             "install",
-            "steamodded",
+            "native-stack-fixture/native-injector-game/steamodded",
             "--path",
             game,
             "--yes",
@@ -365,7 +365,7 @@ fn git_package_stack_downloads_a_missing_native_dependency_and_reuses_the_cache(
         &[
             "--json",
             "install",
-            "steamodded",
+            "native-stack-fixture/native-injector-game/steamodded",
             "--path",
             game,
             "--yes",
