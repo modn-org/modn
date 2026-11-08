@@ -1,10 +1,65 @@
 use crate::commands::BucketCommand;
 use crate::state_access::{validate_state_path, ManagerState};
 use anyhow::{Context, Result};
-use modn_core::buckets::{BucketStore, GitCatalogSource};
+use modn_core::buckets::{BucketStore, GitCatalogSource, GitCatalogSync};
 use modn_core::state::Store;
 use serde_json::Value;
 use std::path::Path;
+
+/// Refuse a registry write when the state directory sits inside a game installation.
+pub(super) fn validate_registry_write(
+    state_path: &Path,
+    root: &Path,
+    store: &BucketStore,
+    game: Option<&str>,
+) -> Result<()> {
+    let state = ManagerState::load_deferred(state_path)?;
+    let registered = state
+        .existing()
+        .map(Store::list)
+        .transpose()?
+        .unwrap_or_default();
+    let roots = registered
+        .into_iter()
+        .map(|game| game.path)
+        .collect::<Vec<_>>();
+    let mut games = store.official_games()?;
+    if let Some(game) = game {
+        games.push(game.to_owned());
+    }
+    games.sort();
+    games.dedup();
+    let registry_target = root.join("buckets/registrations/.bucket-entry.json");
+    if games.is_empty() {
+        validate_state_path(&registry_target, None, None, &roots)?;
+    }
+    for game in games {
+        validate_state_path(&registry_target, Some(&game), None, &roots)?;
+    }
+    Ok(())
+}
+
+/// Fetch and verify one registered Git catalog, reporting a newly pinned signer.
+pub(super) fn sync_catalog(
+    store: &BucketStore,
+    name: &str,
+    source: Option<GitCatalogSource>,
+    json_output: bool,
+) -> Result<GitCatalogSync> {
+    let synced = store.sync_git_with_signer(name, source)?;
+    if synced.pinned {
+        let line = format!(
+            "Pinned signer key {} for bucket {name}; compare this fingerprint with the catalog author.",
+            synced.revision.signer.key_id
+        );
+        if json_output {
+            eprintln!("{line}");
+        } else {
+            println!("{line}");
+        }
+    }
+    Ok(synced)
+}
 
 pub(super) fn run(
     command: BucketCommand,
@@ -20,29 +75,7 @@ pub(super) fn run(
         &command,
         BucketCommand::Add { .. } | BucketCommand::Remove { .. } | BucketCommand::Sync { .. }
     ) {
-        let state = ManagerState::load_deferred(state_path)?;
-        let registered = state
-            .existing()
-            .map(Store::list)
-            .transpose()?
-            .unwrap_or_default();
-        let roots = registered
-            .into_iter()
-            .map(|game| game.path)
-            .collect::<Vec<_>>();
-        let mut games = store.official_games()?;
-        if let Some(game) = game {
-            games.push(game.to_owned());
-        }
-        games.sort();
-        games.dedup();
-        let registry_target = root.join("buckets/registrations/.bucket-entry.json");
-        if games.is_empty() {
-            validate_state_path(&registry_target, None, None, &roots)?;
-        }
-        for game in games {
-            validate_state_path(&registry_target, Some(&game), None, &roots)?;
-        }
+        validate_registry_write(state_path, root, &store, game)?;
     }
     let value: Value = match command {
         BucketCommand::Sync {
@@ -53,19 +86,7 @@ pub(super) fn run(
             let source = source
                 .zip(revision)
                 .map(|(remote, reference)| GitCatalogSource::new(remote, reference));
-            let synced = store.sync_git_with_signer(&name, source)?;
-            if synced.pinned {
-                let line = format!(
-                    "Pinned signer key {} for bucket {name}; compare this fingerprint with the catalog author.",
-                    synced.revision.signer.key_id
-                );
-                if json_output {
-                    eprintln!("{line}");
-                } else {
-                    println!("{line}");
-                }
-            }
-            serde_json::to_value(&synced.revision)?
+            serde_json::to_value(&sync_catalog(&store, &name, source, json_output)?.revision)?
         }
         BucketCommand::Update { name } => {
             return crate::bucket_update::run(name.as_deref(), json_output);

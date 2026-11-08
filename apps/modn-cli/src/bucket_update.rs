@@ -1,10 +1,17 @@
 use anyhow::{bail, Result};
-use modn_core::buckets::BucketStore;
+use modn_core::buckets::{BucketStore, CatalogKeyId};
 use std::fs::File;
 use std::io::Read;
 
 const DEFAULT_SOURCE: &str =
     "https://github.com/modn-org/main/releases/latest/download/main-bucket.zip";
+
+/// One verified replacement of the official main bucket.
+pub(super) struct MainRefresh {
+    pub(super) digest: String,
+    pub(super) changed: bool,
+    pub(super) key_id: CatalogKeyId,
+}
 
 fn source_reader(source: &str) -> Result<Box<dyn Read>> {
     if source.starts_with("https://") {
@@ -38,10 +45,8 @@ fn signature_reader(source: &str) -> Result<Box<dyn Read>> {
     }
 }
 
-pub(super) fn run(name: Option<&str>, json: bool) -> Result<()> {
-    if name.is_some_and(|name| name != "main") {
-        bail!("only main can be updated; registered local buckets are local directories");
-    }
+/// Download, verify and install the signed main bucket release.
+pub(super) fn refresh() -> Result<MainRefresh> {
     let source = std::env::var("MODN_MAIN_BUCKET_SOURCE").unwrap_or_else(|_| DEFAULT_SOURCE.into());
     let store = BucketStore::new(&modn_core::data_dir::data_directory()?);
     let (digest, changed, key_id) = store.update_main(
@@ -49,19 +54,34 @@ pub(super) fn run(name: Option<&str>, json: bool) -> Result<()> {
         || source_reader(&source),
         || signature_reader(&source),
     )?;
+    Ok(MainRefresh {
+        digest,
+        changed,
+        key_id,
+    })
+}
+
+pub(super) fn run(name: Option<&str>, json: bool) -> Result<()> {
+    if name.is_some_and(|name| name != "main") {
+        bail!("only main can be updated; registered local buckets are local directories");
+    }
+    let refreshed = refresh()?;
     if json {
         println!(
             "{}",
             serde_json::json!({
                 "bucket":"main",
-                "digest":digest,
-                "changed":changed,
-                "signed_by":key_id.to_string(),
+                "digest":refreshed.digest,
+                "changed":refreshed.changed,
+                "signed_by":refreshed.key_id.to_string(),
             })
         );
     } else {
-        println!("Verified main bucket signed by {key_id}.");
-        println!("Installed main {digest}; changed: {changed}");
+        println!("Verified main bucket signed by {}.", refreshed.key_id);
+        println!(
+            "Installed main {}; changed: {}",
+            refreshed.digest, refreshed.changed
+        );
     }
     Ok(())
 }

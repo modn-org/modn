@@ -29,7 +29,7 @@ pub(super) enum Command {
     Install(InstallArgs),
     /// Claim matching manual files without changing game bytes.
     Adopt(AdoptArgs),
-    /// Replace an installed catalog mod with another release, recoverably.
+    /// Refresh every catalog, or replace an installed catalog mod with another release.
     Update(UpdateArgs),
     /// Prevent updates of a managed package, by ID or catalog name.
     Pin(PinArgs),
@@ -241,11 +241,12 @@ pub(super) struct InstallArgs {
     pub(super) nxm_links: Vec<NxmLink>,
 }
 
-/// Options for replacing an installed catalog mod with another release.
+/// Options for refreshing every catalog or replacing an installed catalog mod.
 #[derive(Args)]
 pub(super) struct UpdateArgs {
     /// Catalog name of the installed mod: `mod`, `game/mod` or `bucket/game/mod`.
-    pub(super) target: String,
+    /// Omit it to refresh the official and every registered Git catalog.
+    pub(super) target: Option<String>,
     /// Release to install; defaults to the bucket's current release.
     #[arg(long)]
     pub(super) version: Option<String>,
