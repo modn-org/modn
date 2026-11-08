@@ -59,6 +59,15 @@ fn cache_entry(fixture: &Fixture, id: &str) -> PathBuf {
     cache_dir(fixture).join(format!("test-game#{id}#1.0#{url_hash}.zip"))
 }
 
+/// Count archive entries, ignoring the digest index and its temporary files.
+fn archive_entry_count(fixture: &Fixture) -> usize {
+    fs::read_dir(cache_dir(fixture))
+        .expect("cache dir")
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().contains('#'))
+        .count()
+}
+
 fn seed(fixture: &Fixture, id: &str, archive: &Path) {
     fs::create_dir_all(cache_dir(fixture)).expect("cache dir");
     fs::copy(archive, cache_entry(fixture, id)).expect("seed cache");
@@ -367,8 +376,12 @@ fn provider_preview_is_offline_and_aliases_reuse_verified_bytes() {
         fs::read(fixture.game.join("addons/shared.plugin")).unwrap(),
         b"shared"
     );
-    let entries = fs::read_dir(cache_dir(&fixture)).unwrap().count();
+    let entries = archive_entry_count(&fixture);
     assert_eq!(entries, 1, "digest alias reuse adds no second entry");
+    assert!(
+        cache_dir(&fixture).join(".digest-index.json").is_file(),
+        "the digest index is written beside the archive entry"
+    );
     assert!(modn(&fixture, &["uninstall", "provider", "--yes"])
         .status
         .success());
@@ -381,7 +394,7 @@ fn provider_preview_is_offline_and_aliases_reuse_verified_bytes() {
     .unwrap();
     let alias = modn(&fixture, &["install", "alias", "--yes"]);
     assert!(alias.status.success(), "{}", error(&alias));
-    assert_eq!(fs::read_dir(cache_dir(&fixture)).unwrap().count(), 1);
+    assert_eq!(archive_entry_count(&fixture), 1);
     assert_eq!(
         fs::read(fixture.game.join("addons/shared.plugin")).unwrap(),
         b"shared"

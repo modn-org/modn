@@ -42,16 +42,27 @@ Catalog metadata does not approve executable installation or grant game writes.
 ## Verified archive reuse
 
 Use `modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse}` as before.
-`ArchiveCache::cached` and `acquire` also search existing cache entries by SHA-256.
+`ArchiveCache::cached` and `acquire` search existing cache entries by SHA-256.
+The cache root holds a digest index in `.digest-index.json`.
+The index maps an archive pin to one cache entry file name.
 Two package or source aliases can return the same verified payload path.
 Every hit verifies the actual file bytes against the requested pinned digest.
+A stale index entry, whose file is missing or changed, is dropped.
 A corrupt entry is never a hit. A subsequent download can supply verified bytes.
 Refresh still fetches explicitly and verifies the pinned digest.
+A missing, unreadable, or unknown-format index triggers a scan.
+The scan finds the verified entry and rebuilds the index.
+The index is never authority: only re-verified bytes are returned.
+A successful download adds its entry to the index.
+Index writes use a temporary file in the cache root and an atomic rename.
+A crash therefore leaves the previous index or none.
+Modn is pre-alpha, so an index in an unknown format is corrupt and is never migrated.
+The pin names its hash algorithm, so issue #117 can switch to BLAKE3 by rebuilding the index.
 
 The existing package and URL filename layout remains compatible.
-This MVP scans entries instead of maintaining a digest index.
 It creates no alias file when it reuses another package's payload.
 Cache listing therefore names the original stored package.
+The index file is not a cache entry and cache listing never shows it.
 Removing that entry makes aliases download again when needed.
 Existing duplicate or corrupt files remain until explicit cache removal.
 This MVP deduplicates cache reuse only. It never hard-links cache bytes or mutable game files.
