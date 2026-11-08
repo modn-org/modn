@@ -47,7 +47,9 @@ pub(super) fn acquire_lock(
                 }
                 thread::sleep(remaining.min(RETRY_INTERVAL));
             }
-            Err(error) => return Err(error).context(busy_message),
+            Err(error) => {
+                return Err(error).with_context(|| format!("cannot lock {}", path.display()))
+            }
         }
     }
 }
