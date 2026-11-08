@@ -312,7 +312,7 @@ fn interrupted_swaps_restore_or_clean_before_failed_update() {
 }
 
 #[test]
-fn build_without_signer_key_refuses_update() {
+fn embedded_signer_key_refuses_a_release_signed_by_another_key() {
     let data = tempfile::tempdir().unwrap();
     let zip = data.path().join("main.zip");
     let tree = fixture_tree();
@@ -326,7 +326,7 @@ fn build_without_signer_key_refuses_update() {
         .args(["bucket", "update"])
         .output()
         .expect("run fixture command");
-    failure(&output, "This Modn build has no main bucket signer key.");
+    failure(&output, "does not match public key 0E250AD52A3BA2AA");
     assert!(!data.path().join("modn/buckets/main").exists());
 }
 
