@@ -56,8 +56,11 @@ class Session:
         self.next_id += 1
         self.send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
         for line in self.proc.stdout:
-            message = json.loads(line)
-            if message.get("id") == request_id:
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if message.get("id") == request_id and "method" not in message:
                 if "error" in message:
                     sys.exit(f"{method}: {message['error']}")
                 return message["result"]
@@ -65,7 +68,10 @@ class Session:
 
     def close(self):
         self.proc.stdin.close()
-        self.proc.wait(timeout=30)
+        try:
+            self.proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
 
 
 def main():
