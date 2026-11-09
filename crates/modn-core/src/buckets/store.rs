@@ -26,6 +26,8 @@ pub struct BucketInfo {
     /// Pinned Git catalog signer key identifier, when the bucket is Git-backed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signer_key_id: Option<String>,
+    /// True when this bucket may supply executable game modules.
+    pub module_trusted: bool,
 }
 
 #[expect(
@@ -50,14 +52,16 @@ struct Metadata {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Registration {
-    path: PathBuf,
+pub(super) struct Registration {
+    pub(super) path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    git: Option<super::git::StoredGitCatalogRevision>,
+    pub(super) git: Option<super::git::StoredGitCatalogRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) module_trust: Option<super::trust::ModuleSourceTrust>,
 }
 
 impl Registration {
-    fn revision(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
+    pub(super) fn revision(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
         self.git
             .clone()
             .map(|stored| stored.revision(name))
@@ -114,7 +118,7 @@ impl BucketStore {
         Ok(())
     }
 
-    fn registrations(&self) -> Result<BTreeMap<String, Registration>> {
+    pub(super) fn registrations(&self) -> Result<BTreeMap<String, Registration>> {
         self.check_registry_root()?;
         let root = self.root.join("registrations");
         match fs::symlink_metadata(&root) {
@@ -171,6 +175,7 @@ impl BucketStore {
                 title: metadata.title,
                 path: Some(path.to_path_buf()),
                 signer_key_id: None,
+                module_trusted: name == "main",
             },
             packages,
         ))
@@ -232,7 +237,14 @@ impl BucketStore {
         }
         fs::create_dir_all(&dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        serde_json::to_writer(&mut temp, &Registration { path, git: None })?;
+        serde_json::to_writer(
+            &mut temp,
+            &Registration {
+                path,
+                git: None,
+                module_trust: None,
+            },
+        )?;
         temp.as_file().sync_all()?;
         temp.persist_noclobber(dir.join(format!("{name}.json")))
             .context("bucket name already registered")?;
@@ -246,6 +258,36 @@ impl BucketStore {
         git: super::GitCatalogRevision,
     ) -> Result<()> {
         self.load(name, &path)?;
+        let signer_key_id = git.signer.key_id.clone();
+        let module_trust = self
+            .registrations()?
+            .remove(name)
+            .and_then(|registration| registration.module_trust)
+            .filter(|trust| trust.signer_key_id == signer_key_id);
+        self.write_registration(
+            name,
+            &Registration {
+                path,
+                git: Some(git.into()),
+                module_trust,
+            },
+        )
+    }
+
+    /// Read one registration without creating registry directories.
+    pub(super) fn registration(&self, name: &str) -> Result<Registration> {
+        if !valid_id(name) || name == "main" {
+            bail!("invalid or reserved bucket name");
+        }
+        if !self.registrations()?.contains_key(name) {
+            bail!("bucket is not registered: {name}");
+        }
+        bounded_json(&self.root.join("registrations").join(format!("{name}.json")))
+    }
+
+    /// Atomically replace one bucket registration file.
+    pub(super) fn write_registration(&self, name: &str, registration: &Registration) -> Result<()> {
+        self.check_registry_root()?;
         let dir = self.root.join("registrations");
         if let Ok(meta) = fs::symlink_metadata(&dir) {
             if !meta.is_dir() || meta.file_type().is_symlink() {
@@ -254,13 +296,7 @@ impl BucketStore {
         }
         fs::create_dir_all(&dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        serde_json::to_writer(
-            &mut temp,
-            &Registration {
-                path,
-                git: Some(git.into()),
-            },
-        )?;
+        serde_json::to_writer(&mut temp, registration)?;
         temp.as_file().sync_all()?;
         temp.persist(dir.join(format!("{name}.json")))?;
         Ok(())
@@ -295,11 +331,17 @@ impl BucketStore {
     pub fn list(&self) -> Result<Vec<BucketInfo>> {
         let mut all = vec![self.official()?.0];
         for (id, registration) in self.registrations()? {
-            let signer_key_id = registration
-                .revision(&id)?
-                .map(|revision| revision.signer.key_id);
+            let revision = registration.revision(&id)?;
+            let module_trusted = revision.as_ref().is_some_and(|revision| {
+                registration
+                    .module_trust
+                    .as_ref()
+                    .is_some_and(|trust| trust.signer_key_id == revision.signer.key_id)
+            });
+            let signer_key_id = revision.map(|revision| revision.signer.key_id);
             let mut info = self.load(&id, &registration.path)?.0;
             info.signer_key_id = signer_key_id;
+            info.module_trusted = module_trusted;
             all.push(info);
         }
         Ok(all)
