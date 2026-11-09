@@ -131,6 +131,7 @@ impl Store {
                 release.reference
             );
         }
+        self.control.checkpoint()?;
         let journal_id = self.withdraw_locked(&game, package_id, Dependents::Repoint)?;
         let catalog = CatalogInstall {
             release,

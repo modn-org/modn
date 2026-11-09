@@ -166,24 +166,10 @@ pub(crate) fn record_root(
     kind: RootKind,
     path: &Path,
 ) -> Result<()> {
+    check_root(connection, installation, kind, path)?;
     let installation_text = installation.to_string_lossy();
     let path_text = path.to_string_lossy();
     let key = ownership_key(&path_text);
-    let claimant: Option<(String, String)> = connection
-        .query_row(
-            "SELECT game_path, root FROM installation_roots WHERE path_key=?1",
-            [&key],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
-    if let Some((game_path, root)) = claimant {
-        if game_path != installation_text || root != kind.label() {
-            bail!(
-                "root {path_text} is already the {root} root of installation {game_path}; \
-                 two installations cannot share a root"
-            );
-        }
-    }
     connection.execute(
         "INSERT OR IGNORE INTO installation_roots(game_path, root, path, path_key)
          VALUES (?1, ?2, ?3, ?4)",
@@ -200,6 +186,46 @@ pub(crate) fn record_root(
         |row| row.get(0),
     )?;
     if recorded != path_text {
+        bail!(
+            "installation {installation_text} already records {} root {recorded}",
+            kind.label()
+        );
+    }
+    Ok(())
+}
+
+/// Refuse what [`record_root`] refuses, without writing manager state.
+pub(crate) fn check_root(
+    connection: &Connection,
+    installation: &Path,
+    kind: RootKind,
+    path: &Path,
+) -> Result<()> {
+    let installation_text = installation.to_string_lossy();
+    let path_text = path.to_string_lossy();
+    let claimant: Option<(String, String)> = connection
+        .query_row(
+            "SELECT game_path, root FROM installation_roots WHERE path_key=?1",
+            [ownership_key(&path_text)],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((game_path, root)) = claimant {
+        if game_path != installation_text || root != kind.label() {
+            bail!(
+                "root {path_text} is already the {root} root of installation {game_path}; \
+                 two installations cannot share a root"
+            );
+        }
+    }
+    let recorded: Option<String> = connection
+        .query_row(
+            "SELECT path FROM installation_roots WHERE game_path=?1 AND root=?2",
+            params![installation_text.as_ref(), kind.label()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(recorded) = recorded.filter(|recorded| *recorded != path_text) {
         bail!(
             "installation {installation_text} already records {} root {recorded}",
             kind.label()

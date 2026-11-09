@@ -19,12 +19,14 @@ pub mod content_root;
 pub mod data_dir;
 /// Validate installations and discover registered game locations.
 pub mod discovery;
+pub mod error;
 /// Local, sandboxed Lua game module inspection without host filesystem capabilities.
 pub mod game_modules;
 mod git;
 mod integrity;
 pub mod inventory;
 pub mod planning;
+pub mod progress;
 /// Inventory detected game files and produce diagnostic findings.
 pub mod scan;
 /// Persist game registrations and manager-owned file manifests.

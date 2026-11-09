@@ -2,6 +2,7 @@ use super::cleanup::RemovalMode;
 use super::directory::{covers, quarantine, quarantine_path};
 use super::install::Fault;
 use super::journal::{digest, lock_store, target_path, temp_path, JournalFile, Roots};
+use crate::progress::ProgressEvent;
 use crate::state::{resolve_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
 use std::fs;
@@ -13,7 +14,25 @@ impl Store {
     pub fn uninstall(&mut self, game: &Path, package_id: &str) -> Result<()> {
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
+        self.begin_removal(game, package_id)?;
         self.uninstall_locked(game, package_id)
+    }
+
+    /// Pass the commit point of removing `package_id`.
+    ///
+    /// The event names the package's catalog reference, or its ID when it
+    /// has none.
+    pub(super) fn begin_removal(&self, game: &Path, package_id: &str) -> Result<()> {
+        let catalog = self
+            .installed(game)
+            .ok()
+            .and_then(|packages| packages.into_iter().find(|p| p.id == package_id))
+            .and_then(|package| package.catalog);
+        let package = catalog.map_or_else(|| package_id.to_owned(), |c| c.to_string());
+        self.control.advance(ProgressEvent::Commit {
+            package: Some(package),
+        })?;
+        Ok(())
     }
 
     pub(super) fn uninstall_locked(&mut self, game: &Path, package_id: &str) -> Result<()> {

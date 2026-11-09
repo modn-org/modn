@@ -9,6 +9,7 @@ use super::validation::{
 };
 use crate::archive::inspect;
 use crate::planning::InstallPlan;
+use crate::progress::ProgressEvent;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -189,7 +190,7 @@ impl Store {
             content,
         };
         if let Some(content) = &roots.content {
-            crate::state::record_root(
+            crate::state::check_root(
                 &self.connection,
                 &roots.game,
                 crate::state::RootKind::Content,
@@ -236,6 +237,11 @@ impl Store {
                 })
             })
             .transpose()?;
+        let package = release.map(|release| release.reference.to_string());
+        let control = self.control.clone();
+        control.advance(ProgressEvent::Extract {
+            package: package.clone(),
+        })?;
         let staging = Builder::new().prefix("txn-").tempdir_in(&self.state_root)?;
         let id = staging
             .path()
@@ -247,8 +253,13 @@ impl Store {
         self.ensure_content_root(&id, &roots, proposal.content_base.as_deref())?;
         let staged = (|| -> Result<Vec<JournalFile>> {
             if inspection.format == crate::archive::ArchiveFormat::SevenZ {
-                let files =
-                    super::staging::stage_7z(archive, &inspection, proposal, staging.path())?;
+                let files = super::staging::stage_7z(
+                    archive,
+                    &inspection,
+                    proposal,
+                    staging.path(),
+                    &control,
+                )?;
                 if inspect(archive)?.sha256 != inspection.sha256 {
                     bail!("archive changed between inspection and extraction");
                 }
@@ -267,6 +278,7 @@ impl Store {
                 .collect();
             let mut files = Vec::new();
             for (n, op) in proposal.operations.iter().enumerate() {
+                control.checkpoint()?;
                 let archive_name = original_names
                     .get(op.source.as_str())
                     .context("source is not present in inspected ZIP")?;
@@ -301,6 +313,9 @@ impl Store {
             Ok(files)
         })();
         let staged = staged.and_then(|files| {
+            control.advance(ProgressEvent::Stage {
+                package: package.clone(),
+            })?;
             super::content::validate_staged_content(proposal, staging.path())?;
             Ok(files)
         });
@@ -322,7 +337,21 @@ impl Store {
                 identity: None,
             })
             .collect();
-        if let Err(err) = self.stage_ready(&id, &files, &journal_directories) {
+        let ready = (|| -> Result<()> {
+            control.advance(ProgressEvent::Commit {
+                package: package.clone(),
+            })?;
+            if let Some(content) = &roots.content {
+                crate::state::record_root(
+                    &self.connection,
+                    &roots.game,
+                    crate::state::RootKind::Content,
+                    content,
+                )?;
+            }
+            self.stage_ready(&id, &files, &journal_directories)
+        })();
+        if let Err(err) = ready {
             drop(staging);
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
