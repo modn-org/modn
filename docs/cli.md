@@ -271,8 +271,7 @@ refused, dry-run or rolled-back operation stores nothing. An interactive prompt
 can approve new executable paths. `install --dry-run --json` reports
 `approval.required`, `approval.covered_by_stored_approval`, the stored approval
 and the uncovered capabilities. There is no command to revoke an approval;
-uninstall and reinstall the mod to keep working with the stored approval, or
-start with a fresh state directory to discard it.
+`modn uninstall` does not remove it.
 
 ## Nexus Mods credentials and downloads
 
