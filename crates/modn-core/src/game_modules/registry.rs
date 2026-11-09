@@ -1,4 +1,4 @@
-mod layout;
+pub(super) mod layout;
 mod pin;
 #[cfg(test)]
 mod tests;
@@ -119,18 +119,18 @@ impl ModuleRegistry {
         }
     }
 
-    fn root(&self) -> PathBuf {
+    pub(super) fn root(&self) -> PathBuf {
         self.data.join("game-modules")
     }
 
-    fn directory(&self, game: &str) -> Result<PathBuf> {
+    pub(super) fn directory(&self, game: &str) -> Result<PathBuf> {
         if !loader::valid_game_id(game) {
             bail!("invalid game module identifier");
         }
         Ok(self.root().join(game))
     }
 
-    fn lock(&self) -> Result<File> {
+    pub(super) fn lock(&self) -> Result<File> {
         fs::create_dir_all(self.root())?;
         self.validate_root()?;
         let path = self.root().join("registry.lock");
@@ -270,6 +270,17 @@ impl ModuleRegistry {
             ReleaseOutcome::NotNewer
         };
         Ok(report(game, manifest, sha256, outcome))
+    }
+
+    /// Inspect the active release of one game without executing its Lua.
+    pub fn active(&self, game: &str) -> Result<Option<RegisteredModule>> {
+        let directory = self.directory(game)?;
+        let Some(current) = layout::open_game(&directory, game)? else {
+            return Ok(None);
+        };
+        self.validate_root()?;
+        let release = layout::read_release(&directory, game, &current)?;
+        Ok(Some(release.registered(true)))
     }
 
     /// List every retained release of one game, oldest first.

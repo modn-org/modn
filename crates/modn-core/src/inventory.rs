@@ -1,5 +1,7 @@
 //! Reconcile on-disk discovery against manager-owned SQLite records without writing to a game.
+use crate::buckets::BucketStore;
 use crate::content_root::{self, ContentRootHealth, ContentRootStatus};
+use crate::game_modules::{hidden_modules, ModuleRegistry};
 use crate::integrity::{self, FileRoots, PathState};
 use crate::scan::{self, Diagnostic, DoctorReport, IntegrityStatus, ScanReport, ScanRoot};
 use crate::state::{recorded_root, RootKind, Store};
@@ -208,6 +210,29 @@ pub fn doctor_with_ownership_appdata(
     installation: &Path,
     appdata: Option<&Path>,
 ) -> Result<DoctorReport> {
+    let source_diagnostics = module_source_diagnostics(game_id)?;
+    if source_diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "MODULE_SOURCE_UNTRUSTED")
+    {
+        let installation = installation.canonicalize()?;
+        let created_directories = store.created_directories(&installation)?;
+        return Ok(DoctorReport {
+            scan: ScanReport {
+                incomplete: true,
+                scan_issues: vec!["MODULE_SOURCE_UNTRUSTED".into()],
+                game_id: game_id.to_owned(),
+                installation,
+                content_root: None,
+                redmod_available: false,
+                mods: Vec::new(),
+                owned_files: Vec::new(),
+                framework_signals: Vec::new(),
+            },
+            diagnostics: source_diagnostics,
+            created_directories,
+        });
+    }
     let (report, health) = scan_inner(store, game_id, installation, appdata)?;
     let mut report = scan::diagnose_checked(report)?;
     report
@@ -233,6 +258,50 @@ pub fn doctor_with_ownership_appdata(
             ),
         });
     }
+    report.diagnostics.extend(source_diagnostics);
     report.created_directories = store.created_directories(installation)?;
     Ok(report)
+}
+
+fn module_source_diagnostics(game_id: &str) -> Result<Vec<Diagnostic>> {
+    let data = crate::data_dir::data_directory()?;
+    let buckets = BucketStore::new(&data);
+    let trusted = buckets.trusted_module_sources()?;
+    let mut diagnostics = Vec::new();
+    if let Some(release) = ModuleRegistry::new(&data).active(game_id)? {
+        if let Some(bucket) = release.source.bucket.as_deref() {
+            let trusted = bucket == "main"
+                || trusted.iter().any(|source| {
+                    source.bucket == bucket
+                        && Some(&source.signer_key_id) == release.source.signer_key_id.as_ref()
+                });
+            if !trusted {
+                diagnostics.push(Diagnostic {
+                    code: "MODULE_SOURCE_UNTRUSTED".into(),
+                    severity: "warning".into(),
+                    message: format!(
+                        "game module {game_id} comes from bucket {bucket}, which is not a trusted module source."
+                    ),
+                    action: Some(format!(
+                        "Run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game_id}` to remove the module."
+                    )),
+                });
+            }
+        }
+    }
+    for hidden in hidden_modules(game_id)? {
+        diagnostics.push(Diagnostic {
+            code: "MODULE_HIDDEN_BY_OFFICIAL".into(),
+            severity: "info".into(),
+            message: format!(
+                "bucket {} provides game module {game_id} version {}, but the official main bucket takes priority.",
+                hidden.bucket, hidden.version
+            ),
+            action: Some(format!(
+                "Use the official module, or remove the third-party module from bucket {}.",
+                hidden.bucket
+            )),
+        });
+    }
+    Ok(diagnostics)
 }

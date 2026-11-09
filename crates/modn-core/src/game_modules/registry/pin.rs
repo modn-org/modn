@@ -34,7 +34,7 @@ impl ModulePin {
         }
     }
 
-    pub(super) fn read(directory: &Path, game: &str) -> Result<Option<Self>> {
+    pub(in crate::game_modules) fn read(directory: &Path, game: &str) -> Result<Option<Self>> {
         let path = directory.join(layout::PIN);
         match fs::symlink_metadata(&path) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),

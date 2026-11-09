@@ -387,7 +387,9 @@ fn resolution_reads_the_active_release() {
             &lua(2),
             Some("Fixture Game/Mods"),
         );
-        registry.import_release(&v2, origin("community")).unwrap();
+        registry
+            .import_release(&v2, ModuleSource::default())
+            .unwrap();
         let spec = modn_core::game_modules::content_root_spec(GAME)
             .unwrap()
             .expect("v2 declares a content root");

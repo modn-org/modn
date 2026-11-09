@@ -1,11 +1,16 @@
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
+use super::trust::ModuleTrustState;
 use super::BucketStore;
+use crate::game_modules::{
+    stage_catalog_modules_at, CatalogModuleReport, IgnoredModule, ModuleIgnoreReason,
+};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 const MAX_CATALOG_PUBLIC_KEY_BYTES: u64 = 4 * 1024;
 
@@ -71,6 +76,8 @@ pub struct GitCatalogSync {
     pub revision: GitCatalogRevision,
     /// True when this sync pinned the signer key.
     pub pinned: bool,
+    /// Game module releases imported or ignored during this sync.
+    pub modules: CatalogModuleReport,
 }
 
 /// Stored form that can still read a registration written before signing.
@@ -120,21 +127,83 @@ fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
     )
 }
 
-fn validate_tree(root: &Path) -> Result<()> {
-    for entry in fs::read_dir(root)? {
+fn valid_module_location(relative: &Path) -> bool {
+    let parts: Vec<&OsStr> = relative
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => Some(name),
+            _ => None,
+        })
+        .collect();
+    parts.len() == 3
+        && parts[0] == OsStr::new("games")
+        && valid_id(&parts[1].to_string_lossy())
+        && matches!(parts[2].to_str(), Some("module.json" | "module.lua"))
+}
+
+fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Result<()> {
+    for entry in fs::read_dir(directory)? {
         let entry = entry?;
         let kind = entry.file_type()?;
         if kind.is_symlink() || (!kind.is_dir() && !kind.is_file()) {
             bail!("Git catalog contains a non-regular entry");
         }
         if entry.file_name() == "module.json" || entry.file_name() == "module.lua" {
-            bail!("community Git catalogs cannot contain game modules");
+            let relative = entry.path();
+            let relative = relative
+                .strip_prefix(root)
+                .context("catalog module path outside root")?;
+            match trust {
+                ModuleTrustState::Main | ModuleTrustState::Trusted => {
+                    if !valid_module_location(relative) {
+                        bail!(
+                            "catalog game modules are only supported at games/<game>/module.json and module.lua"
+                        );
+                    }
+                }
+                ModuleTrustState::Untrusted => {
+                    // Module files are ignored without parsing or executing them.
+                }
+                ModuleTrustState::Local => {
+                    bail!("community Git catalogs cannot contain game modules");
+                }
+            }
         }
         if kind.is_dir() {
-            validate_tree(&entry.path())?;
+            validate_tree(root, &entry.path(), trust)?;
         }
     }
     Ok(())
+}
+
+fn ignored_modules(root: &Path) -> Result<Vec<IgnoredModule>> {
+    let games = root.join("games");
+    match fs::symlink_metadata(&games) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        result => {
+            result?;
+        }
+    }
+    let mut ignored = Vec::new();
+    for entry in fs::read_dir(&games)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let game = entry.file_name().to_string_lossy().into_owned();
+        let directory = entry.path();
+        if valid_id(&game)
+            && (fs::symlink_metadata(directory.join("module.json")).is_ok()
+                || fs::symlink_metadata(directory.join("module.lua")).is_ok())
+        {
+            ignored.push(IgnoredModule {
+                game_id: game,
+                reason: ModuleIgnoreReason::UntrustedSource,
+            });
+        }
+    }
+    ignored.sort_by(|left, right| left.game_id.cmp(&right.game_id));
+    Ok(ignored)
 }
 
 fn unsigned(name: &str, reference: &str) -> anyhow::Error {
@@ -272,6 +341,10 @@ impl BucketStore {
             LOCK_WAIT,
         )?;
         let previous = self.git_revision(name)?;
+        let trust = match &previous {
+            None => ModuleTrustState::Untrusted,
+            Some(_) => self.module_trust(name)?,
+        };
         let source = match (source, previous.as_ref()) {
             (Some(source), None) => source,
             (None, Some(previous)) => previous.source.clone(),
@@ -300,16 +373,38 @@ impl BucketStore {
         let commit = git(&catalog, &["rev-parse", "--verify", "HEAD"])?;
         fs::remove_dir_all(catalog.join(".git"))?;
         let signer = verify_revision(&catalog, name, &source.reference, previous.as_ref())?;
-        validate_tree(&catalog)?;
+        validate_tree(&catalog, &catalog, trust)?;
         let pinned = previous.is_none();
         let revision = GitCatalogRevision {
             source,
             commit,
             signer,
         };
+        let staged = if trust == ModuleTrustState::Trusted {
+            Some(stage_catalog_modules_at(
+                &crate::data_dir::data_directory()?,
+                name,
+                &revision.signer.key_id,
+                &catalog,
+            )?)
+        } else {
+            None
+        };
+        let ignored = match &staged {
+            Some(staged) => staged.ignored().to_vec(),
+            None => ignored_modules(&catalog)?,
+        };
         self.publish_git(name, catalog, revision.clone())?;
+        let imported = match staged {
+            Some(staged) => staged.commit()?,
+            None => Vec::new(),
+        };
         let _retained = stage.keep();
-        Ok(GitCatalogSync { revision, pinned })
+        Ok(GitCatalogSync {
+            revision,
+            pinned,
+            modules: CatalogModuleReport { imported, ignored },
+        })
     }
 }
 

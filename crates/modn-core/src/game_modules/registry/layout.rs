@@ -8,35 +8,35 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub(super) const CURRENT: &str = "current";
-pub(super) const PIN: &str = "pin.json";
-pub(super) const RECEIPT: &str = "registration.json";
-pub(super) const VERSIONS: &str = "versions";
+pub(in crate::game_modules) const CURRENT: &str = "current";
+pub(in crate::game_modules) const PIN: &str = "pin.json";
+pub(in crate::game_modules) const RECEIPT: &str = "registration.json";
+pub(in crate::game_modules) const VERSIONS: &str = "versions";
 const MAX_CURRENT_BYTES: u64 = 64;
 
 /// Versioned receipt stored beside one retained release.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Receipt {
-    pub(super) game_id: String,
-    pub(super) version: String,
-    pub(super) api_version: u32,
-    pub(super) sha256: String,
-    pub(super) bucket: Option<String>,
-    pub(super) signer_key_id: Option<String>,
+pub(in crate::game_modules) struct Receipt {
+    pub(in crate::game_modules) game_id: String,
+    pub(in crate::game_modules) version: String,
+    pub(in crate::game_modules) api_version: u32,
+    pub(in crate::game_modules) sha256: String,
+    pub(in crate::game_modules) bucket: Option<String>,
+    pub(in crate::game_modules) signer_key_id: Option<String>,
 }
 
 /// One verified release under `versions/<version>/`.
-pub(super) struct RetainedRelease {
-    pub(super) manifest: VerifiedModule,
-    pub(super) script: String,
-    pub(super) info: GameModuleInfo,
-    pub(super) sha256: String,
-    pub(super) source: ModuleSource,
+pub(in crate::game_modules) struct RetainedRelease {
+    pub(in crate::game_modules) manifest: VerifiedModule,
+    pub(in crate::game_modules) script: String,
+    pub(in crate::game_modules) info: GameModuleInfo,
+    pub(in crate::game_modules) sha256: String,
+    pub(in crate::game_modules) source: ModuleSource,
 }
 
 impl RetainedRelease {
-    pub(super) fn registered(&self, active: bool) -> RegisteredModule {
+    pub(in crate::game_modules) fn registered(&self, active: bool) -> RegisteredModule {
         RegisteredModule {
             module: self.info.clone(),
             sha256: self.sha256.clone(),
@@ -50,7 +50,7 @@ impl RetainedRelease {
 ///
 /// Missing storage yields `None`. An old single-snapshot entry is refused with the
 /// re-registration instruction required by the no-backward-compatibility rule.
-pub(super) fn open_game(directory: &Path, game: &str) -> Result<Option<String>> {
+pub(in crate::game_modules) fn open_game(directory: &Path, game: &str) -> Result<Option<String>> {
     match fs::symlink_metadata(directory) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         result => {
@@ -101,7 +101,7 @@ pub(super) fn open_game(directory: &Path, game: &str) -> Result<Option<String>> 
     Ok(Some(current))
 }
 
-pub(super) fn read_current(directory: &Path) -> Result<String> {
+pub(in crate::game_modules) fn read_current(directory: &Path) -> Result<String> {
     let root = directory.canonicalize()?;
     let bytes = loader::bounded_file(&directory.join(CURRENT), &root, MAX_CURRENT_BYTES)?;
     let value =
@@ -113,7 +113,7 @@ pub(super) fn read_current(directory: &Path) -> Result<String> {
     Ok(value.to_owned())
 }
 
-pub(super) fn write_current(directory: &Path, version: &str) -> Result<()> {
+pub(in crate::game_modules) fn write_current(directory: &Path, version: &str) -> Result<()> {
     if !loader::valid_version(version) {
         bail!("invalid module version");
     }
@@ -132,11 +132,11 @@ pub(super) fn write_current(directory: &Path, version: &str) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn release_directory(directory: &Path, version: &str) -> PathBuf {
+pub(in crate::game_modules) fn release_directory(directory: &Path, version: &str) -> PathBuf {
     directory.join(VERSIONS).join(version)
 }
 
-pub(super) fn list_versions(directory: &Path) -> Result<Vec<String>> {
+pub(in crate::game_modules) fn list_versions(directory: &Path) -> Result<Vec<String>> {
     let mut versions = Vec::new();
     for entry in fs::read_dir(directory.join(VERSIONS))? {
         let entry = entry?;
@@ -154,7 +154,11 @@ pub(super) fn list_versions(directory: &Path) -> Result<Vec<String>> {
     Ok(versions)
 }
 
-pub(super) fn read_release(directory: &Path, game: &str, version: &str) -> Result<RetainedRelease> {
+pub(in crate::game_modules) fn read_release(
+    directory: &Path,
+    game: &str,
+    version: &str,
+) -> Result<RetainedRelease> {
     if !loader::valid_version(version) {
         bail!("invalid module version");
     }
@@ -204,14 +208,14 @@ pub(super) fn read_release(directory: &Path, game: &str, version: &str) -> Resul
 }
 
 /// Order semantic versions by precedence when both parse, else compare bytes.
-pub(super) fn compare_versions(left: &str, right: &str) -> Ordering {
+pub(in crate::game_modules) fn compare_versions(left: &str, right: &str) -> Ordering {
     match (semver::Version::parse(left), semver::Version::parse(right)) {
         (Ok(left), Ok(right)) => left.cmp(&right),
         _ => left.as_bytes().cmp(right.as_bytes()),
     }
 }
 
-pub(super) fn digest(manifest: &[u8], script: &[u8]) -> String {
+pub(in crate::game_modules) fn digest(manifest: &[u8], script: &[u8]) -> String {
     let mut hash = Sha256::new();
     hash.update(manifest);
     hash.update(script);

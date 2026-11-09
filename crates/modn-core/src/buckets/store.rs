@@ -2,6 +2,7 @@ mod packages;
 
 use self::packages::{read_packages, Releases};
 use super::manifest::{valid_id, PackageManifest};
+use super::trust::ModuleTrustState;
 use super::BucketSnapshot;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -98,6 +99,25 @@ impl BucketStore {
         }
     }
 
+    /// Trust state stored in one registration.
+    pub(super) fn stored_module_trust(registration: &Registration) -> ModuleTrustState {
+        let Some(git) = &registration.git else {
+            return ModuleTrustState::Local;
+        };
+        let Some(signer) = &git.signer else {
+            return ModuleTrustState::Untrusted;
+        };
+        let trusted = registration
+            .module_trust
+            .as_ref()
+            .is_some_and(|trust| trust.signer_key_id == signer.key_id);
+        if trusted {
+            ModuleTrustState::Trusted
+        } else {
+            ModuleTrustState::Untrusted
+        }
+    }
+
     pub(super) fn check_registry_root(&self) -> Result<()> {
         if self.root.components().any(|c| c == Component::ParentDir) {
             bail!("bucket registry path must not contain parent components");
@@ -150,7 +170,12 @@ impl BucketStore {
         Ok(registered)
     }
 
-    fn load(&self, name: &str, path: &Path) -> Result<(BucketInfo, Releases)> {
+    fn load(
+        &self,
+        name: &str,
+        path: &Path,
+        trust: ModuleTrustState,
+    ) -> Result<(BucketInfo, Releases)> {
         if fs::symlink_metadata(path)?.file_type().is_symlink() {
             bail!("linked bucket root refused");
         }
@@ -168,14 +193,14 @@ impl BucketStore {
             Err(error) => return Err(error.into()),
             Ok(_) => bail!("bucket module directories are unsupported"),
         }
-        let packages = read_packages(path, name == "main")?;
+        let packages = read_packages(path, trust)?;
         Ok((
             BucketInfo {
                 name: name.into(),
                 title: metadata.title,
                 path: Some(path.to_path_buf()),
                 signer_key_id: None,
-                module_trusted: name == "main",
+                module_trusted: matches!(trust, ModuleTrustState::Main | ModuleTrustState::Trusted),
             },
             packages,
         ))
@@ -185,17 +210,18 @@ impl BucketStore {
         let path = crate::data_dir::data_directory()?
             .join("buckets")
             .join("main");
-        Self::new(&crate::data_dir::data_directory()?).check_registry_root()?;
-        self.load("main", &path).with_context(|| {
-            format!(
-                "cannot load local main bucket; run `modn bucket update`; expected a valid copy at {}",
-                path.display()
-            )
-        })
+        self.check_registry_root()?;
+        self.load("main", &path, ModuleTrustState::Main)
+            .with_context(|| {
+                format!(
+                    "cannot load local main bucket; run `modn bucket update`; expected a valid copy at {}",
+                    path.display()
+                )
+            })
     }
 
     pub(super) fn validate_main(&self, path: &Path) -> Result<()> {
-        self.load("main", path)?;
+        self.load("main", path, ModuleTrustState::Main)?;
         Ok(())
     }
 
@@ -225,7 +251,7 @@ impl BucketStore {
             bail!("invalid or reserved bucket name");
         }
         let path = path.canonicalize()?;
-        let (info, _) = self.load(name, &path)?;
+        let (info, _) = self.load(name, &path, ModuleTrustState::Local)?;
         if self.registrations()?.contains_key(name) {
             bail!("bucket already registered");
         }
@@ -257,13 +283,18 @@ impl BucketStore {
         path: PathBuf,
         git: super::GitCatalogRevision,
     ) -> Result<()> {
-        self.load(name, &path)?;
         let signer_key_id = git.signer.key_id.clone();
         let module_trust = self
             .registrations()?
             .remove(name)
             .and_then(|registration| registration.module_trust)
             .filter(|trust| trust.signer_key_id == signer_key_id);
+        let trust = if module_trust.is_some() {
+            ModuleTrustState::Trusted
+        } else {
+            ModuleTrustState::Untrusted
+        };
+        self.load(name, &path, trust)?;
         self.write_registration(
             name,
             &Registration {
@@ -332,16 +363,10 @@ impl BucketStore {
         let mut all = vec![self.official()?.0];
         for (id, registration) in self.registrations()? {
             let revision = registration.revision(&id)?;
-            let module_trusted = revision.as_ref().is_some_and(|revision| {
-                registration
-                    .module_trust
-                    .as_ref()
-                    .is_some_and(|trust| trust.signer_key_id == revision.signer.key_id)
-            });
+            let trust = Self::stored_module_trust(&registration);
             let signer_key_id = revision.map(|revision| revision.signer.key_id);
-            let mut info = self.load(&id, &registration.path)?.0;
+            let mut info = self.load(&id, &registration.path, trust)?.0;
             info.signer_key_id = signer_key_id;
-            info.module_trusted = module_trusted;
             all.push(info);
         }
         Ok(all)
@@ -376,7 +401,8 @@ impl BucketStore {
         let mut sources = vec![("main".to_owned(), self.official()?.1)];
         for (id, registration) in self.registrations()? {
             registration.revision(&id)?;
-            sources.push((id.clone(), self.load(&id, &registration.path)?.1));
+            let trust = Self::stored_module_trust(&registration);
+            sources.push((id.clone(), self.load(&id, &registration.path, trust)?.1));
         }
         let mut current = Vec::new();
         let mut other = Vec::new();
