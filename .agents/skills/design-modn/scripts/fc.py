@@ -77,7 +77,7 @@ class Session:
 
 def load_args(text):
     if text.startswith("@"):
-        with open(text[1:], encoding="utf-8") as source:
+        with open(text[1:], encoding="utf-8-sig") as source:
             return json.load(source)
     return json.loads(text)
 

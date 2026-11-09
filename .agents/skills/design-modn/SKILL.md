@@ -17,7 +17,7 @@ design/
     Components             owner: components and their variants
     ---                    divider
     <Screen>               agent: one page per desktop screen, one top-level frame per state
-  renders/<Screen>/<frame>.png   agent: render of each saved screen frame
+  renders/<Page>/<frame>.png     agent: render of each saved top-level frame, per page
 ```
 
 - The owner owns the design system: the Foundations and Components pages, the variables and the styles. The agent changes them only when the owner asks for it in that conversation.
@@ -85,7 +85,7 @@ Add the page after the divider and its first frame, as one `batch`:
 
 ## 5. Design-system changes
 
-When the owner asks for one, follow [the design-system notes](references/design-system.md). Then run `audit.py design/design.figcraft --page Foundations` and `--page Components`. Done when both report 0 raw values and the screen renders show the intended effect.
+When the owner asks for one, follow [the design-system notes](references/design-system.md). Then run `audit.py design/design.figcraft --page Foundations` and `--page Components`, and export both pages as in step 2.5, to `design/renders/Foundations` and `design/renders/Components`. Done when both audits report 0 findings and the renders, of these pages and of each screen, show the intended effect.
 
 ## 6. Hand-off to code
 
@@ -93,4 +93,4 @@ When the owner asks for one, follow [the design-system notes](references/design-
 
 ## Commit
 
-Commit `design/design.figcraft` with the renders of each changed screen. Name each design-system change in the commit message.
+Commit `design/design.figcraft` with the renders of each changed page, Foundations and Components included. Name each design-system change in the commit message.
