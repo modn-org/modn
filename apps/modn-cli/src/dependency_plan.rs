@@ -1,5 +1,6 @@
 use crate::catalog_install::reference_of;
 use crate::download;
+use crate::install_consent::ApprovalCheck;
 use anyhow::Result;
 use modn_core::buckets::{BucketPackage, BucketSnapshot, PackageSource};
 use modn_core::planning::InstallPlan;
@@ -165,6 +166,7 @@ pub(super) fn report(
     archive: Option<ArchivePreview<'_>>,
     dependencies: &[PlannedDependency],
     conflicts: &[String],
+    approval: Option<&ApprovalCheck>,
     json: bool,
 ) -> Result<()> {
     if json {
@@ -186,6 +188,7 @@ pub(super) fn report(
                     .collect::<Result<Vec<_>>>()?,
                 "dependencies_ready": dependencies.iter().all(PlannedDependency::ready),
                 "conflicts": conflicts,
+                "approval": approval.map(ApprovalCheck::as_json),
             }))?
         );
         return Ok(());
@@ -217,6 +220,20 @@ pub(super) fn report(
     }
     for path in preview.unapproved_declared_executables {
         println!("DECLARED EXECUTABLE {path}: needs confirmation or --allow-executable");
+    }
+    if let Some(approval) = approval {
+        if approval.uncovered.is_empty() {
+            println!("Approval: required capabilities are covered by the stored approval.");
+        } else {
+            if approval.uncovered.native_injector {
+                println!("APPROVAL REQUIRED native injector: pass --allow-native-injector");
+            }
+            for path in &approval.uncovered.executables {
+                println!(
+                    "APPROVAL REQUIRED {path}: pass --allow-executable or confirm interactively"
+                );
+            }
+        }
     }
     Ok(())
 }

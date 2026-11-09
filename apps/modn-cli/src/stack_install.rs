@@ -8,6 +8,7 @@ use crate::progress::Progress;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse};
+use modn_core::approval::Capabilities;
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::planning::{
@@ -120,24 +121,48 @@ pub(super) fn run(
     let releases = releases(&stack)?;
     download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes && !progress.enabled();
-    let policy = if args.allow_native_injector {
+    let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
+    let checks: Vec<install_consent::ApprovalCheck> = releases
+        .iter()
+        .map(|release| {
+            let reference = reference_of(release);
+            let stored = install_consent::stored_approval(
+                state.existing(),
+                &stack.installation,
+                &reference,
+            )?;
+            let needed = Capabilities::new(
+                release.package.native_injector,
+                release.package.executables.iter().cloned(),
+            );
+            Ok(install_consent::ApprovalCheck::new(
+                reference, needed, stored, &flags,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(check) = checks.iter().find(|check| check.uncovered.native_injector) {
+        return check.ensure_approved();
+    }
+    let unapproved: Vec<String> = checks
+        .iter()
+        .flat_map(|check| check.uncovered.executables.iter().cloned())
+        .collect();
+    if !interactive {
+        if let Some(check) = checks
+            .iter()
+            .find(|check| !check.uncovered.executables.is_empty())
+        {
+            return check.ensure_approved();
+        }
+    }
+    let policy = if releases
+        .iter()
+        .any(|release| release.package.native_injector)
+    {
         NativeInjectorPolicy::Allow
     } else {
         NativeInjectorPolicy::Refuse
     };
-    let explicit = &args.allow_executable;
-    let unapproved: Vec<String> = releases
-        .iter()
-        .flat_map(|release| &release.package.executables)
-        .filter(|path| !explicit.contains(path))
-        .cloned()
-        .collect();
-    if !interactive && !unapproved.is_empty() {
-        bail!(
-            "installation blocked; catalog manifests declare {}. Confirm in a terminal without --yes, or pass --allow-executable for each path",
-            unapproved.join(", ")
-        );
-    }
     let packages: Vec<String> = releases
         .iter()
         .map(|release| {
@@ -176,14 +201,15 @@ pub(super) fn run(
     let mut digests = BTreeMap::new();
     let members = releases
         .iter()
-        .map(|release| {
+        .zip(&checks)
+        .map(|(release, check)| {
             let archive = stack
                 .archives
                 .get(&reference_of(release).to_string())
                 .context("every stack member has a supplied, cached or downloaded archive")?;
-            let mut approved = explicit.clone();
+            let mut approved = check.approved_executables();
             if interactive {
-                approved.extend(release.package.executables.iter().cloned());
+                approved.extend(check.uncovered.executables.iter().cloned());
             }
             let digest = download::digest(release, &stack.digests)
                 .with_context(|| format!("{} has no archive digest", reference_of(release)))?
@@ -231,6 +257,14 @@ pub(super) fn run(
             }
             Ok(plan)
         })?;
+    for check in &checks {
+        install_consent::record(
+            &mut store,
+            &stack.installation,
+            &check.reference,
+            &check.needed,
+        )?;
+    }
     let report: Vec<_> = members
         .iter()
         .zip(&installed)

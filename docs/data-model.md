@@ -36,6 +36,7 @@ Bucket -> BucketSnapshot -> ModRelease -> Game
                                      -> Dependency -> ModRelease
 GameInstallation -> ManagedPackage -> OwnershipClaim
                  -> PendingTransaction
+                 -> ModApproval
 ```
 
 A game can have multiple installations, each with independent ownership and
@@ -161,6 +162,25 @@ satisfied their dependencies, committed atomically with ownership. Recorded
 dependencies cannot be uninstalled while a dependent remains. Provenance does
 not replace the ownership evidence.
 
+### Mod approval
+
+A **ModApproval** records the capabilities of one catalog mod that the user
+approved for one game installation. Its identity is `(game_path, mod_id)`:
+
+- `native_injector` records that native code is approved.
+- `executables` is the set of normalized game-relative executable payload
+  paths that are approved.
+
+An install or update whose release capabilities the approval covers needs no
+flag. A release that adds native code or an executable path is refused with
+`NATIVE_INJECTOR_NOT_ALLOWED` or `APPROVAL_REQUIRED` until the user passes the
+matching flag or confirms the executable paths interactively. A committed
+operation then stores or widens the approval. A cancelled, refused, dry-run or
+rolled-back operation stores nothing. Uninstall keeps the approval. A release
+that drops a capability does not shrink it. Only the CLI backend writes
+approvals; the MCP and desktop surfaces inherit the stored decision. There is
+no approval revoke command.
+
 ### Ownership claim
 
 A recorded file or exclusive directory target owned by one managed package
@@ -195,6 +215,7 @@ fixture exercises game-agnostic support.
 | --- | --- |
 | Game installation | `state.sqlite / game_installations(game_id, path, source)` |
 | Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at, pinned)` |
+| Mod approval | `state.sqlite / mod_approvals(game_path, mod_id, native_injector, executables)` |
 | Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
 | Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
 | Installation root | `state.sqlite / installation_roots(game_path, root, path, path_key)` |
@@ -248,9 +269,19 @@ A second open of migrated state changes nothing.
 A read-only open of version 1 or 2 state presents the same rows through temporary views and writes nothing.
 
 Older Modn builds accept only schema versions 1 and 2.
-They refuse version 3 or 4 state with `unsupported manager state schema; start with a fresh state directory`.
+They refuse version 3, 4 or 5 state with `unsupported manager state schema; start with a fresh state directory`.
 They do not misread it, but that message suggests a fresh state directory.
 Do not follow that advice for state that holds ownership; install a current build instead.
+
+### Approvals (schema version 5)
+
+Manager schema version 5 adds the `mod_approvals` table. The table is keyed by
+`(game_path, mod_id)` and stores a native-injector flag and a JSON array of
+normalized executable payload paths. A writable open creates it in the same
+transaction as the rest of the schema and leaves schema version 4 state
+readable. A read-only open of version 4 state sees an empty approval table and
+writes nothing. Approvals are independent of ownership, managed packages and
+pending transactions; uninstall and recovery do not change them.
 
 The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>.json` and other releases at

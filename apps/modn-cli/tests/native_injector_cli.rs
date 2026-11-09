@@ -117,16 +117,40 @@ fn json_refusal_uses_the_error_envelope() {
 }
 
 #[test]
-fn dry_run_refuses_with_the_same_code_and_writes_nothing() {
+fn dry_run_reports_required_native_approval_and_writes_nothing() {
     let (fixture, archive, _digest) = native_setup();
     let output = fixture.run_paths(
         &["--json", "install", "injector", "--dry-run", "--file"],
         &[&archive],
     );
-    assert!(!output.status.success());
-    let refusal: Value = serde_json::from_slice(&output.stderr).expect("structured refusal");
-    assert_eq!(refusal["error"], "NATIVE_INJECTOR_NOT_ALLOWED");
+    assert!(output.status.success(), "{}", error(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("dry-run report");
+    assert_eq!(report["approval"]["required"], true);
+    assert_eq!(report["approval"]["covered_by_stored_approval"], false);
+    assert_eq!(report["approval"]["uncovered"]["native_injector"], true);
     assert!(!fixture.native_game.join("winmm.dll").exists());
+}
+
+#[test]
+fn stored_native_approval_survives_uninstall_and_covers_reinstall() {
+    let (fixture, archive, _digest) = native_setup();
+    let installed = fixture.run_paths(
+        &[
+            "install",
+            "injector",
+            "--yes",
+            "--allow-native-injector",
+            "--file",
+        ],
+        &[&archive],
+    );
+    assert!(installed.status.success(), "{}", error(&installed));
+    let uninstalled = fixture.run(&["uninstall", "injector", "--yes"]);
+    assert!(uninstalled.status.success(), "{}", error(&uninstalled));
+
+    let reinstalled = fixture.run_paths(&["install", "injector", "--yes", "--file"], &[&archive]);
+    assert!(reinstalled.status.success(), "{}", error(&reinstalled));
+    assert!(fixture.native_game.join("winmm.dll").is_file());
 }
 
 #[test]
@@ -268,9 +292,12 @@ fn update_refuses_a_native_target_until_the_flag_is_passed() {
         b"v1"
     );
 
-    let dry_run = fixture.run_paths(&["update", "injector", "--dry-run", "--file"], &[&v2]);
-    assert!(!dry_run.status.success());
-    assert!(error(&dry_run).contains("--allow-native-injector"));
+    let dry_run = fixture.run_paths(
+        &["--json", "update", "injector", "--dry-run", "--file"],
+        &[&v2],
+    );
+    assert!(dry_run.status.success(), "{}", error(&dry_run));
+    assert!(!fixture.native_game.join("winmm.dll").exists());
 
     let updated = fixture.run_paths(
         &[
@@ -288,6 +315,11 @@ fn update_refuses_a_native_target_until_the_flag_is_passed() {
         b"native-injector-payload"
     );
     assert!(!fixture.native_game.join("addons/example.plugin").exists());
+
+    let uninstalled = fixture.run(&["uninstall", "injector", "--yes"]);
+    assert!(uninstalled.status.success(), "{}", error(&uninstalled));
+    let reinstalled = fixture.run_paths(&["install", "injector", "--yes", "--file"], &[&v2]);
+    assert!(reinstalled.status.success(), "{}", error(&reinstalled));
 }
 
 #[test]

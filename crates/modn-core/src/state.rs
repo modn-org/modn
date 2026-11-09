@@ -186,6 +186,7 @@ impl Store {
             roots::migrate_to_v3(&tx)?;
         }
         migrate_ownership_keys(&tx)?;
+        crate::approval::ensure_schema(&tx)?;
         tx.commit()?;
         Ok(Self {
             connection,
@@ -209,6 +210,7 @@ impl Store {
         if version < roots::SCHEMA_VERSION {
             roots::attach_legacy_views(&connection)?;
         }
+        crate::approval::attach_missing_view(&connection)?;
         Ok(Self {
             connection,
             state_root: path
@@ -407,7 +409,8 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
 
 fn validate_package_schema(connection: &Connection) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if !(1..=roots::SCHEMA_VERSION).contains(&version) {
+    let latest = roots::SCHEMA_VERSION.max(crate::approval::SCHEMA_VERSION);
+    if !(1..=latest).contains(&version) {
         bail!("unsupported manager state schema; start with a fresh state directory");
     }
     let (archive_required, manual_origin): (Option<i64>, bool) = connection.query_row(
