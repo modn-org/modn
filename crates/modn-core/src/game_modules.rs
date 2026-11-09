@@ -10,7 +10,10 @@ pub use loader::{
     check_module, check_module_with_roots, ContentRootSpec, GameModuleInfo, HOST_API_VERSION,
     MIN_HOST_API_VERSION,
 };
-pub use registry::{ModuleRegistry, ModuleTrust, RegisteredModule};
+pub use registry::{
+    ImportReport, ModulePin, ModuleRegistry, ModuleSource, ModuleTrust, RegisteredModule,
+    ReleaseOutcome,
+};
 pub use resolver::with_module_source;
 
 /// Read the selected module's declared content root without executing it.
