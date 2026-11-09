@@ -1,6 +1,6 @@
 ---
 name: verify-modn-mcp
-description: Verify Modn MCP stdio framing, scoped arguments, previews, approved writes, and backend limits with disposable real CLI fixtures.
+description: Verify Modn MCP stdio framing, scoped arguments, previews, approved writes, progress notifications, cancellation, and backend limits with disposable real CLI fixtures.
 ---
 
 # Verify Modn MCP
@@ -33,6 +33,8 @@ python .agents/skills/verify-modn-mcp/verify.py --server target/debug/modn-mcp.e
 The driver creates a unique temporary fixture directory.
 It copies the official bucket from this repository and registers a fake Cyberpunk installation through the real CLI.
 It exchanges MCP messages through pipes, then checks file hashes and CLI state independently.
+It also requests progress on a real install and cancels a real install before its commit point.
+The fault backend proves that a cancel after the commit point completes the call.
 Read the driver's exit status. Require `failures: 0` and a positive `checks` count.
 Keep `summary.json` and `protocol.json` in the named evidence directory.
 The driver also retains incremental `responses.jsonl` and `progress.json` if an assertion fails.
