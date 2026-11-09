@@ -6,6 +6,7 @@ use crate::commands::CacheCommand;
 use crate::git_source;
 use crate::nexus_auth;
 use crate::nxm::NxmLink;
+use crate::progress::Progress;
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse, GithubReleaseAsset, NexusFile};
 use modn_core::buckets::{BucketPackage, PackageSource};
@@ -171,6 +172,7 @@ pub(super) fn download(
     digests: &mut BTreeMap<String, String>,
     links: &[NxmLink],
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
     for release in releases {
         let reference = reference_of(release).to_string();
@@ -215,9 +217,13 @@ pub(super) fn download(
             }
             let api_key = nexus_auth::load_key()?;
             let download_url = nexus_download::resolve(&file, &api_key, link)?;
-            let acquired = cache.acquire(&key, cache_use, |_cache_url| {
-                nexus_download::open(&download_url)
-            })?;
+            let acquired = cache.acquire_with_control(
+                &key,
+                cache_use,
+                Some(reference.clone()),
+                progress.control(),
+                |_cache_url| nexus_download::open(&download_url),
+            )?;
             archives.insert(reference, acquired.path);
             continue;
         }
@@ -240,7 +246,13 @@ pub(super) fn download(
         if !json {
             eprintln!("Downloading {reference} {} from {}", key.version, key.url);
         }
-        let acquired = cache.acquire(&key, cache_use, fetch)?;
+        let acquired = cache.acquire_with_control(
+            &key,
+            cache_use,
+            Some(reference.clone()),
+            progress.control(),
+            fetch_measured,
+        )?;
         archives.insert(reference, acquired.path);
     }
     Ok(())
@@ -271,9 +283,13 @@ fn fetch_metadata(url: &str) -> Result<Box<dyn Read>> {
 }
 
 pub(super) fn fetch(url: &str) -> Result<Box<dyn Read>> {
+    Ok(fetch_measured(url)?.0)
+}
+
+fn fetch_measured(url: &str) -> Result<(Box<dyn Read>, Option<u64>)> {
     #[cfg(test)]
     if let Some(response) = fixture_response(url) {
-        return response;
+        return Ok((response?, None));
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
@@ -283,7 +299,12 @@ pub(super) fn fetch(url: &str) -> Result<Box<dyn Read>> {
         .build()
         .into();
     let response = agent.get(url).call()?;
-    Ok(Box::new(response.into_body().into_reader()))
+    let total = response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok());
+    Ok((Box::new(response.into_body().into_reader()), total))
 }
 
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {

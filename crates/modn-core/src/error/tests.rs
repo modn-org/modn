@@ -35,8 +35,10 @@ fn coded_errors_keep_their_message_and_code_through_context() {
 
 #[test]
 fn cancellation_wins_over_other_codes() {
-    let error = anyhow::Error::new(Cancelled)
-        .context(CodedError::new(ErrorCode::DownloadFailed, "download failed"));
+    let error = anyhow::Error::new(Cancelled).context(CodedError::new(
+        ErrorCode::DownloadFailed,
+        "download failed",
+    ));
     assert_eq!(code_of(&error), Some(ErrorCode::Cancelled));
 }
 

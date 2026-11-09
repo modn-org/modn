@@ -8,6 +8,10 @@ pub(super) struct Cli {
     #[arg(long, global = true)]
     pub(super) json: bool,
 
+    /// Stream operation events as JSON lines on stderr; stdin line `cancel` cancels.
+    #[arg(long, global = true, value_name = "FORMAT")]
+    pub(super) progress: Option<crate::progress::ProgressFormat>,
+
     #[arg(long, global = true, value_name = "DIR")]
     pub(super) state_dir: Option<PathBuf>,
 

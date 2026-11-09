@@ -22,6 +22,8 @@ mod journal;
 #[cfg(test)]
 mod lifecycle_tests;
 mod native_injector;
+#[cfg(test)]
+mod progress_tests;
 mod recovery;
 #[cfg(test)]
 mod roots_tests;

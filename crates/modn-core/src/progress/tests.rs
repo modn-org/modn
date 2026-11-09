@@ -56,7 +56,9 @@ fn events_serialize_as_one_object_with_a_phase() {
 fn cancellation_stops_before_the_commit_point_without_reporting() {
     let token = CancellationToken::new();
     let (control, events) = recording(token.clone());
-    control.advance(ProgressEvent::Resolve).expect("not cancelled");
+    control
+        .advance(ProgressEvent::Resolve)
+        .expect("not cancelled");
     token.cancel();
     assert_eq!(control.advance(extract()), Err(Cancelled));
     assert_eq!(
@@ -76,7 +78,9 @@ fn cancellation_after_the_commit_point_is_ignored() {
         .expect("not cancelled");
     token.cancel();
     assert_eq!(control.checkpoint(), Ok(()));
-    control.advance(extract()).expect("committed operations finish");
+    control
+        .advance(extract())
+        .expect("committed operations finish");
     assert!(control.is_committed());
     assert_eq!(events.lock().expect("events").len(), 2);
 }
@@ -90,7 +94,9 @@ fn result_events_are_reported_even_when_cancelled() {
         outcome: Outcome::Cancelled,
         error: Some(ErrorCode::Cancelled),
     };
-    control.advance(result.clone()).expect("results are not checked");
+    control
+        .advance(result.clone())
+        .expect("results are not checked");
     assert_eq!(*events.lock().expect("events"), [result]);
 }
 

@@ -72,11 +72,11 @@ fn fetch_api(request: &NexusRequest) -> Result<(u16, Box<dyn Read>)> {
     Ok((status, Box::new(response.into_body().into_reader())))
 }
 
-pub(super) fn open(url: &NexusDownloadUrl) -> Result<Box<dyn Read>> {
+pub(super) fn open(url: &NexusDownloadUrl) -> Result<(Box<dyn Read>, Option<u64>)> {
     let mut current = url.as_str().to_owned();
     let mut followed = 0;
     loop {
-        let (status, location, body) = request_cdn(&current)?;
+        let (status, location, body, total) = request_cdn(&current)?;
         if (300..400).contains(&status) {
             if followed == MAX_CDN_REDIRECTS {
                 bail!("Nexus CDN redirected more than {MAX_CDN_REDIRECTS} times");
@@ -90,11 +90,11 @@ pub(super) fn open(url: &NexusDownloadUrl) -> Result<Box<dyn Read>> {
         if status != 200 {
             bail!("Nexus CDN download failed with HTTP status {status}");
         }
-        return Ok(body);
+        return Ok((body, total));
     }
 }
 
-fn request_cdn(url: &str) -> Result<(u16, Option<String>, Box<dyn Read>)> {
+fn request_cdn(url: &str) -> Result<(u16, Option<String>, Box<dyn Read>, Option<u64>)> {
     #[cfg(test)]
     if let Some(response) = fixture_response(url, &[]) {
         let response = response?;
@@ -103,10 +103,12 @@ fn request_cdn(url: &str) -> Result<(u16, Option<String>, Box<dyn Read>)> {
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("location"))
             .map(|(_, value)| value.clone());
+        let total = u64::try_from(response.body.len()).ok();
         return Ok((
             response.status,
             location,
             Box::new(std::io::Cursor::new(response.body)),
+            total,
         ));
     }
     let response = agent().get(url).call().map_err(cdn_error)?;
@@ -116,10 +118,16 @@ fn request_cdn(url: &str) -> Result<(u16, Option<String>, Box<dyn Read>)> {
         .get("location")
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    let total = response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok());
     Ok((
         status,
         location,
         Box::new(response.into_body().into_reader()),
+        total,
     ))
 }
 

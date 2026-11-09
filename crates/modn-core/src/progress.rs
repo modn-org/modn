@@ -2,11 +2,27 @@
 //!
 //! A front end creates one [`OperationControl`] per operation, such as an
 //! install, update, uninstall or download. The operation reports each phase
-//! through it and checks its [`CancellationToken`] at safe points. The commit
-//! point is the [`ProgressEvent::Commit`] event: before it, a cancellation
-//! stops the operation with [`Cancelled`] and leaves the game, manager state
-//! and ownership records unchanged. From it on, Modn ignores cancellation and
-//! finishes or rolls back the operation as it does without one.
+//! through it and checks its [`CancellationToken`] at safe points.
+//!
+//! # Contract
+//!
+//! 1. The caller calls [`OperationControl::begin`] at the start of the
+//!    resolve phase, before it reads catalogs or plans files.
+//! 2. The download step reports [`ProgressEvent::Download`] events with the
+//!    bytes received and the expected total, when the source states one.
+//! 3. The transaction reports [`ProgressEvent::Extract`], then
+//!    [`ProgressEvent::Stage`], then [`ProgressEvent::Commit`].
+//! 4. The caller calls [`OperationControl::finish`] with the outcome, or
+//!    [`OperationControl::finish_error`] when the operation failed.
+//!
+//! [`ProgressEvent::Commit`] is the commit point: before it, a cancellation
+//! stops the operation with [`Cancelled`], rolls back staging or a withdrawn
+//! update, and leaves the game files, manager state and ownership records as
+//! they were. From it on, Modn ignores cancellation and finishes or rolls back
+//! the operation as it does without one.
+//!
+//! A library caller may pass a control to an install, update, uninstall or
+//! [`crate::acquisition::ArchiveCache::acquire_with_control`] without a CLI.
 
 use crate::error::ErrorCode;
 use serde::Serialize;
@@ -188,6 +204,33 @@ impl OperationControl {
             return Err(Cancelled);
         }
         Ok(())
+    }
+
+    /// Reports the resolve phase after a cancellation check.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Cancelled`] when the operation is already cancelled.
+    pub fn begin(&self) -> Result<(), Cancelled> {
+        self.advance(ProgressEvent::Resolve)
+    }
+
+    /// Reports the result of the operation.
+    ///
+    /// A result event is always reported, also after a cancellation or the
+    /// commit point.
+    pub fn finish(&self, outcome: Outcome, error: Option<ErrorCode>) {
+        self.report(&ProgressEvent::Result { outcome, error });
+    }
+
+    /// Reports a failed result with its stable `code`.
+    pub fn finish_error(&self, code: ErrorCode) {
+        self.finish(Outcome::Failed, Some(code));
+    }
+
+    /// Reports a result cancelled before the commit point.
+    pub fn finish_cancelled(&self) {
+        self.finish(Outcome::Cancelled, Some(ErrorCode::Cancelled));
     }
 
     /// Reports `event` after a cancellation check.

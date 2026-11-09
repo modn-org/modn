@@ -279,7 +279,8 @@ impl<T> ResultExt<T> for anyhow::Result<T> {
 ///
 /// A cancellation, also one that a [`crate::progress::DownloadReader`] wraps
 /// in an I/O error, wins over every other code. Otherwise the outermost
-/// [`CodedError`] wins, then the code of a known error type in the chain.
+/// [`CodedError`] wins, then the code of a known error type in the chain, then
+/// a legacy `CODE: message` prefix whose code is in [`ErrorCode::ALL`].
 #[must_use]
 pub fn code_of(error: &anyhow::Error) -> Option<ErrorCode> {
     let cancelled_read = error
@@ -294,6 +295,18 @@ pub fn code_of(error: &anyhow::Error) -> Option<ErrorCode> {
     }
     if let Some(coded) = error.downcast_ref::<CodedError>() {
         return Some(coded.code);
+    }
+    if let Some(code) = error
+        .chain()
+        .filter_map(|cause| cause.to_string().split(':').next().map(str::to_owned))
+        .find_map(|prefix| {
+            ErrorCode::ALL
+                .iter()
+                .copied()
+                .find(|code| code.as_str() == prefix)
+        })
+    {
+        return Some(code);
     }
     if error.downcast_ref::<rusqlite::Error>().is_some() {
         return Some(ErrorCode::StateError);

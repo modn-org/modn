@@ -18,6 +18,7 @@ mod nexus_auth;
 #[cfg(test)]
 mod nexus_fixture_tests;
 mod nxm;
+mod progress;
 #[cfg(test)]
 mod provider_fixture_tests;
 mod selection;
@@ -31,13 +32,15 @@ use clap::Parser;
 use commands::{Cli, Command};
 use modn_core::archive::inspect;
 use modn_core::data_dir::with_profile_directory;
+use modn_core::error::{code_of, ErrorCode};
 use modn_core::game_modules::with_module_source;
 use modn_core::transactions::NativeInjectorNotAllowed;
+use progress::Progress;
 use state_access::database_path;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn run(mut cli: Cli) -> Result<()> {
+fn run(mut cli: Cli, progress: &Progress) -> Result<()> {
     if let Command::Asset { command } = &cli.command {
         return assets::run(command, cli.json);
     }
@@ -51,7 +54,9 @@ fn run(mut cli: Cli) -> Result<()> {
         .context("invalid manager state directory")?;
     let module_source = cli.module_source.clone();
     with_profile_directory(profile, || {
-        with_module_source(module_source.as_deref(), || run_cli(cli, &state_path))
+        with_module_source(module_source.as_deref(), || {
+            run_cli(cli, &state_path, progress)
+        })
     })
 }
 
@@ -70,7 +75,7 @@ fn prepare_nxm(command: &mut Command) -> Result<()> {
     Ok(())
 }
 
-fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
+fn run_cli(cli: Cli, state_path: &Path, progress: &Progress) -> Result<()> {
     let Cli {
         json,
         game_id,
@@ -85,15 +90,17 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
         Command::Module { command } => modules::run(command, state_path, json),
         Command::Auth { command } => nexus_auth::run(&command, json),
         Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
-        Command::Install(args) => install::run(&args, state_path, requested, json),
+        Command::Install(args) => install::run(&args, state_path, requested, json, progress),
         Command::Adopt(args) => adoption::run(&args, state_path, requested, json),
-        Command::Update(args) => update::run(&args, state_path, requested, json),
+        Command::Update(args) => update::run(&args, state_path, requested, json, progress),
         Command::Pin(args) => managed::pin(&args, state_path, requested, true),
         Command::Unpin(args) => managed::pin(&args, state_path, requested, false),
         Command::Inspect { archive } => inspect_archive(&archive, json),
         Command::Game { command } => games::run(command, state_path, requested, json),
         Command::List { path } => managed::list(path, state_path, requested, json),
-        Command::Uninstall(args) => managed::uninstall(&args, state_path, requested, json),
+        Command::Uninstall(args) => {
+            managed::uninstall(&args, state_path, requested, json, progress)
+        }
         Command::Recover { yes } => managed::recover(yes, state_path, requested, json),
         Command::Scan { path } => inventory::scan(path, state_path, requested, json),
         Command::Doctor { path } => inventory::doctor(path, state_path, requested, json),
@@ -118,23 +125,53 @@ fn inspect_archive(archive: &Path, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn error_code(message: &str) -> &str {
-    let code = message.split(':').next().unwrap_or_default();
-    if code.len() >= 3
-        && code
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
-    {
-        code
-    } else {
-        "ERROR"
+/// The stable code of a command that failed without a more specific one.
+fn default_code(command: &Command) -> ErrorCode {
+    match command {
+        Command::Install(_) => ErrorCode::InstallFailed,
+        Command::Adopt(_) => ErrorCode::AdoptFailed,
+        Command::Update(_) => ErrorCode::UpdateFailed,
+        Command::Pin(_) | Command::Unpin(_) => ErrorCode::PinFailed,
+        Command::Search { .. } => ErrorCode::SearchFailed,
+        Command::Cache { .. } => ErrorCode::CacheFailed,
+        Command::Bucket { .. } => ErrorCode::BucketFailed,
+        Command::List { .. } => ErrorCode::ListFailed,
+        Command::Uninstall(_) => ErrorCode::UninstallFailed,
+        Command::Recover { .. } => ErrorCode::RecoverFailed,
+        Command::Inspect { .. } => ErrorCode::InspectFailed,
+        Command::Asset { .. } => ErrorCode::AssetFailed,
+        Command::Module { .. } => ErrorCode::ModuleFailed,
+        Command::Auth { .. } => ErrorCode::AuthFailed,
+        Command::Game { .. } => ErrorCode::GameFailed,
+        Command::Scan { .. } => ErrorCode::ScanFailed,
+        Command::Doctor { .. } => ErrorCode::DoctorFailed,
     }
+}
+
+/// Commands that report progress and accept cancellation.
+fn reports_progress(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Install(_) | Command::Update(_) | Command::Uninstall(_)
+    )
 }
 
 fn main() {
     let cli = Cli::parse();
     let json = cli.json;
-    if let Err(error) = run(cli) {
+    let fallback = default_code(&cli.command);
+    let progress = Progress::start(cli.progress.filter(|_| reports_progress(&cli.command)));
+    let result = run(cli, &progress);
+    if let Err(error) = result {
+        let code = if error
+            .downcast_ref::<catalog_install::AmbiguousTarget>()
+            .is_some()
+        {
+            ErrorCode::AmbiguousTarget
+        } else {
+            code_of(&error).unwrap_or(fallback)
+        };
+        progress.finish_error(code);
         if let Some(ambiguous) = error.downcast_ref::<catalog_install::AmbiguousTarget>() {
             if ambiguous.json {
                 eprintln!("{}", ambiguous.as_json());
@@ -147,12 +184,15 @@ fn main() {
                 std::process::exit(1);
             }
             let message = format!("{error:#}");
-            let code = error_code(&message).to_owned();
-            eprintln!("{}", serde_json::json!({"error": code, "message": message}));
+            eprintln!(
+                "{}",
+                serde_json::json!({"error": code.as_str(), "message": message})
+            );
             std::process::exit(1);
         }
         eprintln!("error: {error:#}");
         std::process::exit(1);
     }
+    progress.finish_success();
 }
 mod bucket_update;

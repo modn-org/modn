@@ -316,6 +316,7 @@ impl Store {
             control.advance(ProgressEvent::Stage {
                 package: package.clone(),
             })?;
+            control.checkpoint()?;
             super::content::validate_staged_content(proposal, staging.path())?;
             Ok(files)
         });
