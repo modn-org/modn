@@ -96,8 +96,6 @@ fn replaced_paths(old: &ManagedPackage) -> Vec<String> {
 
 struct Candidate {
     plan: InstallPlan,
-    base_approved: Vec<String>,
-    approved: Vec<String>,
     pending: Vec<String>,
     present: std::collections::BTreeSet<String>,
 }
@@ -155,8 +153,6 @@ fn plan_update(
     let present = install_consent::present_executables(declared, &destinations);
     Ok(Candidate {
         plan,
-        base_approved,
-        approved,
         pending,
         present,
     })
@@ -350,11 +346,10 @@ pub(super) fn run(
     if !check.uncovered.is_empty() && (!interactive || check.uncovered.native_injector) {
         return check.ensure_approved();
     }
-    let approved = if interactive {
-        candidate.approved.clone()
-    } else {
-        candidate.base_approved.clone()
-    };
+    let mut approved = check.approved_executables();
+    if interactive {
+        approved.extend(check.uncovered.executables.iter().cloned());
+    }
     if candidate.plan.status != PlanStatus::Reviewable {
         bail!("{label}: update blocked; inspect it with --dry-run first");
     }
