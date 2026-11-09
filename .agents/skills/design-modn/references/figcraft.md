@@ -26,7 +26,9 @@ is the source of truth for parameters; these notes cover what it does not say.
 - Text in a horizontal layout wraps when it gets a narrow width. Set `width`, or `sizingH: "hug"`.
 - `padding` takes a number or `[top, right, bottom, left]`.
 - `style.update` with `value` replaces the whole style. For a text style, pass every field: `{"fontFamily", "fontStyle", "fontSize", "lineHeight": <px>, "letterSpacing": "0%"}`. A left-out field resets to its default, such as 12 px and `auto` line height.
-- `variable.bind` accepts `gap`, `crossGap` and each padding side: `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`.
+- `variable.bind` accepts `gap`, `crossGap` and each padding side: `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`. `opacity` takes a percent.
+- `component.bindProperty` takes the layer as `layer`, not `id`, plus `property` and `field: "characters"` for text.
+- A text style takes variables through `style.bind` with `fontFamily`, `fontSize` or `lineHeight`. Change a style's name alone with `style.update` and `name` only.
 
 ## Reference files
 

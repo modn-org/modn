@@ -2,17 +2,31 @@
 
 The owner makes every decision in `design/design-system.figcraft`. Propose
 these conventions when the owner creates the file or asks for a change.
+`scripts/audit.py design/design-system.figcraft` must report 0 raw values.
 
 ## Tokens
 
-- Keep tokens as variables. Put colours in a collection named `theme`, with one mode per theme, such as `light` and `dark`. Put radius and spacing in a collection named `size`, with one mode.
+- Keep tokens as variables, in three collections:
+  - `theme`: colours and opacity, with one mode per theme, such as `light` and `dark`;
+  - `size`: radius and spacing, with one mode;
+  - `type`: `modn/font/family`, and `modn/font/size/<style>` and `modn/font/line/<style>` for each text style, with one mode.
 - Name each variable `modn/<group>/<name>`, for example `modn/color/primary` or `modn/radius/m`. `inspect.code` turns slashes into hyphens, so pages export `var(--modn-color-primary, ...)`. That matches the `--modn-*` custom properties that issue #142 makes the theme API.
-- `variable.export` with `{"format": "css"}` writes the token stylesheet: the default mode on `:root`, and each other mode on `[data-<collection>="<mode>"]`, such as `[data-theme="dark"]`.
+- Spacing is a 4 px scale from `modn/space/2xs` (2) to `modn/space/4xl` (40). Snap a new gap or padding to the nearest step.
+- Give each variable the scopes of its use: colours `ALL_FILLS` and `STROKE_COLOR`; radius `CORNER_RADIUS`; spacing `GAP` and `WIDTH_HEIGHT`; opacity `OPACITY`; fonts `FONT_FAMILY`, `FONT_SIZE` and `LINE_HEIGHT`. Give each colour a description of where it goes.
+- `variable.export` with `{"format": "css"}` writes the token stylesheet: the default mode on `:root`, and each other mode on `[data-<collection>="<mode>"]`, such as `[data-theme="dark"]`. Opacity exports as a percent without a unit, so CSS uses `calc(var(--modn-opacity-disabled) / 100)`.
+
+## Text styles
+
+- Name text styles after their type tokens: `display`, `heading-l`, `body-m`, `label-s`.
+- Bind each style's `fontFamily`, `fontSize` and `lineHeight` to its `modn/font/*` variables. To change the font, set `modn/font/family` only.
 
 ## Components
 
 - Make a component for each repeated control, and variants for its states, such as `state=default`, `state=hover` and `state=disabled`. Write variant properties and values in lowercase.
-- Bind each component fill, stroke, radius and spacing to a token.
+- Make every text an instance may change a lowercase text property, such as `label`, `value` or `helper`.
+- Name each layer after its role, in lowercase: `label`, `field`, `value`, `helper`, `content`, `title`, `body`, `action`. Text content changes; role names stay.
+- Give each component set a description that lists its variant properties, their values and its text properties.
+- Bind each component fill, stroke, radius, spacing and opacity to a token.
 - Prefix a component name with `_` or `.` to keep it out of the published library.
 
 ## Publishing

@@ -60,6 +60,7 @@ The owner gives one instruction, such as "change the colors of the button at bro
 3. **Edit.** Send the whole request as one `batch`, so the owner can undo it in one step. Bind every value that a published variable or style holds, rather than writing the raw value. Bind tokens with `"fill": {"$var": "<variable>"}` or `variable.bind`. Place components with `library.place`, and pick variants with `instance.setProperties`.
 4. **Check.** Run `fc.py screenshot '{"ids":[<page frame id>]}' --png <scratch path>` and look at the image. Done when it shows the requested change and every other layer is unchanged.
 5. **Save.** Run `save_file`, then `screenshot` the page frame again with `--png design/renders/<page>.png`. Git keeps the history; `file.saveVersion` stores a snapshot inside the file and grows it with each one.
+   Then run `python -I .agents/skills/design-modn/scripts/audit.py design/pages/<page>.figcraft`. It lists every value that no variable or style holds. Done when each listed value is an override the owner approved.
 6. **Report.** Name the changed layers, the tokens or components used, each approved override and the render path.
 
 ## 3. Owner comments
