@@ -184,7 +184,7 @@ pub(super) fn download(
             continue;
         }
         if let PackageSource::Git { repository, commit } = &release.package.source {
-            if !json {
+            if !json && !progress.enabled() {
                 eprintln!(
                     "Fetching {reference} {} commit {commit} from {repository}",
                     release.package.version
@@ -206,7 +206,7 @@ pub(super) fn download(
             let link = nexus_download::matching_link(links, game_domain, *mod_id, *file_id);
             let url = file.cache_url();
             let key = key(release, &url);
-            if !json {
+            if !json && !progress.enabled() {
                 eprintln!(
                     "Downloading {reference} {} from {}",
                     key.version,
@@ -247,7 +247,7 @@ pub(super) fn download(
             }
         }
         let key = key(release, &url);
-        if !json {
+        if !json && !progress.enabled() {
             eprintln!("Downloading {reference} {} from {}", key.version, key.url);
         }
         let acquired = cache.acquire_with_control(

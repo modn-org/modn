@@ -173,12 +173,12 @@ fn main() {
         };
         progress.finish_error(code);
         if let Some(ambiguous) = error.downcast_ref::<catalog_install::AmbiguousTarget>() {
-            if ambiguous.json {
+            if ambiguous.json || progress.enabled() {
                 eprintln!("{}", ambiguous.as_json());
                 std::process::exit(1);
             }
         }
-        if json {
+        if json || progress.enabled() {
             if let Some(refusal) = error.downcast_ref::<NativeInjectorNotAllowed>() {
                 eprintln!("{}", refusal.as_json());
                 std::process::exit(1);

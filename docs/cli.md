@@ -65,6 +65,8 @@ global `--game`.
 `uninstall`. Each event is one JSON object on one line on **stderr**. The
 command's normal output on stdout is unchanged, including under `--json`.
 Progress mode never prompts, so pass `--yes`, or use `--dry-run` to preview.
+It also reports failures as the JSON error object described under
+[Error codes](#error-codes), without the human `error:` prefix.
 
 Every operation reports these phases in order:
 
