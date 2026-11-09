@@ -17,7 +17,9 @@ pub mod buckets;
 pub mod content_root;
 /// Resolve manager-owned data locations.
 pub mod data_dir;
-/// Validate installations and discover registered game locations.
+/// Find installed games by matching store libraries with module store identities.
+pub mod detection;
+/// Validate game installations with the selected game module.
 pub mod discovery;
 /// Local, sandboxed Lua game module inspection without host filesystem capabilities.
 pub mod game_modules;
@@ -29,6 +31,7 @@ pub mod planning;
 pub mod scan;
 /// Persist game registrations and manager-owned file manifests.
 pub mod state;
+pub mod stores;
 pub mod transactions;
 #[cfg(test)]
 extern crate self as modn_core;

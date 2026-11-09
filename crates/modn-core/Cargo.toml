@@ -36,6 +36,7 @@ sevenz-rust2 = { version = "0.24", default-features = false, features = ["compre
 
 [target.'cfg(windows)'.dependencies]
 winapi-util = "0.1"
+windows-registry = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1.1", features = ["fs"] }

@@ -5,6 +5,8 @@
 Game registration, mod installation and bucket management use separate commands:
 
 ```sh
+modn game detect --json
+modn game detect --register
 modn game add cyberpunk-2077 --path "/path/to/game"
 modn game add cyberpunk-2077 --src "./local-module" --path "/path/to/game"
 modn game list
@@ -135,6 +137,44 @@ The reason `untrusted_source` means Modn did not parse or execute the module.
 Run `bucket trust-modules` to import it. The reason `official_priority` means
 `main` provides the game, so Modn uses the official module. `doctor` reports
 that case as `MODULE_HIDDEN_BY_OFFICIAL`.
+
+## Game detection
+
+`modn game detect` reads the Steam, GOG and Epic libraries on Windows. It
+matches each listed folder against the store identities that game modules
+declare, and the module confirms the folder. See
+[game-modules.md](game-modules.md#store-identities-and-detection).
+
+```sh
+modn game detect --json
+modn game detect --register --json
+modn --game cyberpunk-2077 game detect --json
+```
+
+Without `--register`, detection writes nothing, not even an empty state
+database. `--register` registers each new confirmed installation with the
+store as its `source`. It writes manager state only, never game files. An
+installation that is already registered keeps its registration and is reported
+again. Global `--game` limits detection to one game; otherwise Modn checks every
+official module and every registered third-party module. `--state-dir` selects
+the profile whose registrations are read and written.
+
+`--json` prints one object:
+
+```json
+{"installations":[{"game_id":"cyberpunk-2077","store":"steam","store_id":"1091500",
+  "path":"C:\\...\\Cyberpunk 2077","status":"new"}],
+ "refused":[{"game_id":"balatro","store":"steam","store_id":"2379780",
+  "path":"C:\\...\\Balatro","reason":"the folder does not contain Balatro.exe"}],
+ "skipped":[]}
+```
+
+`status` is `new`, `registered` (by this run) or `already_registered`.
+`refused` lists folders that matched a store identity but that the module did
+not confirm. `skipped` lists games whose module could not be read.
+
+`modn game add <game-id>` without `--path` uses the same detection for one
+game. It registers the installation only when exactly one is confirmed.
 
 ## Games, packages and uninstall
 
