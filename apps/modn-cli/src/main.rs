@@ -12,6 +12,7 @@ mod install_consent;
 mod inventory;
 mod main_key;
 mod managed;
+mod module_releases;
 mod modules;
 mod nexus_auth;
 #[cfg(test)]
@@ -29,6 +30,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use commands::{Cli, Command};
 use modn_core::archive::inspect;
+use modn_core::data_dir::with_profile_directory;
 use modn_core::game_modules::with_module_source;
 use modn_core::transactions::NativeInjectorNotAllowed;
 use state_access::database_path;
@@ -44,8 +46,13 @@ fn run(mut cli: Cli) -> Result<()> {
     }
     prepare_nxm(&mut cli.command)?;
     let state_path = database_path(cli.state_dir.as_deref())?;
+    let profile = state_path
+        .parent()
+        .context("invalid manager state directory")?;
     let module_source = cli.module_source.clone();
-    with_module_source(module_source.as_deref(), || run_cli(cli, &state_path))
+    with_profile_directory(profile, || {
+        with_module_source(module_source.as_deref(), || run_cli(cli, &state_path))
+    })
 }
 
 fn prepare_nxm(command: &mut Command) -> Result<()> {

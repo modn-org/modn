@@ -12,9 +12,11 @@ from the latest [`modn-org/main`](https://github.com/modn-org/main) release over
 HTTPS. It extracts the ZIP, verifies the minisign signature and validates the
 bucket and modules before an atomic swap. Failure preserves the previous copy.
 A module whose `api_version` this Modn does not support makes the whole update
-fail. Only `main` contains modules, and only `main` can be updated. The bucket
-has its own release cycle, so a catalog change needs no Modn release.
-Modn refreshes the copy only when requested. Trusted third-party game modules use a separate registry.
+fail. `main` is always a trusted module source, and only `main` can be updated
+with this command. The bucket has its own release cycle, so a catalog change
+needs no Modn release.
+Modn refreshes the copy only when requested. Signed Git catalogs can also supply
+game modules after the user trusts them. See [module sources and trust](#module-sources-and-trust).
 Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 
 `modn update` with no target refreshes the official bucket and every registered
@@ -88,6 +90,42 @@ invalidates the signature. A Git catalog publishes `catalog.sig` and `catalog.pu
 at its root. A `main` release also uploads the same signature as
 `main-bucket.zip.minisig`.
 
+## Module sources and trust
+
+`main` is always a trusted module source. Only a signed Git catalog can become
+another trusted module source. Local folder buckets cannot be module sources.
+
+```sh
+modn bucket trust-modules community
+modn bucket trust-modules community --fingerprint 0E250AD52A3BA2AA --yes
+modn bucket untrust-modules community
+```
+
+`bucket trust-modules` needs a registered signed Git catalog. It prints the
+pinned signer key ID and refuses without `--yes`. The refusal names the key and
+the `--yes` flag. An optional `--fingerprint <KEY_ID>` must equal the pinned
+signer key ID; a mismatch writes nothing.
+
+The trust record stores the signer key ID for the whole bucket. It does not
+record one game. A new game module in the same trusted bucket needs no new
+acknowledgement. If the bucket's pinned signer key changes, the stored key ID no
+longer matches, and its modules become untrusted. Key rotation is planned (#122).
+
+`bucket untrust-modules` removes the trust record and leaves the bucket
+registered. Modules retained from that bucket are refused at use. Run
+`trust-modules` again to restore trust.
+
+`bucket sync` imports the modules of a trusted bucket. It reports each release
+as `imported`, `unchanged`, `not_newer` or `pinned`. For an untrusted bucket it
+reports each module as ignored with the reason `untrusted_source`. It neither
+parses nor executes those modules. A catalog module for a game that `main`
+provides is ignored with the reason `official_priority`.
+
+A local folder bucket cannot contain `module.json` or `module.lua`. Modn refuses
+such a bucket when it validates the registration. A Git catalog may contain
+modules only at `games/<game-id>/module.json` and `module.lua`. See
+[game modules](game-modules.md#trusted-module-sources).
+
 ## Catalog contents
 
 The official `main` bucket catalogs thirty-one Cyberpunk
@@ -131,9 +169,10 @@ refuses `.rar`. Unknown fields and unsupported schemas are rejected. See
 Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. A local folder bucket needs no signature, because
 it holds your own files. `catalog.sig` and `catalog.pub` serve distributed
-catalogs. Only the official `main` bucket may contain
-`module.json` and `module.lua`. Modn rejects those files in registered local
-buckets and rejects `modules/` directories. See [bucket contract v1](../buckets/README.md).
+catalogs. A local folder bucket cannot contain `module.json` or `module.lua`,
+and `modules/` directories are unsupported. A signed Git catalog may contain
+modules only at `games/<game-id>/module.json` and `module.lua`. See
+[bucket contract v1](../buckets/README.md).
 
 `native_injector` is an optional boolean and defaults to `false`. A manifest
 sets it to `true` when the release places a native library that the game process

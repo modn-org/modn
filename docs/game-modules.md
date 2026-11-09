@@ -115,7 +115,48 @@ modn module list --json
 modn module remove game-id
 ```
 
-Registration copies the manifest and Lua entrypoint into a separate registry. It requires a valid local `main` bucket and refuses official game identities. The retained digest and identity are checked when loading or listing. Official modules take priority; development overrides remain temporary and fail closed. Removal deletes the registration only. It does not remove installed packages or game files. Community buckets cannot contain modules. Trust does not grant installation approval or provide a sandbox.
+Registration copies the manifest and Lua entrypoint into a separate registry. It requires a valid local `main` bucket and refuses official game identities. The retained digest and identity are checked when loading or listing. Official modules take priority; development overrides remain temporary and fail closed. Removal deletes the registration only. It does not remove installed packages or game files. Trust does not grant installation approval or provide a sandbox.
+
+### Module releases
+
+A module release identity has two parts: the required `version` in `module.json`, and the SHA-256 digest of the `module.json` bytes followed by the entrypoint bytes. Modn stores each release under `<data>/game-modules/<game-id>/versions/<version>/`. It keeps every retained release and imports a receipt with the identity, digest and source.
+
+The `current` file names the one active release. An update stages the new release in private storage and validates it there. It switches the `current` pointer only after the source bucket publishes. A failed update keeps the previous active release, and a failed registry commit removes every release directory it moved and restores every `current` pointer before returning the error. `module update` reports `imported`, `unchanged`, `not_newer` or `pinned`.
+
+Modn refuses a release when the same version is already retained with a different digest. Remove the module and register it again to resolve the conflict. An unversioned registry entry from an earlier release is refused in the same way: remove it and register the module again.
+
+### Pin, unpin, update and rollback
+
+```sh
+modn module pin <game-id>
+modn module unpin <game-id>
+modn module update <game-id>
+modn module rollback <game-id>
+modn module rollback <game-id> --to <version>
+```
+
+`module pin` keeps the active release and records its version and digest in `pin.json`. While pinned, imports, updates and rollback do not move the active release. `module update` still fetches the source bucket and reports `pinned`. `module unpin` removes the pin and allows updates and rollback again.
+
+`module update` fetches the registered source bucket and switches to a newer retained release. A local registration has no bucket, so update refuses it. Register the new version with `modn module register <directory> --trust` instead.
+
+`module rollback` switches the `current` pointer to the previous retained release, or to the version named by `--to`. It changes only future plans. It never changes installed files, game files or ownership records.
+
+`module list` verifies and lists every retained release, with its digest, source, trust state and `active` or `pinned` marker.
+
+### Trusted module sources
+
+`main` is always a trusted module source. A signed Git catalog becomes a module source only when the user trusts it:
+
+```sh
+modn bucket trust-modules <bucket>
+modn bucket untrust-modules <bucket>
+```
+
+`bucket trust-modules` prints the pinned signer key ID and refuses without `--yes`. Use `--fingerprint <KEY_ID>` to require an exact signer. Trust covers the whole bucket, so one acknowledgement covers every game in it. A signer key change ends trust. See [buckets.md](buckets.md#module-sources-and-trust).
+
+A catalog sync imports modules only from trusted buckets. It reports and ignores modules from untrusted buckets. It also ignores a catalog module for a game that `main` provides, because official modules take priority. `modn doctor` reports that case as `MODULE_HIDDEN_BY_OFFICIAL`.
+
+Modn refuses a module whose bucket is no longer trusted. The refusal names the bucket and the recovery command. Run `modn bucket trust-modules <bucket>` to trust the bucket again, or `modn module remove <game-id>` to remove the module. `modn doctor` reports the same condition as `MODULE_SOURCE_UNTRUSTED`.
 
 ## Skyrim example
 

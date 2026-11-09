@@ -16,7 +16,7 @@ _Avoid_: Mod repository, provider, registry (when referring to a bucket)
 **Official bucket**:
 The Modn-maintained `main` catalog and first-party game modules. Modn uses a
 local copy installed by `modn bucket update`. The install script runs that command.
-Only `main` contains modules. Its source and releases are in the
+`main` is always a trusted module source. Its source and releases are in the
 `modn-org/main` repository.
 _Avoid_: Built-in module, automatically safe mods
 
@@ -49,20 +49,36 @@ installation policy, diagnostics and tool behavior.
 _Avoid_: Mod, plugin, adapter, Rust game handler
 
 **Trusted third-party game module**:
-A user-approved executable Lua policy copied into a separate local registry.
+A user-approved executable Lua policy. It comes from a trusted signed Git
+catalog or a local `module register --trust` source and is stored as a versioned
+release in a separate local registry.
 _Avoid_: Community bucket module, automatically safe module
 
 **First-party game module**:
 A Lua 5.4 integration owned by Modn and distributed in the official bucket.
 _Avoid_: Independently installed game plugin
 
+**Module release**:
+A versioned game-module release: the required `version` plus the SHA-256 digest
+of `module.json` and its entrypoint. The registry retains releases and activates
+one; pin and rollback change which one future plans use.
+_Avoid_: Catalog revision, unversioned snapshot
+
+**Trusted module source**:
+A bucket that may supply executable game modules: the official `main` bucket, or
+a signed Git catalog the user trusts with `modn bucket trust-modules`. Trust
+covers the whole bucket and ends when its signer key changes or
+`untrust-modules` removes it.
+_Avoid_: Any registered bucket, unsigned catalog
+
 **Development module override**:
 A temporary caller-selected Lua module source for one command, never persisted.
 _Avoid_: Installed module, active third-party module
 
 **Trusted module registration**:
-An explicitly accepted snapshot of third-party Lua policy in the runtime data directory.
-Its retained digest detects changed bytes. Registration grants no game-write approval.
+An explicitly accepted module release of third-party Lua policy in the runtime
+data directory. Its version and retained digest detect changed bytes.
+Registration grants no game-write approval.
 _Avoid_: Sandboxed module, bucket module, development override
 
 **Git catalog revision**:
@@ -208,8 +224,9 @@ Explicitly approved removal of one managed package's recorded files, including m
 It preserves unrecorded descendants and retains transaction backups and recovery checks.
 
 **Trusted module registration**:
-An explicitly accepted snapshot of third-party Lua policy in the runtime data directory.
-Its retained digest detects changed bytes. Registration grants no game-write approval.
+An explicitly accepted module release of third-party Lua policy in the runtime
+data directory. Its version and retained digest detect changed bytes.
+Registration grants no game-write approval.
 _Avoid_: Sandboxed module, bucket module, development override
 
 **Git catalog revision**:

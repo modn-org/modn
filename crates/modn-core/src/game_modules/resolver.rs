@@ -1,6 +1,6 @@
 use super::loader::{self, VerifiedModule};
 use super::official::read_official;
-use super::registry::ModuleRegistry;
+use super::registry::{ModuleRegistry, ModuleSource};
 use crate::buckets::BucketStore;
 use crate::data_dir;
 use anyhow::{bail, Result};
@@ -40,14 +40,14 @@ pub(crate) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     let (manifest, source) = match directory {
         Some(directory) => loader::read_verified_module(&directory)?,
         None => {
-            let data = data_dir::data_directory()?;
-            if BucketStore::new(&data)
-                .official_games()?
-                .iter()
-                .any(|id| id == game)
-            {
+            let data = data_dir::profile_directory()?;
+            let store = BucketStore::new(&data);
+            if store.official_games()?.iter().any(|id| id == game) {
                 read_official(game)?
-            } else if let Some((manifest, script, _)) = ModuleRegistry::new(&data).read(game)? {
+            } else if let Some((manifest, script, registered)) =
+                ModuleRegistry::new(&data).read(game)?
+            {
+                ensure_source_trusted(&store, game, &registered.source)?;
                 (manifest, script)
             } else {
                 read_official(game)?
@@ -58,4 +58,22 @@ pub(crate) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
         bail!("game module identity does not match requested game");
     }
     Ok((manifest, source))
+}
+
+fn ensure_source_trusted(store: &BucketStore, game: &str, source: &ModuleSource) -> Result<()> {
+    let Some(bucket) = source.bucket.as_deref() else {
+        return Ok(());
+    };
+    if bucket == "main" {
+        return Ok(());
+    }
+    let trusted = store.trusted_module_sources()?.into_iter().any(|trusted| {
+        trusted.bucket == bucket && Some(&trusted.signer_key_id) == source.signer_key_id.as_ref()
+    });
+    if !trusted {
+        bail!(
+            "game module {game} comes from bucket {bucket}, which is not a trusted module source; run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game}` to remove the module"
+        );
+    }
+    Ok(())
 }

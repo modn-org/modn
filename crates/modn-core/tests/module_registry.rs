@@ -50,13 +50,18 @@ fn refuses_duplicate_and_tampered_snapshot() {
         let source = source(root.path(), "fixture-game", 1, "fixture-game");
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        registry
+        let registered = registry
             .register(&source, ModuleTrust::Acknowledged)
             .unwrap();
-        assert!(registry
+        let again = registry
             .register(&source, ModuleTrust::Acknowledged)
-            .is_err());
-        fs::write(data.join("game-modules/fixture-game/main.lua"), "return {}").unwrap();
+            .unwrap();
+        assert_eq!(again, registered);
+        fs::write(
+            data.join("game-modules/fixture-game/versions/1/main.lua"),
+            "return {}",
+        )
+        .unwrap();
         assert!(registry.list().is_err());
         registry.unregister("fixture-game").unwrap();
         assert!(registry.list().unwrap().is_empty());

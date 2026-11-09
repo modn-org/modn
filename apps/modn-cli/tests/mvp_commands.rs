@@ -57,7 +57,7 @@ fn trusted_registry_copies_checks_and_removes_runtime_snapshot() {
     assert_eq!(listed.as_array().unwrap().len(), 1);
     fs::write(
         temp.path()
-            .join("modn/game-modules/skyrim-special-edition/module.lua"),
+            .join("modn/game-modules/skyrim-special-edition/versions/0.1.0/module.lua"),
         "return {}",
     )
     .unwrap();

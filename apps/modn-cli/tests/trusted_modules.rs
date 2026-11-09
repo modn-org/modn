@@ -42,7 +42,8 @@ fn trusted_registry_copies_checks_and_removes_runtime_snapshot() {
     let listed = success(&cli(temp.path(), &["--json", "module", "list"]));
     assert_eq!(listed.as_array().unwrap().len(), 1);
     fs::write(
-        temp.path().join("modn/game-modules/sample-game/main.lua"),
+        temp.path()
+            .join("modn/game-modules/sample-game/versions/0.1.0/main.lua"),
         "return {}",
     )
     .unwrap();

@@ -17,8 +17,11 @@ declares the host API version that it needs. Modn embeds no bucket manifests or 
 The development-only `--module-src` flag selects a local source for one command;
 it does not change any persistent selection or stored installation record.
 
-Buckets contain mod-package manifests and source metadata. Only the official
-`main` bucket may also contain game modules. Trusted third-party modules are copied into a separate registry after explicit approval. A bucket
+Buckets contain mod-package manifests and source metadata. The official `main`
+bucket and the signed Git catalogs the user trusts for modules may contain game
+modules. Modn ignores modules from other buckets, and local folder buckets
+cannot be module sources. Trusted third-party modules are imported into a
+versioned registry after explicit approval. A bucket
 record is not evidence of installed content; an archive hash proves exact
 bytes, not harmlessness. Catalog updates cannot modify game files.
 Rust owns managed transactions, file and directory ownership, rollback,
@@ -48,6 +51,7 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 | `source` | Verified local `main` copy, registered local directory or explicitly synchronized Git source. |
 | `revision` | Selected catalog snapshot/revision. |
 | `title` | Human-readable catalog name. |
+| `module_trust` | Stored signer key ID that accepts this bucket's module code. A trusted signed Git catalog has this record; other buckets do not. |
 
 The install script runs `modn bucket update` to fetch the official `main` bucket.
 Modn never fetches it implicitly. A missing copy prompts the user to run that command.
@@ -56,9 +60,12 @@ key built into Modn. It refuses an unsigned or invalid release and keeps the
 installed copy.
 The update fetches the latest `modn-org/main`
 release, and it refuses a bucket with a module this Modn cannot run.
-The local copy works offline and changes only on explicit update. Community buckets
-cannot contain game modules. Registering a bucket
-never authorizes modification of a game installation.
+The local copy works offline and changes only on explicit update. `main` and the
+signed Git catalogs the user trusts for modules may contain game modules. Modn
+ignores modules from other buckets, and local folder buckets cannot be module
+sources. Registering a bucket never authorizes modification of a game installation.
+A trusted catalog's `module_trust` record names its signer key ID; a signer key
+change ends trust.
 
 ### Game and game installation
 
@@ -74,6 +81,29 @@ The manifest declares `game_id`, `version`, `api_version` and
 `entrypoint`. Explicit bucket updates can change supported game policies.
 A caller can explicitly provide a temporary alternative source for tests;
 a missing or mismatched override fails without falling back.
+
+### Game module release
+
+A **GameModuleRelease** is one version of a trusted third-party module. Its
+identity is the required `version` plus the SHA-256 digest of `module.json` and
+its entrypoint. The registry keeps every retained release and one active release:
+
+```text
+<data>/game-modules/<game-id>/
+  current                      # active version string
+  pin.json                     # optional pin: version and digest
+  versions/<version>/
+    module.json
+    module.lua
+    registration.json          # identity, digest and source receipt
+```
+
+`current` and `pin.json` are manager metadata. Pin and rollback change only
+these pointers, so they affect future plans and never installed files. Import
+stages a release in private storage and switches `current` atomically. A failed
+import keeps the previous release. A retained version with a different digest is
+refused. An unversioned entry from an earlier release is refused and must be
+registered again.
 
 ### Mod release (package manifest)
 
@@ -173,7 +203,9 @@ fixture exercises game-agnostic support.
 | Created folder | `state.sqlite / created_directories(game_path, root, path_key, ...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
 | Official game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
-| Trusted module snapshot | `<data-directory>/game-modules/<game-id>/`, with a verified registration receipt |
+| Retained module release | `<data-directory>/game-modules/<game-id>/versions/<version>/`, with a verified `registration.json` receipt |
+| Active or pinned module release | `<data-directory>/game-modules/<game-id>/current` and `pin.json` |
+| Bucket module trust | `buckets/registrations/<name>.json / module_trust.signer_key_id` |
 | Development override | In-memory per-invocation `--module-src` / `--src` |
 | Bucket packages | Local `main` copy, registered local directories and explicitly synced Git snapshots |
 
@@ -222,8 +254,8 @@ Do not follow that advice for state that holds ownership; install a current buil
 
 The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>.json` and other releases at
-`games/<game-id>/<package-id>@<version>.json`. Only `main` publishes game
-modules. A mod update is a pending uninstall journal and a pending
+`games/<game-id>/<package-id>@<version>.json`. `main` and trusted signed Git
+catalogs may publish game modules. A mod update is a pending uninstall journal and a pending
 install journal; one commit retires the old managed package and moves its
 dependency links to the new one. Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 
@@ -231,7 +263,7 @@ dependency links to the new one. Explicit Git-backed community catalog sync is a
 
 1. Preserve game ownership and pending-transaction evidence.
 2. A catalog update cannot silently install, uninstall or update mods.
-3. First-party Lua policy remains in `main`; trusted third-party policy uses a separate registry.
+3. First-party Lua policy remains in `main`; trusted third-party policy comes from trusted signed catalogs or local `--trust` registration and uses a separate versioned registry.
 4. Development override paths never persist or silently fall back.
 5. Normal install cannot claim pre-existing files. Explicit adoption requires acknowledgement and exact archive-byte verification.
 6. Failed installation and recovery preserve unmanaged game content.
@@ -244,13 +276,23 @@ dependency links to the new one. Explicit Git-backed community catalog sync is a
 [lifecycle.md](lifecycle.md) specifies acknowledged file adoption and approved cleanup of modified owned files.
 Adoption commits individual ownership without writing game bytes. Cleanup retains journals, backups and recovery checks.
 
-### Trusted module registration
+### Trusted module registration and trust
 
-`module register <source> --trust` copies a validated third-party module snapshot.
-The runtime data directory stores its identity, API version and exact content digest.
-This registry is independent of `--state-dir` and development source overrides.
-Official game IDs retain priority and cannot be registered through this registry.
-Changed snapshots fail verification. Removal leaves game files and ownership intact.
+`module register <source> --trust` imports a validated third-party module release.
+The manager profile stores its identity, API version, exact content digest
+and source. The profile is the folder that holds `state.sqlite`, so `--state-dir`
+selects it; without `--state-dir` it is the runtime data directory. The registry is
+independent of development source overrides. A catalog sync imports a trusted bucket's releases into the same
+registry. Official game IDs retain priority and cannot be imported from a trusted
+bucket or registered locally. Changed bytes fail verification.
+
+A bucket is a module source when it is `main`, or when a signed Git catalog has a
+`module_trust` record whose signer key ID matches its pinned signer. A signer key
+change ends trust. Modules from other buckets are ignored at sync and refused at
+use. Doctor reports `MODULE_HIDDEN_BY_OFFICIAL` for a catalog module that `main`
+hides, and `MODULE_SOURCE_UNTRUSTED` for a retained module whose bucket is no
+longer trusted. Unversioned entries from earlier releases are refused; remove and
+register the module again. Removal leaves game files and ownership intact.
 
 
 ## Companion and desktop boundaries
