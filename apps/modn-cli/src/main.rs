@@ -145,7 +145,7 @@ fn default_code(command: &Command) -> ErrorCode {
         Command::Asset { .. } => ErrorCode::AssetFailed,
         Command::Module { .. } => ErrorCode::ModuleFailed,
         Command::Auth { .. } => ErrorCode::AuthFailed,
-        Command::Game { .. } => ErrorCode::GameFailed,
+        Command::Game { .. } | Command::Play { .. } => ErrorCode::GameFailed,
         Command::Scan { .. } => ErrorCode::ScanFailed,
         Command::Doctor { .. } => ErrorCode::DoctorFailed,
     }
