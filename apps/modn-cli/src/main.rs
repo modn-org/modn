@@ -12,6 +12,7 @@ mod install_consent;
 mod inventory;
 mod main_key;
 mod managed;
+mod module_releases;
 mod modules;
 mod nexus_auth;
 #[cfg(test)]
