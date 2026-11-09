@@ -51,18 +51,19 @@ The owner gives one instruction, such as "change the colors of the button at bro
 
 1. **Locate.** Run `node.find` with the screen page as `root` and the layer `name` or `text`, then `get_node` on each match. When several layers match, show their names and ask which one.
 2. **Classify.** The request **conflicts** with the design system when it:
-   - sets a color, size, spacing, radius, effect or font that no variable or style holds;
+   - sets a color, font, type size, radius, spacing, opacity or effect that no variable or style holds. Layout widths and heights have no tokens, so they are no conflict;
    - replaces a bound variable (`boundVariables`) or an applied style with a raw value;
+   - changes a layer inside a component instance in a way that no component property exposes. Variant, text and boolean properties are the exposed ways;
    - changes the structure of a component instance, or detaches it;
    - needs a component the Components page does not have;
    - changes a variable, a style, or the Foundations or Components page.
 
    On a conflict, stop and ask before any edit. Name the layer, the token or component involved and the two options: change the design system, or approve a screen-only override.
-3. **Edit.** Send the whole request as one `batch`, so the owner can undo it in one step. Bind every value that a variable or style holds, rather than writing the raw value. Bind tokens with `"fill": {"$var": "<variable>"}` or `variable.bind`. Place components with `instance.create`, and pick variants and texts with `instance.setProperties`.
+3. **Edit.** Send the whole request as one `batch`, so the owner can undo it in one step: `fc.py batch '{"commands": [{"command": "<id>", "params": {...}}, ...]}'`. Bind every value that a variable or style holds, rather than writing the raw value. Bind tokens with `"fill": {"$var": "<variable>"}` or `variable.bind`. Place components with `instance.create`, and pick variants and texts with `instance.setProperties`.
 4. **Check.** Run `fc.py screenshot '{"ids":[<frame id>]}' --png <scratch path>` and look at the image. Done when it shows the requested change and every other layer is unchanged.
 5. **Save.** Run `save_file`, then export the screen's frames:
    `figcraft-cli export design/design.figcraft -o design/renders/<Screen> --page <Screen>`.
-   Then run `python -I .agents/skills/design-modn/scripts/audit.py design/design.figcraft --page <Screen>`. It lists every value that no variable or style holds. Done when each listed value is an override the owner approved.
+   Then run `python -I .agents/skills/design-modn/scripts/audit.py design/design.figcraft --page <Screen>`. It lists every value that no variable or style holds, and every instance override that no component property made. Done when each listed finding is an override the owner approved.
 6. **Report.** Name the changed layers, the tokens or components used, each approved override and the render paths.
 
 ## 3. Owner comments
@@ -74,10 +75,10 @@ The owner can also comment on a layer in the app. `fc.py wait_for_changes` retur
 Add the page after the divider and its first frame, as one `batch`:
 
 ```json
-[
+{"commands": [
   {"command": "page.add", "params": {"name": "<Screen>"}},
   {"command": "node.create", "as": "frame", "params": {"type": "frame", "name": "<screen>", "width": 1440, "height": 900, "props": {"fill": {"$var": "modn/color/surface"}}}}
-]
+]}
 ```
 
 `page.add` appends the page and makes it current. Name each further frame after the state it shows, such as `browse-empty`.

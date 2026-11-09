@@ -12,7 +12,7 @@ must report 0 raw values on the Foundations and Components pages.
   - `size`: radius and spacing, with one mode;
   - `type`: `modn/font/heading` and `modn/font/body`, and `modn/font/size/<style>` and `modn/font/line/<style>` for each text style, with one mode.
 - Name each variable `modn/<group>/<name>`, for example `modn/color/primary` or `modn/radius/m`. `inspect.code` turns slashes into hyphens, so pages export `var(--modn-color-primary, ...)`. That matches the `--modn-*` custom properties that issue #142 makes the theme API.
-- Spacing is a 4 px scale from `modn/space/2xs` (2) to `modn/space/4xl` (40). Snap a new gap or padding to the nearest step.
+- Spacing has nine steps: `2xs` 2, `xs` 4, `s` 8, `m` 12, `l` 16, `xl` 20, `2xl` 24, `3xl` 32 and `4xl` 40, all `modn/space/<step>`. Snap a new gap or padding to the nearest step.
 - Give each variable the scopes of its use: colours `ALL_FILLS` and `STROKE_COLOR`; radius `CORNER_RADIUS`; spacing `GAP` and `WIDTH_HEIGHT`; opacity `OPACITY`; fonts `FONT_FAMILY`, `FONT_SIZE` and `LINE_HEIGHT`. Give each colour a description of where it goes.
 - `variable.export` with `{"format": "css"}` writes the token stylesheet: the default mode on `:root`, and each other mode on `[data-<collection>="<mode>"]`, such as `[data-theme="dark"]`. Opacity exports as a percent without a unit, so CSS uses `calc(var(--modn-opacity-disabled) / 100)`.
 

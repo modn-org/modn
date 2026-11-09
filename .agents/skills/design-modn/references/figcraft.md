@@ -2,6 +2,7 @@
 
 Observed with FigCraft 0.17.0 on Windows. `figcraft-cli commands --filter <command>`
 is the source of truth for parameters; these notes cover what it does not say.
+After a FigCraft upgrade, run `python -I .agents/skills/design-modn/scripts/test_audit.py`: `audit.py` reads the converter's JSON, and a changed format makes it miss findings.
 
 ## Calls
 
