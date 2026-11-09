@@ -235,7 +235,7 @@ API 2 modules accept the API 1 manifest fields plus an optional `content_root`.
 The host accepts API 1 and API 2 modules. An API 1 module with `content_root` is rejected.
 
 ```json
-{"game_id":"balatro","version":"0.1.0","api_version":2,"entrypoint":"module.lua",
+{"game_id":"balatro","version":"0.2.0","api_version":2,"entrypoint":"module.lua",
  "content_root":{"base":"appdata","path":"Balatro/Mods"}}
 ```
 
