@@ -111,8 +111,10 @@ fn json_refusal_uses_the_error_envelope() {
     assert!(!output.status.success());
     let refusal: Value = serde_json::from_slice(&output.stderr).expect("structured refusal");
     assert_eq!(refusal["error"], "NATIVE_INJECTOR_NOT_ALLOWED");
+    assert_eq!(refusal["mod_id"], "injector");
     assert_eq!(refusal["package"], "native/native-injector-game/injector");
     assert_eq!(refusal["flag"], "--allow-native-injector");
+    assert_eq!(refusal["uncovered"]["native_injector"], true);
     assert!(!fixture.native_game.join("winmm.dll").exists());
 }
 
@@ -285,7 +287,9 @@ fn update_refuses_a_native_target_until_the_flag_is_passed() {
     assert!(!refused.status.success());
     let refusal: Value = serde_json::from_slice(&refused.stderr).expect("structured refusal");
     assert_eq!(refusal["error"], "NATIVE_INJECTOR_NOT_ALLOWED");
+    assert_eq!(refusal["mod_id"], "injector");
     assert_eq!(refusal["package"], "native/native-injector-game/injector");
+    assert_eq!(refusal["uncovered"]["native_injector"], true);
     assert!(!fixture.native_game.join("winmm.dll").exists());
     assert_eq!(
         fs::read(fixture.native_game.join("addons/example.plugin")).expect("old payload"),

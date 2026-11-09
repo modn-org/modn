@@ -227,6 +227,10 @@ pub(super) fn run(
         root: Some(stack.installation.clone()),
     })?;
     store.set_control(progress.control().clone());
+    let mut installed_capabilities: BTreeMap<String, Capabilities> = checks
+        .iter()
+        .map(|check| (check.reference.to_string(), check.needed.clone()))
+        .collect();
     let installed =
         store.install_catalog_stack(&stack.installation, &members, policy, |member| {
             let reference = member.release.reference.to_string();
@@ -255,15 +259,28 @@ pub(super) fn run(
                     .collect();
                 bail!("{reference}: installation blocked: {}", blockers.join("; "));
             }
+            if let Some(capabilities) = installed_capabilities.get_mut(&reference) {
+                let destinations: BTreeSet<String> = plan
+                    .operations
+                    .iter()
+                    .map(|operation| operation.destination.clone())
+                    .collect();
+                *capabilities = Capabilities::new(
+                    capabilities.native_injector,
+                    capabilities
+                        .executables
+                        .iter()
+                        .filter(|path| destinations.contains(path.as_str()))
+                        .cloned(),
+                );
+            }
             Ok(plan)
         })?;
     for check in &checks {
-        install_consent::record(
-            &mut store,
-            &stack.installation,
-            &check.reference,
-            &check.needed,
-        )?;
+        let needed = installed_capabilities
+            .get(&check.reference.to_string())
+            .unwrap_or(&check.needed);
+        install_consent::record(&mut store, &stack.installation, &check.reference, needed)?;
     }
     let report: Vec<_> = members
         .iter()
