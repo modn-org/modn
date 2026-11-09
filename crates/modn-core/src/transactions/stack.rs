@@ -60,6 +60,7 @@ impl Store {
         if members.is_empty() {
             bail!("installation stack is empty");
         }
+        self.control.checkpoint()?;
         let stack_id = self.begin_stack(&game)?;
         let mut installed = Vec::new();
         for member in members {

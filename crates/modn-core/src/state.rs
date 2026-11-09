@@ -1,3 +1,4 @@
+use crate::progress::OperationControl;
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use rusqlite::{params, Connection, OpenFlags, TransactionBehavior};
@@ -19,9 +20,19 @@ pub struct GameInstallation {
 pub struct Store {
     pub(crate) connection: Connection,
     pub(crate) state_root: PathBuf,
+    pub(crate) control: OperationControl,
 }
 
 impl Store {
+    /// Report the progress of later operations to `control` and let its
+    /// token cancel them before their commit point.
+    ///
+    /// Install, update, stack install and uninstall use it. A new store
+    /// uses [`OperationControl::default`], which reports nothing.
+    pub fn set_control(&mut self, control: OperationControl) {
+        self.control = control;
+    }
+
     /// Open the manager-owned SQLite database and initialize its schema.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
@@ -182,6 +193,7 @@ impl Store {
                 .parent()
                 .context("missing state parent")?
                 .canonicalize()?,
+            control: OperationControl::default(),
         })
     }
 
@@ -203,6 +215,7 @@ impl Store {
                 .parent()
                 .context("missing state parent")?
                 .canonicalize()?,
+            control: OperationControl::default(),
         })
     }
 
@@ -414,7 +427,9 @@ fn validate_package_schema(connection: &Connection) -> Result<()> {
 mod roots;
 #[cfg(test)]
 pub(crate) use roots::tests::{link_directory, unlink_directory};
-pub(crate) use roots::{is_recorded, record_root, recorded_root, resolve_root, RootKind};
+pub(crate) use roots::{
+    check_root, is_recorded, record_root, recorded_root, resolve_root, RootKind,
+};
 
 #[cfg(test)]
 mod tests;

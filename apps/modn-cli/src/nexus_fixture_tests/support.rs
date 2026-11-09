@@ -188,7 +188,9 @@ impl Fixture {
         let module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
         let state = self.root.join("state.sqlite");
         data_dir::with_data_directory(&self.root, || {
-            with_module_source(Some(&module), || crate::run_cli(cli, &state))
+            with_module_source(Some(&module), || {
+                crate::run_cli(cli, &state, &crate::progress::Progress::start(None))
+            })
         })
     }
 

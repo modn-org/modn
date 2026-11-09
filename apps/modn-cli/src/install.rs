@@ -1,6 +1,7 @@
 use crate::catalog_install;
 use crate::commands::InstallArgs;
 use crate::modules::content_root_appdata;
+use crate::progress::Progress;
 use crate::state_access::{InstallationAccess, ManagerState};
 use anyhow::{bail, Result};
 use modn_core::planning::{preview_install_zip_with_appdata, preview_install_zip_with_permissions};
@@ -24,12 +25,14 @@ pub(super) fn run(
     state_path: &Path,
     requested: Option<&str>,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
+    progress.begin()?;
     if args.download && !args.dry_run {
         bail!("--download only prepares a --dry-run; an install downloads what it needs");
     }
     if !is_standalone_archive(args) {
-        return catalog_install::run(args, state_path, requested, json);
+        return catalog_install::run(args, state_path, requested, json, progress);
     }
     if !args.file.is_empty() {
         bail!("--file applies only to cataloged mods, not standalone archives");
@@ -37,7 +40,7 @@ pub(super) fn run(
     if args.download {
         bail!("--download applies only to cataloged mods, not standalone archives");
     }
-    install_archive(args, state_path, requested, json)
+    install_archive(args, state_path, requested, json, progress)
 }
 
 fn install_archive(
@@ -45,6 +48,7 @@ fn install_archive(
     state_path: &Path,
     requested: Option<&str>,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
     let access = if args.dry_run {
         InstallationAccess::ArchivePreview
@@ -55,6 +59,9 @@ fn install_archive(
         .for_installation(args.path.clone(), requested)?
         .open(access)?;
     let mut store = selected.store;
+    if let Some(store) = store.as_mut() {
+        store.set_control(progress.control().clone());
+    }
     let game_id = selected.game_id;
     let game = selected.root;
     let archive = PathBuf::from(&args.target);

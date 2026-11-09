@@ -4,6 +4,7 @@ use crate::dependency_plan::acquisition;
 use crate::download;
 use crate::install_consent::{self, UpdateRequest};
 use crate::modules::content_root_appdata;
+use crate::progress::Progress;
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use crate::update_report::{self, DependentCheck, FileChanges, Preview};
@@ -11,6 +12,7 @@ use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::inspect;
 use modn_core::buckets::{BucketPackage, BucketStore};
+use modn_core::error::{coded, ErrorCode};
 use modn_core::planning::{
     preview_update_with_appdata, preview_update_with_permissions, InstallPlan, PlanStatus,
 };
@@ -143,13 +145,21 @@ pub(super) fn run(
     state_path: &Path,
     requested: Option<&str>,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
+    progress.begin()?;
     if args.download && !args.dry_run {
         bail!("--download only prepares a --dry-run; an update downloads what it needs");
     }
     let Some(target) = args.target.as_deref() else {
         return crate::update_refresh::run(args, state_path, requested, json);
     };
+    if progress.enabled() && !args.yes && !args.dry_run {
+        return Err(coded(
+            ErrorCode::ApprovalRequired,
+            "an update writes game files; pass --yes with --progress json",
+        ));
+    }
     let catalog = BucketStore::new(
         state_path
             .parent()
@@ -177,7 +187,7 @@ pub(super) fn run(
         NativeInjectorPolicy::Refuse
     };
     policy.check(&reference, target.package.native_injector)?;
-    let interactive = !args.yes && !args.dry_run;
+    let interactive = !args.yes && !args.dry_run && !progress.enabled();
     let state = ManagerState::load_deferred(state_path)?;
     let store = state
         .existing()
@@ -260,6 +270,7 @@ pub(super) fn run(
             &mut digests,
             &args.nxm_links,
             json,
+            progress,
         )?;
     }
     let archive = archives.get(&label).cloned();
@@ -333,6 +344,7 @@ pub(super) fn run(
         }
     }
     let mut store = state.open_writable(&protected)?;
+    store.set_control(progress.control().clone());
     let package = store.update_catalog_release(
         &game,
         &old.id,

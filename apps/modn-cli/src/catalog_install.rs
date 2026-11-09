@@ -3,6 +3,7 @@ use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, Request};
 use crate::modules::content_root_appdata;
+use crate::progress::Progress;
 use crate::selection::selected_installation;
 use crate::stack_install;
 use crate::state_access::{ManagerState, ProtectedTarget};
@@ -10,6 +11,7 @@ use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
+use modn_core::error::{coded, ErrorCode};
 use modn_core::planning::{
     preview_install_zip_with_appdata, preview_install_zip_with_permissions, InstallPlan, PlanStatus,
 };
@@ -33,7 +35,7 @@ pub(super) struct AmbiguousTarget {
 impl AmbiguousTarget {
     pub(super) fn as_json(&self) -> serde_json::Value {
         serde_json::json!({
-            "error": "ambiguous_target",
+            "error": ErrorCode::AmbiguousTarget.as_str(),
             "query": self.query,
             "candidates": self.candidates,
         })
@@ -56,7 +58,10 @@ impl std::error::Error for AmbiguousTarget {}
 pub(super) fn resolve(query: &str, catalog: &BucketSnapshot, json: bool) -> Result<BucketPackage> {
     let mut candidates = catalog.candidates(query)?;
     match candidates.len() {
-        0 => bail!("catalog mod not found: {query}"),
+        0 => Err(coded(
+            ErrorCode::ModNotFound,
+            format!("catalog mod not found: {query}"),
+        )),
         1 => Ok(candidates.remove(0)),
         _ if json || !io::stdin().is_terminal() || !io::stderr().is_terminal() => {
             Err(AmbiguousTarget {
@@ -188,11 +193,18 @@ fn install_mod(
     args: &InstallArgs,
     state_path: &Path,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
+    if progress.enabled() && !args.yes && !args.dry_run {
+        return Err(coded(
+            ErrorCode::ApprovalRequired,
+            "installation writes game files; pass --yes with --progress json",
+        ));
+    }
     let reference = reference_of(&selected).to_string();
     let mut order = catalog.install_order(&selected)?;
     order.pop();
-    let interactive = !args.yes && !args.dry_run;
+    let interactive = !args.yes && !args.dry_run && !progress.enabled();
     ensure_native_injectors_allowed(&selected, &order, args, state_path)?;
     let mut archives = match_archives(&args.file, &selected, &order)?;
     let mut digests = BTreeMap::new();
@@ -255,6 +267,7 @@ fn install_mod(
             &mut digests,
             &args.nxm_links,
             json,
+            progress,
         )?;
         dependencies =
             dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
@@ -288,7 +301,7 @@ fn install_mod(
             game_id,
             installation,
         };
-        return stack_install::run(stack, state, args, json);
+        return stack_install::run(stack, state, args, json, progress);
     }
     if !args.dry_run {
         match state.existing() {
@@ -325,6 +338,7 @@ fn install_mod(
             &mut digests,
             &args.nxm_links,
             json,
+            progress,
         )?;
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
@@ -417,6 +431,7 @@ fn install_mod(
         game: Some(game_id),
         root: Some(installation.clone()),
     })?;
+    store.set_control(progress.control().clone());
     let package = store.install_catalog_release_with_permissions(
         &installation,
         archive,
@@ -446,11 +461,12 @@ pub(super) fn run(
     state_path: &Path,
     game_filter: Option<&str>,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
     let root = state_path
         .parent()
         .context("invalid manager state directory")?;
     let catalog = BucketStore::new(root).snapshot(game_filter)?;
     let package = resolve(&args.target, &catalog, json)?;
-    install_mod(package, &catalog, args, state_path, json)
+    install_mod(package, &catalog, args, state_path, json, progress)
 }

@@ -1,6 +1,7 @@
 use super::journal::{digest, JournalFile};
 use crate::archive::Inspection;
 use crate::planning::InstallPlan;
+use crate::progress::{Cancelled, OperationControl};
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -50,6 +51,7 @@ pub(super) fn stage_7z(
     inspection: &Inspection,
     plan: &InstallPlan,
     staging: &Path,
+    control: &OperationControl,
 ) -> Result<Vec<JournalFile>> {
     let original: HashMap<_, _> = inspection
         .files
@@ -78,7 +80,12 @@ pub(super) fn stage_7z(
         File::open(archive)?,
         sevenz_rust2::Password::empty(),
     );
+    let mut cancelled = false;
     reader.for_each_entries(|entry, input| {
+        if control.checkpoint().is_err() {
+            cancelled = true;
+            return Ok(false);
+        }
         if entry.is_directory {
             return Ok(true);
         }
@@ -128,6 +135,9 @@ pub(super) fn stage_7z(
         staged[ordinal] = Some(copy);
         Ok(true)
     })?;
+    if cancelled {
+        return Err(Cancelled.into());
+    }
     staged
         .into_iter()
         .enumerate()

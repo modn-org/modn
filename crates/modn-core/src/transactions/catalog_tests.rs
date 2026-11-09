@@ -324,7 +324,11 @@ fn read_only_state_without_provenance_table_reports_missing_dependencies() {
     );
 }
 
-fn member(archive: &Path, mod_id: &str, dependencies: Vec<CatalogDependency>) -> StackMember {
+pub(super) fn member(
+    archive: &Path,
+    mod_id: &str,
+    dependencies: Vec<CatalogDependency>,
+) -> StackMember {
     StackMember::new(
         archive.to_path_buf(),
         CatalogRelease::new(reference(mod_id), dependencies),
@@ -333,7 +337,7 @@ fn member(archive: &Path, mod_id: &str, dependencies: Vec<CatalogDependency>) ->
 }
 
 impl Fixture {
-    fn stack(
+    pub(super) fn stack(
         &mut self,
         members: &[StackMember],
         mut fail_on: Option<&str>,
@@ -355,7 +359,7 @@ impl Fixture {
         })
     }
 
-    fn pending_stack_rows(&self) -> i64 {
+    pub(super) fn pending_stack_rows(&self) -> i64 {
         self.count("pending_stacks") + self.count("pending_stack_packages")
     }
 }

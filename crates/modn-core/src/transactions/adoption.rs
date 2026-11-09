@@ -102,7 +102,13 @@ impl Store {
             .prefix("adopt-")
             .tempdir_in(&self.state_root)?;
         let files = if inspection.format == crate::archive::ArchiveFormat::SevenZ {
-            super::staging::stage_7z(archive, &inspection, &proposal, staging.path())?
+            super::staging::stage_7z(
+                archive,
+                &inspection,
+                &proposal,
+                staging.path(),
+                &crate::progress::OperationControl::default(),
+            )?
         } else {
             let mut zip = zip::ZipArchive::new(File::open(archive)?)?;
             let mut files = Vec::new();

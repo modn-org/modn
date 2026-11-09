@@ -4,10 +4,12 @@ use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, StackRequest};
 use crate::modules::content_root_appdata;
+use crate::progress::Progress;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse};
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
+use modn_core::error::{coded, ErrorCode};
 use modn_core::planning::{
     preview_install_zip_with_appdata, preview_install_zip_with_permissions, PlanStatus,
 };
@@ -107,10 +109,17 @@ pub(super) fn run(
     state: ManagerState,
     args: &InstallArgs,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
+    if progress.enabled() && !args.yes {
+        return Err(coded(
+            ErrorCode::ApprovalRequired,
+            "installation writes game files; pass --yes with --progress json",
+        ));
+    }
     let releases = releases(&stack)?;
     download::validate_links(&args.nxm_links, &releases)?;
-    let interactive = !args.yes;
+    let interactive = !args.yes && !progress.enabled();
     let policy = if args.allow_native_injector {
         NativeInjectorPolicy::Allow
     } else {
@@ -162,6 +171,7 @@ pub(super) fn run(
         &mut stack.digests,
         &args.nxm_links,
         json,
+        progress,
     )?;
     let mut digests = BTreeMap::new();
     let members = releases
@@ -190,6 +200,7 @@ pub(super) fn run(
         game: Some(stack.game_id.clone()),
         root: Some(stack.installation.clone()),
     })?;
+    store.set_control(progress.control().clone());
     let installed =
         store.install_catalog_stack(&stack.installation, &members, policy, |member| {
             let reference = member.release.reference.to_string();
