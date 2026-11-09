@@ -1,6 +1,8 @@
 use anyhow::{bail, Result};
-use modn_core::discovery::{discover_for, validate_installation_for, Candidate};
+use modn_core::detection::detect_installations;
+use modn_core::discovery::{validate_installation_for, Candidate};
 use modn_core::state::Store;
+use modn_core::stores::StoreLibraries;
 use std::path::PathBuf;
 
 pub(crate) fn choose_candidate(game: &str, path: Option<PathBuf>) -> Result<Candidate> {
@@ -10,9 +12,12 @@ pub(crate) fn choose_candidate(game: &str, path: Option<PathBuf>) -> Result<Cand
             source: "manual".into(),
         });
     }
-    let candidates = discover_for(game);
-    match candidates.as_slice() {
-        [candidate] => Ok(candidate.clone()),
+    let detection = detect_installations(&StoreLibraries::system(), &[game.to_owned()]);
+    match detection.confirmed.as_slice() {
+        [detected] => Ok(Candidate {
+            path: detected.path.clone(),
+            source: detected.store.as_str().into(),
+        }),
         [] => bail!("{game} not found; specify --path to its installation directory"),
         _ => bail!("multiple installations found; specify --path to select one"),
     }

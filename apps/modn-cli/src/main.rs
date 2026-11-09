@@ -5,6 +5,7 @@ mod catalog_install;
 mod commands;
 mod dependency_plan;
 mod download;
+mod game_detect;
 mod games;
 mod git_source;
 mod install;

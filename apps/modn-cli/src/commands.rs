@@ -163,6 +163,12 @@ pub(super) enum GameCommand {
     },
     /// Show registered installations.
     List,
+    /// Find installations in the Steam, GOG and Epic libraries.
+    Detect {
+        /// Register each new confirmed installation (writes manager state only).
+        #[arg(long)]
+        register: bool,
+    },
     /// Unregister an installation only when no managed mods or pending operations remain.
     Remove {
         game: String,

@@ -1,5 +1,12 @@
 # Cyberpunk 2077
 
+## Installations
+
+The module declares these store identities: Steam app `1091500`, GOG product
+`1423049311` and Epic `AppName` `Ginger`. `modn game detect` finds the folders
+that those libraries list. Registration requires `bin/x64/Cyberpunk2077.exe`
+in the folder. See [cli.md](cli.md#game-detection).
+
 ## Detection
 
 Current detection recognizes legacy `.archive` files, ArchiveXL `.xl` metadata, redscript `.reds` files, redscript hint `.toml`, tweak `.yaml`/`.yml` files, REDmod directories, CET mods and RED4ext plugins. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
