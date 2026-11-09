@@ -212,7 +212,7 @@ targets and gains no process API.
 ```
 
 `launch` is optional. Each key is optional, but a present `launch` object must
-declare at least one target:
+declare at least one target. Any host API version can declare `launch`:
 
 | Key | Shape |
 | --- | --- |
@@ -236,7 +236,9 @@ the selected installation is refused with `LAUNCH_TARGET_UNAVAILABLE`.
 shows that the selected folder came from the same store. Otherwise it starts
 the executable with the game folder as its working directory. A store URI opens
 through the Windows shell open handler. A module change to `launch` is a module
-release, so increment `version`.
+release, so increment `version`. Modn 0.5.0 and earlier refuse the field as an
+unknown manifest field; the matching `main` bucket release ships only with a
+Modn release that reads it.
 
 ## Skyrim example
 

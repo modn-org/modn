@@ -182,7 +182,9 @@ game. It registers the installation only when exactly one is confirmed.
 ## Launching a game
 
 `modn play <game-id>` starts one registered installation. Use `--path` when
-several installations are registered for the same game.
+several installations are registered for the same game. An unregistered folder
+is refused with `LAUNCH_INSTALLATION_UNREGISTERED`; register it with
+`modn game add` first.
 
 ```sh
 modn play cyberpunk-2077 --json

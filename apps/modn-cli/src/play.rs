@@ -22,6 +22,18 @@ pub(super) fn run(
     if game_id != game {
         bail!("LAUNCH_GAME_MISMATCH: selected installation is registered as {game_id}, not {game}");
     }
+    let registered = state
+        .existing()
+        .map(modn_core::state::Store::list)
+        .transpose()?
+        .unwrap_or_default()
+        .into_iter()
+        .any(|entry| entry.game_id == game && entry.path == installation);
+    if !registered {
+        bail!(
+            "LAUNCH_INSTALLATION_UNREGISTERED: register it with `modn game add {game} --path <installation>`"
+        );
+    }
     let detection = detect_installations(&StoreLibraries::system(), &[game.to_owned()]);
     let plan = plan_launch(state.existing(), game, &installation, &detection.confirmed)?;
     if !json {

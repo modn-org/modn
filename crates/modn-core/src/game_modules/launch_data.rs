@@ -195,6 +195,16 @@ mod tests {
         )
         .expect("valid launch targets");
         check(r#"{"executable":"Game.exe"}"#, "{}").expect("executable only");
+        check(
+            r#"{"gog":"goggalaxy://launchGame/1423049311"}"#,
+            r#"{"gog":"1423049311"}"#,
+        )
+        .expect("GOG launch URI");
+        check(
+            r#"{"epic":"com.epicgames.launcher://apps/Ginger?action=launch&silent=true"}"#,
+            r#"{"epic":"Ginger"}"#,
+        )
+        .expect("Epic launch URI");
     }
 
     #[test]

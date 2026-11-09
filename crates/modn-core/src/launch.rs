@@ -230,8 +230,10 @@ pub fn system_launch(target: &LaunchTarget) -> Result<()> {
 
 #[cfg(windows)]
 fn open_uri(uri: &str) -> Result<()> {
-    Command::new("cmd")
-        .args(["/C", "start", "", uri])
+    // Explorer delegates the URI to the registered shell handler. Passing it
+    // as one argument avoids cmd.exe metacharacter parsing in Epic URIs.
+    Command::new("explorer")
+        .arg(uri)
         .spawn()
         .map(|_child| ())
         .map_err(|error| anyhow::anyhow!("LAUNCH_START_FAILED: cannot open {uri}: {error}"))

@@ -52,6 +52,28 @@ fn refuses_play_without_a_registered_installation_or_path() {
 }
 
 #[test]
+fn refuses_play_of_an_unregistered_path() {
+    let temp = tempfile::tempdir().expect("fixture");
+    let game = cyberpunk(&temp);
+    let state_dir = temp.path().join("outside");
+
+    let output = run(
+        &state_dir,
+        &[
+            "play",
+            "cyberpunk-2077",
+            "--path",
+            game.to_str().expect("game path"),
+            "--json",
+        ],
+    );
+
+    assert!(!output.status.success());
+    assert_eq!(error_code(&output), "LAUNCH_INSTALLATION_UNREGISTERED");
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
 fn refuses_play_while_recovery_is_pending() {
     let temp = tempfile::tempdir().expect("fixture");
     let game = cyberpunk(&temp);
@@ -162,7 +184,10 @@ fn refuses_play_when_the_module_declares_no_launch_target() {
     write(
         &module.join("module.lua"),
         br#"local policy = { game_id = "launch-none", api_version = mods_host.api_version, marker = "Game.exe" }
-function policy.validate() return true end
+function policy.validate()
+    local ok, item = pcall(mods_host.fs.metadata, 1, "Game.exe")
+    return ok and item ~= nil and item.kind == "file"
+end
 return policy"#,
     );
     let game = temp.path().join("Game");
@@ -180,19 +205,28 @@ return policy"#,
         modules.join("launch-none/module.lua"),
     )
     .expect("module script");
+    let state_dir = temp.path().join("state");
+    let game_path = game.to_str().expect("game path");
+    let added = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
+        .env("MODN_GAME_MODULES_DIR", &modules)
+        .env_remove("MODN_STORE_LIBRARIES")
+        .arg("--state-dir")
+        .arg(&state_dir)
+        .args(["game", "add", "launch-none", "--path", game_path])
+        .output()
+        .expect("run modn");
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
 
     let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .env("MODN_GAME_MODULES_DIR", &modules)
         .env_remove("MODN_STORE_LIBRARIES")
         .arg("--state-dir")
-        .arg(temp.path().join("state.sqlite"))
-        .args([
-            "play",
-            "launch-none",
-            "--path",
-            game.to_str().expect("game path"),
-            "--json",
-        ])
+        .arg(&state_dir)
+        .args(["play", "launch-none", "--path", game_path, "--json"])
         .output()
         .expect("run modn");
 
