@@ -10,6 +10,8 @@ Before the first install, run `modn doctor --path <game>` as a report-only setup
 
 For a declared content root, `doctor` reports a root that is missing, is not a folder, is a link or junction, moved from its recorded canonical path, or cannot be inspected as `CONTENT_ROOT_MISSING`, `CONTENT_ROOT_NOT_DIRECTORY`, `CONTENT_ROOT_LINKED`, `CONTENT_ROOT_MOVED` or `CONTENT_ROOT_UNAVAILABLE`. It reports recorded content files that are absent as `CONTENT_ROOT_OWNED_FILE_MISSING`. Doctor reads both roots and writes nothing.
 
+`doctor` warns with `MODULE_SOURCE_UNTRUSTED` when the active game module comes from a bucket that is no longer trusted for modules. It reports `MODULE_HIDDEN_BY_OFFICIAL` as information when a trusted catalog's module is hidden by the official module for the same game. See [game modules](game-modules.md).
+
 The `framework_signals` array identifies candidate CET, RED4ext, redscript/compiler, ArchiveXL and TweakXL directories or binaries with their relative paths. Doctor emits `REDSCRIPT_NOT_INSTALLED`, `ARCHIVEXL_NOT_INSTALLED`, or `TWEAKXL_NOT_INSTALLED` when corresponding content is present but a known framework marker is absent. A presence signal **does not verify that a framework is installed, active, or compatible**. `scan` and `doctor` never write to the game or adopt files; the state database remains outside the game installation. A game directory redirect is not followed for ownership verification. No automatic repairs or deletion are performed.
 
 Scan JSON now includes `scan_issues`, distinguishing entry-limit truncation

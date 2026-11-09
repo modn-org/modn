@@ -29,7 +29,8 @@ Do not call `sync_git` from search, resolution, installation, or listing.
 
 Sync clones into a private staging directory without shell interpolation.
 It checks out the selected revision and removes Git administrative files.
-It rejects links, non-regular entries, game modules, and invalid catalog metadata.
+It rejects links, non-regular entries, and invalid catalog metadata.
+It imports game modules only from a catalog that the user trusts for modules; it ignores them in other catalogs (see [buckets](buckets.md)).
 Publication atomically replaces the catalog registration file.
 The registration contains the validated tree path, its source revision and the pinned signer key.
 Fetch, checkout, and validation failures preserve the previous usable registration.
