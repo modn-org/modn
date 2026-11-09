@@ -10,7 +10,7 @@ must report 0 raw values on the Foundations and Components pages.
 - Keep tokens as variables, in three collections:
   - `theme`: colours and opacity, with one mode per theme, such as `light` and `dark`;
   - `size`: radius and spacing, with one mode;
-  - `type`: `modn/font/family`, and `modn/font/size/<style>` and `modn/font/line/<style>` for each text style, with one mode.
+  - `type`: `modn/font/heading` and `modn/font/body`, and `modn/font/size/<style>` and `modn/font/line/<style>` for each text style, with one mode.
 - Name each variable `modn/<group>/<name>`, for example `modn/color/primary` or `modn/radius/m`. `inspect.code` turns slashes into hyphens, so pages export `var(--modn-color-primary, ...)`. That matches the `--modn-*` custom properties that issue #142 makes the theme API.
 - Spacing is a 4 px scale from `modn/space/2xs` (2) to `modn/space/4xl` (40). Snap a new gap or padding to the nearest step.
 - Give each variable the scopes of its use: colours `ALL_FILLS` and `STROKE_COLOR`; radius `CORNER_RADIUS`; spacing `GAP` and `WIDTH_HEIGHT`; opacity `OPACITY`; fonts `FONT_FAMILY`, `FONT_SIZE` and `LINE_HEIGHT`. Give each colour a description of where it goes.
@@ -19,7 +19,8 @@ must report 0 raw values on the Foundations and Components pages.
 ## Text styles
 
 - Name text styles after their type tokens: `display`, `heading-l`, `body-m`, `label-s`.
-- Bind each style's `fontFamily`, `fontSize` and `lineHeight` to its `modn/font/*` variables. To change the font, set `modn/font/family` only.
+- Bind each style's `fontFamily`, `fontSize` and `lineHeight` to its `modn/font/*` variables. `display` and `heading-l` take `modn/font/heading`; the other styles take `modn/font/body`. To change a font, set one of these two variables only.
+- `modn/font/heading` is a display face for large text only. Smaller headings stay on the body font, where weights carry the hierarchy.
 
 ## Components
 
