@@ -117,7 +117,23 @@ fn touched_commands_never_report_a_generic_error_code() {
     let uninstall = fixture.run(&["--json", "uninstall", "anything"]);
     assert_eq!(error_code(&uninstall), "APPROVAL_REQUIRED");
 
-    for output in [&install, &update, &uninstall] {
+    let (archive, _digest) = fixture.archive();
+    let install_default = fixture.run_paths(
+        &["--json", "install", "--file", "ignored", "--yes"],
+        &[archive.as_path()],
+    );
+    assert_eq!(error_code(&install_default), "INSTALL_FAILED");
+
+    let update_default = fixture.run(&["--json", "update", "anything", "--download"]);
+    assert_eq!(error_code(&update_default), "UPDATE_FAILED");
+
+    for output in [
+        &install,
+        &update,
+        &uninstall,
+        &install_default,
+        &update_default,
+    ] {
         assert_ne!(error_code(output), "ERROR");
     }
 }
