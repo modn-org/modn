@@ -404,6 +404,13 @@ fn sync_reports_imported_modules_for_trusted_and_ignored_for_untrusted() {
         .as_array()
         .expect("imported array")
         .is_empty());
+    let plain = cli(data.path(), &["bucket", "sync", "community"]);
+    assert!(plain.status.success(), "{}", stderr(&plain));
+    assert!(
+        stdout(&plain).contains("Ignored game module fixture-game"),
+        "{}",
+        stdout(&plain)
+    );
 
     trust(data.path(), &catalog);
     catalog.write_module("fixture-game", "2.0.0", &identity_lua("fixture-game"));
