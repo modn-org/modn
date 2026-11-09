@@ -35,7 +35,7 @@ memory-only record directly to `main`; do not open a pull request for it. When m
 disagrees with the documents above or with the code, the documents and the
 code win: supersede the stale record.
 
-First-party game modules live beside mod manifests in the official `main` bucket; registered local buckets cannot contain modules. Modn embeds no bucket manifests or game modules. `modn bucket update` is the only command that fetches the local `main` copy; the install script runs it once. Standard Lua 5.4 via mlua is the game-module runtime; earlier releases used Luau.
+First-party game modules live beside mod manifests in the official `main` bucket. `main` and the signed Git catalogs the user trusts for modules (`modn bucket trust-modules`) may contain game modules; Modn ignores modules from other buckets, and local folder buckets cannot be module sources. Modn embeds no bucket manifests or game modules. `modn bucket update` is the only command that fetches the local `main` copy; the install script runs it once. Standard Lua 5.4 via mlua is the game-module runtime; earlier releases used Luau.
 A trusted module may be powerful, but Rust-owned managed transactions,
 ownership and recoverability are separate correctness guarantees. No
 milestone or issue authorizes modifying a user's real game or merging a PR.

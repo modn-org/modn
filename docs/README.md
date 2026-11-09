@@ -36,8 +36,9 @@ shipped behavior.
   archive and ownership concepts.
 - [`data-model.md`](data-model.md): entities, trust, selection and ownership
   boundaries, and their mapping to persistence.
-- [`game-modules.md`](game-modules.md): Lua game modules, `modn module check`,
-  host API v1, read-only capabilities and development overrides.
+- [`game-modules.md`](game-modules.md): Lua game modules, module releases,
+  pin, update and rollback, trusted sources, `modn module check`, host API v1
+  and development overrides.
 - [`transactions.md`](transactions.md): transactional install, exclusive
   folders, created directories and recovery.
 - [`development.md`](development.md): build, test, `verify-modn` and the
