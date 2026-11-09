@@ -139,3 +139,27 @@ fn commit(root: &Path, message: &str) -> String {
 pub fn identity_lua(game: &str) -> String {
     format!("return {{game_id='{game}', api_version=1}}")
 }
+
+/// Minimal Lua policy that validates a marker file and reports an empty scan.
+pub fn policy_lua(game: &str, marker: &str) -> String {
+    format!(
+        r#"local policy = {{
+    game_id = '{game}',
+    api_version = mods_host.api_version,
+    marker = '{marker}',
+}}
+function policy.validate()
+    local ok, item = pcall(mods_host.fs.metadata, 1, policy.marker)
+    return ok and item ~= nil and item.kind == 'file'
+end
+function policy.scan(limit)
+    return {{ mods = {{}}, framework_signals = {{}}, incomplete = false,
+        scan_issues = {{}}, redmod_available = false }}
+end
+function policy.doctor(report)
+    return {{}}
+end
+return policy
+"#
+    )
+}

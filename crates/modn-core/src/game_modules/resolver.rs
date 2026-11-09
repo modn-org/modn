@@ -40,7 +40,7 @@ pub(crate) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     let (manifest, source) = match directory {
         Some(directory) => loader::read_verified_module(&directory)?,
         None => {
-            let data = data_dir::data_directory()?;
+            let data = data_dir::profile_directory()?;
             let store = BucketStore::new(&data);
             if store.official_games()?.iter().any(|id| id == game) {
                 read_official(game)?

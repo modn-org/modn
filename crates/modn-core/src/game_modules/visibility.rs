@@ -32,7 +32,7 @@ pub fn hidden_modules(game: &str) -> Result<Vec<HiddenModule>> {
     if !loader::valid_game_id(game) {
         anyhow::bail!("invalid game module identifier");
     }
-    let data = data_dir::data_directory()?;
+    let data = data_dir::profile_directory()?;
     let store = BucketStore::new(&data);
     if !store.official_games()?.iter().any(|id| id == game) {
         return Ok(Vec::new());

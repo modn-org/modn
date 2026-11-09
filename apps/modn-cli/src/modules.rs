@@ -1,8 +1,7 @@
 use crate::commands::ModuleCommand;
 use crate::state_access::{validate_state_path, ManagerState};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use modn_core::buckets::BucketStore;
-use modn_core::data_dir;
 use modn_core::game_modules::{check_module_with_roots, ModuleRegistry, ModuleTrust};
 use modn_core::state::Store;
 use std::path::{Path, PathBuf};
@@ -17,8 +16,10 @@ pub(super) fn content_root_appdata(game_id: &str) -> Result<Option<PathBuf>> {
 }
 
 pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) -> Result<()> {
-    let data = data_dir::data_directory()?;
-    let registry = ModuleRegistry::new(&data);
+    let data = state_path
+        .parent()
+        .context("invalid manager state directory")?;
+    let registry = ModuleRegistry::new(data);
     if matches!(
         &command,
         ModuleCommand::Pin { .. }
@@ -32,7 +33,7 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
         command,
         ModuleCommand::Register { trust: true, .. } | ModuleCommand::Remove { .. }
     ) {
-        validate_registry_writes(state_path, &data)?;
+        validate_registry_writes(state_path, data)?;
     }
     let value = match command {
         ModuleCommand::Check {
@@ -48,7 +49,7 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
             serde_json::to_value(registry.register(&directory, trust)?)?
         }
         ModuleCommand::List => {
-            return crate::module_releases::list(&data, state_path, json_output);
+            return crate::module_releases::list(data, state_path, json_output);
         }
         ModuleCommand::Remove { game } => {
             registry.unregister(&game)?;
