@@ -109,10 +109,22 @@ pub(super) enum ModuleCommand {
         #[arg(long, help = "Accept execution of this third-party Lua policy")]
         trust: bool,
     },
-    /// List trusted snapshots and verify their retained bytes.
+    /// List retained releases and verify their bytes.
     List,
     /// Remove a snapshot without changing installed packages or game files.
     Remove { game: String },
+    /// Keep the active release and refuse automatic updates and rollback.
+    Pin { game: String },
+    /// Allow updates and rollback of the module again.
+    Unpin { game: String },
+    /// Fetch the source bucket and switch to a newer retained release.
+    Update { game: String },
+    /// Switch the active release pointer to an older retained release.
+    Rollback {
+        game: String,
+        #[arg(long, value_name = "VERSION")]
+        to: Option<String>,
+    },
     /// Load a local game module and report its identity and API compatibility.
     Check {
         directory: PathBuf,
@@ -191,6 +203,16 @@ pub(super) enum BucketCommand {
     Add { name: String, path: PathBuf },
     /// Forget a local bucket registration without changing its files.
     Remove { name: String },
+    /// Trust modules from a signed Git catalog and import its releases.
+    TrustModules {
+        bucket: String,
+        #[arg(long, help = "Accept execution of this bucket's Lua modules")]
+        yes: bool,
+        #[arg(long, value_name = "KEY_ID")]
+        fingerprint: Option<String>,
+    },
+    /// Stop trusting a bucket's modules; retained releases are refused at use.
+    UntrustModules { bucket: String },
     /// List the local official bucket and registered community buckets.
     List,
     /// Inspect one exact bucket/game/package reference.
