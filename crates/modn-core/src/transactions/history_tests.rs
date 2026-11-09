@@ -1,6 +1,6 @@
 use super::catalog_tests::{plan, reference, Fixture};
 use super::install::Fault;
-use super::{CatalogRelease, NativeInjectorPolicy};
+use super::{CatalogRelease, NativeInjectorPolicy, StackMember};
 use crate::archive::inspect;
 use crate::buckets::PackageSource;
 use crate::history::{HistoryContext, HistoryKind};
@@ -283,6 +283,48 @@ fn a_failed_history_insert_rolls_back_ownership() {
     assert!(fixture.store.history(None).expect("history").is_empty());
     assert!(fixture.store.pending().expect("pending").is_empty());
     assert!(!fixture.game.join("addons/mod.plugin").exists());
+}
+
+#[test]
+fn a_failed_stack_rollback_writes_no_history() {
+    let mut fixture = Fixture::new();
+    let first = fixture.archive("first");
+    let second = fixture.archive("second");
+    let members = [
+        StackMember::new(
+            first.clone(),
+            CatalogRelease::new(reference("first"), Vec::new()).with_version("1.0".into()),
+            Vec::new(),
+        ),
+        StackMember::new(
+            second,
+            CatalogRelease::new(reference("second"), Vec::new()).with_version("1.0".into()),
+            Vec::new(),
+        ),
+    ];
+    fixture
+        .store
+        .set_history_context(context(&fixture, "first", "first.zip"));
+    let game = fixture.game.clone();
+    let result = fixture.store.install_catalog_stack(
+        &game,
+        &members,
+        NativeInjectorPolicy::Refuse,
+        |member| {
+            if member.release.reference.mod_id == "first" {
+                Ok(plan(&game, &member.archive))
+            } else {
+                anyhow::bail!("injected stack failure")
+            }
+        },
+    );
+    assert!(result.is_err());
+    assert!(fixture.store.history(None).expect("history").is_empty());
+    assert!(fixture
+        .store
+        .installed(&game)
+        .expect("installed")
+        .is_empty());
 }
 
 #[test]

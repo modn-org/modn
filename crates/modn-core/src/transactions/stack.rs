@@ -165,6 +165,13 @@ impl Store {
     }
 
     fn rollback_stack(&mut self, id: &str, game: &Path) -> Result<usize> {
+        let context = self.history.take();
+        let result = self.rollback_stack_members(id, game);
+        self.history = context;
+        result
+    }
+
+    fn rollback_stack_members(&mut self, id: &str, game: &Path) -> Result<usize> {
         let mut statement = self.connection.prepare(
             "SELECT package_id FROM pending_stack_packages WHERE stack_id=?1 ORDER BY ord DESC",
         )?;
