@@ -116,6 +116,17 @@ pub(super) fn valid_game_id(value: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+pub(super) fn valid_version(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 48
+        && value != "."
+        && value != ".."
+        && !value.starts_with('.')
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+'))
+}
+
 pub(super) fn valid_entrypoint(value: &str) -> bool {
     value.len() <= 96
         && value.ends_with(".lua")
@@ -157,13 +168,7 @@ pub(super) fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
     if !valid_game_id(&manifest.game_id) {
         bail!("invalid module game_id; use lowercase ASCII letters, digits and hyphens");
     }
-    if manifest.version.is_empty()
-        || manifest.version.len() > 48
-        || !manifest
-            .version
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+'))
-    {
+    if !valid_version(&manifest.version) {
         bail!("invalid module version");
     }
     if !valid_entrypoint(&manifest.entrypoint) {
