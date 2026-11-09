@@ -184,7 +184,6 @@ matching `main` bucket release ships only with a Modn release that reads it.
 
 Rust reads the store libraries on Windows. This code knows store formats, not
 games:
-
 - **Steam**: the Steam folder from the registry (`SteamPath`, `InstallPath`)
   and `%ProgramFiles(x86)%\Steam`. `steamapps/libraryfolders.vdf` lists more
   libraries. Each `steamapps/appmanifest_<app id>.acf` names its folder below
@@ -200,6 +199,46 @@ policy with that folder as the only readable root, the same check as
 `game add --path`. A folder that the module does not confirm is reported as
 refused, with the reason. Detection writes nothing; see
 [`modn game detect`](cli.md#game-detection).
+
+## Launch targets
+
+A module can declare how to start its game as data in `module.json`. Rust
+validates every target, and `modn play` starts it. Lua never receives launch
+targets and gains no process API.
+
+```json
+{"game_id":"cyberpunk-2077","version":"0.3.0","api_version":1,"entrypoint":"module.lua",
+ "launch":{"steam":"steam://rungameid/1091500","executable":"bin/x64/Cyberpunk2077.exe"}}
+```
+
+`launch` is optional. Each key is optional, but a present `launch` object must
+declare at least one target. Any host API version can declare `launch`:
+
+| Key | Shape |
+| --- | --- |
+| `steam` | `steam://rungameid/<app id>`; the app ID must equal `stores.steam` |
+| `gog` | A `goggalaxy:` URI; `stores.gog` must be declared |
+| `epic` | A `com.epicgames.launcher:` URI; `stores.epic` must be declared |
+| `executable` | A game-relative `.exe` path |
+
+An unknown key, an unsupported scheme, a store URI without its matching store
+identity, or a malformed value makes the module invalid. The error starts with
+`MODULE_LAUNCH_TARGET_INVALID`. An executable path must be relative and
+normalized. Absolute paths, `..` components, backslashes, reserved Windows
+names and non-`.exe` files are refused.
+
+At launch, Rust canonicalizes the executable below the selected installation.
+A missing file, a non-file, or a path that resolves outside the installation is
+refused with `LAUNCH_TARGET_UNSAFE`. A module with no target that applies to
+the selected installation is refused with `LAUNCH_TARGET_UNAVAILABLE`.
+
+`modn play` prefers a store URI when [`modn game detect`](cli.md#game-detection)
+shows that the selected folder came from the same store. Otherwise it starts
+the executable with the game folder as its working directory. A store URI opens
+through the Windows shell open handler. A module change to `launch` is a module
+release, so increment `version`. Modn 0.5.0 and earlier refuse the field as an
+unknown manifest field; the matching `main` bucket release ships only with a
+Modn release that reads it.
 
 ## Skyrim example
 
