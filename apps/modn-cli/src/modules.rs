@@ -47,7 +47,9 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
             };
             serde_json::to_value(registry.register(&directory, trust)?)?
         }
-        ModuleCommand::List => return crate::module_releases::list(&data, json_output),
+        ModuleCommand::List => {
+            return crate::module_releases::list(&data, state_path, json_output);
+        }
         ModuleCommand::Remove { game } => {
             registry.unregister(&game)?;
             serde_json::json!({"removed": game})

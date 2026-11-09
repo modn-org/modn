@@ -10,6 +10,9 @@ use std::path::Path;
 /// Keep one release, fetch a newer one, or move the active release pointer.
 pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) -> Result<()> {
     let data = data_dir::data_directory()?;
+    let store_root = state_path
+        .parent()
+        .context("invalid manager state directory")?;
     crate::modules::validate_registry_writes(state_path, &data)?;
     let registry = ModuleRegistry::new(&data);
     match command {
@@ -39,7 +42,7 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
                 println!("Unpinned game module {game}; updates and rollback may move it again.");
             }
         }
-        ModuleCommand::Update { game } => update(&registry, &data, &game, json_output)?,
+        ModuleCommand::Update { game } => update(&registry, store_root, &game, json_output)?,
         ModuleCommand::Rollback { game, to } => {
             rollback(&registry, &game, to.as_deref(), json_output)?;
         }
@@ -53,7 +56,12 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
     Ok(())
 }
 
-fn update(registry: &ModuleRegistry, data: &Path, game: &str, json_output: bool) -> Result<()> {
+fn update(
+    registry: &ModuleRegistry,
+    store_root: &Path,
+    game: &str,
+    json_output: bool,
+) -> Result<()> {
     let active = registry
         .active(game)?
         .with_context(|| format!("no registered game module for {game}"))?;
@@ -63,7 +71,7 @@ fn update(registry: &ModuleRegistry, data: &Path, game: &str, json_output: bool)
             "game module {game} was registered from a local source; register the new version with `modn module register <directory> --trust`"
         );
     };
-    let store = BucketStore::new(data);
+    let store = BucketStore::new(store_root);
     match store.module_trust(&bucket)? {
         ModuleTrustState::Trusted | ModuleTrustState::Main => {}
         ModuleTrustState::Untrusted => bail!(
@@ -139,9 +147,12 @@ fn rollback(
 }
 
 /// List every retained release and mark its active, pin and trust state.
-pub(super) fn list(data: &Path, json_output: bool) -> Result<()> {
+pub(super) fn list(data: &Path, state_path: &Path, json_output: bool) -> Result<()> {
     let registry = ModuleRegistry::new(data);
-    let store = BucketStore::new(data);
+    let store_root = state_path
+        .parent()
+        .context("invalid manager state directory")?;
+    let store = BucketStore::new(store_root);
     let mut trust = BTreeMap::new();
     let mut entries = Vec::new();
     let mut lines = Vec::new();
