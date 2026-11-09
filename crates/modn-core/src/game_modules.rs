@@ -6,6 +6,7 @@ pub(crate) mod policy;
 mod registry;
 mod resolver;
 mod runtime;
+mod store_data;
 mod visibility;
 
 pub(crate) use import::stage_catalog_modules_at;
@@ -21,10 +22,16 @@ pub use registry::{
     ImportReport, ModulePin, ModuleRegistry, ModuleSource, ModuleTrust, RegisteredModule,
     ReleaseOutcome,
 };
-pub use resolver::with_module_source;
+pub use resolver::{available_games, with_module_source};
+pub use store_data::StoreIdentities;
 pub use visibility::{hidden_modules, HiddenModule};
 
 /// Read the selected module's declared content root without executing it.
 pub fn content_root_spec(game_id: &str) -> anyhow::Result<Option<ContentRootSpec>> {
     Ok(resolver::read_policy(game_id)?.0.content_root)
+}
+
+/// Read the selected module's declared store identities without executing it.
+pub fn store_identities(game_id: &str) -> anyhow::Result<StoreIdentities> {
+    Ok(resolver::read_policy(game_id)?.0.stores)
 }

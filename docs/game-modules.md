@@ -158,6 +158,49 @@ A catalog sync imports modules only from trusted buckets. It reports and ignores
 
 Modn refuses a module whose bucket is no longer trusted. The refusal names the bucket and the recovery command. Run `modn bucket trust-modules <bucket>` to trust the bucket again, or `modn module remove <game-id>` to remove the module. `modn doctor` reports the same condition as `MODULE_SOURCE_UNTRUSTED`.
 
+## Store identities and detection
+
+A module can declare its store identities as data in `module.json`. Lua never
+receives them and gains no filesystem or process API from them.
+
+```json
+{"game_id":"cyberpunk-2077","version":"0.2.0","api_version":1,"entrypoint":"module.lua",
+ "stores":{"steam":"1091500","gog":"1423049311","epic":"Ginger"}}
+```
+
+`stores` is optional. Each key is optional and names one store:
+
+| Key | Identity | Shape |
+| --- | --- | --- |
+| `steam` | Steam app ID | 1 to 10 decimal digits |
+| `gog` | GOG product ID | 1 to 20 decimal digits |
+| `epic` | Epic Games Launcher `AppName` | 1 to 64 ASCII letters, digits, `-`, `_` or `.` |
+
+An unknown key or a malformed identity makes the module invalid. The error
+starts with `MODULE_STORE_ID_INVALID`. Any API version can declare `stores`.
+A change to `stores` is a module release, so increment `version`.
+Modn 0.5.0 and earlier refuse the field as an unknown manifest field; the
+matching `main` bucket release ships only with a Modn release that reads it.
+
+Rust reads the store libraries on Windows. This code knows store formats, not
+games:
+
+- **Steam**: the Steam folder from the registry (`SteamPath`, `InstallPath`)
+  and `%ProgramFiles(x86)%\Steam`. `steamapps/libraryfolders.vdf` lists more
+  libraries. Each `steamapps/appmanifest_<app id>.acf` names its folder below
+  `steamapps/common` with `installdir`.
+- **GOG**: the `HKLM\SOFTWARE\WOW6432Node\GOG.com\Games` registry keys and
+  their `gameID` and `path` values.
+- **Epic**: the `.item` manifests in
+  `%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests`. Add-on content and
+  incomplete installations are skipped.
+
+A library only proposes a folder. Modn then runs the module's `validate`
+policy with that folder as the only readable root, the same check as
+`game add --path`. A folder that the module does not confirm is reported as
+refused, with the reason. Detection writes nothing; see
+[`modn game detect`](cli.md#game-detection).
+
 ## Skyrim example
 
 Source: `examples/game-modules/skyrim-special-edition/`.
@@ -192,7 +235,7 @@ API 2 modules accept the API 1 manifest fields plus an optional `content_root`.
 The host accepts API 1 and API 2 modules. An API 1 module with `content_root` is rejected.
 
 ```json
-{"game_id":"balatro","version":"0.1.0","api_version":2,"entrypoint":"module.lua",
+{"game_id":"balatro","version":"0.2.0","api_version":2,"entrypoint":"module.lua",
  "content_root":{"base":"appdata","path":"Balatro/Mods"}}
 ```
 

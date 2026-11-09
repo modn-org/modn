@@ -70,25 +70,6 @@ pub(crate) fn validate(game_id: &str, root: &Path) -> Result<(bool, String)> {
     })
 }
 
-pub(crate) fn steam_name(game_id: &str, root: &Path) -> Result<String> {
-    evaluate(game_id, &[root.to_path_buf()], |_, policy| {
-        policy.get::<Function>("steam_name")?.call(())
-    })
-}
-
-pub(crate) fn epic_match(game_id: &str, display_name: &str) -> Result<bool> {
-    evaluate(game_id, &[], |_, policy| {
-        policy.get::<Function>("is_epic")?.call(display_name)
-    })
-}
-
-pub(crate) fn common_paths(game_id: &str) -> Result<Vec<String>> {
-    evaluate(game_id, &[], |_, policy| {
-        let paths: Table = policy.get("common_paths")?;
-        paths.sequence_values().collect()
-    })
-}
-
 fn relative_path(value: &str) -> mlua::Result<PathBuf> {
     let path = Path::new(value);
     if value.len() > 256

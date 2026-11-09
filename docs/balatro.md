@@ -3,11 +3,11 @@
 ## Detection
 
 Balatro support is Windows-only.
-Modn recognizes Steam app `2379780`.
-Detection requires the `Balatro.exe` marker in the game folder.
-Modn reads `steam_name` from `steamapps/appmanifest_2379780.acf` and uses its `installdir` value.
-If the manifest does not name the folder, Modn uses `Balatro`.
-Epic Games Store and Microsoft Store installations are unsupported.
+The module declares Steam app `2379780` as its only store identity.
+`modn game detect` finds the folder that the Steam library lists for that app.
+Detection and registration require the `Balatro.exe` marker in the game folder.
+The module declares no GOG or Epic identity because no verified product identity is known for them.
+Microsoft Store installations are unsupported.
 
 ## Roots and saves
 
