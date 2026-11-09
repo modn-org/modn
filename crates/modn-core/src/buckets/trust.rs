@@ -5,9 +5,11 @@ use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
 use super::store::Registration;
 use super::BucketStore;
+use crate::game_modules::ImportReport;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::PathBuf;
 
 /// Stored acknowledgement that one bucket may supply executable game modules.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +58,8 @@ pub struct TrustModulesOutcome {
     pub bucket: String,
     /// Pinned signer key ID stored in the trust record.
     pub signer_key_id: String,
+    /// Module releases imported from the bucket during this trust operation.
+    pub imported: Vec<ImportReport>,
 }
 
 /// One bucket currently trusted as a module source.
@@ -121,6 +125,11 @@ impl BucketStore {
                 "cannot trust modules from bucket {name}; the published catalog does not verify"
             )
         })?;
+        let staged =
+            crate::game_modules::stage_catalog_modules_at(self.data_root(), name, &key_id, &registration.path)
+                .with_context(|| {
+                    format!("cannot import game modules from bucket {name}; nothing was trusted")
+                })?;
         self.write_registration(
             name,
             &Registration {
@@ -130,9 +139,13 @@ impl BucketStore {
                 ..registration
             },
         )?;
+        let imported = staged
+            .commit()
+            .context("bucket modules were trusted but their releases could not be activated")?;
         Ok(TrustModulesOutcome {
             bucket: name.to_owned(),
             signer_key_id: key_id,
+            imported,
         })
     }
 
@@ -191,6 +204,18 @@ impl BucketStore {
         } else {
             ModuleTrustState::Untrusted
         })
+    }
+
+    /// List trusted module catalogs with their published directory.
+    pub(crate) fn trusted_module_catalogs(&self) -> Result<Vec<(String, PathBuf)>> {
+        let mut catalogs = Vec::new();
+        for (bucket, registration) in self.registrations()? {
+            if Self::stored_module_trust(&registration) != ModuleTrustState::Trusted {
+                continue;
+            }
+            catalogs.push((bucket, registration.path));
+        }
+        Ok(catalogs)
     }
 
     /// List each bucket whose trust record matches its pinned signer key ID.

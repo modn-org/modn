@@ -1,5 +1,6 @@
 use super::bounded_json;
 use crate::buckets::manifest::{valid_id, PackageManifest};
+use crate::buckets::trust::ModuleTrustState;
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
@@ -22,7 +23,7 @@ fn real_directory(path: &Path, root: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn read_packages(root: &Path, official: bool) -> Result<Releases> {
+pub(super) fn read_packages(root: &Path, trust: ModuleTrustState) -> Result<Releases> {
     let canonical = root.canonicalize()?;
     let games = root.join("games");
     if !games.exists() {
@@ -49,19 +50,25 @@ pub(super) fn read_packages(root: &Path, official: bool) -> Result<Releases> {
         let has_module = fs::symlink_metadata(&module).is_ok();
         let has_script = fs::symlink_metadata(&script).is_ok();
         if has_module || has_script {
-            if !official {
-                bail!(
+            match trust {
+                ModuleTrustState::Main => {
+                    let info = crate::game_modules::check_module(&game.path())?;
+                    if info.game_id != game_id || !has_script {
+                        bail!("official game module identity or module.lua mismatch: {game_id}");
+                    }
+                    let manifest: serde_json::Value = bounded_json(&module)?;
+                    if manifest["entrypoint"] != "module.lua" {
+                        bail!("official game module entrypoint must be module.lua");
+                    }
+                }
+                ModuleTrustState::Trusted | ModuleTrustState::Untrusted => {
+                    // Third-party module files are never packages and are not
+                    // parsed or executed while listing or searching a bucket.
+                }
+                ModuleTrustState::Local => bail!(
                     "only the official main bucket may contain game modules: {}",
                     game.path().display()
-                );
-            }
-            let info = crate::game_modules::check_module(&game.path())?;
-            if info.game_id != game_id || !has_script {
-                bail!("official game module identity or module.lua mismatch: {game_id}");
-            }
-            let manifest: serde_json::Value = bounded_json(&module)?;
-            if manifest["entrypoint"] != "module.lua" {
-                bail!("official game module entrypoint must be module.lua");
+                ),
             }
         }
         for entry in fs::read_dir(game.path())? {
