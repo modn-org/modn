@@ -4,6 +4,7 @@
 //! executable. Lua never receives launch targets or a process API.
 
 use super::store_data::StoreIdentities;
+use crate::error::{coded, ErrorCode};
 use crate::stores::Storefront;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -81,7 +82,10 @@ impl LaunchTargets {
 }
 
 fn invalid(message: impl std::fmt::Display) -> anyhow::Error {
-    anyhow::anyhow!("MODULE_LAUNCH_TARGET_INVALID: {message}")
+    coded(
+        ErrorCode::ModuleLaunchTargetInvalid,
+        format!("MODULE_LAUNCH_TARGET_INVALID: {message}"),
+    )
 }
 
 fn validate_store_uri(store: Storefront, uri: &str, stores: &StoreIdentities) -> Result<()> {

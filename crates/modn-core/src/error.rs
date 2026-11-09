@@ -31,6 +31,14 @@ pub enum ErrorCode {
     Conflict,
     /// A dependency is not installed or not intact.
     DependencyMissing,
+    /// The game module did not confirm a folder that matched its store identity.
+    DetectFolderUnconfirmed,
+    /// A detected game folder cannot be accessed.
+    DetectFolderUnreadable,
+    /// The game module failed while confirming a folder.
+    DetectModuleFailed,
+    /// The game module of a requested game cannot be read.
+    DetectModuleUnreadable,
     /// A downloaded or supplied archive does not match its pinned digest.
     DigestMismatch,
     /// A download did not complete.
@@ -49,8 +57,28 @@ pub enum ErrorCode {
     InvalidArguments,
     /// A filesystem operation failed.
     IoError,
+    /// Manager-owned file drift cannot be checked before launch.
+    LaunchDriftCheckFailed,
+    /// `--game` does not match the game `modn play` selects.
+    LaunchGameMismatch,
+    /// The selected play installation cannot be resolved.
+    LaunchInstallationInvalid,
+    /// The selected play installation is not registered.
+    LaunchInstallationUnregistered,
+    /// Manager-owned files changed since Modn installed them.
+    LaunchManagedFilesChanged,
+    /// An unfinished transaction must be recovered before launch.
+    LaunchRecoveryPending,
+    /// The game process or store URI cannot be started.
+    LaunchStartFailed,
+    /// The game module declares no launch target for this installation.
+    LaunchTargetUnavailable,
+    /// A launch target is missing, is not a file, or resolves outside the game.
+    LaunchTargetUnsafe,
     /// No catalog mod matches the target.
     ModNotFound,
+    /// A module declares an invalid launch target.
+    ModuleLaunchTargetInvalid,
     /// A native-injector package needs `--allow-native-injector`.
     NativeInjectorNotAllowed,
     /// Another installed package needs the selected package.
@@ -89,6 +117,8 @@ pub enum ErrorCode {
     ModuleFailed,
     /// Default code of `modn pin` and `modn unpin`.
     PinFailed,
+    /// Default code of `modn play`.
+    PlayFailed,
     /// Default code of `modn recover`.
     RecoverFailed,
     /// Default code of `modn scan`.
@@ -112,6 +142,10 @@ impl ErrorCode {
         Self::Cancelled,
         Self::Conflict,
         Self::DependencyMissing,
+        Self::DetectFolderUnconfirmed,
+        Self::DetectFolderUnreadable,
+        Self::DetectModuleFailed,
+        Self::DetectModuleUnreadable,
         Self::DigestMismatch,
         Self::DownloadFailed,
         Self::GameModuleError,
@@ -121,7 +155,17 @@ impl ErrorCode {
         Self::GitSourceUnsupportedEntry,
         Self::InvalidArguments,
         Self::IoError,
+        Self::LaunchDriftCheckFailed,
+        Self::LaunchGameMismatch,
+        Self::LaunchInstallationInvalid,
+        Self::LaunchInstallationUnregistered,
+        Self::LaunchManagedFilesChanged,
+        Self::LaunchRecoveryPending,
+        Self::LaunchStartFailed,
+        Self::LaunchTargetUnavailable,
+        Self::LaunchTargetUnsafe,
         Self::ModNotFound,
+        Self::ModuleLaunchTargetInvalid,
         Self::NativeInjectorNotAllowed,
         Self::PackageNeeded,
         Self::PackageNotFound,
@@ -141,6 +185,7 @@ impl ErrorCode {
         Self::ListFailed,
         Self::ModuleFailed,
         Self::PinFailed,
+        Self::PlayFailed,
         Self::RecoverFailed,
         Self::ScanFailed,
         Self::SearchFailed,
@@ -160,6 +205,10 @@ impl ErrorCode {
             Self::Cancelled => "CANCELLED",
             Self::Conflict => "CONFLICT",
             Self::DependencyMissing => "DEPENDENCY_MISSING",
+            Self::DetectFolderUnconfirmed => "DETECT_FOLDER_UNCONFIRMED",
+            Self::DetectFolderUnreadable => "DETECT_FOLDER_UNREADABLE",
+            Self::DetectModuleFailed => "DETECT_MODULE_FAILED",
+            Self::DetectModuleUnreadable => "DETECT_MODULE_UNREADABLE",
             Self::DigestMismatch => "DIGEST_MISMATCH",
             Self::DownloadFailed => "DOWNLOAD_FAILED",
             Self::GameModuleError => "GAME_MODULE_ERROR",
@@ -169,7 +218,17 @@ impl ErrorCode {
             Self::GitSourceUnsupportedEntry => "GIT_SOURCE_UNSUPPORTED_ENTRY",
             Self::InvalidArguments => "INVALID_ARGUMENTS",
             Self::IoError => "IO_ERROR",
+            Self::LaunchDriftCheckFailed => "LAUNCH_DRIFT_CHECK_FAILED",
+            Self::LaunchGameMismatch => "LAUNCH_GAME_MISMATCH",
+            Self::LaunchInstallationInvalid => "LAUNCH_INSTALLATION_INVALID",
+            Self::LaunchInstallationUnregistered => "LAUNCH_INSTALLATION_UNREGISTERED",
+            Self::LaunchManagedFilesChanged => "LAUNCH_MANAGED_FILES_CHANGED",
+            Self::LaunchRecoveryPending => "LAUNCH_RECOVERY_PENDING",
+            Self::LaunchStartFailed => "LAUNCH_START_FAILED",
+            Self::LaunchTargetUnavailable => "LAUNCH_TARGET_UNAVAILABLE",
+            Self::LaunchTargetUnsafe => "LAUNCH_TARGET_UNSAFE",
             Self::ModNotFound => "MOD_NOT_FOUND",
+            Self::ModuleLaunchTargetInvalid => "MODULE_LAUNCH_TARGET_INVALID",
             Self::NativeInjectorNotAllowed => "NATIVE_INJECTOR_NOT_ALLOWED",
             Self::PackageNeeded => "PACKAGE_NEEDED",
             Self::PackageNotFound => "PACKAGE_NOT_FOUND",
@@ -189,6 +248,7 @@ impl ErrorCode {
             Self::ListFailed => "LIST_FAILED",
             Self::ModuleFailed => "MODULE_FAILED",
             Self::PinFailed => "PIN_FAILED",
+            Self::PlayFailed => "PLAY_FAILED",
             Self::RecoverFailed => "RECOVER_FAILED",
             Self::ScanFailed => "SCAN_FAILED",
             Self::SearchFailed => "SEARCH_FAILED",

@@ -333,6 +333,10 @@ otherwise the command's default code is used. No command reports a generic
 | `CANCELLED` | The operation was cancelled before its commit point. |
 | `CONFLICT` | A declared or ownership conflict blocks the operation. |
 | `DEPENDENCY_MISSING` | A dependency is not installed or not intact. |
+| `DETECT_FOLDER_UNCONFIRMED` | The game module did not confirm a folder that matched its store identity. |
+| `DETECT_FOLDER_UNREADABLE` | A detected game folder cannot be accessed. |
+| `DETECT_MODULE_FAILED` | The game module failed while confirming a folder. |
+| `DETECT_MODULE_UNREADABLE` | The game module of a requested game cannot be read. |
 | `DIGEST_MISMATCH` | A downloaded or supplied archive does not match its pinned digest. |
 | `DOWNLOAD_FAILED` | A download did not complete. |
 | `GAME_MODULE_ERROR` | A game module failed to load or run. |
@@ -342,7 +346,17 @@ otherwise the command's default code is used. No command reports a generic
 | `GIT_SOURCE_UNSUPPORTED_ENTRY` | A Git source contains an entry Modn does not install. |
 | `INVALID_ARGUMENTS` | The command line is invalid. |
 | `IO_ERROR` | A filesystem operation failed. |
+| `LAUNCH_DRIFT_CHECK_FAILED` | Manager-owned file drift cannot be checked before launch. |
+| `LAUNCH_GAME_MISMATCH` | `--game` does not match the game `modn play` selects. |
+| `LAUNCH_INSTALLATION_INVALID` | The selected play installation cannot be resolved. |
+| `LAUNCH_INSTALLATION_UNREGISTERED` | The selected play installation is not registered. |
+| `LAUNCH_MANAGED_FILES_CHANGED` | Manager-owned files changed since Modn installed them. |
+| `LAUNCH_RECOVERY_PENDING` | An unfinished transaction must be recovered before launch. |
+| `LAUNCH_START_FAILED` | The game process or store URI cannot be started. |
+| `LAUNCH_TARGET_UNAVAILABLE` | The game module declares no launch target for this installation. |
+| `LAUNCH_TARGET_UNSAFE` | A launch target is missing, is not a file, or resolves outside the game. |
 | `MOD_NOT_FOUND` | No catalog mod matches the target. |
+| `MODULE_LAUNCH_TARGET_INVALID` | A module declares an invalid launch target. |
 | `NATIVE_INJECTOR_NOT_ALLOWED` | A native-injector package needs `--allow-native-injector`. |
 | `PACKAGE_NEEDED` | Another installed package needs the selected package. |
 | `PACKAGE_NOT_FOUND` | No managed package matches the selector. |
@@ -362,6 +376,7 @@ otherwise the command's default code is used. No command reports a generic
 | `LIST_FAILED` | Default code of `modn list`. |
 | `MODULE_FAILED` | Default code of `modn module`. |
 | `PIN_FAILED` | Default code of `modn pin` and `modn unpin`. |
+| `PLAY_FAILED` | Default code of `modn play`. |
 | `RECOVER_FAILED` | Default code of `modn recover`. |
 | `SCAN_FAILED` | Default code of `modn scan`. |
 | `SEARCH_FAILED` | Default code of `modn search`. |

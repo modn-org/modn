@@ -6,12 +6,13 @@
 //! receives a process API.
 
 use crate::detection::DetectedInstallation;
+use crate::error::{coded, ErrorCode};
 use crate::game_modules::{self, LaunchTargets};
 use crate::integrity::{self, FileRoots};
 use crate::scan::IntegrityStatus;
 use crate::state::{recorded_root, RootKind, Store};
 use crate::stores::Storefront;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -65,9 +66,12 @@ pub fn plan_launch(
     detected: &[DetectedInstallation],
 ) -> Result<LaunchPlan> {
     let installation = installation.canonicalize().map_err(|error| {
-        anyhow::anyhow!(
-            "LAUNCH_INSTALLATION_INVALID: cannot resolve {}: {error}",
-            installation.display()
+        coded(
+            ErrorCode::LaunchInstallationInvalid,
+            format!(
+                "LAUNCH_INSTALLATION_INVALID: cannot resolve {}: {error}",
+                installation.display()
+            ),
         )
     })?;
     if let Some(store) = store {
@@ -101,9 +105,10 @@ fn ensure_no_pending(store: &Store) -> Result<()> {
         |row| row.get(0),
     )?;
     if pending {
-        bail!(
-            "LAUNCH_RECOVERY_PENDING: an unfinished transaction must be recovered first; run 'modn recover'"
-        );
+        return Err(coded(
+            ErrorCode::LaunchRecoveryPending,
+            "LAUNCH_RECOVERY_PENDING: an unfinished transaction must be recovered first; run 'modn recover'",
+        ));
     }
     Ok(())
 }
@@ -132,37 +137,55 @@ fn select_target(
             working_directory: installation.to_path_buf(),
         });
     }
-    bail!(
-        "LAUNCH_TARGET_UNAVAILABLE: game module {game_id} declares no launch target for this installation; declare a store URI or launch.executable in module.json"
-    );
+    Err(coded(
+        ErrorCode::LaunchTargetUnavailable,
+        format!(
+            "LAUNCH_TARGET_UNAVAILABLE: game module {game_id} declares no launch target for this installation; declare a store URI or launch.executable in module.json"
+        ),
+    ))
 }
 
 fn resolve_executable(installation: &Path, relative: &str) -> Result<PathBuf> {
     let candidate = installation.join(relative);
     let path = candidate.canonicalize().map_err(|error| {
-        anyhow::anyhow!(
-            "LAUNCH_TARGET_UNSAFE: cannot resolve executable {relative:?} inside {}: {error}",
-            installation.display()
+        coded(
+            ErrorCode::LaunchTargetUnsafe,
+            format!(
+                "LAUNCH_TARGET_UNSAFE: cannot resolve executable {relative:?} inside {}: {error}",
+                installation.display()
+            ),
         )
     })?;
     if !path.starts_with(installation) {
-        bail!(
-            "LAUNCH_TARGET_UNSAFE: executable {relative:?} resolves outside {}",
-            installation.display()
-        );
+        return Err(coded(
+            ErrorCode::LaunchTargetUnsafe,
+            format!(
+                "LAUNCH_TARGET_UNSAFE: executable {relative:?} resolves outside {}",
+                installation.display()
+            ),
+        ));
     }
     let metadata = std::fs::metadata(&path).map_err(|error| {
-        anyhow::anyhow!("LAUNCH_TARGET_UNSAFE: cannot inspect executable {relative:?}: {error}")
+        coded(
+            ErrorCode::LaunchTargetUnsafe,
+            format!("LAUNCH_TARGET_UNSAFE: cannot inspect executable {relative:?}: {error}"),
+        )
     })?;
     if !metadata.is_file() {
-        bail!("LAUNCH_TARGET_UNSAFE: executable {relative:?} is not a regular file");
+        return Err(coded(
+            ErrorCode::LaunchTargetUnsafe,
+            format!("LAUNCH_TARGET_UNSAFE: executable {relative:?} is not a regular file"),
+        ));
     }
     let is_exe = path
         .extension()
         .and_then(std::ffi::OsStr::to_str)
         .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
     if !is_exe {
-        bail!("LAUNCH_TARGET_UNSAFE: executable {relative:?} is not an .exe file");
+        return Err(coded(
+            ErrorCode::LaunchTargetUnsafe,
+            format!("LAUNCH_TARGET_UNSAFE: executable {relative:?} is not an .exe file"),
+        ));
     }
     Ok(path)
 }
@@ -220,9 +243,12 @@ pub fn system_launch(target: &LaunchTarget) -> Result<()> {
             .spawn()
             .map(|_child| ())
             .map_err(|error| {
-                anyhow::anyhow!(
-                    "LAUNCH_START_FAILED: cannot start {}: {error}",
-                    path.display()
+                coded(
+                    ErrorCode::LaunchStartFailed,
+                    format!(
+                        "LAUNCH_START_FAILED: cannot start {}: {error}",
+                        path.display()
+                    ),
                 )
             }),
     }
@@ -236,7 +262,12 @@ fn open_uri(uri: &str) -> Result<()> {
         .arg(uri)
         .spawn()
         .map(|_child| ())
-        .map_err(|error| anyhow::anyhow!("LAUNCH_START_FAILED: cannot open {uri}: {error}"))
+        .map_err(|error| {
+            coded(
+                ErrorCode::LaunchStartFailed,
+                format!("LAUNCH_START_FAILED: cannot open {uri}: {error}"),
+            )
+        })
 }
 
 #[cfg(not(windows))]
@@ -250,5 +281,10 @@ fn open_uri(uri: &str) -> Result<()> {
         .arg(uri)
         .spawn()
         .map(|_child| ())
-        .map_err(|error| anyhow::anyhow!("LAUNCH_START_FAILED: cannot open {uri}: {error}"))
+        .map_err(|error| {
+            coded(
+                ErrorCode::LaunchStartFailed,
+                format!("LAUNCH_START_FAILED: cannot open {uri}: {error}"),
+            )
+        })
 }
