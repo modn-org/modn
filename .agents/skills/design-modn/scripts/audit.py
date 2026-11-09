@@ -7,7 +7,8 @@ Usage: audit.py FILE.figcraft [--page NAME]
 Outside instances, checks each layer's visible fill and stroke paints, corner
 radius, gap and padding, opacity, effects and text style. Inside instances,
 reports each override that does not go through a component property: a
-variant, text or boolean property leaves no override. The read-only library
+variant, text or boolean property leaves no override. A resized top-level
+instance and a property set on an exposed nested instance are allowed. The read-only library
 copies that a page may store are skipped. Prints one line per finding and a
 count. Exits 1 when it finds one, 0 when there is none.
 """
@@ -71,9 +72,14 @@ def raw_values(node):
                 yield field, value
 
 
-def overrides(node, reported):
+def overrides(node, reported, top_level):
+    allowed = {"name"}
+    if top_level:
+        allowed.add("size")
+    if node.get("exposed"):
+        allowed.add("props")
     for key in node.get("overrides") or []:
-        if key != "name" and OVERRIDE_FIELDS.get(key) not in reported:
+        if key not in allowed and OVERRIDE_FIELDS.get(key) not in reported:
             yield "override", key
 
 
@@ -115,7 +121,7 @@ def main():
         inside_instance = any(parent["type"] == "instance" for parent in ancestors(node))
         found = [] if inside_instance else list(raw_values(node))
         if inside_instance or node["type"] == "instance":
-            found += overrides(node, {field for field, _ in found})
+            found += overrides(node, {field for field, _ in found}, top_level=not inside_instance)
         for field, value in found:
             print(f"{node['id']} {node.get('name')!r}: {field} = {json.dumps(value)}")
             findings += 1
