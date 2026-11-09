@@ -321,6 +321,19 @@ fn a_new_executable_path_is_refused_and_the_flag_widens_the_approval() {
         Some(vec![FIRST.to_owned(), SECOND.to_owned()])
     );
 
+    let v3 = fixture.zip("v3.zip", &[(FIRST, b"one-v3"), (SECOND, b"two-v3")]);
+    fixture.write_bucket("3.0", &v3, &[FIRST, SECOND]);
+    let covered = fixture.update(&v3, &["--yes"]);
+    assert!(
+        covered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&covered.stderr)
+    );
+    assert_eq!(
+        fs::read(fixture.game.join(FIRST)).expect("payload"),
+        b"one-v3"
+    );
+
     let uninstalled = fixture.run(&[
         "uninstall",
         MOD,
@@ -333,7 +346,7 @@ fn a_new_executable_path_is_refused_and_the_flag_widens_the_approval() {
         "{}",
         String::from_utf8_lossy(&uninstalled.stderr)
     );
-    let reinstalled = fixture.install(&v2, &["--yes"]);
+    let reinstalled = fixture.install(&v3, &["--yes"]);
     assert!(
         reinstalled.status.success(),
         "{}",
