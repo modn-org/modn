@@ -176,6 +176,7 @@ impl Store {
             &[],
             roots.content.as_deref(),
             None,
+            None,
         )?;
         self.installed(&game)?
             .into_iter()

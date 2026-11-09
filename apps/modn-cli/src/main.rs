@@ -8,6 +8,7 @@ mod download;
 mod game_detect;
 mod games;
 mod git_source;
+mod history;
 mod install;
 mod install_consent;
 mod inventory;
@@ -99,6 +100,7 @@ fn run_cli(cli: Cli, state_path: &Path, progress: &Progress) -> Result<()> {
         Command::Inspect { archive } => inspect_archive(&archive, json),
         Command::Game { command } => games::run(command, state_path, requested, json),
         Command::List { path } => managed::list(path, state_path, requested, json),
+        Command::History => history::run(state_path, requested, json),
         Command::Uninstall(args) => {
             managed::uninstall(&args, state_path, requested, json, progress)
         }
@@ -137,6 +139,7 @@ fn default_code(command: &Command) -> ErrorCode {
         Command::Cache { .. } => ErrorCode::CacheFailed,
         Command::Bucket { .. } => ErrorCode::BucketFailed,
         Command::List { .. } => ErrorCode::ListFailed,
+        Command::History => ErrorCode::HistoryFailed,
         Command::Uninstall(_) => ErrorCode::UninstallFailed,
         Command::Recover { .. } => ErrorCode::RecoverFailed,
         Command::Inspect { .. } => ErrorCode::InspectFailed,

@@ -3,7 +3,9 @@ use crate::commands::InstallArgs;
 use crate::modules::content_root_appdata;
 use crate::progress::Progress;
 use crate::state_access::{InstallationAccess, ManagerState};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
+use modn_core::buckets::PackageSource;
+use modn_core::history::{HistoryContext, StandalonePackage};
 use modn_core::planning::{preview_install_zip_with_appdata, preview_install_zip_with_permissions};
 use std::path::{Path, PathBuf};
 
@@ -85,15 +87,31 @@ fn install_archive(
         }
         return Ok(());
     }
-    let package = store
-        .as_mut()
-        .expect("approved installation opens writable state")
-        .install_operations_zip_with_permissions(
+    let package = {
+        let filename = archive
+            .file_name()
+            .and_then(|name| name.to_str())
+            .context("archive filename must be UTF-8")?
+            .to_owned();
+        let mod_id = archive
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("archive")
+            .to_owned();
+        let history = HistoryContext::new(game_id.clone(), game.clone()).with_standalone(
+            StandalonePackage::new(mod_id, PackageSource::Manual { filename }),
+        );
+        let store = store
+            .as_mut()
+            .expect("approved installation opens writable state");
+        store.set_history_context(history);
+        store.install_operations_zip_with_permissions(
             &game,
             &archive,
             &report,
             &args.allow_executable,
-        )?;
+        )?
+    };
     if json {
         println!("{}", serde_json::to_string_pretty(&package)?);
     } else {

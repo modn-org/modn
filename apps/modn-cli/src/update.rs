@@ -13,6 +13,7 @@ use modn_core::acquisition::CacheUse;
 use modn_core::archive::inspect;
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::error::{coded, ErrorCode};
+use modn_core::history::HistoryContext;
 use modn_core::planning::{
     preview_update_with_appdata, preview_update_with_permissions, InstallPlan, PlanStatus,
 };
@@ -345,6 +346,10 @@ pub(super) fn run(
     }
     let mut store = state.open_writable(&protected)?;
     store.set_control(progress.control().clone());
+    store.set_history_context(
+        HistoryContext::new(game_id, game.clone())
+            .with_source(&reference, target.package.source.clone()),
+    );
     let package = store.update_catalog_release(
         &game,
         &old.id,

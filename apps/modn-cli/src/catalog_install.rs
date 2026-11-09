@@ -12,6 +12,7 @@ use modn_core::acquisition::CacheUse;
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
 use modn_core::error::{coded, ErrorCode};
+use modn_core::history::HistoryContext;
 use modn_core::planning::{
     preview_install_zip_with_appdata, preview_install_zip_with_permissions, InstallPlan, PlanStatus,
 };
@@ -428,10 +429,14 @@ fn install_mod(
         }
     }
     let mut store = state.open_writable(&ProtectedTarget {
-        game: Some(game_id),
+        game: Some(game_id.clone()),
         root: Some(installation.clone()),
     })?;
     store.set_control(progress.control().clone());
+    store.set_history_context(
+        HistoryContext::new(game_id, installation.clone())
+            .with_source(&reference_of(&selected), selected.package.source.clone()),
+    );
     let package = store.install_catalog_release_with_permissions(
         &installation,
         archive,

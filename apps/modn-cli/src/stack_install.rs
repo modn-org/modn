@@ -10,6 +10,7 @@ use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse};
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
 use modn_core::error::{coded, ErrorCode};
+use modn_core::history::HistoryContext;
 use modn_core::planning::{
     preview_install_zip_with_appdata, preview_install_zip_with_permissions, PlanStatus,
 };
@@ -118,6 +119,10 @@ pub(super) fn run(
         ));
     }
     let releases = releases(&stack)?;
+    let mut history = HistoryContext::new(stack.game_id.clone(), stack.installation.clone());
+    for release in &releases {
+        history = history.with_source(&reference_of(release), release.package.source.clone());
+    }
     download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes && !progress.enabled();
     let policy = if args.allow_native_injector {
@@ -201,6 +206,7 @@ pub(super) fn run(
         root: Some(stack.installation.clone()),
     })?;
     store.set_control(progress.control().clone());
+    store.set_history_context(history);
     let installed =
         store.install_catalog_stack(&stack.installation, &members, policy, |member| {
             let reference = member.release.reference.to_string();

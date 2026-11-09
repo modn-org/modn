@@ -21,6 +21,7 @@ pub struct Store {
     pub(crate) connection: Connection,
     pub(crate) state_root: PathBuf,
     pub(crate) control: OperationControl,
+    pub(crate) history: Option<crate::history::HistoryContext>,
 }
 
 impl Store {
@@ -169,6 +170,41 @@ impl Store {
                 ord INTEGER NOT NULL,
                 package_id TEXT NOT NULL UNIQUE REFERENCES managed_packages(id),
                 PRIMARY KEY(stack_id, ord)
+            );
+            CREATE TABLE IF NOT EXISTS managed_package_releases (
+                package_id TEXT PRIMARY KEY REFERENCES managed_packages(id),
+                mod_id TEXT NOT NULL,
+                version TEXT,
+                source TEXT,
+                archive_blake3 TEXT
+            );
+            CREATE TABLE IF NOT EXISTS history_operations (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                installation TEXT NOT NULL,
+                recorded_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS history_packages (
+                operation_id TEXT NOT NULL,
+                ord INTEGER NOT NULL,
+                mod_id TEXT NOT NULL,
+                package_id_before TEXT,
+                package_id_after TEXT,
+                release_before TEXT,
+                release_after TEXT,
+                PRIMARY KEY(operation_id, ord)
+            );
+            CREATE TABLE IF NOT EXISTS history_files (
+                operation_id TEXT NOT NULL,
+                package_ord INTEGER NOT NULL,
+                ord INTEGER NOT NULL,
+                root TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                digest_before TEXT,
+                digest_after TEXT,
+                PRIMARY KEY(operation_id, package_ord, ord)
             );",
         )?;
         if !existing_state {
@@ -194,6 +230,7 @@ impl Store {
                 .context("missing state parent")?
                 .canonicalize()?,
             control: OperationControl::default(),
+            history: None,
         })
     }
 
@@ -216,6 +253,7 @@ impl Store {
                 .context("missing state parent")?
                 .canonicalize()?,
             control: OperationControl::default(),
+            history: None,
         })
     }
 
