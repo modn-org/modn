@@ -396,8 +396,8 @@ fn a_cancelled_install_stores_no_approval() {
     fixture.write_bucket("1.0", &v1, &[FIRST]);
     fixture.register_bucket();
 
-    let mut child = fixture
-        .command()
+    let mut command = fixture.command();
+    let mut child = command
         .args([
             "--progress",
             "json",
