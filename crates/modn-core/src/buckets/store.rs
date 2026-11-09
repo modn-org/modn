@@ -1,3 +1,6 @@
+mod packages;
+
+use self::packages::{read_packages, Releases};
 use super::manifest::{valid_id, PackageManifest};
 use super::BucketSnapshot;
 use anyhow::{bail, Context, Result};
@@ -8,7 +11,6 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 const MAX_JSON: u64 = 32 * 1024;
-const MAX_PACKAGES: usize = 1024;
 
 #[expect(
     missing_docs,
@@ -24,6 +26,8 @@ pub struct BucketInfo {
     /// Pinned Git catalog signer key identifier, when the bucket is Git-backed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signer_key_id: Option<String>,
+    /// True when this bucket may supply executable game modules.
+    pub module_trusted: bool,
 }
 
 #[expect(
@@ -48,14 +52,16 @@ struct Metadata {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Registration {
-    path: PathBuf,
+pub(super) struct Registration {
+    pub(super) path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    git: Option<super::git::StoredGitCatalogRevision>,
+    pub(super) git: Option<super::git::StoredGitCatalogRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) module_trust: Option<super::trust::ModuleSourceTrust>,
 }
 
 impl Registration {
-    fn revision(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
+    pub(super) fn revision(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
         self.git
             .clone()
             .map(|stored| stored.revision(name))
@@ -68,7 +74,7 @@ pub struct BucketStore {
     pub(super) root: PathBuf,
 }
 
-fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
+pub(super) fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     if !fs::symlink_metadata(path)?.file_type().is_file() {
         bail!("bucket metadata must be a regular file: {}", path.display());
     }
@@ -81,123 +87,6 @@ fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     }
     serde_json::from_slice(&bytes)
         .with_context(|| format!("invalid bucket JSON {}", path.display()))
-}
-
-fn real_directory(path: &Path, root: &Path) -> Result<()> {
-    if fs::symlink_metadata(path)?.file_type().is_symlink()
-        || !path.is_dir()
-        || !path.canonicalize()?.starts_with(root)
-    {
-        bail!("unsafe bucket directory {}", path.display());
-    }
-    Ok(())
-}
-
-#[derive(Default)]
-struct Releases {
-    current: Vec<PackageManifest>,
-    other: Vec<PackageManifest>,
-}
-
-fn read_packages(root: &Path, official: bool) -> Result<Releases> {
-    let canonical = root.canonicalize()?;
-    let games = root.join("games");
-    if !games.exists() {
-        match fs::symlink_metadata(&games) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Releases::default())
-            }
-            Err(error) => return Err(error.into()),
-            Ok(_) => {}
-        }
-    }
-    real_directory(&games, &canonical)?;
-    let mut releases = Releases::default();
-    let mut count = 0;
-    for game in fs::read_dir(&games)? {
-        let game = game?;
-        let game_id = game.file_name().to_string_lossy().into_owned();
-        if !valid_id(&game_id) {
-            bail!("invalid game directory name");
-        }
-        real_directory(&game.path(), &canonical)?;
-        let module = game.path().join("module.json");
-        let script = game.path().join("module.lua");
-        let has_module = fs::symlink_metadata(&module).is_ok();
-        let has_script = fs::symlink_metadata(&script).is_ok();
-        if has_module || has_script {
-            if !official {
-                bail!(
-                    "only the official main bucket may contain game modules: {}",
-                    game.path().display()
-                );
-            }
-            let info = crate::game_modules::check_module(&game.path())?;
-            if info.game_id != game_id || !has_script {
-                bail!("official game module identity or module.lua mismatch: {game_id}");
-            }
-            let manifest: serde_json::Value = bounded_json(&module)?;
-            if manifest["entrypoint"] != "module.lua" {
-                bail!("official game module entrypoint must be module.lua");
-            }
-        }
-        for entry in fs::read_dir(game.path())? {
-            let path = entry?.path();
-            if matches!(
-                path.file_name().and_then(|n| n.to_str()),
-                Some("module.json" | "module.lua")
-            ) {
-                continue;
-            }
-            if path.extension().is_none_or(|e| e != "json") {
-                bail!("unexpected bucket package entry");
-            }
-            let stem = path
-                .file_stem()
-                .context("invalid package path")?
-                .to_string_lossy()
-                .into_owned();
-            let (id, version) = match stem.split_once('@') {
-                Some((id, version)) => (id, Some(version)),
-                None => (stem.as_str(), None),
-            };
-            if !valid_id(id) {
-                bail!("invalid package filename");
-            }
-            count += 1;
-            if count > MAX_PACKAGES {
-                bail!("bucket package limit exceeded");
-            }
-            let manifest: PackageManifest = bounded_json(&path)?;
-            manifest.validate(&game_id, id)?;
-            match version {
-                None => releases.current.push(manifest),
-                Some(version) if version == manifest.version => releases.other.push(manifest),
-                Some(_) => bail!("release filename disagrees with its version: {stem}"),
-            }
-        }
-    }
-    let key = |p: &PackageManifest| (p.game.clone(), p.id.clone());
-    releases.current.sort_by_key(key);
-    releases
-        .other
-        .sort_by_key(|p| (p.game.clone(), p.id.clone(), p.version.clone()));
-    for other in &releases.other {
-        let current = releases
-            .current
-            .iter()
-            .find(|current| key(current) == key(other))
-            .with_context(|| {
-                format!(
-                    "release {}@{} has no current release",
-                    other.id, other.version
-                )
-            })?;
-        if current.version == other.version {
-            bail!("duplicate release {}@{}", other.id, other.version);
-        }
-    }
-    Ok(releases)
 }
 
 impl BucketStore {
@@ -229,7 +118,7 @@ impl BucketStore {
         Ok(())
     }
 
-    fn registrations(&self) -> Result<BTreeMap<String, Registration>> {
+    pub(super) fn registrations(&self) -> Result<BTreeMap<String, Registration>> {
         self.check_registry_root()?;
         let root = self.root.join("registrations");
         match fs::symlink_metadata(&root) {
@@ -286,6 +175,7 @@ impl BucketStore {
                 title: metadata.title,
                 path: Some(path.to_path_buf()),
                 signer_key_id: None,
+                module_trusted: name == "main",
             },
             packages,
         ))
@@ -347,7 +237,14 @@ impl BucketStore {
         }
         fs::create_dir_all(&dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        serde_json::to_writer(&mut temp, &Registration { path, git: None })?;
+        serde_json::to_writer(
+            &mut temp,
+            &Registration {
+                path,
+                git: None,
+                module_trust: None,
+            },
+        )?;
         temp.as_file().sync_all()?;
         temp.persist_noclobber(dir.join(format!("{name}.json")))
             .context("bucket name already registered")?;
@@ -361,6 +258,36 @@ impl BucketStore {
         git: super::GitCatalogRevision,
     ) -> Result<()> {
         self.load(name, &path)?;
+        let signer_key_id = git.signer.key_id.clone();
+        let module_trust = self
+            .registrations()?
+            .remove(name)
+            .and_then(|registration| registration.module_trust)
+            .filter(|trust| trust.signer_key_id == signer_key_id);
+        self.write_registration(
+            name,
+            &Registration {
+                path,
+                git: Some(git.into()),
+                module_trust,
+            },
+        )
+    }
+
+    /// Read one registration without creating registry directories.
+    pub(super) fn registration(&self, name: &str) -> Result<Registration> {
+        if !valid_id(name) || name == "main" {
+            bail!("invalid or reserved bucket name");
+        }
+        if !self.registrations()?.contains_key(name) {
+            bail!("bucket is not registered: {name}");
+        }
+        bounded_json(&self.root.join("registrations").join(format!("{name}.json")))
+    }
+
+    /// Atomically replace one bucket registration file.
+    pub(super) fn write_registration(&self, name: &str, registration: &Registration) -> Result<()> {
+        self.check_registry_root()?;
         let dir = self.root.join("registrations");
         if let Ok(meta) = fs::symlink_metadata(&dir) {
             if !meta.is_dir() || meta.file_type().is_symlink() {
@@ -369,13 +296,7 @@ impl BucketStore {
         }
         fs::create_dir_all(&dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        serde_json::to_writer(
-            &mut temp,
-            &Registration {
-                path,
-                git: Some(git.into()),
-            },
-        )?;
+        serde_json::to_writer(&mut temp, registration)?;
         temp.as_file().sync_all()?;
         temp.persist(dir.join(format!("{name}.json")))?;
         Ok(())
@@ -410,11 +331,17 @@ impl BucketStore {
     pub fn list(&self) -> Result<Vec<BucketInfo>> {
         let mut all = vec![self.official()?.0];
         for (id, registration) in self.registrations()? {
-            let signer_key_id = registration
-                .revision(&id)?
-                .map(|revision| revision.signer.key_id);
+            let revision = registration.revision(&id)?;
+            let module_trusted = revision.as_ref().is_some_and(|revision| {
+                registration
+                    .module_trust
+                    .as_ref()
+                    .is_some_and(|trust| trust.signer_key_id == revision.signer.key_id)
+            });
+            let signer_key_id = revision.map(|revision| revision.signer.key_id);
             let mut info = self.load(&id, &registration.path)?.0;
             info.signer_key_id = signer_key_id;
+            info.module_trusted = module_trusted;
             all.push(info);
         }
         Ok(all)

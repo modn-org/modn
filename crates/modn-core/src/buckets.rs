@@ -5,6 +5,7 @@ mod manifest;
 mod signature;
 mod snapshot;
 mod store;
+mod trust;
 mod update;
 mod version;
 
@@ -18,4 +19,7 @@ pub use signature::{
 };
 pub use snapshot::BucketSnapshot;
 pub use store::{BucketInfo, BucketPackage, BucketStore};
+pub use trust::{
+    ModuleSourceTrust, ModuleTrustAck, ModuleTrustState, TrustModulesOutcome, TrustedModuleSource,
+};
 pub use version::VersionReq;
