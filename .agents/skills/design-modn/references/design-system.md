@@ -5,13 +5,13 @@ these conventions when the owner creates the file or asks for a change.
 
 ## Tokens
 
-- Keep tokens as variables in one collection named `modn`.
-- Name each variable `modn/<group>/<name>`, for example `modn/color/accent` or `modn/radius/control`. `inspect.code` turns slashes into hyphens, so pages export `var(--modn-color-accent, ...)`. That matches the `--modn-*` custom properties that issue #142 makes the theme API.
-- Use modes for theme variants, such as `dark` and `light`.
+- Keep tokens as variables. Put colours in a collection named `theme`, with one mode per theme, such as `light` and `dark`. Put radius and spacing in a collection named `size`, with one mode.
+- Name each variable `modn/<group>/<name>`, for example `modn/color/primary` or `modn/radius/m`. `inspect.code` turns slashes into hyphens, so pages export `var(--modn-color-primary, ...)`. That matches the `--modn-*` custom properties that issue #142 makes the theme API.
+- `variable.export` with `{"format": "css"}` writes the token stylesheet: the default mode on `:root`, and each other mode on `[data-<collection>="<mode>"]`, such as `[data-theme="dark"]`.
 
 ## Components
 
-- Make a component for each repeated control, and variants for its states, such as `state=default`, `state=hover` and `state=disabled`.
+- Make a component for each repeated control, and variants for its states, such as `state=default`, `state=hover` and `state=disabled`. Write variant properties and values in lowercase.
 - Bind each component fill, stroke, radius and spacing to a token.
 - Prefix a component name with `_` or `.` to keep it out of the published library.
 
