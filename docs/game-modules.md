@@ -121,7 +121,7 @@ Registration copies the manifest and Lua entrypoint into a separate registry. It
 
 A module release identity has two parts: the required `version` in `module.json`, and the SHA-256 digest of the `module.json` bytes followed by the entrypoint bytes. Modn stores each release under `<data>/game-modules/<game-id>/versions/<version>/`. It keeps every retained release and imports a receipt with the identity, digest and source.
 
-The `current` file names the one active release. An update stages the new release in private storage and validates it there. It switches the `current` pointer only after the source bucket publishes. A failed update keeps the previous active release. `module update` reports `imported`, `unchanged`, `not_newer` or `pinned`.
+The `current` file names the one active release. An update stages the new release in private storage and validates it there. It switches the `current` pointer only after the source bucket publishes. A failed update keeps the previous active release, and a failed registry commit removes every release directory it moved and restores every `current` pointer before returning the error. `module update` reports `imported`, `unchanged`, `not_newer` or `pinned`.
 
 Modn refuses a release when the same version is already retained with a different digest. Remove the module and register it again to resolve the conflict. An unversioned registry entry from an earlier release is refused in the same way: remove it and register the module again.
 

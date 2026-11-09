@@ -67,6 +67,7 @@ struct StagedRelease {
     sha256: String,
     directory: PathBuf,
     newer: bool,
+    current: Option<String>,
 }
 
 /// Stage every module in one trusted catalog without changing active releases.
@@ -154,7 +155,8 @@ impl StagedCatalogImport {
     ///
     /// All version directories are moved first, then the `current` pointers are
     /// replaced. A failure before this call leaves every previous active release
-    /// in use.
+    /// in use. A failure during this call moves every version directory and
+    /// restores every replaced `current` pointer before returning the error.
     pub fn commit(self) -> Result<Vec<ImportReport>> {
         let StagedCatalogImport {
             registry,
@@ -164,36 +166,97 @@ impl StagedCatalogImport {
             mut reports,
             ignored: _,
         } = self;
-        for release in &staged {
-            let directory = registry.directory(&release.game_id)?;
-            fs::create_dir_all(directory.join(layout::VERSIONS))?;
-            let target = layout::release_directory(&directory, &release.version);
-            fs::rename(&release.directory, &target).with_context(|| {
-                format!(
-                    "cannot activate game module {} version {}",
-                    release.game_id, release.version
-                )
-            })?;
-        }
-        for release in &staged {
-            if release.newer {
-                let directory = registry.directory(&release.game_id)?;
-                layout::write_current(&directory, &release.version)?;
-            }
-            reports.push(ImportReport {
-                game_id: release.game_id.clone(),
-                version: release.version.clone(),
-                sha256: release.sha256.clone(),
-                outcome: if release.newer {
-                    ReleaseOutcome::Imported
-                } else {
-                    ReleaseOutcome::NotNewer
-                },
-            });
+        let mut moved = Vec::with_capacity(staged.len());
+        let mut switched = Vec::new();
+        let result = apply(&registry, &staged, &mut moved, &mut switched, &mut reports);
+        if let Err(error) = result {
+            return match restore(&moved, &switched) {
+                Ok(()) => Err(error.context(
+                    "catalog module commit failed; the module registry was restored",
+                )),
+                Err(restore_error) => Err(error.context(format!(
+                    "catalog module commit failed and the module registry could not be fully restored: {restore_error:#}"
+                ))),
+            };
         }
         drop(staging);
         reports.sort_by(|left, right| left.game_id.cmp(&right.game_id));
         Ok(reports)
+    }
+}
+
+fn apply(
+    registry: &ModuleRegistry,
+    staged: &[StagedRelease],
+    moved: &mut Vec<(PathBuf, PathBuf)>,
+    switched: &mut Vec<(PathBuf, Option<String>)>,
+    reports: &mut Vec<ImportReport>,
+) -> Result<()> {
+    for release in staged {
+        let directory = registry.directory(&release.game_id)?;
+        fs::create_dir_all(directory.join(layout::VERSIONS))?;
+        let target = layout::release_directory(&directory, &release.version);
+        fs::rename(&release.directory, &target).with_context(|| {
+            format!(
+                "cannot activate game module {} version {}",
+                release.game_id, release.version
+            )
+        })?;
+        moved.push((release.directory.clone(), target));
+    }
+    for release in staged {
+        if release.newer {
+            let directory = registry.directory(&release.game_id)?;
+            layout::write_current(&directory, &release.version).with_context(|| {
+                format!(
+                    "cannot switch game module {} to version {}",
+                    release.game_id, release.version
+                )
+            })?;
+            switched.push((directory, release.current.clone()));
+        }
+        reports.push(ImportReport {
+            game_id: release.game_id.clone(),
+            version: release.version.clone(),
+            sha256: release.sha256.clone(),
+            outcome: if release.newer {
+                ReleaseOutcome::Imported
+            } else {
+                ReleaseOutcome::NotNewer
+            },
+        });
+    }
+    Ok(())
+}
+
+/// Undo one partial commit: restore active pointers first, then move version
+/// directories back to their staging area. Returns every restoration failure.
+fn restore(moved: &[(PathBuf, PathBuf)], switched: &[(PathBuf, Option<String>)]) -> Result<()> {
+    let mut failures = Vec::new();
+    for (directory, previous) in switched.iter().rev() {
+        let restored = match previous {
+            Some(version) => layout::write_current(directory, version),
+            None => layout::remove_current(directory),
+        };
+        if let Err(error) = restored {
+            failures.push(format!(
+                "cannot restore the active release in {}: {error:#}",
+                directory.display()
+            ));
+        }
+    }
+    for (staged, target) in moved.iter().rev() {
+        if let Err(error) = fs::rename(target, staged).or_else(|_| fs::remove_dir_all(target)) {
+            failures.push(format!(
+                "cannot remove the partial release {}: {error:#}",
+                target.display()
+            ));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
     }
 }
 
@@ -329,6 +392,7 @@ fn stage_one(
         sha256,
         directory: staged_directory,
         newer,
+        current,
     });
     Ok(())
 }
