@@ -286,6 +286,58 @@ fn a_failed_history_insert_rolls_back_ownership() {
 }
 
 #[test]
+fn a_successful_stack_records_one_operation_with_every_package() {
+    let mut fixture = Fixture::new();
+    let first = fixture.archive("first");
+    let second = fixture.archive("second");
+    let members = [
+        StackMember::new(
+            first,
+            CatalogRelease::new(reference("first"), Vec::new()).with_version("1.0".into()),
+            Vec::new(),
+        ),
+        StackMember::new(
+            second,
+            CatalogRelease::new(reference("second"), Vec::new()).with_version("1.0".into()),
+            Vec::new(),
+        ),
+    ];
+    let context = HistoryContext::new("test-game", fixture.game.clone())
+        .with_source(&reference("first"), source("first.zip"))
+        .with_source(&reference("second"), source("second.zip"));
+    fixture.store.set_history_context(context);
+    let game = fixture.game.clone();
+    let installed = fixture
+        .store
+        .install_catalog_stack(&game, &members, NativeInjectorPolicy::Refuse, |member| {
+            Ok(plan(&game, &member.archive))
+        })
+        .expect("stack");
+    assert_eq!(installed.len(), 2);
+    let operations = fixture.store.history(None).expect("history");
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].kind, HistoryKind::Install);
+    assert_eq!(operations[0].packages.len(), 2);
+    let mut ids: Vec<&str> = operations[0]
+        .packages
+        .iter()
+        .filter_map(|package| package.package_id_after.as_deref())
+        .collect();
+    ids.sort_unstable();
+    let mut expected: Vec<&str> = installed
+        .iter()
+        .map(|package| package.id.as_str())
+        .collect();
+    expected.sort_unstable();
+    assert_eq!(ids, expected);
+    assert!(operations[0].packages.iter().all(|package| package
+        .release_after
+        .as_ref()
+        .and_then(|release| release.version.as_deref())
+        == Some("1.0")));
+}
+
+#[test]
 fn a_failed_stack_rollback_writes_no_history() {
     let mut fixture = Fixture::new();
     let first = fixture.archive("first");
