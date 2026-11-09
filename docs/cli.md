@@ -15,6 +15,17 @@ modn bucket update
 modn update
 modn bucket add community "/path/to/catalog"
 modn bucket remove community
+modn bucket trust-modules community --fingerprint <KEY_ID> --yes
+modn bucket untrust-modules community
+
+modn module register ./module --trust
+modn module list
+modn module pin <game-id>
+modn module unpin <game-id>
+modn module update <game-id>
+modn module rollback <game-id>
+modn module rollback <game-id> --to <version>
+modn module remove <game-id>
 
 modn search cet
 modn search --game cyberpunk-2077
@@ -67,6 +78,63 @@ The options for one installed mod need a target and are refused without one:
 `--download`, `--allow-executable` and `--allow-native-injector`. A refresh always
 fetches, so `modn update --dry-run` is refused rather than ignored. Use
 `modn update <target>` to replace one installed catalog mod as before.
+
+## Module releases and trust
+
+A game module release is a required `version` plus the SHA-256 digest of
+`module.json` and its entrypoint. The registry keeps retained releases and one
+active release under `<data>/game-modules/<game-id>/`. See
+[game modules](game-modules.md#module-releases).
+
+```sh
+modn bucket trust-modules <bucket> [--fingerprint <KEY_ID>] --yes
+modn bucket untrust-modules <bucket>
+modn module list [--json]
+modn module pin <game-id>
+modn module unpin <game-id>
+modn module update <game-id>
+modn module rollback <game-id> [--to <version>]
+```
+
+`bucket trust-modules <bucket>` trusts the modules of one registered signed Git
+catalog. It prints the pinned signer key ID and refuses without `--yes`.
+`--fingerprint <KEY_ID>` is optional and must match that key ID. Trust covers the
+whole bucket. A signer key change ends trust.
+
+`bucket untrust-modules <bucket>` removes the trust record and keeps the bucket
+registered. Retained modules from that bucket are then refused at use.
+
+`module list` verifies and lists every retained release. Each entry has the
+module identity, `sha256`, `source`, `active`, `source_trusted` and `pinned`.
+Text output marks an active release `[active]` and the pinned release `[pinned]`.
+It also warns when a release's bucket is not a trusted module source.
+
+`module pin <game-id>` records the active version and digest in `pin.json`.
+While pinned, automatic imports, `module update` and `module rollback` do not
+move the active release. `module unpin` removes the pin.
+
+`module update <game-id>` fetches the module's source bucket and switches to a
+newer retained release. Under `--json` it reports `game_id`, `from`, `to` and
+`outcome`. The outcomes are `imported`, `unchanged`, `not_newer` and `pinned`.
+A local registration has no source bucket, so update refuses it.
+
+`module rollback <game-id>` switches the active release to the previous retained
+release. `--to <version>` selects a specific retained release. Rollback changes
+only future plans; it never changes installed files or game files. It refuses
+while the module is pinned.
+
+`bucket sync <name>` reports the modules it found. Text output prints each
+imported release and each ignored module. `--json` adds a `modules` value with
+two arrays:
+
+- `imported`: each entry has `game_id`, `version`, `sha256` and `outcome`.
+- `ignored`: each entry has `game_id` and `reason`, either `untrusted_source` or
+  `official_priority`.
+
+The reason `untrusted_source` means Modn did not parse or execute the module.
+Run `bucket trust-modules` to import it. The reason `official_priority` means
+`main` provides the game, so Modn uses the official module. `doctor` reports
+that case as `MODULE_HIDDEN_BY_OFFICIAL`.
 
 ## Games, packages and uninstall
 
