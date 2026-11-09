@@ -33,7 +33,9 @@ matching `--nxm` link. JSON adds
 
 An update needs `--yes` or an interactive confirmation, as for install. The
 prompt names both releases and each dependent. Declared tool executables need
-the same approval as for install.
+the same approval as for install. `--progress json` streams phases and accepts
+a `cancel` line on stdin before the commit point; a cancellation restores the
+old release. See [cli.md](cli.md#progress-events-and-cancellation).
 
 Modn updates only the mod that you name. It never updates a dependency or a
 framework as a side effect. The update is blocked in these cases:

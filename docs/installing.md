@@ -11,7 +11,9 @@ get. Standalone
 the existing Lua planner and Rust ownership transaction. `--dry-run` previews
 without game writes. A catalog install in an interactive terminal shows what
 it will write and asks `Install? [y/N]`; scripts and `--json` must pass
-`--yes`. Standalone archive installs always require `--yes`. Each catalog
+`--yes`. Standalone archive installs always require `--yes`. `--progress json`
+streams phases and accepts a `cancel` line on stdin before the commit point;
+see [cli.md](cli.md#progress-events-and-cancellation). Each catalog
 dependency must be installed with its pinned digest and intact managed
 content, or be installed in the same command. Installation re-checks this
 while holding the transaction lock. Each catalog installation records its `bucket/game/mod` provenance and

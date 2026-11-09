@@ -59,6 +59,37 @@ mod IDs; noninteractive invocations return candidates (structured JSON errors
 under `--json`). `modn search` matches mod ID or display name and accepts
 global `--game`.
 
+## Progress events and cancellation
+
+`--progress json` streams machine-readable events for `install`, `update` and
+`uninstall`. Each event is one JSON object on one line on **stderr**. The
+command's normal output on stdout is unchanged, including under `--json`.
+Progress mode never prompts, so pass `--yes`, or use `--dry-run` to preview.
+
+Every operation reports these phases in order:
+
+| Event | Meaning |
+|---|---|
+| `{"phase":"resolve"}` | The command starts to resolve its target and plan. |
+| `{"phase":"download","package":"<reference>","bytes":<n>,"total":<n>}` | An archive download advanced to `bytes`. `total` is the expected size, or `null` when the source does not state it. |
+| `{"phase":"extract","package":"<reference>"}` | Modn extracts the archive into manager-owned staging. |
+| `{"phase":"stage","package":"<reference>"}` | Modn verifies the staged content and records the staged transaction. |
+| `{"phase":"commit","package":"<reference>"}` | The commit point: Modn starts to change the game. |
+| `{"phase":"result","outcome":"succeeded"\|"failed"\|"cancelled","error":"<CODE>"}` | The operation ended. `error` is absent on success. |
+
+`package` is the catalog reference, or the managed-package ID when the package
+has none. A stack install reports one download, extract, stage and commit
+group per package. [transactions.md](transactions.md) defines the commit
+point.
+
+Write one line `cancel` to stdin to ask the operation to stop. Modn checks the
+request at the start and between phases. Before the commit point, the command
+exits nonzero with `CANCELLED`, reports a `cancelled` result, and leaves game
+files, manager state and ownership records as they were. A cancelled download
+removes its partial file and keeps no cache entry. From the commit point on,
+Modn ignores the request and finishes, or rolls back, the operation as it does
+without one. Close stdin when no cancellation is wanted.
+
 ## Catalog refresh
 
 `modn update` without a target refreshes every catalog and changes no game
@@ -205,6 +236,59 @@ An unmatched link is an error.
 The link expires quickly and may remain in shell history.
 Modn does not register as the `nxm://` handler.
 See [sources.md](sources.md) for transport and secrecy guarantees.
+
+## Error codes
+
+Under `--json`, every failure prints one object to stderr:
+`{"error":"<CODE>","message":"<text>"}`. The code is stable and
+SCREAMING_SNAKE_CASE. A specific code names a condition a caller can act on;
+otherwise the command's default code is used. No command reports a generic
+`ERROR` code.
+
+| Code | Meaning |
+|---|---|
+| `ALREADY_INSTALLED` | The update target already uses the selected archive. |
+| `AMBIGUOUS_TARGET` | A mod name matches several catalog mods. |
+| `APPROVAL_REQUIRED` | A write needs `--yes` or an interactive confirmation. |
+| `ARCHIVE_INVALID` | An archive cannot be read or changed during the operation. |
+| `ARCHIVE_REQUIRED` | A mod has no downloadable source and needs `--file`. |
+| `CANCELLED` | The operation was cancelled before its commit point. |
+| `CONFLICT` | A declared or ownership conflict blocks the operation. |
+| `DEPENDENCY_MISSING` | A dependency is not installed or not intact. |
+| `DIGEST_MISMATCH` | A downloaded or supplied archive does not match its pinned digest. |
+| `DOWNLOAD_FAILED` | A download did not complete. |
+| `GAME_MODULE_ERROR` | A game module failed to load or run. |
+| `GAME_NOT_SELECTED` | Modn cannot select one registered game installation. |
+| `GIT_SOURCE_COMMIT_MISMATCH` | A Git source resolved to another commit. |
+| `GIT_SOURCE_FETCH_FAILED` | A Git source could not be fetched or read. |
+| `GIT_SOURCE_UNSUPPORTED_ENTRY` | A Git source contains an entry Modn does not install. |
+| `INVALID_ARGUMENTS` | The command line is invalid. |
+| `IO_ERROR` | A filesystem operation failed. |
+| `MOD_NOT_FOUND` | No catalog mod matches the target. |
+| `NATIVE_INJECTOR_NOT_ALLOWED` | A native-injector package needs `--allow-native-injector`. |
+| `PACKAGE_NEEDED` | Another installed package needs the selected package. |
+| `PACKAGE_NOT_FOUND` | No managed package matches the selector. |
+| `PACKAGE_PINNED` | The managed package is pinned. |
+| `PENDING_TRANSACTION` | An interrupted transaction must be recovered first. |
+| `PLAN_BLOCKED` | The installation plan has blockers. |
+| `STATE_ERROR` | Manager state cannot be read or written. |
+| `ADOPT_FAILED` | Default code of `modn adopt`. |
+| `ASSET_FAILED` | Default code of `modn asset`. |
+| `AUTH_FAILED` | Default code of `modn auth`. |
+| `BUCKET_FAILED` | Default code of `modn bucket`. |
+| `CACHE_FAILED` | Default code of `modn cache`. |
+| `DOCTOR_FAILED` | Default code of `modn doctor`. |
+| `GAME_FAILED` | Default code of `modn game`. |
+| `INSPECT_FAILED` | Default code of `modn inspect`. |
+| `INSTALL_FAILED` | Default code of `modn install`. |
+| `LIST_FAILED` | Default code of `modn list`. |
+| `MODULE_FAILED` | Default code of `modn module`. |
+| `PIN_FAILED` | Default code of `modn pin` and `modn unpin`. |
+| `RECOVER_FAILED` | Default code of `modn recover`. |
+| `SCAN_FAILED` | Default code of `modn scan`. |
+| `SEARCH_FAILED` | Default code of `modn search`. |
+| `UNINSTALL_FAILED` | Default code of `modn uninstall`. |
+| `UPDATE_FAILED` | Default code of `modn update`. |
 
 ## Additional commands
 

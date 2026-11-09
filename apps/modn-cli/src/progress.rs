@@ -40,12 +40,9 @@ impl Progress {
                 }
             }
         });
-        let control = OperationControl::new(token, |event| match serde_json::to_string(event) {
-            Ok(line) => eprintln!("{line}"),
-            Err(_) => {
-                eprintln!(
-                    "{{\"phase\":\"error\",\"message\":\"cannot serialize progress event\"}}"
-                );
+        let control = OperationControl::new(token, |event| {
+            if let Ok(line) = serde_json::to_string(event) {
+                eprintln!("{line}");
             }
         });
         Self { control, enabled }

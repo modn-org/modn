@@ -17,6 +17,18 @@ fn every_code_is_unique_and_screaming_snake_case() {
 }
 
 #[test]
+fn every_code_is_documented_in_the_command_reference() {
+    let reference = include_str!("../../../../docs/cli.md");
+    for code in ErrorCode::ALL {
+        assert!(
+            reference.contains(&format!("`{}`", code.as_str())),
+            "docs/cli.md does not document {}",
+            code.as_str()
+        );
+    }
+}
+
+#[test]
 fn codes_serialize_as_their_names() {
     assert_eq!(
         serde_json::to_value(ErrorCode::PendingTransaction).expect("code JSON"),

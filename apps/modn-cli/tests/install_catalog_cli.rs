@@ -46,7 +46,7 @@ fn short_and_qualified_names_resolve_and_ambiguous_names_fail_in_json() {
     let output = fixture.run(&["--json", "install", "cet"]);
     assert!(!output.status.success());
     let data: Value = serde_json::from_slice(&output.stderr).expect("structured ambiguity");
-    assert_eq!(data["error"], "ambiguous_target");
+    assert_eq!(data["error"], "AMBIGUOUS_TARGET");
     assert_eq!(data["query"], "cet");
     let candidates = data["candidates"].as_array().expect("candidates");
     assert!(candidates.iter().any(|x| x == "main/cyberpunk-2077/cet"));

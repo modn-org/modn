@@ -94,7 +94,9 @@ pub(super) fn open(url: &NexusDownloadUrl) -> Result<(Box<dyn Read>, Option<u64>
     }
 }
 
-fn request_cdn(url: &str) -> Result<(u16, Option<String>, Box<dyn Read>, Option<u64>)> {
+type CdnResponse = (u16, Option<String>, Box<dyn Read>, Option<u64>);
+
+fn request_cdn(url: &str) -> Result<CdnResponse> {
     #[cfg(test)]
     if let Some(response) = fixture_response(url, &[]) {
         let response = response?;

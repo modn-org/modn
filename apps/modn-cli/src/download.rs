@@ -164,6 +164,10 @@ pub(super) fn add_cached<'a>(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the download step keeps the verified cache, package set and progress explicit"
+)]
 pub(super) fn download(
     cache: &ArchiveCache,
     cache_use: CacheUse,
