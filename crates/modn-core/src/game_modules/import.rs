@@ -70,6 +70,12 @@ struct StagedRelease {
     current: Option<String>,
 }
 
+/// One version directory moved out of staging, and how to undo the move.
+struct MovedRelease {
+    staged: PathBuf,
+    target: PathBuf,
+}
+
 /// Stage every module in one trusted catalog without changing active releases.
 ///
 /// The catalog signature must already be verified by the caller. Each module is
@@ -168,9 +174,17 @@ impl StagedCatalogImport {
         } = self;
         let mut moved = Vec::with_capacity(staged.len());
         let mut switched = Vec::new();
-        let result = apply(&registry, &staged, &mut moved, &mut switched, &mut reports);
+        let mut created = Vec::new();
+        let result = apply(
+            &registry,
+            &staged,
+            &mut moved,
+            &mut switched,
+            &mut created,
+            &mut reports,
+        );
         if let Err(error) = result {
-            return match restore(&moved, &switched) {
+            return match restore(&moved, &switched, &created) {
                 Ok(()) => Err(error.context(
                     "catalog module commit failed; the module registry was restored",
                 )),
@@ -188,12 +202,16 @@ impl StagedCatalogImport {
 fn apply(
     registry: &ModuleRegistry,
     staged: &[StagedRelease],
-    moved: &mut Vec<(PathBuf, PathBuf)>,
-    switched: &mut Vec<(PathBuf, Option<String>)>,
+    moved: &mut Vec<MovedRelease>,
+    switched: &mut Vec<(PathBuf, String)>,
+    created: &mut Vec<PathBuf>,
     reports: &mut Vec<ImportReport>,
 ) -> Result<()> {
     for release in staged {
         let directory = registry.directory(&release.game_id)?;
+        if release.current.is_none() {
+            created.push(directory.clone());
+        }
         fs::create_dir_all(directory.join(layout::VERSIONS))?;
         let target = layout::release_directory(&directory, &release.version);
         fs::rename(&release.directory, &target).with_context(|| {
@@ -202,7 +220,10 @@ fn apply(
                 release.game_id, release.version
             )
         })?;
-        moved.push((release.directory.clone(), target));
+        moved.push(MovedRelease {
+            staged: release.directory.clone(),
+            target,
+        });
     }
     for release in staged {
         if release.newer {
@@ -213,7 +234,9 @@ fn apply(
                     release.game_id, release.version
                 )
             })?;
-            switched.push((directory, release.current.clone()));
+            if let Some(previous) = &release.current {
+                switched.push((directory, previous.clone()));
+            }
         }
         reports.push(ImportReport {
             game_id: release.game_id.clone(),
@@ -230,27 +253,41 @@ fn apply(
 }
 
 /// Undo one partial commit: restore active pointers first, then move version
-/// directories back to their staging area. Returns every restoration failure.
-fn restore(moved: &[(PathBuf, PathBuf)], switched: &[(PathBuf, Option<String>)]) -> Result<()> {
+/// directories back to their staging area. A game entry created by this commit
+/// had no directory before it, so restoring the entry means removing it.
+/// Returns every restoration failure.
+fn restore(
+    moved: &[MovedRelease],
+    switched: &[(PathBuf, String)],
+    created: &[PathBuf],
+) -> Result<()> {
     let mut failures = Vec::new();
     for (directory, previous) in switched.iter().rev() {
-        let restored = match previous {
-            Some(version) => layout::write_current(directory, version),
-            None => layout::remove_current(directory),
-        };
-        if let Err(error) = restored {
+        if let Err(error) = layout::write_current(directory, previous) {
             failures.push(format!(
                 "cannot restore the active release in {}: {error:#}",
                 directory.display()
             ));
         }
     }
-    for (staged, target) in moved.iter().rev() {
-        if let Err(error) = fs::rename(target, staged).or_else(|_| fs::remove_dir_all(target)) {
+    for release in moved.iter().rev() {
+        if let Err(error) = fs::rename(&release.target, &release.staged)
+            .or_else(|_| fs::remove_dir_all(&release.target))
+        {
             failures.push(format!(
                 "cannot remove the partial release {}: {error:#}",
-                target.display()
+                release.target.display()
             ));
+        }
+    }
+    for directory in created.iter().rev() {
+        match fs::remove_dir_all(directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => failures.push(format!(
+                "cannot remove the new module entry {}: {error:#}",
+                directory.display()
+            )),
         }
     }
     if failures.is_empty() {
@@ -403,5 +440,48 @@ fn report(manifest: &VerifiedModule, sha256: String, outcome: ReleaseOutcome) ->
         version: manifest.version.clone(),
         sha256,
         outcome,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn moved_release(root: &Path, game: &str, version: &str) -> MovedRelease {
+        let staged = root.join("staging").join(game);
+        fs::create_dir_all(&staged).expect("staging directory");
+        fs::write(staged.join("module.json"), b"{}").expect("staged manifest");
+        let game_directory = root.join("game-modules").join(game);
+        fs::create_dir_all(game_directory.join(layout::VERSIONS)).expect("versions directory");
+        let target = layout::release_directory(&game_directory, version);
+        fs::rename(&staged, &target).expect("move staged release");
+        MovedRelease { staged, target }
+    }
+
+    #[test]
+    fn restore_undoes_partial_moves_and_created_entries() {
+        let root = tempfile::tempdir().expect("root");
+        let new_release = moved_release(root.path(), "new-game", "2.0.0");
+        let new_directory = root.path().join("game-modules/new-game");
+        let old_release = moved_release(root.path(), "old-game", "2.0.0");
+        let old_directory = root.path().join("game-modules/old-game");
+        layout::write_current(&old_directory, "2.0.0").expect("simulated switch");
+        let old_target = old_release.target.clone();
+        let old_staged = old_release.staged.clone();
+
+        restore(
+            &[new_release, old_release],
+            &[(old_directory.clone(), "1.0.0".to_owned())],
+            std::slice::from_ref(&new_directory),
+        )
+        .expect("restore");
+
+        assert!(fs::symlink_metadata(&new_directory).is_err());
+        assert_eq!(
+            layout::read_current(&old_directory).expect("restored current"),
+            "1.0.0"
+        );
+        assert!(fs::symlink_metadata(&old_target).is_err());
+        assert!(old_staged.join("module.json").is_file());
     }
 }

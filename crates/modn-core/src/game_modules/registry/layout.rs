@@ -132,14 +132,6 @@ pub(in crate::game_modules) fn write_current(directory: &Path, version: &str) ->
     Ok(())
 }
 
-pub(in crate::game_modules) fn remove_current(directory: &Path) -> Result<()> {
-    match fs::remove_file(directory.join(CURRENT)) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
-    }
-}
-
 pub(in crate::game_modules) fn release_directory(directory: &Path, version: &str) -> PathBuf {
     directory.join(VERSIONS).join(version)
 }
