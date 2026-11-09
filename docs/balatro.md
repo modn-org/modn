@@ -6,7 +6,7 @@ Balatro support is Windows-only.
 The module declares Steam app `2379780` as its only store identity.
 `modn game detect` finds the folder that the Steam library lists for that app.
 Detection and registration require the `Balatro.exe` marker in the game folder.
-Balatro is not sold on GOG or the Epic Games Store, so the module declares no identity for them.
+The module declares no GOG or Epic identity because no verified product identity is known for them.
 Microsoft Store installations are unsupported.
 
 ## Roots and saves

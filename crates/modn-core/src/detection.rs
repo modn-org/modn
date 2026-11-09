@@ -80,7 +80,7 @@ pub fn detect_installations(libraries: &StoreLibraries, games: &[String]) -> Det
             }
             Err(error) => detection.skipped.push(SkippedGame {
                 game_id: game.clone(),
-                reason: format!("{error:#}"),
+                reason: format!("DETECT_MODULE_UNREADABLE: {error:#}"),
             }),
         }
     }
@@ -125,10 +125,14 @@ fn confirm(game: &str, installation: &StoreInstallation) -> Result<PathBuf, Stri
     let path = installation
         .path
         .canonicalize()
-        .map_err(|error| format!("cannot access the folder: {error}"))?;
+        .map_err(|error| format!("DETECT_FOLDER_UNREADABLE: cannot access the folder: {error}"))?;
     match policy::validate(game, &path) {
         Ok((true, _)) => Ok(path),
-        Ok((false, marker)) => Err(format!("the folder does not contain {marker}")),
-        Err(error) => Err(format!("the game module failed: {error:#}")),
+        Ok((false, marker)) => Err(format!(
+            "DETECT_FOLDER_UNCONFIRMED: the folder does not contain {marker}"
+        )),
+        Err(error) => Err(format!(
+            "DETECT_MODULE_FAILED: the game module failed: {error:#}"
+        )),
     }
 }

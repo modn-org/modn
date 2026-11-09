@@ -80,6 +80,9 @@ fn confirms_each_store_folder_and_refuses_unrecognized_folders() {
     assert_eq!(confirmed, expected);
     assert_eq!(detection.refused.len(), 1);
     assert_eq!(detection.refused[0].path, wrong);
+    assert!(detection.refused[0]
+        .reason
+        .starts_with("DETECT_FOLDER_UNCONFIRMED:"));
     assert!(detection.refused[0].reason.contains("Game.exe"));
     assert!(detection.skipped.is_empty());
 }
@@ -106,4 +109,7 @@ fn reports_one_folder_once_and_skips_unreadable_modules() {
     assert_eq!(detection.confirmed[0].path, folder);
     assert_eq!(detection.skipped.len(), 1);
     assert_eq!(detection.skipped[0].game_id, "other-game");
+    assert!(detection.skipped[0]
+        .reason
+        .starts_with("DETECT_MODULE_UNREADABLE:"));
 }

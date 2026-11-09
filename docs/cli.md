@@ -165,7 +165,8 @@ the profile whose registrations are read and written.
 {"installations":[{"game_id":"cyberpunk-2077","store":"steam","store_id":"1091500",
   "path":"C:\\...\\Cyberpunk 2077","status":"new"}],
  "refused":[{"game_id":"balatro","store":"steam","store_id":"2379780",
-  "path":"C:\\...\\Balatro","reason":"the folder does not contain Balatro.exe"}],
+  "path":"C:\\...\\Balatro",
+  "reason":"DETECT_FOLDER_UNCONFIRMED: the folder does not contain Balatro.exe"}],
  "skipped":[]}
 ```
 

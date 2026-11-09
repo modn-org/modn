@@ -164,7 +164,7 @@ A module can declare its store identities as data in `module.json`. Lua never
 receives them and gains no filesystem or process API from them.
 
 ```json
-{"game_id":"cyberpunk-2077","version":"0.1.0","api_version":1,"entrypoint":"module.lua",
+{"game_id":"cyberpunk-2077","version":"0.2.0","api_version":1,"entrypoint":"module.lua",
  "stores":{"steam":"1091500","gog":"1423049311","epic":"Ginger"}}
 ```
 
@@ -178,7 +178,9 @@ receives them and gains no filesystem or process API from them.
 
 An unknown key or a malformed identity makes the module invalid. The error
 starts with `MODULE_STORE_ID_INVALID`. Any API version can declare `stores`.
-Modn 0.5.0 and earlier refuse the field as an unknown manifest field.
+A change to `stores` is a module release, so increment `version`.
+Modn 0.5.0 and earlier refuse the field as an unknown manifest field; the
+matching `main` bucket release ships only with a Modn release that reads it.
 
 Rust reads the store libraries on Windows. This code knows store formats, not
 games:
