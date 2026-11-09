@@ -382,7 +382,7 @@ impl BucketStore {
         };
         let staged = if trust == ModuleTrustState::Trusted {
             Some(stage_catalog_modules_at(
-                &crate::data_dir::data_directory()?,
+                &crate::data_dir::profile_directory()?,
                 name,
                 &revision.signer.key_id,
                 &catalog,

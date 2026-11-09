@@ -79,7 +79,7 @@ pub fn stage_catalog_modules(
     catalog: &Path,
 ) -> Result<StagedCatalogImport> {
     stage_catalog_modules_at(
-        &crate::data_dir::data_directory()?,
+        &crate::data_dir::profile_directory()?,
         bucket,
         signer_key_id,
         catalog,

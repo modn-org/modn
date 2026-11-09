@@ -1,7 +1,6 @@
 use crate::commands::ModuleCommand;
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{BucketStore, ModuleTrustState};
-use modn_core::data_dir;
 use modn_core::game_modules::{ModuleRegistry, ModuleSource, ReleaseOutcome};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -9,12 +8,11 @@ use std::path::Path;
 
 /// Keep one release, fetch a newer one, or move the active release pointer.
 pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) -> Result<()> {
-    let data = data_dir::data_directory()?;
-    let store_root = state_path
+    let data = state_path
         .parent()
         .context("invalid manager state directory")?;
-    crate::modules::validate_registry_writes(state_path, &data)?;
-    let registry = ModuleRegistry::new(&data);
+    crate::modules::validate_registry_writes(state_path, data)?;
+    let registry = ModuleRegistry::new(data);
     match command {
         ModuleCommand::Pin { game } => {
             let pin = registry.pin(&game)?;
@@ -42,7 +40,7 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
                 println!("Unpinned game module {game}; updates and rollback may move it again.");
             }
         }
-        ModuleCommand::Update { game } => update(&registry, store_root, &game, json_output)?,
+        ModuleCommand::Update { game } => update(&registry, data, &game, json_output)?,
         ModuleCommand::Rollback { game, to } => {
             rollback(&registry, &game, to.as_deref(), json_output)?;
         }

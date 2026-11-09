@@ -264,7 +264,7 @@ pub fn doctor_with_ownership_appdata(
 }
 
 fn module_source_diagnostics(game_id: &str) -> Result<Vec<Diagnostic>> {
-    let data = crate::data_dir::data_directory()?;
+    let data = crate::data_dir::profile_directory()?;
     let buckets = BucketStore::new(&data);
     let trusted = buckets.trusted_module_sources()?;
     let mut diagnostics = Vec::new();
