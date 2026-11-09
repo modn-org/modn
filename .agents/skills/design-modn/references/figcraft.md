@@ -25,6 +25,8 @@ is the source of truth for parameters; these notes cover what it does not say.
 - A drop shadow: `effect.add` with `{"ids": [<id>], "effect": {"type": "dropShadow", "color": "#00000040", "offset": [0, 2], "radius": 6, "spread": 0}}`. `offsetX` and `offsetY` are refused.
 - Text in a horizontal layout wraps when it gets a narrow width. Set `width`, or `sizingH: "hug"`.
 - `padding` takes a number or `[top, right, bottom, left]`.
+- `style.update` with `value` replaces the whole style. For a text style, pass every field: `{"fontFamily", "fontStyle", "fontSize", "lineHeight": <px>, "letterSpacing": "0%"}`. A left-out field resets to its default, such as 12 px and `auto` line height.
+- `variable.bind` accepts `gap`, `crossGap` and each padding side: `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`.
 
 ## Reference files
 

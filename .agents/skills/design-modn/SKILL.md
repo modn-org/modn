@@ -24,7 +24,8 @@ design/
 
 `scripts/fc.py` calls one MCP tool on the app attached through its control port.
 Run it from the repository root. Below, `fc.py <tool> '<json>'` means
-`python -I .agents/skills/design-modn/scripts/fc.py <tool> '<json>'`.
+`python -I .agents/skills/design-modn/scripts/fc.py <tool> '<json>'`. Pass
+`@<file>` instead of the JSON for a batch over the Windows command-line limit.
 MCP tools have plain names, such as `get_node`, `save_file` and `screenshot`;
 `fc.py --list` prints them. A bare dotted command, such as `library.add`, means
 `fc.py run_command '{"command":"library.add","params":{...}}'`.

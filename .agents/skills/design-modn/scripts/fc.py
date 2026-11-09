@@ -2,9 +2,10 @@
 
 Usage:
   fc.py [--port N] --list
-  fc.py [--port N] TOOL [JSON_ARGS] [--png OUT.png]
+  fc.py [--port N] TOOL [JSON_ARGS | @args.json] [--png OUT.png]
 
-Prints each text block of the result and saves the first image block to
+`@args.json` reads the arguments from a file, for batches longer than the
+Windows command-line limit of 32 KB. Prints each text block of the result and saves the first image block to
 --png. Exits 1 when the tool reports an error. The port defaults to
 FIGCRAFT_CONTROL_PORT, else 47811.
 """
@@ -74,6 +75,13 @@ class Session:
             self.proc.kill()
 
 
+def load_args(text):
+    if text.startswith("@"):
+        with open(text[1:], encoding="utf-8") as source:
+            return json.load(source)
+    return json.loads(text)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
@@ -92,7 +100,7 @@ def main():
             for tool in session.request("tools/list", {})["tools"]:
                 print(tool["name"])
             return 0
-        result = session.request("tools/call", {"name": options.tool, "arguments": json.loads(options.args)})
+        result = session.request("tools/call", {"name": options.tool, "arguments": load_args(options.args)})
     finally:
         session.close()
 
