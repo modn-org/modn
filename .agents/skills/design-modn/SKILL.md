@@ -1,89 +1,95 @@
 ---
 name: design-modn
-description: Iterate on Modn Desktop page designs in FigCraft with the owner. Use when the owner asks to change, create or review a page design under `design/`, or to turn a page design into CSS.
+description: Iterate on Modn Desktop screen designs in FigCraft with the owner. Use when the owner asks to change, create or review a screen design or the design system in `design/design.figcraft`, or to turn a design into CSS.
 ---
 
-# Design Modn pages
+# Design Modn screens
 
-The owner decides. The agent edits page designs in the owner's running
+The owner decides. The agent edits screen designs in the owner's running
 FigCraft app, one request at a time, and the owner watches each change land.
 
 ## Roles and files
 
 ```text
 design/
-  design-system.figcraft   owner: tokens (variables), styles and components, published as a library
-  pages/<page>.figcraft    agent: one canonical design per desktop page
-  renders/<page>.png       agent: render of the last saved page
+  design.figcraft          the one design file
+    Foundations            owner: tokens (variables) and text styles, shown as swatches
+    Components             owner: components and their variants
+    ---                    divider
+    <Screen>               agent: one page per desktop screen, one top-level frame per state
+  renders/<Screen>/<frame>.png   agent: render of each saved screen frame
 ```
 
-- The owner owns `design-system.figcraft` and every library publish. The agent reads it through the library link only, and leaves the file and its publishes to the owner.
-- Pages take every token and component from that library.
-- The canonical format is `.figcraft`. `library.add` accepts only a `.figcraft` file, and FigCraft calls its `.fig` output experimental. Import `.fig` files only as reference material, kept outside the repository.
-- Git cannot diff `.figcraft` files. The render is the reviewable change.
+- The owner owns the design system: the Foundations and Components pages, the variables and the styles. The agent changes them only when the owner asks for it in that conversation.
+- Screen pages take every token and component from the design system. Variables and components are local to the file, so a design-system change reaches every screen at once.
+- The canonical format is `.figcraft`; FigCraft calls its `.fig` output experimental. Import `.fig` files only as reference material, kept outside the repository.
+- Git can neither diff nor merge `.figcraft` files. The renders are the reviewable change, and only one branch at a time may change `design.figcraft`.
 
 `scripts/fc.py` calls one MCP tool on the app attached through its control port.
 Run it from the repository root. Below, `fc.py <tool> '<json>'` means
 `python -I .agents/skills/design-modn/scripts/fc.py <tool> '<json>'`. Pass
 `@<file>` instead of the JSON for a batch over the Windows command-line limit.
 MCP tools have plain names, such as `get_node`, `save_file` and `screenshot`;
-`fc.py --list` prints them. A bare dotted command, such as `library.add`, means
-`fc.py run_command '{"command":"library.add","params":{...}}'`.
+`fc.py --list` prints them. A bare dotted command, such as `page.select`, means
+`fc.py run_command '{"command":"page.select","params":{...}}'`.
 
 Look up command parameters with `figcraft-cli commands --filter <command>`.
 Read [the FigCraft notes](references/figcraft.md) before the first edit in a session.
 
 ## 1. Start the session
 
-1. Attach: run `fc.py inspect_document`. When it fails, ask the owner to close any FigCraft window that has the page open, then start the app with the page:
-   `Start-Process "C:\Program Files\ArtCraft\FigCraft\figcraft.exe" -ArgumentList '--control','47811','"<absolute page path>"'`.
-2. Open the page in front: `fc.py open_file '{"path":"<absolute page path>"}'`.
-3. Relink: run `library.add` with the absolute path of `design/design-system.figcraft` in this worktree. A page stores the library's absolute path, and adding the same library again re-points it. Keep the returned `id`: every `library.*` command below takes it as `library`.
-4. Pull: run `library.updates`. When it lists changes, the owner has published them: run `library.acceptUpdates`, then `save_file`, and report what changed.
+1. Attach: run `fc.py inspect_document`. When it fails, ask the owner to close any FigCraft window that has the file open, then start the app with it:
+   `Start-Process "C:\Program Files\ArtCraft\FigCraft\figcraft.exe" -ArgumentList '--control','47811','"<absolute path of design/design.figcraft>"'`.
+2. Open the file in front: `fc.py open_file '{"path":"<absolute path of design/design.figcraft>"}'`.
+3. Go to the screen: `page.list`, then `page.select` with its `id`.
 
-Done when `library.list` shows that `id` with this worktree's `path` and no `error`, `library.updates` reports `count: 0`, and `inspect_document` names the page file as `path`.
-
-When `design/design-system.figcraft` is absent, stop and ask the owner to create and publish it. [The design-system notes](references/design-system.md) give the conventions to propose.
+Done when `inspect_document` names this worktree's `design/design.figcraft` as `path` and the screen page is current.
 
 ## 2. Apply one request
 
 The owner gives one instruction, such as "change the colors of the button at browse" or "add a subtle shadow to the install button".
 
-1. **Locate.** Run `node.find` by layer `name` or `text`, then `get_node` on each match. When several layers match, show their names and ask which one.
+1. **Locate.** Run `node.find` with the screen page as `root` and the layer `name` or `text`, then `get_node` on each match. When several layers match, show their names and ask which one.
 2. **Classify.** The request **conflicts** with the design system when it:
-   - sets a color, size, spacing, radius, effect or font that no published variable or style holds;
+   - sets a color, size, spacing, radius, effect or font that no variable or style holds;
    - replaces a bound variable (`boundVariables`) or an applied style with a raw value;
-   - changes the structure of a library instance, or detaches it;
-   - needs a component the library does not have.
+   - changes the structure of a component instance, or detaches it;
+   - needs a component the Components page does not have;
+   - changes a variable, a style, or the Foundations or Components page.
 
-   On a conflict, stop and ask before any edit. Name the layer, the token or component involved and the two options: the owner changes the design system and publishes, or the owner approves a page-only override.
-3. **Edit.** Send the whole request as one `batch`, so the owner can undo it in one step. Bind every value that a published variable or style holds, rather than writing the raw value. Bind tokens with `"fill": {"$var": "<variable>"}` or `variable.bind`. Place components with `library.place`, and pick variants with `instance.setProperties`.
-4. **Check.** Run `fc.py screenshot '{"ids":[<page frame id>]}' --png <scratch path>` and look at the image. Done when it shows the requested change and every other layer is unchanged.
-5. **Save.** Run `save_file`, then `screenshot` the page frame again with `--png design/renders/<page>.png`. Git keeps the history; `file.saveVersion` stores a snapshot inside the file and grows it with each one.
-   Then run `python -I .agents/skills/design-modn/scripts/audit.py design/pages/<page>.figcraft`. It lists every value that no variable or style holds. Done when each listed value is an override the owner approved.
-6. **Report.** Name the changed layers, the tokens or components used, each approved override and the render path.
+   On a conflict, stop and ask before any edit. Name the layer, the token or component involved and the two options: change the design system, or approve a screen-only override.
+3. **Edit.** Send the whole request as one `batch`, so the owner can undo it in one step. Bind every value that a variable or style holds, rather than writing the raw value. Bind tokens with `"fill": {"$var": "<variable>"}` or `variable.bind`. Place components with `instance.create`, and pick variants and texts with `instance.setProperties`.
+4. **Check.** Run `fc.py screenshot '{"ids":[<frame id>]}' --png <scratch path>` and look at the image. Done when it shows the requested change and every other layer is unchanged.
+5. **Save.** Run `save_file`, then export the screen's frames:
+   `figcraft-cli export design/design.figcraft -o design/renders/<Screen> --page <Screen>`.
+   Then run `python -I .agents/skills/design-modn/scripts/audit.py design/design.figcraft --page <Screen>`. It lists every value that no variable or style holds. Done when each listed value is an override the owner approved.
+6. **Report.** Name the changed layers, the tokens or components used, each approved override and the render paths.
 
 ## 3. Owner comments
 
 The owner can also comment on a layer in the app. `fc.py wait_for_changes` returns new comment events, and `run_command` with `comment.list` and `{"filter":"open"}` lists open threads. Handle each open thread as a request in step 2. After the change, run `comment.reply` with what changed, then `comment.resolve`.
 
-## 4. New page
+## 4. New screen
 
-Create the file headless, then open it as in step 1:
+Add the page after the divider and its first frame, as one `batch`:
 
 ```json
 [
-  {"command": "library.add", "params": {"path": "<absolute design-system path>"}},
-  {"command": "node.create", "params": {"type": "frame", "name": "<Page>", "width": 1440, "height": 900}}
+  {"command": "page.add", "params": {"name": "<Screen>"}},
+  {"command": "node.create", "as": "frame", "params": {"type": "frame", "name": "<screen>", "width": 1440, "height": 900, "props": {"fill": {"$var": "modn/color/surface"}}}}
 ]
 ```
 
-Run `figcraft-cli run new-page.json --out design/pages/<page>.figcraft`, with the script in a scratch folder.
+`page.add` appends the page and makes it current. Name each further frame after the state it shows, such as `browse-empty`.
 
-## 5. Hand-off to code
+## 5. Design-system changes
 
-`inspect.code` with `{"id": <frame id>, "language": "html"}` returns the frame's whole layer tree as HTML and CSS; `"css"` returns the CSS of that one layer. A bound variable becomes `var(--<variable name with slashes as hyphens>, <value>)`. The CSS is a reference for the Tauri UI in issue #142, not finished code.
+When the owner asks for one, follow [the design-system notes](references/design-system.md). Then run `audit.py design/design.figcraft --page Foundations` and `--page Components`. Done when both report 0 raw values and the screen renders show the intended effect.
+
+## 6. Hand-off to code
+
+`inspect.code` with `{"id": <frame id>, "language": "html"}` returns the frame's whole layer tree as HTML and CSS; `"css"` returns the CSS of that one layer. A bound variable becomes `var(--<variable name with slashes as hyphens>, <value>)`. `variable.export` with `{"format": "css"}` writes the token stylesheet. The CSS is a reference for the Tauri UI in issue #142, not finished code.
 
 ## Commit
 
-Commit each page file with its render. Commit `design-system.figcraft` only when the owner asks.
+Commit `design/design.figcraft` with the renders of each changed screen. Name each design-system change in the commit message.

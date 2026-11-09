@@ -1,8 +1,9 @@
 # Design-system notes
 
-The owner makes every decision in `design/design-system.figcraft`. Propose
-these conventions when the owner creates the file or asks for a change.
-`scripts/audit.py design/design-system.figcraft` must report 0 raw values.
+The owner makes every decision about the design system: the variables, the
+styles, and the Foundations and Components pages of `design/design.figcraft`.
+Propose these conventions when the owner asks for a change. `scripts/audit.py`
+must report 0 raw values on the Foundations and Components pages.
 
 ## Tokens
 
@@ -27,17 +28,11 @@ these conventions when the owner creates the file or asks for a change.
 - Name each layer after its role, in lowercase: `label`, `field`, `value`, `helper`, `content`, `title`, `body`, `action`. Text content changes; role names stay.
 - Give each component set a description that lists its variant properties, their values and its text properties.
 - Bind each component fill, stroke, radius, spacing and opacity to a token.
-- Prefix a component name with `_` or `.` to keep it out of the published library.
-
-## Publishing
-
-The owner publishes in the app with **Publish library…** and then saves the file.
-Each publish increments the library version. Pages see the change through
-`library.updates` at the start of the next session.
+- Keep components on the Components page; screen pages hold only instances.
 
 ## Proposing a change
 
 When a request conflicts with the design system, describe the change in the
 reply: the variable, style or component, its current value and the proposed
-value. Edit `design-system.figcraft` only when the owner asks for it in that
-conversation; the owner publishes.
+value. Make it only when the owner asks for it in that conversation. A change
+reaches every screen at once, so check the screen renders after it.

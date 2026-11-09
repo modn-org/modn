@@ -40,9 +40,9 @@ A trusted module may be powerful, but Rust-owned managed transactions,
 ownership and recoverability are separate correctness guarantees. No
 milestone or issue authorizes modifying a user's real game or merging a PR.
 
-Desktop page designs live in `design/` as FigCraft files. The owner owns
-`design/design-system.figcraft`. For any design request, follow
-`.agents/skills/design-modn/SKILL.md`.
+Desktop screen designs live in one FigCraft file, `design/design.figcraft`,
+one page per screen. The owner owns its design system. For any design request,
+follow `.agents/skills/design-modn/SKILL.md`.
 
 ## Rust implementation
 

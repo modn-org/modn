@@ -11,15 +11,15 @@ is the source of truth for parameters; these notes cover what it does not say.
 - `get_node` accepts `fields` to trim the output. `gap` and `padding` sit inside `layout`.
 - `save_file` refuses when another writer changed the file since the app opened it. Reload with `open_file` and `"reload": true`, then repeat the request.
 
-## Library
+## Components and fonts
 
-- Pass the library `id` from `library.add` to `library.place`, `library.applyStyle` and `library.bindVariable`. The library name is the document name at publish time, which is `Untitled` for a file created headless. A forward-slash path does not match the stored backslash path.
-- `library.list` shows an `error` when the stored path is missing. `library.add` with the current path repairs it.
-- An instance keeps its link to the library after an edit. `get_node` lists the edited properties in `overrides`.
+- `instance.create` with a component set's id places its default variant; `instance.setProperties` then picks variants and texts.
+- An instance keeps its link to its component after an edit. `get_node` lists the edited properties in `overrides`.
+- `font.download` installs a missing Google Fonts family only after the owner turns downloading on in **Text ▸ Missing fonts**.
 
 ## Properties
 
-- A new frame gets a white fill. Give containers that must show their parent `"fill": "#00000000"`.
+- A new frame gets a white fill. Give containers that must show their parent `"fill": "none"`. `"#00000000"` leaves a paint that `audit.py` reports.
 - `fill` takes a color, `{"$var": "<variable>"}`, or `"none"`. Gradients go in `fills`: `{"type": "linearGradient", "stops": ["#hex", "#hex"], "from": [0, 0], "to": [1, 1]}`.
 - `strokeSides` takes four booleans in `[top, right, bottom, left]` order.
 - A drop shadow: `effect.add` with `{"ids": [<id>], "effect": {"type": "dropShadow", "color": "#00000040", "offset": [0, 2], "radius": 6, "spread": 0}}`. `offsetX` and `offsetY` are refused.

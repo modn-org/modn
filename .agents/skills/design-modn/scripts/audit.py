@@ -1,6 +1,8 @@
 """List design values in a .figcraft file that no variable or style holds.
 
-Usage: audit.py FILE.figcraft
+Usage: audit.py FILE.figcraft [--page NAME]
+
+--page limits the check to one page.
 
 Checks every layer outside instances and outside the read-only library copies
 that a page stores: visible fills and strokes, corner
@@ -8,6 +10,7 @@ radius, gap and padding, opacity, effects and text styles. Prints one line per
 raw value and a count. Exits 1 when it finds one, 0 when every value is bound.
 """
 
+import argparse
 import json
 import os
 import shutil
@@ -61,12 +64,17 @@ def raw_values(node):
 
 
 def main():
-    if len(sys.argv) != 2:
-        sys.exit(__doc__)
+    parser = argparse.ArgumentParser(usage=__doc__)
+    parser.add_argument("file")
+    parser.add_argument("--page")
+    options = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
-    document = load(sys.argv[1])
+    document = load(options.file)
     listed = document["nodes"]
     nodes = {node["id"]: node for node in (listed if isinstance(listed, list) else listed.values())}
+    pages = {node["name"] for node in nodes.values() if node["type"] == "page"}
+    if options.page is not None and options.page not in pages:
+        sys.exit(f"no page {options.page!r}; pages: {', '.join(sorted(pages))}")
 
     library_store = (document.get("libraries") or {}).get("store")
 
@@ -74,6 +82,8 @@ def main():
         parent = nodes.get(node.get("parent"))
         while parent:
             if parent["type"] == "instance" or parent["id"] == library_store:
+                return True
+            if parent["type"] == "page" and options.page is not None and parent["name"] != options.page:
                 return True
             parent = nodes.get(parent.get("parent"))
         return False
