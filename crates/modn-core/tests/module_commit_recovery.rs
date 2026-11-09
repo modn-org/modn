@@ -212,6 +212,10 @@ fn unblock_active_switch(data: &Path, game: &str) {
         let mut permissions = fs::metadata(&current)
             .expect("current metadata")
             .permissions();
+        #[expect(
+            clippy::permissions_set_readonly_false,
+            reason = "The test clears the read-only bit it set"
+        )]
         permissions.set_readonly(false);
         fs::set_permissions(&current, permissions).expect("writable current");
     }
