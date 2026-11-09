@@ -40,6 +40,10 @@ A trusted module may be powerful, but Rust-owned managed transactions,
 ownership and recoverability are separate correctness guarantees. No
 milestone or issue authorizes modifying a user's real game or merging a PR.
 
+Desktop page designs live in `design/` as FigCraft files. The owner owns
+`design/design-system.figcraft`. For any design request, follow
+`.agents/skills/design-modn/SKILL.md`.
+
 ## Rust implementation
 
 - Prefer the simplest correct design: unique ownership and borrowing before `Rc`/`Arc`; inherent methods before unnecessary traits, and functions before macros.
