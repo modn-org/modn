@@ -170,6 +170,30 @@ fn state_dir_keeps_module_trust_and_releases_in_its_profile() {
     ));
     assert_eq!(trusted["imported"][0]["version"], "2.0.0");
 
+    let game = root.path().join("game");
+    fs::create_dir_all(&game).expect("game directory");
+    fs::write(game.join("Game.exe"), b"").expect("game marker");
+    let doctor = success(&cli(
+        &profile_a,
+        Some(&profile_b),
+        &[
+            "--json",
+            "--game",
+            "fixture-game",
+            "doctor",
+            "--path",
+            game.to_str().expect("game path"),
+        ],
+    ));
+    assert!(
+        doctor["diagnostics"]
+            .as_array()
+            .expect("diagnostics")
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != "MODULE_SOURCE_UNTRUSTED"),
+        "selected profile must resolve its trusted module: {doctor}"
+    );
+
     let listed = success(&cli(
         &profile_a,
         Some(&profile_b),
@@ -210,30 +234,6 @@ fn state_dir_keeps_module_trust_and_releases_in_its_profile() {
     ));
     assert_eq!(rolled["from"], "3.0.0");
     assert_eq!(rolled["to"], "2.0.0");
-
-    let game = root.path().join("game");
-    fs::create_dir_all(&game).expect("game directory");
-    fs::write(game.join("Game.exe"), b"").expect("game marker");
-    let doctor = success(&cli(
-        &profile_a,
-        Some(&profile_b),
-        &[
-            "--json",
-            "--game",
-            "fixture-game",
-            "doctor",
-            "--path",
-            game.to_str().expect("game path"),
-        ],
-    ));
-    assert!(
-        doctor["diagnostics"]
-            .as_array()
-            .expect("diagnostics")
-            .iter()
-            .all(|diagnostic| diagnostic["code"] != "MODULE_SOURCE_UNTRUSTED"),
-        "selected profile must resolve its trusted module: {doctor}"
-    );
 
     assert_eq!(
         tree(&default_modules),
