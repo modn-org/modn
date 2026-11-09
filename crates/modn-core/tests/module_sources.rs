@@ -176,7 +176,9 @@ fn fixture_module(game: &str, version: &str) -> String {
 }
 
 fn active(data: &Path, game: &str) -> Option<modn_core::game_modules::RegisteredModule> {
-    ModuleRegistry::new(data).active(game).expect("active release")
+    ModuleRegistry::new(data)
+        .active(game)
+        .expect("active release")
 }
 
 fn installation(root: &Path) -> PathBuf {
@@ -343,7 +345,10 @@ fn trust_imports_modules_immediately_and_returns_them() {
             ModuleTrustState::Trusted
         );
         assert_eq!(
-            active(&data, "fixture-game").expect("active").module.version,
+            active(&data, "fixture-game")
+                .expect("active")
+                .module
+                .version,
             "1.0.0"
         );
     });
@@ -385,9 +390,13 @@ fn official_module_priority_hides_a_trusted_catalog_module() {
 
         let root = tempfile::tempdir().expect("root");
         let game = installation(root.path());
-        let report =
-            modn_core::inventory::doctor_with_ownership_appdata(&state(root.path()), "cyberpunk-2077", &game, None)
-                .expect("doctor");
+        let report = modn_core::inventory::doctor_with_ownership_appdata(
+            &state(root.path()),
+            "cyberpunk-2077",
+            &game,
+            None,
+        )
+        .expect("doctor");
         let diagnostic = report
             .diagnostics
             .iter()

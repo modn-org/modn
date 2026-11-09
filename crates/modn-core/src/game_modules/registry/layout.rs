@@ -154,7 +154,11 @@ pub(in crate::game_modules) fn list_versions(directory: &Path) -> Result<Vec<Str
     Ok(versions)
 }
 
-pub(in crate::game_modules) fn read_release(directory: &Path, game: &str, version: &str) -> Result<RetainedRelease> {
+pub(in crate::game_modules) fn read_release(
+    directory: &Path,
+    game: &str,
+    version: &str,
+) -> Result<RetainedRelease> {
     if !loader::valid_version(version) {
         bail!("invalid module version");
     }

@@ -54,10 +54,15 @@ pub fn hidden_modules(game: &str) -> Result<Vec<HiddenModule>> {
         }
         let root = directory.canonicalize()?;
         let bytes = loader::bounded_file(&manifest, &root, loader::MAX_MANIFEST_BYTES)
-            .with_context(|| format!("cannot read hidden module manifest {}", manifest.display()))?;
+            .with_context(|| {
+                format!("cannot read hidden module manifest {}", manifest.display())
+            })?;
         let version: ModuleVersion = serde_json::from_slice(&bytes)
             .with_context(|| format!("invalid hidden module manifest {}", manifest.display()))?;
-        hidden.push(HiddenModule { bucket, version: version.version });
+        hidden.push(HiddenModule {
+            bucket,
+            version: version.version,
+        });
     }
     hidden.sort_by(|left, right| left.bucket.cmp(&right.bucket));
     Ok(hidden)

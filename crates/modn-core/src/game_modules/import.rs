@@ -230,7 +230,10 @@ fn module_directories(catalog: &Path) -> Result<Vec<(String, PathBuf)>> {
     Ok(candidates)
 }
 
-#[expect(clippy::too_many_arguments, reason = "Staging keeps one explicit state")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Staging keeps one explicit state"
+)]
 fn stage_one(
     registry: &ModuleRegistry,
     staging: &Path,
@@ -286,7 +289,10 @@ fn stage_one(
     let staged_directory = staging.join(game);
     fs::create_dir(&staged_directory)?;
     fs::write(staged_directory.join("module.json"), &manifest_bytes)?;
-    fs::write(staged_directory.join(&manifest.entrypoint), script.as_bytes())?;
+    fs::write(
+        staged_directory.join(&manifest.entrypoint),
+        script.as_bytes(),
+    )?;
     let checked = loader::check_module(&staged_directory).with_context(|| {
         format!(
             "game module {game} version {} failed staging validation",

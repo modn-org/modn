@@ -125,11 +125,15 @@ impl BucketStore {
                 "cannot trust modules from bucket {name}; the published catalog does not verify"
             )
         })?;
-        let staged =
-            crate::game_modules::stage_catalog_modules_at(self.data_root(), name, &key_id, &registration.path)
-                .with_context(|| {
-                    format!("cannot import game modules from bucket {name}; nothing was trusted")
-                })?;
+        let staged = crate::game_modules::stage_catalog_modules_at(
+            self.data_root(),
+            name,
+            &key_id,
+            &registration.path,
+        )
+        .with_context(|| {
+            format!("cannot import game modules from bucket {name}; nothing was trusted")
+        })?;
         self.write_registration(
             name,
             &Registration {

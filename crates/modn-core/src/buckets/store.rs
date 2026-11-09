@@ -207,10 +207,7 @@ impl BucketStore {
                 title: metadata.title,
                 path: Some(path.to_path_buf()),
                 signer_key_id: None,
-                module_trusted: matches!(
-                    trust,
-                    ModuleTrustState::Main | ModuleTrustState::Trusted
-                ),
+                module_trusted: matches!(trust, ModuleTrustState::Main | ModuleTrustState::Trusted),
             },
             packages,
         ))
