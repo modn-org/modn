@@ -38,8 +38,7 @@ fn other_releases_are_listed_only_for_their_mod() {
         write_release(&root, "foo.json", "foo", "1.1");
         write_release(&root, "foo@1.0.json", "foo", "1.0");
         write_release(&root, "foo@0.9.json", "foo", "0.9");
-        let data = modn_core::data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&temp.path().join("state"));
         store.add("local", &root).expect("register");
 
         let current: Vec<String> = store
@@ -80,7 +79,7 @@ fn malformed_release_files_are_rejected() {
             let root = bucket(temp.path(), "local");
             write_release(&root, "foo.json", "foo", "1.1");
             write_release(&root, file, id, version);
-            let error = BucketStore::new(&modn_core::data_dir::data_directory().expect("data"))
+            let error = BucketStore::new(&temp.path().join("state"))
                 .add("local", &root)
                 .expect_err(file);
             assert!(format!("{error:#}").contains(message), "{file}: {error:#}");
@@ -95,8 +94,7 @@ fn snapshot_keeps_selection_and_historical_versions_after_bucket_edits() {
         let root = bucket(temp.path(), "local");
         write_release(&root, "foo.json", "foo", "1.1");
         write_release(&root, "foo@1.0.json", "foo", "1.0");
-        let data = modn_core::data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&temp.path().join("state"));
         store.add("local", &root).expect("register");
         let snapshot = store.snapshot(Some("test-game")).expect("snapshot");
 

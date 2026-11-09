@@ -72,7 +72,6 @@ impl Registration {
 
 /// Catalog registry, separate from game registrations and ownership state.
 pub struct BucketStore {
-    data: PathBuf,
     pub(super) root: PathBuf,
 }
 
@@ -96,14 +95,8 @@ impl BucketStore {
     #[must_use]
     pub fn new(state_root: &Path) -> Self {
         Self {
-            data: state_root.to_owned(),
             root: state_root.join("buckets"),
         }
-    }
-
-    /// Modn data directory that contains this bucket registry.
-    pub(crate) fn data_root(&self) -> &Path {
-        &self.data
     }
 
     /// Trust state stored in one registration.
@@ -214,7 +207,9 @@ impl BucketStore {
     }
 
     fn official(&self) -> Result<(BucketInfo, Releases)> {
-        let path = self.data.join("buckets").join("main");
+        let path = crate::data_dir::data_directory()?
+            .join("buckets")
+            .join("main");
         self.check_registry_root()?;
         self.load("main", &path, ModuleTrustState::Main)
             .with_context(|| {

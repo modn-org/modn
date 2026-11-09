@@ -126,7 +126,7 @@ impl BucketStore {
             )
         })?;
         let staged = crate::game_modules::stage_catalog_modules_at(
-            self.data_root(),
+            &crate::data_dir::data_directory()?,
             name,
             &key_id,
             &registration.path,

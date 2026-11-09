@@ -254,6 +254,9 @@ fn stage_one(
             manifest.game_id
         );
     }
+    if manifest.entrypoint != "module.lua" {
+        bail!("catalog game module {game} must use entrypoint module.lua");
+    }
     let root = source.canonicalize()?;
     let manifest_bytes = loader::bounded_file(
         &source.join("module.json"),
