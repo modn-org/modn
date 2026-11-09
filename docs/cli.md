@@ -11,6 +11,8 @@ modn game add cyberpunk-2077 --path "/path/to/game"
 modn game add cyberpunk-2077 --src "./local-module" --path "/path/to/game"
 modn game list
 modn game remove cyberpunk-2077
+modn play cyberpunk-2077
+modn play cyberpunk-2077 --path "/path/to/game"
 
 modn bucket list
 modn bucket update
@@ -176,6 +178,37 @@ not confirm. `skipped` lists games whose module could not be read.
 
 `modn game add <game-id>` without `--path` uses the same detection for one
 game. It registers the installation only when exactly one is confirmed.
+
+## Launching a game
+
+`modn play <game-id>` starts one registered installation. Use `--path` when
+several installations are registered for the same game.
+
+```sh
+modn play cyberpunk-2077 --json
+modn play balatro --path "C:\\...\\Balatro"
+```
+
+Play is read-only: it writes no manager state and no game files. It chooses the
+store URI when detection shows that the store installed the selected folder.
+Otherwise it starts the module's declared executable with the game folder as its
+working directory. A game module declares both as data; see
+[game-modules.md](game-modules.md#launch-targets).
+
+`--json` reports what was launched:
+
+```json
+{"game_id":"cyberpunk-2077","installation":"C:\\...\\Cyberpunk 2077",
+ "target":{"kind":"store_uri","store":"steam","uri":"steam://rungameid/1091500"},
+ "warnings":[]}
+```
+
+Play refuses while a transaction awaits recovery with
+`LAUNCH_RECOVERY_PENDING`; run `modn recover` first. It refuses an unusable or
+unsafe target with `LAUNCH_TARGET_UNAVAILABLE` or `LAUNCH_TARGET_UNSAFE`. When
+manager-owned files are missing or changed outside Modn, it warns with
+`LAUNCH_MANAGED_FILES_CHANGED` and still launches. Run `modn doctor` to inspect
+the changed files.
 
 ## Games, packages and uninstall
 

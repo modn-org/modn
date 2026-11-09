@@ -26,6 +26,8 @@ pub mod game_modules;
 mod git;
 mod integrity;
 pub mod inventory;
+/// Prepare and perform a validated game launch.
+pub mod launch;
 pub mod planning;
 /// Inventory detected game files and produce diagnostic findings.
 pub mod scan;

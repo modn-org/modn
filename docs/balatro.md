@@ -9,6 +9,17 @@ Detection and registration require the `Balatro.exe` marker in the game folder.
 The module declares no GOG or Epic identity because no verified product identity is known for them.
 Microsoft Store installations are unsupported.
 
+## Launch
+
+`modn play balatro` starts the game. When detection shows that Steam installed
+the selected folder, Modn opens `steam://rungameid/2379780`. Any other
+installation starts `Balatro.exe` with the game folder as its working directory.
+
+```powershell
+modn play balatro --json
+modn play balatro --path "<game-root>"
+```
+
 ## Roots and saves
 
 The game root is the Steam installation folder that contains `Balatro.exe`.

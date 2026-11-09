@@ -83,6 +83,14 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: GameCommand,
     },
+    /// Launch a registered game installation with its module's launch target.
+    Play {
+        /// Game ID to launch.
+        game: String,
+        /// Select one installation when several are registered.
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
     /// Inspect known mod directories without modifying game files.
     Scan {
         #[arg(long)]

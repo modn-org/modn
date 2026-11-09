@@ -1,5 +1,6 @@
 mod capabilities;
 mod import;
+mod launch_data;
 mod loader;
 mod official;
 pub(crate) mod policy;
@@ -14,6 +15,7 @@ pub use import::{
     stage_catalog_modules, CatalogModuleReport, IgnoredModule, ModuleIgnoreReason,
     StagedCatalogImport,
 };
+pub use launch_data::LaunchTargets;
 pub use loader::{
     check_module, check_module_with_roots, ContentRootSpec, GameModuleInfo, HOST_API_VERSION,
     MIN_HOST_API_VERSION,
@@ -34,4 +36,9 @@ pub fn content_root_spec(game_id: &str) -> anyhow::Result<Option<ContentRootSpec
 /// Read the selected module's declared store identities without executing it.
 pub fn store_identities(game_id: &str) -> anyhow::Result<StoreIdentities> {
     Ok(resolver::read_policy(game_id)?.0.stores)
+}
+
+/// Read the selected module's declared launch targets without executing it.
+pub fn launch_targets(game_id: &str) -> anyhow::Result<LaunchTargets> {
+    Ok(resolver::read_policy(game_id)?.0.launch)
 }

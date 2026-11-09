@@ -19,6 +19,7 @@ mod nexus_auth;
 #[cfg(test)]
 mod nexus_fixture_tests;
 mod nxm;
+mod play;
 #[cfg(test)]
 mod provider_fixture_tests;
 mod selection;
@@ -93,6 +94,7 @@ fn run_cli(cli: Cli, state_path: &Path) -> Result<()> {
         Command::Unpin(args) => managed::pin(&args, state_path, requested, false),
         Command::Inspect { archive } => inspect_archive(&archive, json),
         Command::Game { command } => games::run(command, state_path, requested, json),
+        Command::Play { game, path } => play::run(&game, path, state_path, requested, json),
         Command::List { path } => managed::list(path, state_path, requested, json),
         Command::Uninstall(args) => managed::uninstall(&args, state_path, requested, json),
         Command::Recover { yes } => managed::recover(yes, state_path, requested, json),

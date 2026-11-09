@@ -7,6 +7,19 @@ The module declares these store identities: Steam app `1091500`, GOG product
 that those libraries list. Registration requires `bin/x64/Cyberpunk2077.exe`
 in the folder. See [cli.md](cli.md#game-detection).
 
+## Launch
+
+`modn play cyberpunk-2077` starts the game. When detection shows that Steam
+installed the selected folder, Modn opens `steam://rungameid/1091500`. Any other
+installation starts `bin/x64/Cyberpunk2077.exe` with the game folder as its
+working directory. The module declares no GOG or Epic launch URI because their
+formats are not verified; those installations use the executable fallback.
+
+```powershell
+modn play cyberpunk-2077 --json
+modn play cyberpunk-2077 --path "<game-root>"
+```
+
 ## Detection
 
 Current detection recognizes legacy `.archive` files, ArchiveXL `.xl` metadata, redscript `.reds` files, redscript hint `.toml`, tweak `.yaml`/`.yml` files, REDmod directories, CET mods and RED4ext plugins. REDmod presence means its executable exists; it is **not** a claim that deployment or game compatibility has been validated.
