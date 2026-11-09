@@ -49,7 +49,8 @@ $backend = (Resolve-Path target/debug/modn.exe).Path
 All configuration paths must be absolute.
 `--backend` must name an existing executable.
 `--state-dir` selects manager state; it has no default.
-`--data-dir` optionally sets the backend's `LOCALAPPDATA` for runtime modules and buckets.
+`--data-dir` optionally sets the backend's `LOCALAPPDATA` for the official `main` bucket.
+The module registry and the other bucket registrations, with their module trust records, follow `--state-dir`.
 Omit it to use the CLI's standard data location.
 `--module-dir` optionally selects an explicit development module directory.
 `--evidence-dir` optionally records backend arguments, exit codes, and output.

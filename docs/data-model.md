@@ -279,9 +279,10 @@ Adoption commits individual ownership without writing game bytes. Cleanup retain
 ### Trusted module registration and trust
 
 `module register <source> --trust` imports a validated third-party module release.
-The runtime data directory stores its identity, API version, exact content digest
-and source. This registry is independent of `--state-dir` and development source
-overrides. A catalog sync imports a trusted bucket's releases into the same
+The manager profile stores its identity, API version, exact content digest
+and source. The profile is the folder that holds `state.sqlite`, so `--state-dir`
+selects it; without `--state-dir` it is the runtime data directory. The registry is
+independent of development source overrides. A catalog sync imports a trusted bucket's releases into the same
 registry. Official game IDs retain priority and cannot be imported from a trusted
 bucket or registered locally. Changed bytes fail verification.
 
