@@ -11,13 +11,15 @@ shipped behavior.
 - [`getting-started.md`](getting-started.md): first-time setup, game discovery,
   the state directory and a clean manager state.
 - [`cli.md`](cli.md): command reference for games, buckets, search, install,
-  update, list and uninstall.
+  update, list, history and uninstall.
 - [`installing.md`](installing.md): catalog and standalone installs, dependency
   plans, stacks and tool executable approval.
 - [`updating.md`](updating.md): pin, unpin and update a managed package.
 - [`cache.md`](cache.md): the verified download cache and `modn cache`.
 - [`inventory.md`](inventory.md): `scan` and `doctor`, ownership drift and
   framework signals.
+- [`history.md`](history.md): durable operation history, its storage and
+  `modn history` output.
 - [`assets.md`](assets.md): read-only DDS and RDAR structure inspection.
 - [`archives.md`](archives.md): `modn inspect` and `install --dry-run` planning.
 - [`buckets.md`](buckets.md): the official `main` bucket, `modn bucket update`,

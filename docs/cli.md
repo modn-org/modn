@@ -49,6 +49,7 @@ modn pin cet
 modn unpin cet
 modn update community/test-game/example --version 1.0 --file "./example-1.0.zip" --yes
 modn list --json
+modn history --json
 modn uninstall <managed-package-id> --yes
 modn uninstall cet --dry-run
 modn uninstall codeware --include-deps --yes
@@ -240,6 +241,21 @@ its own, once nothing else needs it. Review the dry run first. `--yes` and
 removal under one lock. If one fails, the earlier removals stay done, the rest
 stay installed, and the error names both.
 
+## Operation history
+
+`modn history` lists committed install, update and uninstall operations,
+newest first. `--json` prints one array; the default prints a short table of
+ID, kind, game, packages and time. `--game <game-id>` keeps one game.
+`--state-dir` selects the manager profile, including its history.
+
+Each record holds the operation ID and kind, game ID, installation root, UTC
+time, and for every package the mod ID, package IDs before and after, release
+versions and source descriptors, archive SHA-256 and BLAKE3 digests, and the
+owned files with content digests before and after. A record is written in the
+same SQLite transaction as the ownership change. A cancelled, refused,
+dry-run or rolled-back operation writes none. See
+[operation history](history.md) for the JSON shape and storage tables.
+
 ## Native injector approval
 
 A package manifest sets `native_injector: true` when its release places a
@@ -305,6 +321,7 @@ otherwise the command's default code is used. No command reports a generic
 | `GIT_SOURCE_COMMIT_MISMATCH` | A Git source resolved to another commit. |
 | `GIT_SOURCE_FETCH_FAILED` | A Git source could not be fetched or read. |
 | `GIT_SOURCE_UNSUPPORTED_ENTRY` | A Git source contains an entry Modn does not install. |
+| `HISTORY_FAILED` | Default code of `modn history`. |
 | `INVALID_ARGUMENTS` | The command line is invalid. |
 | `IO_ERROR` | A filesystem operation failed. |
 | `MOD_NOT_FOUND` | No catalog mod matches the target. |
