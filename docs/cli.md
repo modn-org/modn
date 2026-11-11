@@ -291,6 +291,30 @@ same SQLite transaction as the ownership change. A cancelled, refused,
 dry-run or rolled-back operation writes none. See
 [operation history](history.md) for the JSON shape and storage tables.
 
+## Undo
+
+`modn undo [<operation-id>] --yes` reverses one committed operation from
+`modn history`. Without an ID it selects the newest operation for the selected
+game. The inverse follows the recorded kind: an install is removed, an update
+installs the earlier release again, and an uninstall installs the recorded
+release again. The command writes one new history record whose `undoes` field
+names the target.
+
+Undo refuses before any change when a later operation on the same installation
+touched one of the target's packages or files. The error is `UNDO_CONFLICT` and
+names that newer operation; undo it first. A package whose recorded source is
+`manual` cannot be fetched again: the error is `UNDO_SOURCE_MANUAL`, and you
+must place its archive with `modn install --file`. An update undo needs the
+installed package's catalog identity. Normal refusals stay: a pinned package
+(`PACKAGE_PINNED`), a package another installed package needs, an unfinished
+transaction (`PENDING_TRANSACTION`) or an ownership `CONFLICT` blocks the undo.
+A multi-package undo commits every package or none.
+
+`--dry-run` verifies the archives and prints the inverse without writing.
+`--yes` is required to change game files. `--json` prints one object.
+`--progress json` reports phases and accepts `cancel` before the commit point.
+The default error code is `UNDO_FAILED`.
+
 ## Native-injector and executable approval
 
 Modn stores one approval per mod and game installation. It records the release
@@ -397,6 +421,10 @@ otherwise the command's default code is used. No command reports a generic
 | `PENDING_TRANSACTION` | An interrupted transaction must be recovered first. |
 | `PLAN_BLOCKED` | The installation plan has blockers. |
 | `STATE_ERROR` | Manager state cannot be read or written. |
+| `UNDO_CONFLICT` | A later operation changed a package or file that the undo target owns. |
+| `UNDO_FAILED` | Default code of `modn undo`. |
+| `UNDO_NOT_FOUND` | No committed operation matches the undo target. |
+| `UNDO_SOURCE_MANUAL` | The target release has a manual source and cannot be downloaded again. |
 | `ADOPT_FAILED` | Default code of `modn adopt`. |
 | `ASSET_FAILED` | Default code of `modn asset`. |
 | `AUTH_FAILED` | Default code of `modn auth`. |

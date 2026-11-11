@@ -206,11 +206,11 @@ A durable record of one committed install, update or uninstall. It names the
 game installation and per package the mod ID, package IDs and release sides
 before and after, each release's source descriptor and archive SHA-256 and
 BLAKE3 digests, and every owned file the operation created, replaced or
-removed with its content digest before and after. History is evidence for a
-future undo, not an ownership claim: it never grants authority over a file.
-The record is committed in the same SQLite transaction as the ownership change
-it describes, so rollback, cancellation and recovery leave no disagreeing
-record.
+removed with its content digest before and after. A record written by an undo
+also names the operation it reversed. History is evidence for undo, not an
+ownership claim: it never grants authority over a file. The record is committed
+in the same SQLite transaction as the ownership change it describes, so
+rollback, cancellation and recovery leave no disagreeing record.
 
 Lua modules may invoke powerful game-specific integrations. Do not represent
 those external effects as a committed managed Rust transaction unless they

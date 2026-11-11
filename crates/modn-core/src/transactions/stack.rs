@@ -74,10 +74,10 @@ impl Store {
                     &member.approved_executables,
                     Some(CatalogInstall {
                         release: &member.release,
-                        stack_id: Some(&stack_id),
                         replacing: None,
                     }),
                     policy,
+                    Some(&stack_id),
                 )
             });
             match result {
@@ -101,7 +101,7 @@ impl Store {
         Ok(installed)
     }
 
-    pub(super) fn ensure_idle(&self) -> Result<()> {
+    pub(crate) fn ensure_idle(&self) -> Result<()> {
         self.ensure_no_pending()?;
         let stacks: i64 =
             self.connection
@@ -130,7 +130,7 @@ impl Store {
         Ok(stacks.len())
     }
 
-    pub(super) fn begin_stack(&mut self, game: &Path) -> Result<String> {
+    pub(crate) fn begin_stack(&mut self, game: &Path) -> Result<String> {
         let marker = Builder::new()
             .prefix("stack-")
             .tempdir_in(&self.state_root)?;
@@ -164,7 +164,7 @@ impl Store {
         Ok(())
     }
 
-    fn rollback_stack(&mut self, id: &str, game: &Path) -> Result<usize> {
+    pub(crate) fn rollback_stack(&mut self, id: &str, game: &Path) -> Result<usize> {
         let context = self.history.take();
         let result = self.rollback_stack_members(id, game);
         self.history = context;

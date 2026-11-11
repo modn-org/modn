@@ -27,6 +27,7 @@ mod provider_fixture_tests;
 mod selection;
 mod stack_install;
 mod state_access;
+mod undo;
 mod update;
 mod update_refresh;
 mod update_report;
@@ -106,6 +107,7 @@ fn run_cli(cli: Cli, state_path: &Path, progress: &Progress) -> Result<()> {
         Command::Uninstall(args) => {
             managed::uninstall(&args, state_path, requested, json, progress)
         }
+        Command::Undo(args) => undo::run(&args, state_path, requested, json, progress),
         Command::Recover { yes } => managed::recover(yes, state_path, requested, json),
         Command::Scan { path } => inventory::scan(path, state_path, requested, json),
         Command::Doctor { path } => inventory::doctor(path, state_path, requested, json),
@@ -143,6 +145,7 @@ fn default_code(command: &Command) -> ErrorCode {
         Command::List { .. } => ErrorCode::ListFailed,
         Command::History => ErrorCode::HistoryFailed,
         Command::Uninstall(_) => ErrorCode::UninstallFailed,
+        Command::Undo(_) => ErrorCode::UndoFailed,
         Command::Recover { .. } => ErrorCode::RecoverFailed,
         Command::Inspect { .. } => ErrorCode::InspectFailed,
         Command::Asset { .. } => ErrorCode::AssetFailed,
@@ -159,7 +162,7 @@ fn default_code(command: &Command) -> ErrorCode {
 fn reports_progress(command: &Command) -> bool {
     matches!(
         command,
-        Command::Install(_) | Command::Update(_) | Command::Uninstall(_)
+        Command::Install(_) | Command::Update(_) | Command::Uninstall(_) | Command::Undo(_)
     )
 }
 

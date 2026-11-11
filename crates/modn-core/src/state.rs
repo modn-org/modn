@@ -184,7 +184,8 @@ impl Store {
                 kind TEXT NOT NULL,
                 game_id TEXT NOT NULL,
                 installation TEXT NOT NULL,
-                recorded_at TEXT NOT NULL
+                recorded_at TEXT NOT NULL,
+                undoes TEXT
             );
             CREATE TABLE IF NOT EXISTS history_packages (
                 operation_id TEXT NOT NULL,
@@ -223,6 +224,7 @@ impl Store {
         }
         migrate_ownership_keys(&tx)?;
         crate::approval::ensure_schema(&tx)?;
+        ensure_history_undoes(&tx)?;
         tx.commit()?;
         Ok(Self {
             connection,
@@ -441,6 +443,18 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
                 )?;
             }
         }
+    }
+    Ok(())
+}
+
+fn ensure_history_undoes(connection: &Connection) -> Result<()> {
+    let present: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('history_operations') WHERE name='undoes')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !present {
+        connection.execute_batch("ALTER TABLE history_operations ADD COLUMN undoes TEXT;")?;
     }
     Ok(())
 }

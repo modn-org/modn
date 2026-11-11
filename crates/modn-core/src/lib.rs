@@ -41,6 +41,8 @@ pub mod scan;
 pub mod state;
 pub mod stores;
 pub mod transactions;
+/// Reverse one committed operation from the operation history.
+pub use transactions::undo;
 #[cfg(test)]
 extern crate self as modn_core;
 #[cfg(test)]

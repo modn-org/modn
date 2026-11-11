@@ -150,10 +150,11 @@ impl Store {
         self.ensure_idle()?;
         let catalog = release.map(|release| CatalogInstall {
             release,
-            stack_id: None,
             replacing: None,
         });
-        self.install_locked(game, archive, proposal, fault, approved, catalog, policy)
+        self.install_locked(
+            game, archive, proposal, fault, approved, catalog, policy, None,
+        )
     }
 
     #[expect(
@@ -169,6 +170,7 @@ impl Store {
         approved: &[String],
         catalog: Option<CatalogInstall<'_>>,
         policy: NativeInjectorPolicy,
+        stack_id: Option<&str>,
     ) -> Result<ManagedPackage> {
         if let Some(release) = catalog.map(|catalog| catalog.release) {
             release.ensure_native_injector_allowed(policy)?;
@@ -237,7 +239,6 @@ impl Store {
                 Ok(CatalogRecord {
                     release: catalog.release,
                     dependency_ids,
-                    stack_id: catalog.stack_id,
                     replacing: catalog.replacing,
                 })
             })
@@ -416,6 +417,7 @@ impl Store {
                 roots.content.as_deref(),
                 catalog.as_ref(),
                 archive_blake3.as_deref(),
+                stack_id,
             )
         })();
         if let Err(err) = attempt {

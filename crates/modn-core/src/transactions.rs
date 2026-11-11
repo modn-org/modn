@@ -57,3 +57,6 @@ pub use native_injector::{
 pub use stack::StackMember;
 pub use uninstall_plan::{PlannedRemoval, UninstallScope};
 pub(crate) use validation::validate_transaction_root;
+
+pub mod undo;
+pub use undo::{conflict, inverse, UndoConflict, UndoRestore};

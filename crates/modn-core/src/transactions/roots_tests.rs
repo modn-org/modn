@@ -47,6 +47,7 @@ impl Lab {
                 &[],
                 None,
                 NativeInjectorPolicy::Refuse,
+                None,
             )
             .is_err());
         assert_eq!(self.store.pending().unwrap().len(), 1);
