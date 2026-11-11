@@ -61,6 +61,8 @@ pub(super) enum Command {
     },
     /// Remove a managed package; --force removes changed owned files only.
     Uninstall(UninstallArgs),
+    /// List committed install, update and uninstall operations, newest first.
+    History,
     /// Safely roll back interrupted installs/uninstalls.
     Recover {
         #[arg(long, help = "Confirm rollback of interrupted transactions")]

@@ -32,11 +32,26 @@ impl Store {
                 .query_map([&id], |row| row.get(0))?
                 .collect::<rusqlite::Result<Vec<String>>>()?;
             let catalog = super::catalog::reference_of(self, &id)?;
+            let metadata = crate::history::package_metadata(&self.connection, &id)?;
             let version: i64 = self.connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
             let pinned = if version >= 2 {
                 self.connection.query_row("SELECT pinned FROM managed_packages WHERE id=?1", [&id], |row| row.get(0))?
             } else { false };
-            Ok(ManagedPackage { id, pinned, game_installation: game.clone(), archive_sha256, files, directories, catalog })
+            Ok(ManagedPackage {
+                id,
+                pinned,
+                game_installation: game.clone(),
+                archive_sha256,
+                files,
+                directories,
+                catalog,
+                mod_id: metadata.as_ref().map(|metadata| metadata.mod_id.clone()),
+                version: metadata.as_ref().and_then(|metadata| metadata.version.clone()),
+                source: metadata.as_ref().and_then(|metadata| metadata.source.clone()),
+                archive_blake3: metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.archive_blake3.clone()),
+            })
         }).collect()
     }
 

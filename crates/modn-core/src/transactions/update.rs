@@ -261,6 +261,10 @@ pub(super) fn vacate(tx: &Transaction<'_>, replaced: Replacement<'_>) -> Result<
         [package_id],
     )?;
     super::catalog::forget(tx, package_id)?;
+    tx.execute(
+        "DELETE FROM managed_package_releases WHERE package_id=?1",
+        [package_id],
+    )?;
     Ok(())
 }
 

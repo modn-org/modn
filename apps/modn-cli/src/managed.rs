@@ -4,6 +4,7 @@ use crate::progress::Progress;
 use crate::state_access::{InstallationAccess, ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::error::{coded, ErrorCode};
+use modn_core::history::HistoryContext;
 use modn_core::transactions::{CleanupApproval, UninstallScope};
 use std::path::{Path, PathBuf};
 
@@ -127,6 +128,7 @@ pub(super) fn uninstall(
     let mut store = selected.store.expect("write access opens manager state");
     store.set_control(progress.control().clone());
     let game = selected.root;
+    store.set_history_context(HistoryContext::new(selected.game_id, game.clone()));
     let removed = if args.force {
         let plan = store.plan_uninstall(&game, &args.package, scope)?;
         let id = &plan.first().expect("a removal plan selects one package").id;

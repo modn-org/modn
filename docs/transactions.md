@@ -38,6 +38,16 @@ point on, Modn ignores cancellation and finishes, or rolls back, the
 operation as it does without one. [cli.md](cli.md#progress-events-and-cancellation)
 defines the CLI protocol and the event schema.
 
+## Operation history at the commit point
+
+The commit transaction that records ownership also writes one operation
+history record: the new package or the removal, plus the file digests before
+and after. A failed history insert fails the transaction, so ownership and
+history share one outcome. An installation stack commits each member's
+ownership first and writes its single record in the transaction that removes
+the stack marker; recovery rolls back an unfinished stack and writes no
+record. See [operation history](history.md).
+
 ## Directories Modn creates
 
 An install creates the missing parent directories of its files. Modn

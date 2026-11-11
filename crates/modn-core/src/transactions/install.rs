@@ -206,6 +206,11 @@ impl Store {
             bail!("manager state must be separate from every installation root");
         }
         let inspection = inspect(archive)?;
+        let archive_blake3 = if self.history.is_some() {
+            Some(crate::history::digest_blake3(archive)?)
+        } else {
+            None
+        };
         validate_execution_plan(&inspection, &roots, proposal, approved)?;
         validate_ownership(self, &game, proposal, replaced_package)?;
         let directories = exclusive_roots(&game, proposal)?;
@@ -410,6 +415,7 @@ impl Store {
                 &journal_directories,
                 roots.content.as_deref(),
                 catalog.as_ref(),
+                archive_blake3.as_deref(),
             )
         })();
         if let Err(err) = attempt {
@@ -425,6 +431,17 @@ impl Store {
             return Err(err);
         }
         self.recover_locked()?;
+        let metadata = self.history.as_ref().map(|context| {
+            crate::history::metadata_for(
+                context,
+                &id,
+                catalog.as_ref().map(|catalog| &catalog.release.reference),
+                catalog
+                    .as_ref()
+                    .and_then(|catalog| catalog.release.version.as_deref()),
+                archive_blake3.as_deref(),
+            )
+        });
         Ok(ManagedPackage {
             id,
             pinned: false,
@@ -432,6 +449,16 @@ impl Store {
             archive_sha256: inspection.sha256,
             directories,
             catalog: catalog.as_ref().map(|c| c.release.reference.clone()),
+            mod_id: metadata.as_ref().map(|metadata| metadata.mod_id.clone()),
+            version: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.version.clone()),
+            source: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.source.clone()),
+            archive_blake3: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.archive_blake3.clone()),
             files: files
                 .into_iter()
                 .map(|f| OwnedFile {

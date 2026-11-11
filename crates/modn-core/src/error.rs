@@ -53,6 +53,8 @@ pub enum ErrorCode {
     GitSourceFetchFailed,
     /// A Git source contains an entry Modn does not install.
     GitSourceUnsupportedEntry,
+    /// Default code of `modn history`.
+    HistoryFailed,
     /// The command line is invalid.
     InvalidArguments,
     /// A filesystem operation failed.
@@ -153,6 +155,7 @@ impl ErrorCode {
         Self::GitSourceCommitMismatch,
         Self::GitSourceFetchFailed,
         Self::GitSourceUnsupportedEntry,
+        Self::HistoryFailed,
         Self::InvalidArguments,
         Self::IoError,
         Self::LaunchDriftCheckFailed,
@@ -216,6 +219,7 @@ impl ErrorCode {
             Self::GitSourceCommitMismatch => "GIT_SOURCE_COMMIT_MISMATCH",
             Self::GitSourceFetchFailed => "GIT_SOURCE_FETCH_FAILED",
             Self::GitSourceUnsupportedEntry => "GIT_SOURCE_UNSUPPORTED_ENTRY",
+            Self::HistoryFailed => "HISTORY_FAILED",
             Self::InvalidArguments => "INVALID_ARGUMENTS",
             Self::IoError => "IO_ERROR",
             Self::LaunchDriftCheckFailed => "LAUNCH_DRIFT_CHECK_FAILED",

@@ -107,10 +107,9 @@ fn dependency_on(archive: &Path, mod_id: &str) -> CatalogDependency {
     CatalogDependency::new(reference(mod_id), inspect(archive).unwrap().sha256)
 }
 
-fn plan(game: &Path, archive: &Path) -> InstallPlan {
+pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
     plan_into(game, archive, "addons")
 }
-
 pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> InstallPlan {
     let checked = inspect(archive).unwrap();
     InstallPlan {

@@ -25,6 +25,8 @@ pub mod error;
 /// Local, sandboxed Lua game module inspection without host filesystem capabilities.
 pub mod game_modules;
 mod git;
+/// Durable history of committed install, update and uninstall operations.
+pub mod history;
 mod integrity;
 pub mod inventory;
 /// Prepare and perform a validated game launch.

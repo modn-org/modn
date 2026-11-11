@@ -17,6 +17,8 @@ mod cleanup;
 mod directory_ledger;
 #[cfg(test)]
 mod generic_tests;
+#[cfg(test)]
+mod history_tests;
 mod install;
 mod journal;
 #[cfg(test)]

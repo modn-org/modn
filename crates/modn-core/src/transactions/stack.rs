@@ -95,7 +95,7 @@ impl Store {
                 }
             }
         }
-        self.finish_stack(&stack_id).context(
+        self.finish_stack(&stack_id, Some(&installed)).context(
             "installation stack not finalized; 'modn recover' rolls back all of its packages",
         )?;
         Ok(installed)
@@ -147,8 +147,17 @@ impl Store {
         Ok(id)
     }
 
-    fn finish_stack(&mut self, id: &str) -> Result<()> {
+    fn finish_stack(&mut self, id: &str, installed: Option<&[ManagedPackage]>) -> Result<()> {
+        let record = match (self.history.as_ref(), installed) {
+            (Some(context), Some(packages)) => {
+                Some(crate::history::stack_operation(context, id, packages))
+            }
+            _ => None,
+        };
         let tx = self.connection.transaction()?;
+        if let Some(record) = &record {
+            crate::history::insert(&tx, record)?;
+        }
         tx.execute("DELETE FROM pending_stack_packages WHERE stack_id=?1", [id])?;
         tx.execute("DELETE FROM pending_stacks WHERE id=?1", [id])?;
         tx.commit()?;
@@ -156,6 +165,13 @@ impl Store {
     }
 
     fn rollback_stack(&mut self, id: &str, game: &Path) -> Result<usize> {
+        let context = self.history.take();
+        let result = self.rollback_stack_members(id, game);
+        self.history = context;
+        result
+    }
+
+    fn rollback_stack_members(&mut self, id: &str, game: &Path) -> Result<usize> {
         let mut statement = self.connection.prepare(
             "SELECT package_id FROM pending_stack_packages WHERE stack_id=?1 ORDER BY ord DESC",
         )?;
@@ -167,7 +183,7 @@ impl Store {
             self.uninstall_locked(game, package_id)
                 .with_context(|| format!("cannot roll back stack package {package_id}"))?;
         }
-        self.finish_stack(id)?;
+        self.finish_stack(id, None)?;
         Ok(members.len())
     }
 }
