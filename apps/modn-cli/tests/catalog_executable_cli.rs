@@ -314,6 +314,46 @@ fn declared_executable_is_reported_but_never_approved_by_yes() {
 }
 
 #[test]
+fn stored_executable_approval_covers_reinstall() {
+    let Catalog {
+        fixture, redscript, ..
+    } = catalog();
+    let preview = fixture.install(REDSCRIPT, &redscript, &["--dry-run"]);
+    let preview: Value = serde_json::from_slice(&preview.stdout).expect("preview JSON");
+    assert_eq!(preview["approval"]["required"], true, "{preview}");
+    assert_eq!(preview["approval"]["covered_by_stored_approval"], false);
+    assert_eq!(
+        preview["approval"]["uncovered"]["executables"],
+        json!([COMPILER])
+    );
+
+    let approval = ["--allow-executable", COMPILER];
+    let installed = fixture.install(REDSCRIPT, &redscript, &[&approval[..], &["--yes"]].concat());
+    assert!(
+        installed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&installed.stderr)
+    );
+    let uninstalled = fixture.cli(&["uninstall", REDSCRIPT, "--yes"]);
+    assert!(
+        uninstalled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&uninstalled.stderr)
+    );
+
+    let covered = fixture.install(REDSCRIPT, &redscript, &["--dry-run"]);
+    let covered: Value = serde_json::from_slice(&covered.stdout).expect("preview JSON");
+    assert_eq!(covered["approval"]["required"], false, "{covered}");
+    assert_eq!(covered["approval"]["covered_by_stored_approval"], true);
+    let reinstalled = fixture.install(REDSCRIPT, &redscript, &["--yes"]);
+    assert!(
+        reinstalled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reinstalled.stderr)
+    );
+}
+
+#[test]
 fn manifests_cannot_declare_executables_outside_tool_directories() {
     for executables in [
         &["bin/x64/Cyberpunk2077.exe"][..],

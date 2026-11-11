@@ -57,7 +57,8 @@ A free Nexus account also passes the matching link with `--nxm` for each
 Nexus download. Modn matches each archive to a release by SHA-256 and refuses an archive that
 no release in the installation pins. When a `manual` archive is missing, Modn
 names it and writes nothing. One confirmation, or `--yes`, approves the whole stack. With `--yes`,
-each executable that a stack manifest declares also needs `--allow-executable`.
+each executable that a stack manifest declares also needs `--allow-executable`,
+unless a stored approval covers it.
 Modn installs the stack in dependency order under one transaction lock. The
 game policy plans each package after the packages before it are installed.
 Each package keeps its own ownership record, provenance and dependency links.
@@ -70,17 +71,33 @@ packages. A damaged dependency or another installed release is never replaced:
 the install fails until you restore or uninstall it, or replace it with
 `modn update`.
 
-## Tool executables
+## Native-injector and executable approval
 
-A catalog manifest may declare the tool executables its archive installs,
-for example redscript's `engine/tools/scc.exe`. A declaration only lets Modn
-name them; it never approves them. The interactive prompt lists each declared
-executable the archive installs that no `--allow-executable` flag already
-approved, and installs them only if you answer `y`. `--yes` never
-approves a declared executable: scripts pass `--allow-executable <path>` for
-each one, exactly as for standalone archives. An executable the manifest does
-not declare stays blocked unless `--allow-executable` names it.
-`--dry-run --json` reports `unapproved_declared_executables`.
+A catalog manifest sets `native_injector: true` when its archive places native
+code in the game process. It may also declare the tool executables its archive
+installs, for example redscript's `engine/tools/scc.exe`. A declaration only
+lets Modn name them; it never approves them. Modn asks once per mod and game
+installation. An install or update whose release capabilities the stored
+approval covers proceeds without a flag. Uninstall keeps the approval, so a
+reinstall of the same release needs no flag.
+
+Modn stores an approval only when the operation commits. A cancelled, refused,
+dry-run or rolled-back operation stores nothing. A release that drops a native
+injector or an executable does not shrink the approval.
+
+A release that adds a capability the stored approval does not cover is refused.
+A new native injector returns `NATIVE_INJECTOR_NOT_ALLOWED`; a new executable
+path returns `APPROVAL_REQUIRED`. The JSON error names the mod ID and the
+uncovered capabilities. Pass `--allow-native-injector`, or
+`--allow-executable <path>` for each new executable, to approve the release.
+The successful operation widens the stored approval. An interactive terminal
+can also confirm new executable paths. `--yes` never approves them by itself.
+
+`install --dry-run --json` reports `approval.required`,
+`approval.covered_by_stored_approval`, the stored approval and the uncovered
+capabilities. An executable the manifest does not declare stays blocked unless
+`--allow-executable` names it. Adoption and forced cleanup keep their own
+explicit confirmation.
 
 Each catalog install or update retains one bucket snapshot for release selection, dependency pins, conflicts and published versions. Bucket edits during a prompt do not change that command's selected evidence.
 

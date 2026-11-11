@@ -186,6 +186,10 @@ fn main() {
             }
         }
         if json || progress.enabled() {
+            if let Some(refusal) = error.downcast_ref::<modn_core::approval::ApprovalRefusal>() {
+                eprintln!("{}", refusal.as_json());
+                std::process::exit(1);
+            }
             if let Some(refusal) = error.downcast_ref::<NativeInjectorNotAllowed>() {
                 eprintln!("{}", refusal.as_json());
                 std::process::exit(1);

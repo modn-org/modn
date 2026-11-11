@@ -8,6 +8,8 @@
     clippy::missing_panics_doc
 )]
 pub mod acquisition;
+/// Durable per-mod approval of native-injector and executable capabilities.
+pub mod approval;
 pub mod archive;
 /// Deterministic content digest for bucket update reporting.
 pub mod bucket_digest;

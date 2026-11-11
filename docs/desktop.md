@@ -106,6 +106,12 @@ Evidence remains outside that root.
 
 This MVP manages local archives and pre-registered installations.
 Catalog browsing, downloads, updates, pins, recovery controls, and executable approval remain CLI operations.
+
+The CLI backend stores capability approvals per mod and game installation.
+A native-injector or executable release asks once, and again only when a new
+release adds native code or an executable that the stored approval does not
+cover. The desktop shows the backend refusal; this MVP adds no separate
+approval screen.
 It performs no automatic network requests.
 It does not deploy REDmod or certify game compatibility.
 The UI shows managed package IDs; it does not infer ownership from scanning.

@@ -1,3 +1,8 @@
+use anyhow::{Context, Result};
+use modn_core::approval::{ApprovalRefusal, Capabilities, Uncovered};
+use modn_core::state::Store;
+use modn_core::transactions::{CatalogReference, NativeInjectorPolicy};
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::Path;
 
@@ -152,6 +157,104 @@ fn read_yes(input: &mut impl BufRead, output: &mut impl Write) -> io::Result<boo
         answer.trim().to_ascii_lowercase().as_str(),
         "y" | "yes"
     ))
+}
+
+/// Approval state for one release: what it needs, what is stored, and what
+/// remains uncovered by the stored approval and explicit flags.
+pub(super) struct ApprovalCheck {
+    pub(super) reference: CatalogReference,
+    pub(super) needed: Capabilities,
+    pub(super) stored: Option<Capabilities>,
+    approved: Capabilities,
+    pub(super) uncovered: Uncovered,
+}
+
+impl ApprovalCheck {
+    pub(super) fn new(
+        reference: CatalogReference,
+        needed: Capabilities,
+        stored: Option<Capabilities>,
+        flags: &Capabilities,
+    ) -> Self {
+        let approved = stored
+            .as_ref()
+            .map_or_else(|| flags.clone(), |stored| stored.union(flags));
+        let uncovered = needed.uncovered_by(&approved);
+        Self {
+            reference,
+            needed,
+            stored,
+            approved,
+            uncovered,
+        }
+    }
+
+    pub(super) fn policy(&self) -> NativeInjectorPolicy {
+        if self.needed.native_injector && !self.uncovered.native_injector {
+            NativeInjectorPolicy::Allow
+        } else {
+            NativeInjectorPolicy::Refuse
+        }
+    }
+
+    pub(super) fn ensure_approved(&self) -> Result<()> {
+        if self.uncovered.is_empty() {
+            return Ok(());
+        }
+        Err(ApprovalRefusal::new(self.reference.clone(), self.uncovered.clone()).into_error())
+    }
+
+    pub(super) fn approved_executables(&self) -> Vec<String> {
+        self.needed
+            .covered(&self.approved)
+            .executables
+            .into_iter()
+            .collect()
+    }
+
+    pub(super) fn as_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "mod_id": self.reference.mod_id,
+            "required": !self.uncovered.is_empty(),
+            "covered_by_stored_approval": self.stored.as_ref().is_some_and(|stored| stored.covers(&self.needed)),
+            "stored": self.stored,
+            "uncovered": self.uncovered,
+        })
+    }
+}
+
+pub(super) fn stored_approval(
+    store: Option<&Store>,
+    game: &Path,
+    reference: &CatalogReference,
+) -> Result<Option<Capabilities>> {
+    match store {
+        Some(store) => store.approval(game, &reference.mod_id),
+        None => Ok(None),
+    }
+}
+
+pub(super) fn flags(allow_native_injector: bool, allow_executable: &[String]) -> Capabilities {
+    Capabilities::new(allow_native_injector, allow_executable)
+}
+
+pub(super) fn present_executables(declared: &[String], destinations: &[&str]) -> BTreeSet<String> {
+    declared
+        .iter()
+        .filter(|path| destinations.contains(&path.as_str()))
+        .cloned()
+        .collect()
+}
+
+pub(super) fn record(
+    store: &mut Store,
+    game: &Path,
+    reference: &CatalogReference,
+    needed: &Capabilities,
+) -> Result<()> {
+    store
+        .record_approval(game, &reference.mod_id, needed)
+        .with_context(|| format!("{reference} is installed, but its approval could not be stored"))
 }
 
 #[cfg(test)]

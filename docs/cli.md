@@ -291,22 +291,38 @@ same SQLite transaction as the ownership change. A cancelled, refused,
 dry-run or rolled-back operation writes none. See
 [operation history](history.md) for the JSON shape and storage tables.
 
-## Native injector approval
+## Native-injector and executable approval
 
-A package manifest sets `native_injector: true` when its release places a
-native library that the game process loads. `modn install` and `modn update`
-refuse such a plan, including a native-injector dependency, before any download
-or game write. The error names the package and the flag. Under `--json` it is
-`{"error":"NATIVE_INJECTOR_NOT_ALLOWED","package":"<reference>","flag":"--allow-native-injector"}`.
-`--dry-run` refuses with the same code. Pass the flag to allow the package:
+Modn stores one approval per mod and game installation. It records the release
+capabilities you approved: whether the release is a native injector, and the
+executable payload paths it declares. An install or update covered by that
+approval needs no flag. `modn uninstall` keeps the approval. A release that
+drops a capability does not shrink it.
+
+A release that adds a capability the stored approval does not cover is refused
+before a game write. A new native injector, including a native-injector
+dependency, returns `NATIVE_INJECTOR_NOT_ALLOWED`. A new executable path
+returns `APPROVAL_REQUIRED`. The JSON error names the mod ID and the uncovered
+capabilities, for example:
+
+```json
+{"error":"APPROVAL_REQUIRED","mod_id":"example","package":"main/cyberpunk-2077/example","uncovered":{"native_injector":false,"executables":["engine/tools/new.exe"]},"flags":["--allow-executable"]}
+```
+
+Pass the matching flag to approve the release:
 
 ```sh
 modn install main/cyberpunk-2077/example --allow-native-injector --yes
+modn install main/cyberpunk-2077/example --allow-executable engine/tools/new.exe --yes
 modn update example --allow-native-injector --yes
 ```
 
-An already-installed native dependency does not require the flag again.
-`modn uninstall` never needs it.
+A successful install or update widens the stored approval. A cancelled,
+refused, dry-run or rolled-back operation stores nothing. An interactive prompt
+can approve new executable paths. `install --dry-run --json` reports
+`approval.required`, `approval.covered_by_stored_approval`, the stored approval
+and the uncovered capabilities. There is no command to revoke an approval;
+`modn uninstall` does not remove it.
 
 ## Nexus Mods credentials and downloads
 
@@ -343,7 +359,7 @@ otherwise the command's default code is used. No command reports a generic
 |---|---|
 | `ALREADY_INSTALLED` | The update target already uses the selected archive. |
 | `AMBIGUOUS_TARGET` | A mod name matches several catalog mods. |
-| `APPROVAL_REQUIRED` | A write needs `--yes` or an interactive confirmation. |
+| `APPROVAL_REQUIRED` | A write needs `--yes` or an interactive confirmation, or a release adds an executable path the stored approval does not cover. |
 | `ARCHIVE_INVALID` | An archive cannot be read or changed during the operation. |
 | `ARCHIVE_REQUIRED` | A mod has no downloadable source and needs `--file`. |
 | `CANCELLED` | The operation was cancelled before its commit point. |
@@ -374,7 +390,7 @@ otherwise the command's default code is used. No command reports a generic
 | `LAUNCH_TARGET_UNSAFE` | A launch target is missing, is not a file, or resolves outside the game. |
 | `MOD_NOT_FOUND` | No catalog mod matches the target. |
 | `MODULE_LAUNCH_TARGET_INVALID` | A module declares an invalid launch target. |
-| `NATIVE_INJECTOR_NOT_ALLOWED` | A native-injector package needs `--allow-native-injector`. |
+| `NATIVE_INJECTOR_NOT_ALLOWED` | A native-injector package needs `--allow-native-injector`, or its stored approval does not cover native code. |
 | `PACKAGE_NEEDED` | Another installed package needs the selected package. |
 | `PACKAGE_NOT_FOUND` | No managed package matches the selector. |
 | `PACKAGE_PINNED` | The managed package is pinned. |

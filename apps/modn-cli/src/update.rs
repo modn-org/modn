@@ -10,6 +10,7 @@ use crate::state_access::{ManagerState, ProtectedTarget};
 use crate::update_report::{self, DependentCheck, FileChanges, Preview};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
+use modn_core::approval::{ApprovalRefusal, Capabilities, Uncovered};
 use modn_core::archive::inspect;
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::error::{coded, ErrorCode};
@@ -17,7 +18,7 @@ use modn_core::history::HistoryContext;
 use modn_core::planning::{
     preview_update_with_appdata, preview_update_with_permissions, InstallPlan, PlanStatus,
 };
-use modn_core::transactions::{ManagedPackage, NativeInjectorPolicy};
+use modn_core::transactions::ManagedPackage;
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -96,8 +97,8 @@ fn replaced_paths(old: &ManagedPackage) -> Vec<String> {
 
 struct Candidate {
     plan: InstallPlan,
-    approved: Vec<String>,
     pending: Vec<String>,
+    present: std::collections::BTreeSet<String>,
 }
 
 fn plan_update(
@@ -107,6 +108,7 @@ fn plan_update(
     target: &BucketPackage,
     replaced: &[String],
     explicit: &[String],
+    stored: Option<&Capabilities>,
 ) -> Result<Candidate> {
     let appdata = content_root_appdata(game_id)?;
     let preview = |approved: &[String]| -> Result<InstallPlan> {
@@ -125,19 +127,35 @@ fn plan_update(
         Ok(plan)
     };
     let declared = &target.package.executables;
-    let mut approved = explicit.to_vec();
-    approved.extend(declared.iter().filter(|p| !explicit.contains(p)).cloned());
+    let mut base_approved = explicit.to_vec();
+    if let Some(stored) = stored {
+        let additions: Vec<String> = stored
+            .executables
+            .iter()
+            .filter(|path| !base_approved.contains(path))
+            .cloned()
+            .collect();
+        base_approved.extend(additions);
+    }
+    let mut approved = base_approved.clone();
+    let additions: Vec<String> = declared
+        .iter()
+        .filter(|path| !approved.contains(path))
+        .cloned()
+        .collect();
+    approved.extend(additions);
     let plan = preview(&approved)?;
     let destinations: Vec<&str> = plan
         .operations
         .iter()
         .map(|operation| operation.destination.as_str())
         .collect();
-    let pending = install_consent::pending_executables(declared, explicit, &destinations);
+    let pending = install_consent::pending_executables(declared, &base_approved, &destinations);
+    let present = install_consent::present_executables(declared, &destinations);
     Ok(Candidate {
         plan,
-        approved,
         pending,
+        present,
     })
 }
 
@@ -182,12 +200,6 @@ pub(super) fn run(
         .collect();
     let target = choose_release(releases, args.version.as_deref(), &label)?;
     download::validate_links(&args.nxm_links, &[&target])?;
-    let policy = if args.allow_native_injector {
-        NativeInjectorPolicy::Allow
-    } else {
-        NativeInjectorPolicy::Refuse
-    };
-    policy.check(&reference, target.package.native_injector)?;
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
     let state = ManagerState::load_deferred(state_path)?;
     let store = state
@@ -203,6 +215,12 @@ pub(super) fn run(
         );
         return Ok(());
     }
+    let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
+    let stored = install_consent::stored_approval(Some(store), &game, &reference)?;
+    let native_covered = args.allow_native_injector
+        || stored
+            .as_ref()
+            .is_some_and(|approval| approval.native_injector);
     if interactive && !install_consent::can_prompt(json) {
         bail!("an update writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
     }
@@ -226,6 +244,11 @@ pub(super) fn run(
         &current.package.id,
     ));
     let up_to_date = target.package.sha256.as_deref() == Some(old.archive_sha256.as_str());
+    if target.package.native_injector && !native_covered && !up_to_date && !args.dry_run {
+        return Err(
+            ApprovalRefusal::new(reference.clone(), Uncovered::native_injector()).into_error(),
+        );
+    }
     let mut archives = BTreeMap::new();
     if let Some(file) = &args.file {
         archives.insert(label.clone(), supplied_archive(file, &target)?);
@@ -283,9 +306,17 @@ pub(super) fn run(
             &target,
             &replaced_paths(&old),
             &args.allow_executable,
+            stored.as_ref(),
         )?),
         _ => None,
     };
+    let check = candidate.as_ref().map(|candidate| {
+        let needed = Capabilities::new(
+            target.package.native_injector,
+            candidate.present.iter().cloned(),
+        );
+        install_consent::ApprovalCheck::new(reference.clone(), needed, stored.clone(), &flags)
+    });
     let preview = Preview {
         reference: &label,
         old: &old,
@@ -312,16 +343,13 @@ pub(super) fn run(
     let (Some(archive), Some(candidate)) = (archive.as_deref(), candidate.as_ref()) else {
         bail!("{label}: no archive for {}", target.package.version);
     };
-    let approved = if interactive {
-        candidate.approved.clone()
-    } else {
-        args.allow_executable.clone()
-    };
-    if !interactive && !candidate.pending.is_empty() {
-        bail!(
-            "{label}: its manifest declares {}. Confirm in a terminal without --yes, or pass --allow-executable for each path",
-            candidate.pending.join(", ")
-        );
+    let check = check.as_ref().context("update plan has approval state")?;
+    if !check.uncovered.is_empty() && (!interactive || check.uncovered.native_injector) {
+        return check.ensure_approved();
+    }
+    let mut approved = check.approved_executables();
+    if interactive {
+        approved.extend(check.uncovered.executables.iter().cloned());
     }
     if candidate.plan.status != PlanStatus::Reviewable {
         bail!("{label}: update blocked; inspect it with --dry-run first");
@@ -356,9 +384,10 @@ pub(super) fn run(
         archive,
         &candidate.plan,
         &release,
-        policy,
+        check.policy(),
         &approved,
     )?;
+    install_consent::record(&mut store, &game, &reference, &check.needed)?;
     if json {
         println!(
             "{}",
