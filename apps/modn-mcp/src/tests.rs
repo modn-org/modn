@@ -1,5 +1,6 @@
 use crate::config::{identifier, Config, Options};
-use crate::protocol::Session;
+use crate::progress::Reporter;
+use crate::protocol::{Action, Session};
 use crate::tools;
 use clap::Parser;
 use serde_json::{json, Value};
@@ -22,6 +23,13 @@ fn fixture() -> (TempDir, Config) {
     ]);
     let config = Config::new(options).expect("valid configuration");
     (temporary, config)
+}
+
+async fn reply(session: &mut Session, config: &Config, bytes: &[u8]) -> Value {
+    match session.handle(config, bytes).await {
+        Action::Reply(value) => value,
+        _ => panic!("expected a reply"),
+    }
 }
 
 #[test]
@@ -117,32 +125,133 @@ async fn protocol_ids_lifecycle_and_errors() {
             -32600,
         ),
     ] {
-        let response = session
-            .handle(&config, input)
-            .await
-            .expect("error response");
+        let response = reply(&mut session, &config, input).await;
         assert_eq!(response["error"]["code"], code);
         assert_eq!(response["id"], Value::Null);
     }
-    let ping = session
-        .handle(&config, br#"{"jsonrpc":"2.0","id":"same","method":"ping"}"#)
-        .await
-        .expect("ping response");
+    let ping = reply(
+        &mut session,
+        &config,
+        br#"{"jsonrpc":"2.0","id":"same","method":"ping"}"#,
+    )
+    .await;
     assert_eq!(ping["id"], "same");
     assert_eq!(ping["result"], json!({}));
-    assert!(session
-        .handle(
-            &config,
-            br#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"install_archive"}}"#
-        )
-        .await
-        .is_none());
-    let early = session
-        .handle(
-            &config,
-            br#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
-        )
-        .await
-        .expect("early error");
+    assert!(matches!(
+        session
+            .handle(
+                &config,
+                br#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"install_archive"}}"#
+            )
+            .await,
+        Action::Silent
+    ));
+    let early = reply(
+        &mut session,
+        &config,
+        br#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+    )
+    .await;
     assert_eq!(early["error"]["code"], -32600);
+}
+
+fn events(reporter: &mut Reporter, lines: &[&str]) -> Vec<Value> {
+    lines
+        .iter()
+        .filter_map(|line| reporter.event(line))
+        .collect()
+}
+
+#[test]
+fn progress_notifications_follow_each_phase() {
+    let mut reporter = Reporter::new(Some(json!("token")));
+    let notifications = events(
+        &mut reporter,
+        &[
+            r#"{"phase":"resolve"}"#,
+            r#"{"phase":"download","package":"main/game/mod","bytes":0,"total":4096}"#,
+            r#"{"phase":"download","package":"main/game/mod","bytes":4096,"total":4096}"#,
+            r#"{"phase":"extract","package":"main/game/mod"}"#,
+            r#"{"phase":"stage","package":"main/game/mod"}"#,
+            r#"{"phase":"commit","package":"main/game/mod"}"#,
+            r#"{"phase":"result","outcome":"succeeded"}"#,
+        ],
+    );
+    assert_eq!(notifications.len(), 7);
+    assert_eq!(notifications[0]["params"]["message"], json!("resolving"));
+    assert_eq!(notifications[1]["params"]["total"], json!(4096));
+    assert_eq!(
+        notifications[1]["params"]["message"],
+        json!("downloading main/game/mod")
+    );
+    assert_eq!(
+        notifications[3]["params"]["message"],
+        json!("extracting main/game/mod")
+    );
+    assert_eq!(
+        notifications[5]["params"]["message"],
+        json!("committing main/game/mod")
+    );
+    assert_eq!(notifications[6]["params"]["message"], json!("succeeded"));
+    let mut last = 0;
+    for notification in &notifications {
+        assert_eq!(notification["params"]["progressToken"], json!("token"));
+        let progress = notification["params"]["progress"]
+            .as_u64()
+            .expect("progress");
+        assert!(progress > last, "progress must increase");
+        last = progress;
+    }
+    assert!(reporter.is_committed());
+    assert!(!reporter.is_cancelled());
+}
+
+#[test]
+fn no_token_reports_nothing_but_tracks_the_commit_point() {
+    let mut reporter = Reporter::new(None);
+    assert!(events(
+        &mut reporter,
+        &[
+            r#"{"phase":"resolve"}"#,
+            r#"{"phase":"commit","package":null}"#,
+            r#"{"phase":"result","outcome":"failed"}"#,
+        ],
+    )
+    .is_empty());
+    assert!(reporter.is_committed());
+    assert!(!reporter.is_cancelled());
+}
+
+#[test]
+fn cancellation_before_the_commit_point_stops_the_call() {
+    let completion = crate::backend::Completion {
+        result: Err(anyhow::anyhow!("backend failed with exit 1")),
+        committed: false,
+        cancelled: true,
+    };
+    assert!(matches!(tools::reply(completion), tools::Reply::Cancelled));
+}
+
+#[test]
+fn cancellation_after_the_commit_point_completes_the_call() {
+    let mut reporter = Reporter::new(None);
+    reporter.event(r#"{"phase":"commit","package":"main/game/mod"}"#);
+    assert!(reporter.is_committed());
+    let completion = crate::backend::Completion {
+        result: Ok(json!({"installed":true})),
+        committed: true,
+        cancelled: false,
+    };
+    match tools::reply(completion) {
+        tools::Reply::Response(response) => assert_eq!(response["isError"], false),
+        tools::Reply::Cancelled => panic!("a committed call must respond"),
+    }
+}
+
+#[test]
+fn malformed_progress_lines_are_ignored() {
+    let mut reporter = Reporter::new(Some(json!(7)));
+    assert!(reporter.event("not JSON").is_none());
+    assert!(reporter.event(r#"{"phase":"unknown"}"#).is_none());
+    assert!(!reporter.is_committed());
 }
