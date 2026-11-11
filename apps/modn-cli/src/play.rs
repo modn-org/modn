@@ -1,7 +1,8 @@
 use crate::selection::selected_installation;
 use crate::state_access::ManagerState;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use modn_core::detection::detect_installations;
+use modn_core::error::{coded, ErrorCode};
 use modn_core::launch::{execute_launch, plan_launch, system_launch, LaunchTarget};
 use modn_core::stores::StoreLibraries;
 use std::path::{Path, PathBuf};
@@ -14,13 +15,24 @@ pub(super) fn run(
     json: bool,
 ) -> Result<()> {
     if requested.is_some_and(|id| id != game) {
-        bail!("LAUNCH_GAME_MISMATCH: --game must match the play game ID");
+        return Err(coded(
+            ErrorCode::LaunchGameMismatch,
+            "LAUNCH_GAME_MISMATCH: --game must match the play game ID",
+        ));
     }
     let state = ManagerState::load_deferred(state_path)?;
     let (game_id, installation) = selected_installation(state.existing(), path, Some(game))
-        .map_err(|error| anyhow::anyhow!("LAUNCH_INSTALLATION_INVALID: {error:#}"))?;
+        .map_err(|error| {
+            coded(
+                ErrorCode::LaunchInstallationInvalid,
+                format!("LAUNCH_INSTALLATION_INVALID: {error:#}"),
+            )
+        })?;
     if game_id != game {
-        bail!("LAUNCH_GAME_MISMATCH: selected installation is registered as {game_id}, not {game}");
+        return Err(coded(
+            ErrorCode::LaunchGameMismatch,
+            format!("LAUNCH_GAME_MISMATCH: selected installation is registered as {game_id}, not {game}"),
+        ));
     }
     let registered = state
         .existing()
@@ -30,9 +42,12 @@ pub(super) fn run(
         .into_iter()
         .any(|entry| entry.game_id == game && entry.path == installation);
     if !registered {
-        bail!(
-            "LAUNCH_INSTALLATION_UNREGISTERED: register it with `modn game add {game} --path <installation>`"
-        );
+        return Err(coded(
+            ErrorCode::LaunchInstallationUnregistered,
+            format!(
+                "LAUNCH_INSTALLATION_UNREGISTERED: register it with `modn game add {game} --path <installation>`"
+            ),
+        ));
     }
     let detection = detect_installations(&StoreLibraries::system(), &[game.to_owned()]);
     let plan = plan_launch(state.existing(), game, &installation, &detection.confirmed)?;
