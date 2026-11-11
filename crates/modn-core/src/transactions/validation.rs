@@ -25,7 +25,7 @@ pub(crate) fn validate_transaction_root(game: &Path) -> Result<PathBuf> {
 impl Store {
     /// Canonicalize `game` and resolve its game root through the recorded
     /// root identity, failing closed when that root moved or became a link.
-    pub(super) fn transaction_root(&self, game: &Path) -> Result<PathBuf> {
+    pub(crate) fn transaction_root(&self, game: &Path) -> Result<PathBuf> {
         let installation = validate_transaction_root(game)?;
         if installation != game && is_recorded(&self.connection, game)? {
             resolve_root(&self.connection, game, RootKind::Game)?;

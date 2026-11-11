@@ -135,7 +135,6 @@ impl Store {
         let journal_id = self.withdraw_locked(&game, package_id, Dependents::Repoint)?;
         let catalog = CatalogInstall {
             release,
-            stack_id: None,
             replacing: Some(Replacement {
                 package_id,
                 journal_id: &journal_id,
@@ -149,6 +148,7 @@ impl Store {
             approved,
             Some(catalog),
             policy,
+            None,
         ) {
             Ok(package) => {
                 self.prune_created(&Roots {

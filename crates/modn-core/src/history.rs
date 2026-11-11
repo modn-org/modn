@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 mod persist;
 pub(crate) use persist::{
     insert, install_operation, metadata_for, package_metadata, package_snapshot, read,
-    record_metadata, stack_operation, uninstall_operation,
+    record_metadata, stack_operation, uninstall_operation, uninstall_operation_many,
 };
 
 /// What a committed operation did.
@@ -94,6 +94,8 @@ pub struct HistoryContext {
     pub sources: BTreeMap<String, PackageSource>,
     /// Source used by a package without a catalog reference.
     pub standalone: Option<StandalonePackage>,
+    /// Operation that this write undoes.
+    pub undoes: Option<String>,
 }
 
 impl HistoryContext {
@@ -105,7 +107,15 @@ impl HistoryContext {
             installation: installation.into(),
             sources: BTreeMap::new(),
             standalone: None,
+            undoes: None,
         }
+    }
+
+    /// Record that the next write undoes `operation_id`.
+    #[must_use]
+    pub fn with_undo_of(mut self, operation_id: impl Into<String>) -> Self {
+        self.undoes = Some(operation_id.into());
+        self
     }
 
     /// Record `source` for the catalog reference of `reference`.
@@ -195,6 +205,9 @@ pub struct HistoryOperation {
     pub recorded_at: String,
     /// Packages the operation changed.
     pub packages: Vec<HistoryPackage>,
+    /// Operation this record undoes, when the command was `modn undo`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undoes: Option<String>,
 }
 
 /// Release metadata persisted for a managed package.

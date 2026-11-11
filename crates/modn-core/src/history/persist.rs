@@ -199,6 +199,7 @@ pub(crate) fn install_operation(
             }),
             files: merged.into_values().collect(),
         }],
+        undoes: context.undoes.clone(),
     }
 }
 
@@ -208,13 +209,23 @@ pub(crate) fn uninstall_operation(
     operation_id: &str,
     package: HistoryPackage,
 ) -> HistoryOperation {
+    uninstall_operation_many(context, operation_id, vec![package])
+}
+
+/// Build the record of a committed uninstall that removed several packages.
+pub(crate) fn uninstall_operation_many(
+    context: &HistoryContext,
+    operation_id: &str,
+    packages: Vec<HistoryPackage>,
+) -> HistoryOperation {
     HistoryOperation {
         id: operation_id.to_owned(),
         kind: HistoryKind::Uninstall,
         game_id: context.game_id.clone(),
         installation: context.installation.clone(),
         recorded_at: String::new(),
-        packages: vec![package],
+        packages,
+        undoes: context.undoes.clone(),
     }
 }
 
@@ -260,6 +271,7 @@ pub(crate) fn stack_operation(
         installation: context.installation.clone(),
         recorded_at: String::new(),
         packages,
+        undoes: context.undoes.clone(),
     }
 }
 
@@ -267,14 +279,15 @@ pub(crate) fn stack_operation(
 pub(crate) fn insert(tx: &Transaction<'_>, operation: &HistoryOperation) -> Result<()> {
     let recorded_at = (!operation.recorded_at.is_empty()).then_some(operation.recorded_at.as_str());
     tx.execute(
-        "INSERT INTO history_operations(id, kind, game_id, installation, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, COALESCE(?5, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
+        "INSERT INTO history_operations(id, kind, game_id, installation, recorded_at, undoes)
+         VALUES (?1, ?2, ?3, ?4, COALESCE(?5, strftime('%Y-%m-%dT%H:%M:%fZ','now')), ?6)",
         params![
             operation.id,
             operation.kind.as_str(),
             operation.game_id,
             operation.installation.to_string_lossy(),
-            recorded_at
+            recorded_at,
+            operation.undoes
         ],
     )?;
     for (ordinal, package) in operation.packages.iter().enumerate() {
@@ -332,12 +345,17 @@ pub(crate) fn read(
     if !has_table(connection, "history_operations")? {
         return Ok(Vec::new());
     }
-    let mut statement = connection.prepare(
-        "SELECT id, kind, game_id, installation, recorded_at
+    let undoes = if has_column(connection, "history_operations", "undoes")? {
+        "undoes"
+    } else {
+        "NULL"
+    };
+    let mut statement = connection.prepare(&format!(
+        "SELECT id, kind, game_id, installation, recorded_at, {undoes}
          FROM history_operations
          WHERE ?1 IS NULL OR game_id=?1
-         ORDER BY seq DESC",
-    )?;
+         ORDER BY seq DESC"
+    ))?;
     let rows = statement
         .query_map([game_id], |row| {
             Ok((
@@ -346,11 +364,12 @@ pub(crate) fn read(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     rows.into_iter()
-        .map(|(id, kind, game_id, installation, recorded_at)| {
+        .map(|(id, kind, game_id, installation, recorded_at, undoes)| {
             let kind = HistoryKind::from_label(&kind)
                 .with_context(|| format!("unknown history kind {kind}"))?;
             let mut package_statement = connection.prepare(
@@ -411,6 +430,7 @@ pub(crate) fn read(
                 installation: std::path::PathBuf::from(installation),
                 recorded_at,
                 packages: package_rows,
+                undoes,
             })
         })
         .collect()
@@ -420,6 +440,14 @@ fn has_table(connection: &Connection, name: &str) -> Result<bool> {
     Ok(connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
         [name],
+        |row| row.get(0),
+    )?)
+}
+
+fn has_column(connection: &Connection, table: &str, name: &str) -> Result<bool> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",
+        params![table, name],
         |row| row.get(0),
     )?)
 }

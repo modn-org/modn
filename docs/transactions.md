@@ -46,7 +46,10 @@ and after. A failed history insert fails the transaction, so ownership and
 history share one outcome. An installation stack commits each member's
 ownership first and writes its single record in the transaction that removes
 the stack marker; recovery rolls back an unfinished stack and writes no
-record. See [operation history](history.md).
+record. An undo uses the same paths: a removed install or a restored release
+writes its own record with the target's ID in `undoes`, and a failed
+multi-package undo rolls back or writes nothing. See
+[operation history](history.md).
 
 ## Directories Modn creates
 

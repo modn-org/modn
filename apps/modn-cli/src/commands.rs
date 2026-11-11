@@ -63,6 +63,8 @@ pub(super) enum Command {
     Uninstall(UninstallArgs),
     /// List committed install, update and uninstall operations, newest first.
     History,
+    /// Undo one committed operation, or the newest one.
+    Undo(UndoArgs),
     /// Safely roll back interrupted installs/uninstalls.
     Recover {
         #[arg(long, help = "Confirm rollback of interrupted transactions")]
@@ -281,6 +283,33 @@ pub(super) struct InstallArgs {
     pub(super) allow_native_injector: bool,
     #[arg(skip)]
     pub(super) nxm_links: Vec<NxmLink>,
+}
+
+/// Options for reversing one committed operation.
+#[derive(Args)]
+pub(super) struct UndoArgs {
+    /// Operation ID from `modn history`; omit it to undo the newest operation.
+    pub(super) id: Option<String>,
+    #[arg(long)]
+    pub(super) path: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Confirm changing game files back",
+        conflicts_with = "dry_run"
+    )]
+    pub(super) yes: bool,
+    #[arg(
+        long,
+        help = "Show the inverse operation and its packages without writing",
+        conflicts_with = "yes"
+    )]
+    pub(super) dry_run: bool,
+    /// Independently authorize one exact game-relative tool executable in a restored archive.
+    #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
+    pub(super) allow_executable: Vec<String>,
+    /// Restore a package whose manifest marks it as a native injector.
+    #[arg(long)]
+    pub(super) allow_native_injector: bool,
 }
 
 /// Options for refreshing every catalog or replacing an installed catalog mod.

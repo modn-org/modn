@@ -9,6 +9,15 @@ use std::fs;
 use std::path::Path;
 use tempfile::Builder;
 
+/// Whether a withdrawal must start from an idle manager.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PendingPolicy {
+    /// Refuse when any transaction is unfinished.
+    RequireIdle,
+    /// Trust the caller's earlier idle check, as in one multi-package undo.
+    Allowed,
+}
+
 impl Store {
     /// Uninstall only unchanged manager-owned files, keeping reversible hard-link backups until commit.
     pub fn uninstall(&mut self, game: &Path, package_id: &str) -> Result<()> {
@@ -22,7 +31,7 @@ impl Store {
     ///
     /// The event names the package's catalog reference, or its ID when it
     /// has none.
-    pub(super) fn begin_removal(&self, game: &Path, package_id: &str) -> Result<()> {
+    pub(crate) fn begin_removal(&self, game: &Path, package_id: &str) -> Result<()> {
         let catalog = self
             .installed(game)
             .ok()
@@ -58,8 +67,15 @@ impl Store {
             None
         };
         let roots = Roots { game, content };
-        let id =
-            self.withdraw_with_mode_locked(&roots, package_id, Dependents::Refuse, mode, fault)?;
+        let id = self.withdraw_with_mode_locked(
+            &roots,
+            package_id,
+            Dependents::Refuse,
+            mode,
+            fault,
+            &std::collections::BTreeSet::new(),
+            PendingPolicy::RequireIdle,
+        )?;
         if let Err(err) = self.commit_uninstall(&id, package_id) {
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
@@ -93,9 +109,54 @@ impl Store {
             None
         };
         let roots = Roots { game, content };
-        self.withdraw_with_mode_locked(&roots, package_id, dependents, RemovalMode::Strict, None)
+        self.withdraw_with_mode_locked(
+            &roots,
+            package_id,
+            dependents,
+            RemovalMode::Strict,
+            None,
+            &std::collections::BTreeSet::new(),
+            PendingPolicy::RequireIdle,
+        )
     }
 
+    /// Withdraw one member of a multi-package undo.
+    ///
+    /// Dependents inside `allowed` do not block the removal; a dependent
+    /// outside it still does.
+    pub(crate) fn withdraw_member_locked(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        allowed: &std::collections::BTreeSet<String>,
+    ) -> Result<String> {
+        let game = self.transaction_root(game)?;
+        let content = if self
+            .installed(&game)?
+            .iter()
+            .find(|package| package.id == package_id)
+            .is_some_and(|package| package.files.iter().any(|file| file.root == "content"))
+        {
+            Some(resolve_root(&self.connection, &game, RootKind::Content)?)
+        } else {
+            None
+        };
+        let roots = Roots { game, content };
+        self.withdraw_with_mode_locked(
+            &roots,
+            package_id,
+            Dependents::Refuse,
+            RemovalMode::Strict,
+            None,
+            allowed,
+            PendingPolicy::Allowed,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the withdrawal keeps roots, dependent policy, mode and pending policy explicit"
+    )]
     fn withdraw_with_mode_locked(
         &mut self,
         roots: &Roots,
@@ -103,15 +164,23 @@ impl Store {
         dependents: Dependents,
         mode: RemovalMode,
         fault: Option<Fault>,
+        allowed: &std::collections::BTreeSet<String>,
+        pending: PendingPolicy,
     ) -> Result<String> {
-        self.ensure_no_pending()?;
+        if matches!(pending, PendingPolicy::RequireIdle) {
+            self.ensure_no_pending()?;
+        }
         let package = self
             .installed(&roots.game)?
             .into_iter()
             .find(|p| p.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
         let needed_by = super::catalog::dependents(self, &package.id)?;
-        if matches!(dependents, Dependents::Refuse) && !needed_by.is_empty() {
+        if matches!(dependents, Dependents::Refuse)
+            && needed_by
+                .iter()
+                .any(|label| !allowed.contains(label.split(' ').next().unwrap_or(label)))
+        {
             bail!(
                 "managed package {package_id} is required by {}; uninstall dependents first",
                 needed_by.join(", ")

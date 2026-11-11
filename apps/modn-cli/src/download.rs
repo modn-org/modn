@@ -137,6 +137,58 @@ pub(super) fn digest<'a>(
         .or(release.package.sha256.as_deref())
 }
 
+/// Acquire the archive of one recorded release source for undo.
+///
+/// A verified cache entry needs no network. A `manual` source is refused
+/// before this call; `git` and `nexus` need the original invocation.
+pub(super) fn acquire_source(
+    cache: &ArchiveCache,
+    game_id: &str,
+    mod_id: &str,
+    version: &str,
+    source: &PackageSource,
+    sha256: &str,
+    progress: &Progress,
+) -> Result<PathBuf> {
+    let url = match source {
+        PackageSource::Https { url } => url.clone(),
+        PackageSource::GithubRelease {
+            repository,
+            tag,
+            asset,
+        } => {
+            let url = format!("https://github.com/{repository}/releases/download/{tag}/{asset}");
+            let provider = GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
+            if provider.resolve(fetch_metadata)? != url {
+                bail!("provider source changed during resolution");
+            }
+            url
+        }
+        PackageSource::Nexus { .. } | PackageSource::Git { .. } => {
+            return Err(modn_core::error::coded(
+                modn_core::error::ErrorCode::UndoFailed,
+                "this release source cannot be fetched by undo; install it again from the catalog",
+            ));
+        }
+        PackageSource::Manual { .. } => {
+            return Err(modn_core::error::coded(
+                modn_core::error::ErrorCode::UndoSourceManual,
+                "a manual source cannot be fetched again",
+            ));
+        }
+        _ => bail!("unknown release source"),
+    };
+    let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+    let acquired = cache.acquire_with_control(
+        &key,
+        CacheUse::Reuse,
+        Some(format!("{game_id}/{mod_id}")),
+        progress.control(),
+        fetch_measured,
+    )?;
+    Ok(acquired.path)
+}
+
 pub(super) fn add_cached<'a>(
     cache: &ArchiveCache,
     releases: impl IntoIterator<Item = &'a BucketPackage>,

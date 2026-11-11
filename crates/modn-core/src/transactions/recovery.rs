@@ -249,7 +249,7 @@ impl Store {
         Ok(recovered)
     }
 
-    pub(super) fn recover_locked(&mut self) -> Result<usize> {
+    pub(crate) fn recover_locked(&mut self) -> Result<usize> {
         let pending = self.pending()?;
         for entry in &pending {
             self.recover_one(entry)?;

@@ -231,7 +231,6 @@ fn crash_before_the_commit_point_writes_no_history_after_recovery() {
     let release = CatalogRelease::new(reference("mod"), Vec::new());
     let result = super::catalog::CatalogInstall {
         release: &release,
-        stack_id: None,
         replacing: None,
     };
     assert!(fixture
@@ -244,6 +243,7 @@ fn crash_before_the_commit_point_writes_no_history_after_recovery() {
             &[],
             Some(result),
             NativeInjectorPolicy::Refuse,
+            None,
         )
         .is_err());
     fixture.store.recover().expect("recover");

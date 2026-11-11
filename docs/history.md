@@ -31,6 +31,7 @@ snapshot or catalog revision that produced it.
     "game_id": "cyberpunk-2077",
     "installation": "C:\\Games\\Cyberpunk 2077",
     "recorded_at": "2026-11-09T14:27:35.120Z",
+    "undoes": "txn-0f1e2d",
     "packages": [
       {
         "mod_id": "red4ext",
@@ -59,7 +60,8 @@ snapshot or catalog revision that produced it.
 
 `digest_before` is absent for a created file. `digest_after` is absent for a
 removed file. An install has `release_after` only; an uninstall has
-`release_before` only.
+`release_before` only. A record written by `modn undo` also has an `undoes`
+field that names the operation it reversed. Other records omit the field.
 
 ## Commands
 
@@ -75,13 +77,39 @@ output is one array of operations, newest first. `--game` keeps one game ID.
 `--state-dir` selects the manager profile that holds `state.sqlite`, including
 its history. Reading history never creates a database.
 
+## Undo
+
+`modn undo [<operation-id>] --yes` reverses one committed operation. Without an
+ID it selects the newest operation for the selected game. The inverse follows
+the recorded kind: an install is removed, an update restores the earlier
+release, and an uninstall restores the recorded release. An undo writes a
+normal record for the change it makes and sets `undoes` to the target's ID.
+It never edits or deletes the target record.
+
+The undo refuses before any change in these cases:
+
+- A later operation on the same installation touched one of the target's
+  packages or files. The error names that newer operation; undo it first. A
+  second undo of the same target is refused for the same reason.
+- The target release has a `manual` source, so Modn has no URL to fetch again.
+  Install the archive with `modn install --file` instead.
+- A restored archive does not match the recorded SHA-256, or the current game
+  policy maps the release to other files than the record.
+- A package is pinned, another installed package needs it, an unfinished
+  transaction exists, or ownership conflicts block the change.
+
+An update undo also needs the installed package's catalog identity. History
+records before release metadata was stored cannot restore an install or an
+update; install the release again. A multi-package undo uses one stack or one
+multi-package removal, so it commits every package or none.
+
 ## Storage and consistency
 
 History lives in `state.sqlite`:
 
 | Table | Contents |
 |---|---|
-| `history_operations` | ID, kind, game ID, installation root and UTC time; an autoincrement sequence orders records. |
+| `history_operations` | ID, kind, game ID, installation root, UTC time and the optional `undoes` target; an autoincrement sequence orders records. |
 | `history_packages` | One row per package with before/after package IDs and serialized release descriptors. |
 | `history_files` | One row per owned file with before/after SHA-256 digests. |
 | `managed_package_releases` | Release version, source descriptor and archive BLAKE3 for each installed package, so a later update or uninstall can record the side it removes. |
@@ -109,7 +137,3 @@ and an automatic or explicit rollback therefore write no record. If history
 cannot be written, the ownership transaction fails and rolls back with it. A
 crash during the SQLite commit leaves either all of the record and ownership
 or neither. History therefore never disagrees with ownership.
-
-Undo is not implemented yet. A later task will use these records to restore a
-release and its files, and will compare each current file digest with the
-recorded `digest_after` to name a later operation that changed the same file.

@@ -159,14 +159,12 @@ pub struct CatalogRelease {
 #[derive(Clone, Copy)]
 pub(super) struct CatalogInstall<'a> {
     pub(super) release: &'a CatalogRelease,
-    pub(super) stack_id: Option<&'a str>,
     pub(super) replacing: Option<super::update::Replacement<'a>>,
 }
 
 pub(super) struct CatalogRecord<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) dependency_ids: Vec<String>,
-    pub(super) stack_id: Option<&'a str>,
     pub(super) replacing: Option<super::update::Replacement<'a>>,
 }
 
@@ -357,13 +355,6 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
                 dependency.archive_sha256,
                 dependency.requirement
             ],
-        )?;
-    }
-    if let Some(stack_id) = record.stack_id {
-        tx.execute(
-            "INSERT INTO pending_stack_packages(stack_id,ord,package_id)
-             SELECT ?1, COUNT(*), ?2 FROM pending_stack_packages WHERE stack_id=?1",
-            params![stack_id, package_id],
         )?;
     }
     super::conflicts::record(tx, package_id, record.release)?;

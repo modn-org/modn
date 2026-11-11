@@ -129,6 +129,14 @@ pub enum ErrorCode {
     SearchFailed,
     /// Default code of `modn uninstall`.
     UninstallFailed,
+    /// Default code of `modn undo`.
+    UndoFailed,
+    /// The history ID to undo does not exist.
+    UndoNotFound,
+    /// A later operation changed the same files or package.
+    UndoConflict,
+    /// The recorded release has a `manual` source and cannot be fetched again.
+    UndoSourceManual,
     /// Default code of `modn update`.
     UpdateFailed,
 }
@@ -193,6 +201,10 @@ impl ErrorCode {
         Self::ScanFailed,
         Self::SearchFailed,
         Self::UninstallFailed,
+        Self::UndoFailed,
+        Self::UndoNotFound,
+        Self::UndoConflict,
+        Self::UndoSourceManual,
         Self::UpdateFailed,
     ];
 
@@ -257,6 +269,10 @@ impl ErrorCode {
             Self::ScanFailed => "SCAN_FAILED",
             Self::SearchFailed => "SEARCH_FAILED",
             Self::UninstallFailed => "UNINSTALL_FAILED",
+            Self::UndoFailed => "UNDO_FAILED",
+            Self::UndoNotFound => "UNDO_NOT_FOUND",
+            Self::UndoConflict => "UNDO_CONFLICT",
+            Self::UndoSourceManual => "UNDO_SOURCE_MANUAL",
             Self::UpdateFailed => "UPDATE_FAILED",
         }
     }
