@@ -268,18 +268,24 @@ fn undo_refuses_a_policy_that_moves_a_recorded_file_to_another_root() {
         "content",
         true,
     );
-    let before = history(&fixture);
-    let refused = run_env(
+    let environment = [
+        ("APPDATA", appdata.as_os_str()),
+        ("MODN_APPDATA", appdata.as_os_str()),
+    ];
+    // The dry run uses the same plan-and-record comparison as the real undo,
+    // so it proves the refusal happens before any transaction starts.
+    let preview = run_env(
         &fixture,
-        &["--json", "undo", &target, "--yes"],
-        &[
-            ("APPDATA", appdata.as_os_str()),
-            ("MODN_APPDATA", appdata.as_os_str()),
-        ],
+        &["--json", "undo", &target, "--dry-run"],
+        &environment,
     );
+    assert!(!preview.status.success(), "{}", error(&preview));
+    assert_eq!(error_code(&preview), "UNDO_FAILED");
+    assert!(error(&preview).contains("record"), "{}", error(&preview));
+    let before = history(&fixture);
+    let refused = run_env(&fixture, &["--json", "undo", &target, "--yes"], &environment);
     assert!(!refused.status.success(), "{}", error(&refused));
     assert_eq!(error_code(&refused), "UNDO_FAILED");
-    assert!(error(&refused).contains("record"), "{}", error(&refused));
     assert!(!addon.exists());
     assert!(!appdata
         .join("Fixture/Mods/addons/example.plugin")
