@@ -30,18 +30,26 @@ pub fn error(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
 
-/// Whether `bytes` cancels the active request `id`.
-pub fn cancels(bytes: &[u8], id: &Value) -> bool {
-    let Ok(request) = serde_json::from_slice::<Value>(bytes) else {
-        return false;
-    };
-    request["jsonrpc"] == "2.0"
-        && request["method"] == "notifications/cancelled"
-        && request.get("id").is_none()
-        && request
-            .get("params")
-            .and_then(|params| params.get("requestId"))
-            == Some(id)
+/// Returns the request ID that a cancellation notification targets.
+///
+/// A cancellation carries no top-level `id`; its target is
+/// `params.requestId`. Returns `None` for any other message.
+pub fn cancelled_id(bytes: &[u8]) -> Option<Value> {
+    let request: Value = serde_json::from_slice(bytes).ok()?;
+    if request["jsonrpc"] != "2.0"
+        || request["method"] != "notifications/cancelled"
+        || request.get("id").is_some()
+    {
+        return None;
+    }
+    request.get("params")?.get("requestId").cloned()
+}
+
+/// Returns the string or integer ID of a JSON-RPC request, when it has one.
+pub fn request_id(bytes: &[u8]) -> Option<Value> {
+    let request: Value = serde_json::from_slice(bytes).ok()?;
+    let id = request.get("id")?;
+    (id.is_string() || id.as_i64().is_some() || id.as_u64().is_some()).then(|| id.clone())
 }
 
 impl Session {

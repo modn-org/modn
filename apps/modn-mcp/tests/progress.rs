@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn fixture_backend() -> PathBuf {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -40,9 +40,13 @@ struct Server {
 
 impl Server {
     fn start(root: &Path) -> Self {
+        Self::start_mode(root, "progress", 5)
+    }
+
+    fn start_mode(root: &Path, mode: &str, timeout_seconds: u64) -> Self {
         let state = root.join("modn");
         std::fs::create_dir(&state).expect("state");
-        std::fs::write(state.join("mode"), "progress").expect("mode");
+        std::fs::write(state.join("mode"), mode).expect("mode");
         let mut child = Command::new(env!("CARGO_BIN_EXE_modn-mcp"))
             .arg("--backend")
             .arg(fixture_backend())
@@ -52,7 +56,7 @@ impl Server {
             .arg(root)
             .arg("--allow-writes")
             .arg("--timeout-seconds")
-            .arg("5")
+            .arg(timeout_seconds.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -100,12 +104,16 @@ impl Server {
         self.send(json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
     }
 
-    fn call(&mut self, id: Value, token: Option<Value>) -> (Value, Vec<Value>) {
-        let mut params = json!({"name":"registered_games","arguments":{}});
+    fn send_tool(&mut self, id: Value, name: &str, arguments: Value, token: Option<Value>) {
+        let mut params = json!({"name":name,"arguments":arguments});
         if let Some(token) = token {
             params["_meta"] = json!({"progressToken": token});
         }
         self.send(json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":params}));
+    }
+
+    fn call(&mut self, id: Value, token: Option<Value>) -> (Value, Vec<Value>) {
+        self.send_tool(id, "registered_games", json!({}), token);
         let mut notifications = Vec::new();
         loop {
             let message = self.next();
@@ -235,4 +243,161 @@ fn a_call_without_a_token_is_unchanged() {
     assert!(notifications.is_empty());
     assert_eq!(response["id"], json!(30), "{response}");
     assert_eq!(response["result"]["isError"], false);
+}
+
+#[test]
+fn a_full_queue_still_reads_cancellation_for_the_active_call() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let mut server = Server::start_mode(temporary.path(), "queued", 5);
+    server.initialize();
+    server.send_tool(
+        json!("active"),
+        "registered_games",
+        json!({}),
+        Some(json!("active-token")),
+    );
+    let first = server.next();
+    assert_eq!(first["method"], "notifications/progress", "{first}");
+    for id in [100, 101, 102, 103] {
+        server.send(json!({"jsonrpc":"2.0","id":id,"method":"ping"}));
+    }
+    server.send(
+        json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"active"}}),
+    );
+    let mut answered = 0;
+    let mut active_answered = false;
+    while answered < 4 {
+        let message = server.next();
+        if message.get("method").is_some() {
+            continue;
+        }
+        match message["id"].as_i64() {
+            Some(id) if (100..=103).contains(&id) => answered += 1,
+            _ => active_answered = true,
+        }
+    }
+    assert!(!active_answered, "a cancelled call must not respond");
+    assert!(
+        !temporary.path().join("modn").join("commit").exists(),
+        "the CLI must stop before its commit point"
+    );
+}
+
+#[test]
+fn a_cancelled_queued_request_never_runs_or_responds() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let mut server = Server::start_mode(temporary.path(), "queued", 5);
+    server.initialize();
+    server.send_tool(
+        json!("active"),
+        "registered_games",
+        json!({}),
+        Some(json!("active-token")),
+    );
+    let first = server.next();
+    assert_eq!(first["method"], "notifications/progress", "{first}");
+    server.send_tool(
+        json!("queued"),
+        "catalog_search",
+        json!({"query":"queued-b"}),
+        None,
+    );
+    server.send(
+        json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"queued"}}),
+    );
+    server.send(json!({"jsonrpc":"2.0","id":"probe","method":"ping"}));
+    let mut queued_answered = false;
+    loop {
+        let message = server.next();
+        if message.get("method").is_some() {
+            continue;
+        }
+        if message["id"] == json!("probe") {
+            break;
+        }
+        if message["id"] == json!("queued") {
+            queued_answered = true;
+        }
+    }
+    assert!(
+        !queued_answered,
+        "a cancelled queued request must not respond"
+    );
+    let state = temporary.path().join("modn");
+    let invocations = std::fs::read_to_string(state.join("invocations")).expect("invocations");
+    assert_eq!(invocations.lines().count(), 1, "{invocations}");
+    assert!(!invocations.contains("queued-b"), "{invocations}");
+}
+
+#[test]
+fn the_final_progress_event_precedes_the_response() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let mut server = Server::start_mode(temporary.path(), "burst", 5);
+    server.initialize();
+    let (response, notifications) = server.call(json!(40), Some(json!("burst-token")));
+    assert_eq!(response["id"], json!(40), "{response}");
+    assert_eq!(response["result"]["isError"], false, "{response}");
+    assert_eq!(notifications.len(), 34, "{notifications:?}");
+    assert_eq!(
+        notifications.last().expect("result")["params"]["message"],
+        json!("succeeded")
+    );
+}
+
+#[test]
+fn progress_lines_do_not_count_toward_the_stderr_limit() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let mut server = Server::start_mode(temporary.path(), "many", 5);
+    server.initialize();
+    let (response, _) = server.call(json!(50), None);
+    assert_eq!(response["id"], json!(50), "{response}");
+    assert_eq!(response["result"]["isError"], false, "{response}");
+}
+
+#[test]
+fn a_split_progress_line_survives_a_competing_select_branch() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let mut server = Server::start_mode(temporary.path(), "split", 5);
+    server.initialize();
+    server.send_tool(
+        json!(60),
+        "registered_games",
+        json!({}),
+        Some(json!("split-token")),
+    );
+    let first = server.next();
+    assert_eq!(first["method"], "notifications/progress", "{first}");
+    std::thread::sleep(Duration::from_millis(200));
+    server.send(
+        json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":60}}),
+    );
+    server.send(json!({"jsonrpc":"2.0","id":"probe","method":"ping"}));
+    loop {
+        let message = server.next();
+        if message.get("method").is_some() {
+            continue;
+        }
+        assert_eq!(
+            message["id"],
+            json!(60),
+            "the call did not observe the split commit event"
+        );
+        break;
+    }
+}
+
+#[test]
+fn stdout_over_the_limit_fails_without_waiting_for_the_child() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let mut server = Server::start_mode(temporary.path(), "huge", 5);
+    server.initialize();
+    let started = Instant::now();
+    let (response, _) = server.call(json!(70), None);
+    let elapsed = started.elapsed();
+    assert_eq!(response["id"], json!(70), "{response}");
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("error text");
+    assert!(text.contains("output exceeds"), "{response}");
+    assert!(elapsed < Duration::from_secs(4), "took {elapsed:?}");
 }

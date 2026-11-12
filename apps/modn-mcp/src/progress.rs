@@ -73,6 +73,12 @@ impl Reporter {
         self.cancelled
     }
 
+    /// Whether `line` is a CLI progress event rather than a diagnostic line.
+    /// Used to keep progress output outside the diagnostic byte limit.
+    pub fn is_event(line: &str) -> bool {
+        serde_json::from_str::<Event>(line).is_ok()
+    }
+
     /// Parses one stderr line and returns its notification, when a token was
     /// requested. Phase and commit state advance with or without a token.
     pub fn event(&mut self, line: &str) -> Option<Value> {

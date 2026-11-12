@@ -15,13 +15,43 @@ use std::collections::VecDeque;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-/// Requests buffered while one call runs. Cancellations are still read while
-/// this small queue has room.
+/// Requests buffered while one call runs. The input loop keeps reading when
+/// this queue is full so a cancellation always reaches the active call;
+/// ordinary requests above the limit are refused.
 const PENDING_LIMIT: usize = 4;
 
 enum Input {
     Line(Vec<u8>),
     Oversize,
+}
+
+impl Input {
+    fn cancelled_id(&self) -> Option<Value> {
+        match self {
+            Self::Line(bytes) => protocol::cancelled_id(bytes),
+            Self::Oversize => None,
+        }
+    }
+
+    fn request_id(&self) -> Option<Value> {
+        match self {
+            Self::Line(bytes) => protocol::request_id(bytes),
+            Self::Oversize => None,
+        }
+    }
+}
+
+/// Removes the queued request `id` so it never starts. A cancelled request
+/// gets no response.
+fn remove_pending(pending: &mut VecDeque<Input>, id: &Value) -> bool {
+    let Some(index) = pending
+        .iter()
+        .position(|input| input.request_id().as_ref() == Some(id))
+    else {
+        return false;
+    };
+    pending.remove(index);
+    true
 }
 
 async fn read_input(sender: mpsc::Sender<Input>) -> Result<()> {
@@ -124,17 +154,40 @@ async fn run() -> Result<()> {
                             Some(notification) = progress.recv() => {
                                 write_message(&mut stdout, notification).await?;
                             }
-                            incoming = receiver.recv(), if !eof && pending.len() < PENDING_LIMIT => {
+                            incoming = receiver.recv(), if !eof => {
                                 match incoming {
                                     None => eof = true,
-                                    Some(Input::Line(bytes)) if protocol::cancels(&bytes, &id) => {
-                                        let _ = cancellation.send(());
+                                    Some(input) => {
+                                        if let Some(cancelled) = input.cancelled_id() {
+                                            if cancelled == id {
+                                                let _ = cancellation.send(());
+                                            } else {
+                                                remove_pending(&mut pending, &cancelled);
+                                            }
+                                        } else if pending.len() < PENDING_LIMIT {
+                                            pending.push_back(input);
+                                        } else if let Some(request_id) = input.request_id() {
+                                            write_message(
+                                                &mut stdout,
+                                                error(
+                                                    request_id,
+                                                    -32000,
+                                                    "Pending request limit reached",
+                                                ),
+                                            )
+                                            .await?;
+                                        }
                                     }
-                                    Some(message) => pending.push_back(message),
                                 }
                             }
                         }
                     };
+                    // The backend sends its final result event before it
+                    // returns, so drain every queued notification before the
+                    // response that supersedes it.
+                    while let Ok(notification) = progress.try_recv() {
+                        write_message(&mut stdout, notification).await?;
+                    }
                     if let tools::Reply::Response(result) = outcome {
                         write_message(
                             &mut stdout,

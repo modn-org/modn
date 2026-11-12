@@ -5,11 +5,66 @@ use serde_json::Value;
 use std::ffi::OsString;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
 pub const OUTPUT_LIMIT: usize = 256 * 1024;
+
+/// Reads newline-delimited backend output without losing a partially read line
+/// when another `select!` branch wins. Consumed bytes stay in `buffer` until a
+/// newline or EOF completes the line.
+struct LineReader<R> {
+    reader: R,
+    buffer: Vec<u8>,
+    eof: bool,
+}
+
+impl<R: AsyncBufRead + Unpin> LineReader<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buffer: Vec::new(),
+            eof: false,
+        }
+    }
+
+    /// Returns the next line without its trailing newline, or `None` at EOF.
+    async fn next_line(&mut self) -> Result<Option<String>> {
+        if self.eof {
+            return Ok(None);
+        }
+        loop {
+            let available = self.reader.fill_buf().await?;
+            if available.is_empty() {
+                self.eof = true;
+                if self.buffer.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(self.take_line()));
+            }
+            if let Some(index) = available.iter().position(|byte| *byte == b'\n') {
+                self.buffer.extend_from_slice(&available[..index]);
+                self.reader.consume(index + 1);
+                return Ok(Some(self.take_line()));
+            }
+            let length = available.len();
+            self.buffer.extend_from_slice(available);
+            self.reader.consume(length);
+            if self.buffer.len() > OUTPUT_LIMIT {
+                bail!("backend output exceeds limit");
+            }
+        }
+    }
+
+    fn take_line(&mut self) -> String {
+        let mut bytes = std::mem::take(&mut self.buffer);
+        if bytes.last() == Some(&b'\r') {
+            bytes.pop();
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+}
 
 async fn bounded_read(reader: impl AsyncRead + Unpin) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -85,7 +140,7 @@ async fn supervised(
     let mut stdin = child.stdin.take().context("backend stdin missing")?;
     let stdout = child.stdout.take().context("backend stdout missing")?;
     let stderr = child.stderr.take().context("backend stderr missing")?;
-    let mut stderr = BufReader::new(stderr.take(OUTPUT_LIMIT as u64 + 1));
+    let mut stderr = LineReader::new(BufReader::new(stderr));
     let mut reporter = Reporter::new(token);
     let notifications = channels.notifications;
     let mut cancellation = channels.cancellation;
@@ -98,27 +153,36 @@ async fn supervised(
     let mut stderr_bytes = 0usize;
     let mut failure: Option<anyhow::Error> = None;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(config.timeout_seconds);
-    let mut line = String::new();
     loop {
         if output.is_some() && status.is_some() && stderr_eof {
             break;
         }
         tokio::select! {
-            result = &mut stdout, if output.is_none() => output = Some(result),
-            read = stderr.read_line(&mut line), if !stderr_eof => match read {
-                Ok(0) => stderr_eof = true,
-                Ok(count) => {
-                    stderr_bytes += count;
-                    if stderr_bytes > OUTPUT_LIMIT {
-                        failure = Some(anyhow!("backend output exceeds limit"));
-                        break;
+            result = &mut stdout, if output.is_none() => match result {
+                Ok(output_bytes) => output = Some(Ok(output_bytes)),
+                Err(error) => {
+                    // Stop immediately: the unread stdout pipe would otherwise
+                    // block the child until the deadline.
+                    failure = Some(error);
+                    break;
+                }
+            },
+            line = stderr.next_line(), if !stderr_eof => match line {
+                Ok(None) => stderr_eof = true,
+                Ok(Some(line)) => {
+                    if !Reporter::is_event(&line) {
+                        stderr_bytes += line.len() + 1;
+                        if stderr_bytes > OUTPUT_LIMIT {
+                            failure = Some(anyhow!("backend output exceeds limit"));
+                            break;
+                        }
                     }
-                    if let Some(notification) = reporter.event(line.trim_end_matches(['\r', '\n'])) {
+                    if let Some(notification) = reporter.event(&line) {
                         let _ = notifications.send(notification);
                     }
                 }
                 Err(error) => {
-                    failure = Some(error.into());
+                    failure = Some(error);
                     break;
                 }
             },
@@ -135,7 +199,6 @@ async fn supervised(
                 break;
             }
         }
-        line.clear();
     }
     if let Some(error) = failure {
         terminate(&mut child).await;
