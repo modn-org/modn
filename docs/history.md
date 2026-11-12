@@ -96,6 +96,8 @@ The undo refuses before any change in these cases:
 - The target release has a `git` or `nexus` source and its archive is no
   longer cached. Undo restores these releases only from the archive cache; a
   Nexus download needs a new nxm link. Reinstall the release from the catalog.
+  A `github-release` source reuses its verified cached archive without
+  contacting GitHub, and downloads again only on a cache miss.
 - A restored archive does not match the recorded SHA-256, or the current game
   policy maps the release to other files than the record.
 - A package is pinned, another installed package needs it, an unfinished

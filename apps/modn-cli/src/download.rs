@@ -161,6 +161,10 @@ pub(super) fn acquire_source(
             asset,
         } => {
             let url = format!("https://github.com/{repository}/releases/download/{tag}/{asset}");
+            let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+            if let Some(path) = cache.cached(&key)? {
+                return Ok(path);
+            }
             let provider = GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
             if provider.resolve(fetch_metadata)? != url {
                 bail!("provider source changed during resolution");
@@ -270,7 +274,7 @@ pub(super) fn download(
                     release.package.version
                 );
             }
-            let archive = git_source::acquire(cache, release, cache_use)?;
+            let archive = git_source::acquire(cache, release, cache_use, progress)?;
             archives.insert(reference.clone(), archive.path);
             digests.insert(reference, archive.sha256);
             continue;
@@ -427,3 +431,6 @@ pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Resul
     println!("{verb}: {} file(s), {bytes} bytes", entries.len());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
