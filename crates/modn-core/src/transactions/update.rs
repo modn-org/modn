@@ -3,6 +3,7 @@ use super::install::Fault;
 use super::journal::{lock_store, ManagedPackage, Roots};
 use super::native_injector::NativeInjectorPolicy;
 use super::uninstall::Dependents;
+use crate::history::HistoryFile;
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{anyhow, bail, Context, Result};
@@ -67,6 +68,40 @@ impl Store {
         policy: NativeInjectorPolicy,
         approved: &[String],
     ) -> Result<ManagedPackage> {
+        self.update_inner(
+            game,
+            package_id,
+            archive,
+            proposal,
+            release,
+            approved,
+            policy,
+            test_fault(),
+        )
+    }
+
+    /// Replace `package_id` with another release only when `archive` restores
+    /// the bytes that `expected` records for every `(root, destination)`.
+    ///
+    /// Undo uses this entry point: the archive is verified before the update
+    /// starts, so a changed module selection refuses with `UNDO_FAILED`
+    /// instead of committing different bytes than the history record.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the checked update keeps the recorded restore expectations explicit"
+    )]
+    pub fn update_catalog_release_checked(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        archive: &Path,
+        proposal: &InstallPlan,
+        release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
+        approved: &[String],
+        expected: &[HistoryFile],
+    ) -> Result<ManagedPackage> {
+        self.verify_restored_bytes(archive, proposal, expected)?;
         self.update_inner(
             game,
             package_id,
