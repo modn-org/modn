@@ -120,6 +120,11 @@ A call without a token sends no progress notification and otherwise behaves as b
 A client cancels with `notifications/cancelled` and `params.requestId` set to
 the running request ID.
 The server writes one `cancel` line to the CLI and keeps serving later requests.
+A cancellation for a request still waiting in the queue removes that request.
+The removed request never starts and sends no response.
+The server keeps reading input while a call runs, including when the bounded
+queue is full, so a cancellation for the active call is never delayed by queued
+requests.
 The CLI's [commit point](transactions.md) decides the result.
 Before it, the call stops and the server sends no response for that request;
 game files, manager state and ownership stay unchanged.
@@ -127,6 +132,9 @@ After it, the CLI ignores the request and the call completes normally, with its
 usual response.
 The server tracks the commit phase from the CLI events, also when no progress
 token was requested.
+The server drains every queued progress notification before it writes the
+matching `tools/call` response, so the final `result` notification always
+precedes that response.
 The client must read progress notifications before the matching response.
 
 The CLI keeps its normal deadline, byte limits and serial execution.
@@ -135,11 +143,19 @@ stopped by its deadline.
 
 Each input line is limited to 65,536 bytes, including its newline.
 The server discards an oversized line and resumes at the next newline.
-Each backend stream is limited to 262,144 bytes.
+Backend standard output is limited to 262,144 bytes.
+A backend that exceeds it is killed at once and the call fails with the
+output-limit error.
+Diagnostic stderr lines are limited to 262,144 bytes in total.
+Valid `--progress json` event lines do not count toward that diagnostic limit,
+so a large download does not exhaust it.
 Serialized responses are limited to 524,288 bytes before the newline.
 Backend failures never echo complete stderr or environment variables.
 The default backend deadline is 30 seconds. `--timeout-seconds` accepts 1 through 300.
-Calls execute serially. A small bounded queue holds requests that arrive during a call; cancellation notifications are read while the call runs.
+Calls execute serially. A bounded queue holds four requests that arrive during a call.
+The server keeps reading input while the queue is full.
+An ordinary request above the limit receives JSON-RPC error `-32000` and does
+not run; cancellation notifications are handled at any time.
 EOF processes a final unterminated line, then drains queued requests.
 It waits at most the configured deadline for each backend call.
 Timed-out or oversized backend processes are killed and reaped.

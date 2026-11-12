@@ -49,6 +49,45 @@ fn identifiers_refuse_switches_and_traversal() {
 }
 
 #[test]
+fn cancellation_notifications_name_their_target_request() {
+    let cancel =
+        br#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"a"}}"#;
+    assert_eq!(crate::protocol::cancelled_id(cancel), Some(json!("a")));
+    assert_eq!(
+        crate::protocol::cancelled_id(
+            br#"{"jsonrpc":"2.0","id":"a","method":"notifications/cancelled","params":{"requestId":"a"}}"#
+        ),
+        None
+    );
+    assert_eq!(
+        crate::protocol::cancelled_id(
+            br#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{}}"#
+        ),
+        None
+    );
+    assert_eq!(
+        crate::protocol::request_id(br#"{"jsonrpc":"2.0","id":7,"method":"ping"}"#),
+        Some(json!(7))
+    );
+    assert_eq!(
+        crate::protocol::request_id(br#"{"jsonrpc":"2.0","method":"ping"}"#),
+        None
+    );
+}
+
+#[test]
+fn queued_cancelled_requests_are_removed() {
+    let mut pending = std::collections::VecDeque::from([
+        crate::Input::Line(br#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#.to_vec()),
+        crate::Input::Line(br#"{"jsonrpc":"2.0","id":2,"method":"ping"}"#.to_vec()),
+    ]);
+    assert!(crate::remove_pending(&mut pending, &json!(1)));
+    assert_eq!(pending.len(), 1);
+    assert!(!crate::remove_pending(&mut pending, &json!(1)));
+    assert_eq!(pending.len(), 1);
+}
+
+#[test]
 fn paths_require_scope_and_separate_state() {
     let (temporary, config) = fixture();
     let archive = temporary.path().join("a.zip");
