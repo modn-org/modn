@@ -31,6 +31,7 @@ The driver performs [feature-mapped](features/README.md) CLI actions, including:
 - Independently verify written bytes, owned/unmanaged scan, conflict rejection, doctor drift, modified-file uninstall protection, safe uninstall and idle recovery.
 - Register and install a second `cyberpunk-2077` fixture concurrently, confirm independent ownership for both games, reject ambiguous selection, and uninstall each without changing the other.
 - Exercise a wrapped redscript/ArchiveXL/TweakXL ZIP on disposable Cyberpunk paths with **synthetic presence-only** framework markers, verifying read-only preview, approved install, owned scan, doctor and uninstall without altering manual markers or the other game.
+- Exercise `modn history` and `modn undo` on a standalone install: one install record with its owned file, undo without an ID, a repeated undo refused with `UNDO_CONFLICT`, `INVALID_ARGUMENTS`, dry-run and `UNDO_NOT_FOUND` guards, and `UNDO_SOURCE_MANUAL` for a manual-source uninstall, each checked against game bytes and a before/after snapshot.
 
 The `test-game` module uses ordinary runtime Lua policy and ZIP operations; its full CLI lifecycle is now verified. No game-specific Rust adapter or default ID is used.
 
