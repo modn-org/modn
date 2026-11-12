@@ -304,7 +304,10 @@ Undo refuses before any change when a later operation on the same installation
 touched one of the target's packages or files. The error is `UNDO_CONFLICT` and
 names that newer operation; undo it first. A package whose recorded source is
 `manual` cannot be fetched again: the error is `UNDO_SOURCE_MANUAL`, and you
-must place its archive with `modn install --file`. An update undo needs the
+must place its archive with `modn install --file`. `git` and `nexus` releases
+are restored only from the archive cache. When the archive is no longer cached,
+the error is `UNDO_FAILED`; reinstall the release from the catalog. A Nexus
+download needs a new nxm link. An update undo needs the
 installed package's catalog identity. Normal refusals stay: a pinned package
 (`PACKAGE_PINNED`), a package another installed package needs, an unfinished
 transaction (`PENDING_TRANSACTION`) or an ownership `CONFLICT` blocks the undo.

@@ -1,6 +1,7 @@
 mod adoption;
 mod assets;
 mod buckets;
+mod catalog_approval;
 mod catalog_install;
 mod commands;
 mod dependency_plan;

@@ -1,3 +1,4 @@
+use crate::catalog_approval;
 use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
@@ -9,7 +10,7 @@ use crate::stack_install;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
-use modn_core::approval::{ApprovalRefusal, Capabilities, Uncovered};
+use modn_core::approval::Capabilities;
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
 use modn_core::error::{coded, ErrorCode};
@@ -145,61 +146,6 @@ fn match_archives(
     Ok(archives)
 }
 
-fn check_native_approvals(
-    selected: &BucketPackage,
-    order: &[BucketPackage],
-    args: &InstallArgs,
-    state_path: &Path,
-) -> Result<()> {
-    if args.allow_native_injector || args.dry_run {
-        return Ok(());
-    }
-    let state = ManagerState::load_deferred(state_path)?;
-    let game = selected_installation(
-        state.existing(),
-        args.path.clone(),
-        Some(&selected.package.game),
-    )
-    .ok()
-    .map(|(_, installation)| installation);
-    let installing: Vec<&BucketPackage> = match &game {
-        Some(installation) => {
-            let planned = dependency_plan::plan(
-                order,
-                &BTreeMap::new(),
-                &BTreeMap::new(),
-                state.existing(),
-                installation,
-            )?;
-            order
-                .iter()
-                .zip(&planned)
-                .filter(|(_, dependency)| dependency.missing())
-                .map(|(release, _)| release)
-                .chain([selected])
-                .collect()
-        }
-        // Game selection can fail for ordinary reasons, such as no registration
-        // or a missing --path. Refuse native injectors conservatively so the
-        // approval error still precedes those generic errors.
-        None => order.iter().chain([selected]).collect(),
-    };
-    for package in installing {
-        if !package.package.native_injector {
-            continue;
-        }
-        let reference = reference_of(package);
-        let stored = match &game {
-            Some(game) => install_consent::stored_approval(state.existing(), game, &reference)?,
-            None => None,
-        };
-        if !stored.is_some_and(|approval| approval.native_injector) {
-            return Err(ApprovalRefusal::new(reference, Uncovered::native_injector()).into_error());
-        }
-    }
-    Ok(())
-}
-
 fn install_mod(
     selected: BucketPackage,
     catalog: &BucketSnapshot,
@@ -219,7 +165,7 @@ fn install_mod(
     let mut order = catalog.install_order(&selected)?;
     order.pop();
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
-    check_native_approvals(&selected, &order, args, state_path)?;
+    catalog_approval::check_native_approvals(&selected, &order, args, state_path)?;
     let mut archives = match_archives(&args.file, &selected, &order)?;
     let mut digests = BTreeMap::new();
     let cache = download::cache_for(state_path)?;
