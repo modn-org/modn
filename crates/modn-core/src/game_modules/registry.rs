@@ -406,6 +406,39 @@ impl ModuleRegistry {
         Ok(registered)
     }
 
+    /// Game IDs of every registration without reading its releases.
+    ///
+    /// A caller that needs the manifests uses [`Self::read`] and can report one
+    /// unreadable registration without failing the others.
+    pub(super) fn game_ids(&self) -> Result<Vec<String>> {
+        match fs::symlink_metadata(self.root()) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            result => {
+                result?;
+            }
+        }
+        self.validate_root()?;
+        let mut games = Vec::new();
+        for entry in fs::read_dir(self.root())? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if name == "registry.lock" || name.starts_with(".staging-") {
+                continue;
+            }
+            if loader::valid_game_id(name) {
+                games.push(name.to_owned());
+            }
+        }
+        games.sort();
+        Ok(games)
+    }
+
     /// Remove only the copied registration. Installed packages and game files remain intact.
     /// A corrupt snapshot can be removed without executing its Lua source.
     pub fn unregister(&self, game: &str) -> Result<()> {

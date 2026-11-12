@@ -1,7 +1,8 @@
 //! Store identities that a game module declares as data in `module.json`.
 
+use crate::error::{coded, ErrorCode};
 use crate::stores::Storefront;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// Store identities of one game, from the optional `stores` object.
@@ -44,10 +45,13 @@ impl StoreIdentities {
                 continue;
             };
             if !crate::stores::valid_store_id(store, value) {
-                bail!(
-                    "MODULE_STORE_ID_INVALID: stores.{} has an invalid identity {value:?}",
-                    store.as_str()
-                );
+                return Err(coded(
+                    ErrorCode::ModuleStoreIdInvalid,
+                    format!(
+                        "MODULE_STORE_ID_INVALID: stores.{} has an invalid identity {value:?}",
+                        store.as_str()
+                    ),
+                ));
             }
         }
         Ok(())

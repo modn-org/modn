@@ -97,6 +97,28 @@ where
     launcher(&plan.target)
 }
 
+/// Plan and start one launch while holding the transaction lock.
+///
+/// The lock covers the pending-transaction check and `launcher`, so an install
+/// or uninstall cannot begin between them. The lock is released when this
+/// function returns, before the started game runs; a start failure releases it
+/// too.
+pub fn launch_with_lock<F>(
+    store: Option<&Store>,
+    game_id: &str,
+    installation: &Path,
+    detected: &[DetectedInstallation],
+    launcher: F,
+) -> Result<LaunchPlan>
+where
+    F: FnOnce(&LaunchPlan) -> Result<()>,
+{
+    let _lock = store.map(crate::transactions::lock_store).transpose()?;
+    let plan = plan_launch(store, game_id, installation, detected)?;
+    launcher(&plan)?;
+    Ok(plan)
+}
+
 fn ensure_no_pending(store: &Store) -> Result<()> {
     let pending: bool = store.connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM pending_transactions)

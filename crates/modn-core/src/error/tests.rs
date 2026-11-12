@@ -64,6 +64,15 @@ fn launch_and_detect_codes_serialize_as_their_names() {
 }
 
 #[test]
+fn module_store_id_invalid_is_documented_and_serializes_as_its_name() {
+    assert!(ErrorCode::ALL.contains(&ErrorCode::ModuleStoreIdInvalid));
+    assert_eq!(
+        serde_json::to_value(ErrorCode::ModuleStoreIdInvalid).expect("code JSON"),
+        "MODULE_STORE_ID_INVALID"
+    );
+}
+
+#[test]
 fn coded_errors_keep_their_message_and_code_through_context() {
     let error = Err::<(), _>(coded(ErrorCode::PlanBlocked, "plan has blockers"))
         .context("outer step")

@@ -1,6 +1,7 @@
 use super::catalog::{CatalogInstall, CatalogRelease};
 use super::journal::{lock_store, ManagedPackage};
 use super::native_injector::NativeInjectorPolicy;
+use crate::error::{coded, ErrorCode};
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{anyhow, bail, Context, Result};
@@ -107,9 +108,10 @@ impl Store {
             self.connection
                 .query_row("SELECT COUNT(*) FROM pending_stacks", [], |row| row.get(0))?;
         if stacks > 0 {
-            bail!(
-                "unfinished installation stack detected; run 'modn recover' before another write"
-            );
+            return Err(coded(
+                ErrorCode::PendingTransaction,
+                "unfinished installation stack detected; run 'modn recover' before another write",
+            ));
         }
         Ok(())
     }

@@ -208,7 +208,9 @@ the profile whose registrations are read and written.
 
 `status` is `new`, `registered` (by this run) or `already_registered`.
 `refused` lists folders that matched a store identity but that the module did
-not confirm. `skipped` lists games whose module could not be read.
+not confirm. `skipped` lists games whose module could not be read. One
+unreadable registered module is reported in `skipped` and does not stop
+detection of the other games.
 
 `modn game add <game-id>` without `--path` uses the same detection for one
 game. It registers the installation only when exactly one is confirmed.
@@ -229,7 +231,10 @@ Play is read-only: it writes no manager state and no game files. It chooses the
 store URI when detection shows that the store installed the selected folder.
 Otherwise it starts the module's declared executable with the game folder as its
 working directory. A game module declares both as data; see
-[game-modules.md](game-modules.md#launch-targets).
+[game-modules.md](game-modules.md#launch-targets). Play holds the transaction
+lock from its pending-transaction check until the process starts or the URI
+opens, so a concurrent install or uninstall cannot begin in between. The lock is
+released before the game runs.
 
 `--json` reports what was launched:
 
@@ -417,6 +422,7 @@ otherwise the command's default code is used. No command reports a generic
 | `LAUNCH_TARGET_UNSAFE` | A launch target is missing, is not a file, or resolves outside the game. |
 | `MOD_NOT_FOUND` | No catalog mod matches the target. |
 | `MODULE_LAUNCH_TARGET_INVALID` | A module declares an invalid launch target. |
+| `MODULE_STORE_ID_INVALID` | A module declares a store identity that is not valid. |
 | `NATIVE_INJECTOR_NOT_ALLOWED` | A native-injector package needs `--allow-native-injector`, or its stored approval does not cover native code. |
 | `PACKAGE_NEEDED` | Another installed package needs the selected package. |
 | `PACKAGE_NOT_FOUND` | No managed package matches the selector. |

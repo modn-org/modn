@@ -3,7 +3,7 @@ use crate::state_access::ManagerState;
 use anyhow::Result;
 use modn_core::detection::detect_installations;
 use modn_core::error::{coded, ErrorCode};
-use modn_core::launch::{execute_launch, plan_launch, system_launch, LaunchTarget};
+use modn_core::launch::{execute_launch, launch_with_lock, system_launch, LaunchTarget};
 use modn_core::stores::StoreLibraries;
 use std::path::{Path, PathBuf};
 
@@ -50,13 +50,20 @@ pub(super) fn run(
         ));
     }
     let detection = detect_installations(&StoreLibraries::system(), &[game.to_owned()]);
-    let plan = plan_launch(state.existing(), game, &installation, &detection.confirmed)?;
-    if !json {
-        for warning in &plan.warnings {
-            eprintln!("warning: {warning}");
-        }
-    }
-    execute_launch(&plan, system_launch)?;
+    let plan = launch_with_lock(
+        state.existing(),
+        game,
+        &installation,
+        &detection.confirmed,
+        |plan| {
+            if !json {
+                for warning in &plan.warnings {
+                    eprintln!("warning: {warning}");
+                }
+            }
+            execute_launch(plan, system_launch)
+        },
+    )?;
     if json {
         println!("{}", serde_json::to_string_pretty(&plan)?);
     } else {

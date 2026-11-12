@@ -331,3 +331,42 @@ fn add_without_a_path_needs_exactly_one_confirmed_installation() {
     assert!(String::from_utf8_lossy(&balatro.stderr).contains("balatro not found"));
     assert!(!cli.state().exists());
 }
+
+#[test]
+fn an_unreadable_registered_module_is_skipped_without_hiding_official_games() {
+    let cli = Cli::new();
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/game-modules/sample-game");
+    let registered = cli.run(&[
+        "module",
+        "register",
+        source.to_str().expect("module source"),
+        "--trust",
+    ]);
+    assert!(
+        registered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&registered.stderr)
+    );
+    fs::write(
+        cli.data
+            .path()
+            .join("modn/game-modules/sample-game/versions/0.1.0/main.lua"),
+        "return {}",
+    )
+    .expect("corrupt active release");
+
+    let report = cli.json(&["game", "detect", "--json"]);
+
+    assert_eq!(installations(&report), expected(&cli, ["new"; 3]));
+    let skipped = report["skipped"].as_array().expect("skipped");
+    assert_eq!(skipped.len(), 1, "{report:#}");
+    assert_eq!(skipped[0]["game_id"], "sample-game");
+    assert!(
+        skipped[0]["reason"]
+            .as_str()
+            .expect("reason")
+            .starts_with("DETECT_MODULE_UNREADABLE:"),
+        "{report:#}"
+    );
+}
