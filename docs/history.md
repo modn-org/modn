@@ -80,11 +80,15 @@ its history. Reading history never creates a database.
 ## Undo
 
 `modn undo [<operation-id>] --yes` reverses one committed operation. Without an
-ID it selects the newest operation for the selected game. The inverse follows
-the recorded kind: an install is removed, an update restores the earlier
-release, and an uninstall restores the recorded release. An undo writes a
-normal record for the change it makes and sets `undoes` to the target's ID.
-It never edits or deletes the target record.
+ID it selects the newest operation for the selected installation. `--path`
+selects a registered installation; with several installations of one game, an
+omitted path is refused instead of guessed. An explicit ID from another
+installation or game is refused with `UNDO_NOT_FOUND`, and the message names
+the installation that owns the record. The inverse follows the recorded kind:
+an install is removed, an update restores the earlier release, and an uninstall
+restores the recorded release. An undo writes a normal record for the change it
+makes and sets `undoes` to the target's ID. It never edits or deletes the target
+record.
 
 The undo refuses before any change in these cases:
 
@@ -97,7 +101,10 @@ The undo refuses before any change in these cases:
   longer cached. Undo restores these releases only from the archive cache; a
   Nexus download needs a new nxm link. Reinstall the release from the catalog.
 - A restored archive does not match the recorded SHA-256, or the current game
-  policy maps the release to other files than the record.
+  policy maps the release to another root or other files than the record.
+- An update undo selects an archive member whose SHA-256 differs from the
+  recorded `digest_before` of a restored file. The error is `UNDO_FAILED` and
+  no game file, ownership row or history record changes.
 - A package is pinned, another installed package needs it, an unfinished
   transaction exists, or ownership conflicts block the change.
 

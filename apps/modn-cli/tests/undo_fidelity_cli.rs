@@ -1,9 +1,9 @@
-#[path = "support/main_bucket.rs"]
-mod main_bucket;
 #[path = "support/catalog.rs"]
 mod catalog;
 #[path = "support/content_root.rs"]
 mod content_root;
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 
 use catalog::{error, Fixture};
 use serde_json::{json, Value};
@@ -166,8 +166,11 @@ fn write_module(fixture: &Fixture, api_version: u32, selected: &str, root: &str,
         ),
     )
     .expect("module manifest");
-    fs::write(dir.join("main.lua"), policy_script(api_version, selected, root))
-        .expect("module script");
+    fs::write(
+        dir.join("main.lua"),
+        policy_script(api_version, selected, root),
+    )
+    .expect("module script");
 }
 
 #[test]
@@ -283,13 +286,15 @@ fn undo_refuses_a_policy_that_moves_a_recorded_file_to_another_root() {
     assert_eq!(error_code(&preview), "UNDO_FAILED");
     assert!(error(&preview).contains("record"), "{}", error(&preview));
     let before = history(&fixture);
-    let refused = run_env(&fixture, &["--json", "undo", &target, "--yes"], &environment);
+    let refused = run_env(
+        &fixture,
+        &["--json", "undo", &target, "--yes"],
+        &environment,
+    );
     assert!(!refused.status.success(), "{}", error(&refused));
     assert_eq!(error_code(&refused), "UNDO_FAILED");
     assert!(!addon.exists());
-    assert!(!appdata
-        .join("Fixture/Mods/addons/example.plugin")
-        .exists());
+    assert!(!appdata.join("Fixture/Mods/addons/example.plugin").exists());
     assert_eq!(history(&fixture), before);
 }
 
@@ -318,10 +323,7 @@ fn undo_update_refuses_a_changed_member_selection_before_commit() {
     assert_eq!(fs::read_to_string(&addon).expect("v1"), "one");
 
     manifest(&fixture, "example", "2.0", &v2_hash, https(v2_url));
-    let updated = fixture.run_paths(
-        &["--json", "update", "example", "--yes", "--file"],
-        &[&v2],
-    );
+    let updated = fixture.run_paths(&["--json", "update", "example", "--yes", "--file"], &[&v2]);
     assert!(updated.status.success(), "{}", error(&updated));
     assert_eq!(fs::read_to_string(&addon).expect("v2"), "two");
     let operations = history(&fixture);
@@ -358,7 +360,14 @@ fn undo_uninstall_restores_below_the_appdata_content_root() {
         .expect("manifest JSON"),
     )
     .expect("manifest");
-    cache(&fixture.state, "content-game", "fixture", "1.0", url, &package);
+    cache(
+        &fixture.state,
+        "content-game",
+        "fixture",
+        "1.0",
+        url,
+        &package,
+    );
     fixture.ok(&[
         "install",
         "fixture",
@@ -372,7 +381,10 @@ fn undo_uninstall_restores_below_the_appdata_content_root() {
     fixture.ok(&["uninstall", "fixture", "--yes"]);
     assert!(!restored.exists());
     let operations = fixture.json(&["--json", "history"]);
-    let target = operations[0]["id"].as_str().expect("operation ID").to_owned();
+    let target = operations[0]["id"]
+        .as_str()
+        .expect("operation ID")
+        .to_owned();
     assert_eq!(operations[0]["kind"], "uninstall");
 
     fixture.ok(&["--json", "undo", &target, "--yes"]);

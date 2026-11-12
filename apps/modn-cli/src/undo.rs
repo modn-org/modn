@@ -105,24 +105,22 @@ fn restores(
                     )?,
                 }
             }
-            HistoryKind::Uninstall => {
-                match content_root_appdata(&target.game_id)? {
-                    Some(appdata) => preview_update_with_appdata(
-                        &target.game_id,
-                        &target.installation,
-                        &archive,
-                        &args.allow_executable,
-                        &[],
-                        &appdata,
-                    )?,
-                    None => preview_install_zip_with_permissions(
-                        &target.game_id,
-                        &target.installation,
-                        &archive,
-                        &args.allow_executable,
-                    )?,
-                }
-            }
+            HistoryKind::Uninstall => match content_root_appdata(&target.game_id)? {
+                Some(appdata) => preview_update_with_appdata(
+                    &target.game_id,
+                    &target.installation,
+                    &archive,
+                    &args.allow_executable,
+                    &[],
+                    &appdata,
+                )?,
+                None => preview_install_zip_with_permissions(
+                    &target.game_id,
+                    &target.installation,
+                    &archive,
+                    &args.allow_executable,
+                )?,
+            },
             HistoryKind::Install => bail!("an install is undone by removing its packages"),
             _ => bail!("unknown history kind"),
         };
@@ -210,8 +208,7 @@ pub(super) fn run(
     let read = state
         .existing()
         .context("existing manager state is readable")?;
-    let (game_id, installation) =
-        selected_installation(Some(read), args.path.clone(), requested)?;
+    let (game_id, installation) = selected_installation(Some(read), args.path.clone(), requested)?;
     let operations = read.history(None)?;
     let belongs = |operation: &HistoryOperation| {
         operation.game_id == game_id && operation.installation == installation
