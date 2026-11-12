@@ -86,16 +86,17 @@ Every operation reports these phases in order:
 
 `package` is the catalog reference, or the managed-package ID when the package
 has none. A stack install reports one download, extract, stage and commit
-group per package. [transactions.md](transactions.md) defines the commit
-point.
+group per package. A `git` source reports one download phase for its fetch and
+pack; a verified cache hit reports none. [transactions.md](transactions.md)
+defines the commit point.
 
 Write one line `cancel` to stdin to ask the operation to stop. Modn checks the
 request at the start and between phases. Before the commit point, the command
 exits nonzero with `CANCELLED`, reports a `cancelled` result, and leaves game
 files, manager state and ownership records as they were. A cancelled download
-removes its partial file and keeps no cache entry. From the commit point on,
-Modn ignores the request and finishes, or rolls back, the operation as it does
-without one. Close stdin when no cancellation is wanted.
+or Git fetch removes its partial file and keeps no new cache entry. From the
+commit point on, Modn ignores the request and finishes, or rolls back, the
+operation as it does without one. Close stdin when no cancellation is wanted.
 
 ## Catalog refresh
 
