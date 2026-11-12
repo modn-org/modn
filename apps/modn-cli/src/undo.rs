@@ -2,6 +2,7 @@ use crate::commands::UndoArgs;
 use crate::download;
 use crate::modules::content_root_appdata;
 use crate::progress::Progress;
+use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::archive::inspect;
@@ -104,29 +105,39 @@ fn restores(
                     )?,
                 }
             }
-            HistoryKind::Uninstall => preview_install_zip_with_permissions(
-                &target.game_id,
-                &target.installation,
-                &archive,
-                &args.allow_executable,
-            )?,
+            HistoryKind::Uninstall => match content_root_appdata(&target.game_id)? {
+                Some(appdata) => preview_update_with_appdata(
+                    &target.game_id,
+                    &target.installation,
+                    &archive,
+                    &args.allow_executable,
+                    &[],
+                    &appdata,
+                )?,
+                None => preview_install_zip_with_permissions(
+                    &target.game_id,
+                    &target.installation,
+                    &archive,
+                    &args.allow_executable,
+                )?,
+            },
             HistoryKind::Install => bail!("an install is undone by removing its packages"),
             _ => bail!("unknown history kind"),
         };
-        let planned: BTreeSet<&str> = plan
+        let planned: BTreeSet<(&str, &str)> = plan
             .operations
             .iter()
-            .map(|operation| operation.destination.as_str())
+            .map(|operation| (operation.root.as_str(), operation.destination.as_str()))
             .collect();
-        let recorded: BTreeSet<&str> = expected
+        let recorded: BTreeSet<(&str, &str)> = expected
             .iter()
-            .map(|file| file.destination.as_str())
+            .map(|file| (file.root.as_str(), file.destination.as_str()))
             .collect();
         if planned != recorded {
             return Err(coded(
                 ErrorCode::UndoFailed,
                 format!(
-                    "{}: the current game policy maps this release to other files than the record",
+                    "{}: the current game policy maps this release to other roots or files than the record",
                     package.mod_id
                 ),
             ));
@@ -197,24 +208,48 @@ pub(super) fn run(
     let read = state
         .existing()
         .context("existing manager state is readable")?;
+    let (game_id, installation) = selected_installation(Some(read), args.path.clone(), requested)?;
     let operations = read.history(None)?;
+    let belongs = |operation: &HistoryOperation| {
+        operation.game_id == game_id && operation.installation == installation
+    };
     let target = match args.id.as_deref() {
-        Some(id) => operations
-            .iter()
-            .find(|operation| operation.id == id)
-            .filter(|operation| requested.is_none_or(|game| operation.game_id == game))
-            .cloned(),
+        Some(id) => match operations.iter().find(|operation| operation.id == id) {
+            Some(operation) if belongs(operation) => Some(operation.clone()),
+            Some(operation) => {
+                return Err(coded(
+                    ErrorCode::UndoNotFound,
+                    format!(
+                        "operation {id} belongs to {} at {}, not to {game_id} at {}",
+                        operation.game_id,
+                        operation.installation.display(),
+                        installation.display()
+                    ),
+                ));
+            }
+            None => None,
+        },
         None => operations
             .iter()
-            .find(|operation| requested.is_none_or(|game| operation.game_id == game))
+            .find(|operation| belongs(operation))
             .cloned(),
     }
     .ok_or_else(|| {
         coded(
             ErrorCode::UndoNotFound,
             args.id.as_deref().map_or_else(
-                || "no committed operation to undo for the selected game".to_owned(),
-                |id| format!("no committed operation {id}"),
+                || {
+                    format!(
+                        "no committed operation to undo for {game_id} at {}",
+                        installation.display()
+                    )
+                },
+                |id| {
+                    format!(
+                        "no committed operation {id} for {game_id} at {}",
+                        installation.display()
+                    )
+                },
             ),
         )
     })?;
@@ -293,7 +328,7 @@ pub(super) fn run(
                         .with_undo_of(target.id.clone())
                         .with_source(&reference, source.clone()),
                 );
-                installed.push(store.update_catalog_release(
+                installed.push(store.update_catalog_release_checked(
                     &target.installation,
                     &current.id,
                     &restore.archive,
@@ -305,6 +340,7 @@ pub(super) fn run(
                         modn_core::transactions::NativeInjectorPolicy::Refuse
                     },
                     &args.allow_executable,
+                    &restore.expected,
                 )?);
             }
         }

@@ -300,10 +300,14 @@ dry-run or rolled-back operation writes none. See
 
 `modn undo [<operation-id>] --yes` reverses one committed operation from
 `modn history`. Without an ID it selects the newest operation for the selected
-game. The inverse follows the recorded kind: an install is removed, an update
-installs the earlier release again, and an uninstall installs the recorded
-release again. The command writes one new history record whose `undoes` field
-names the target.
+installation. `--path <directory>` selects the installation and `--game
+<game-id>` selects a registered game; when several installations of one game
+are registered, a missing `--path` is refused instead of guessing. An explicit
+ID from another installation or game is refused with `UNDO_NOT_FOUND`, and the
+message names the installation that owns the record. The inverse follows the
+recorded kind: an install is removed, an update installs the earlier release
+again, and an uninstall installs the recorded release again. The command
+writes one new history record whose `undoes` field names the target.
 
 Undo refuses before any change when a later operation on the same installation
 touched one of the target's packages or files. The error is `UNDO_CONFLICT` and
@@ -313,10 +317,15 @@ must place its archive with `modn install --file`. `git` and `nexus` releases
 are restored only from the archive cache. When the archive is no longer cached,
 the error is `UNDO_FAILED`; reinstall the release from the catalog. A Nexus
 download needs a new nxm link. An update undo needs the
-installed package's catalog identity. Normal refusals stay: a pinned package
-(`PACKAGE_PINNED`), a package another installed package needs, an unfinished
-transaction (`PENDING_TRANSACTION`) or an ownership `CONFLICT` blocks the undo.
-A multi-package undo commits every package or none.
+installed package's catalog identity. An update undo also checks every restored
+file against the record: the archive member that the current module selects for
+a destination must have the recorded `digest_before` SHA-256, or the error is
+`UNDO_FAILED` with no change. A planned file whose root differs from the record
+is refused the same way. Restored files are written below their recorded root,
+including a module-declared appdata content root. Normal refusals stay: a pinned
+package (`PACKAGE_PINNED`), a package another installed package needs, an
+unfinished transaction (`PENDING_TRANSACTION`) or an ownership `CONFLICT` blocks
+the undo. A multi-package undo commits every package or none.
 
 `--dry-run` verifies the archives and prints the inverse without writing.
 `--yes` is required to change game files. `--json` prints one object.
