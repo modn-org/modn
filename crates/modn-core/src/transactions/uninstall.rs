@@ -2,6 +2,7 @@ use super::cleanup::RemovalMode;
 use super::directory::{covers, quarantine, quarantine_path};
 use super::install::Fault;
 use super::journal::{digest, lock_store, target_path, temp_path, JournalFile, Roots};
+use crate::error::{coded, ErrorCode};
 use crate::progress::ProgressEvent;
 use crate::state::{resolve_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
@@ -181,10 +182,13 @@ impl Store {
                 .iter()
                 .any(|label| !allowed.contains(label.split(' ').next().unwrap_or(label)))
         {
-            bail!(
-                "managed package {package_id} is required by {}; uninstall dependents first",
-                needed_by.join(", ")
-            );
+            return Err(coded(
+                ErrorCode::PackageNeeded,
+                format!(
+                    "managed package {package_id} is required by {}; uninstall dependents first",
+                    needed_by.join(", ")
+                ),
+            ));
         }
         let forced = matches!(mode, RemovalMode::ModifiedOwned);
         let mut files: Vec<_> = package
@@ -205,16 +209,22 @@ impl Store {
             if forced {
                 let metadata = fs::symlink_metadata(&target)?;
                 if !metadata.is_file() || metadata.file_type().is_symlink() {
-                    bail!("unsafe owned target: {}", target.display());
+                    return Err(coded(
+                        ErrorCode::Conflict,
+                        format!("unsafe owned target: {}", target.display()),
+                    ));
                 }
                 f.sha256 = digest(&target)?;
                 f.bytes = metadata.len();
             }
             if !target.is_file() || digest(&target)? != f.sha256 {
-                bail!(
-                    "owned file missing or modified; refusing uninstall: {}",
-                    target.display()
-                );
+                return Err(coded(
+                    ErrorCode::Conflict,
+                    format!(
+                        "owned file missing or modified; refusing uninstall: {}",
+                        target.display()
+                    ),
+                ));
             }
         }
         for (index, root) in package.directories.iter().enumerate() {
@@ -225,7 +235,10 @@ impl Store {
                 || fs::symlink_metadata(quarantine_path(&roots.game, root, "preflight", index)?)
                     .is_ok()
             {
-                bail!("unsafe owned directory: {}", path.display());
+                return Err(coded(
+                    ErrorCode::Conflict,
+                    format!("unsafe owned directory: {}", path.display()),
+                ));
             }
             let identity = self.managed_directory_identity(package_id, root)?;
             super::directory::verify_directory(&path, &identity)?;
@@ -266,7 +279,10 @@ impl Store {
                 }
                 let target = roots.target(f.root, &f.destination)?;
                 if !target.is_file() || digest(&target)? != f.sha256 {
-                    bail!("owned file modified during uninstall: {}", target.display());
+                    return Err(coded(
+                        ErrorCode::Conflict,
+                        format!("owned file modified during uninstall: {}", target.display()),
+                    ));
                 }
                 let temp = temp_path(&target, &id, f.ordinal)?;
                 fs::hard_link(&target, &temp)?;
@@ -274,10 +290,13 @@ impl Store {
                     || digest(&temp)? != f.sha256
                     || digest(&target)? != f.sha256
                 {
-                    bail!(
-                        "owned file changed while backing it up: {}",
-                        target.display()
-                    );
+                    return Err(coded(
+                        ErrorCode::Conflict,
+                        format!(
+                            "owned file changed while backing it up: {}",
+                            target.display()
+                        ),
+                    ));
                 }
                 fs::remove_file(&target)?;
                 if fault.is_some_and(|fault| fault.after_files() == f.ordinal + 1) {

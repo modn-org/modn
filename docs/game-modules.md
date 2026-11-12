@@ -197,7 +197,9 @@ games:
 A library only proposes a folder. Modn then runs the module's `validate`
 policy with that folder as the only readable root, the same check as
 `game add --path`. A folder that the module does not confirm is reported as
-refused, with the reason. Detection writes nothing; see
+refused, with the reason. A registered module whose release cannot be read is
+reported as skipped, and detection still inspects the other games. Detection
+writes nothing; see
 [`modn game detect`](cli.md#game-detection).
 
 ## Launch targets
@@ -235,10 +237,12 @@ the selected installation is refused with `LAUNCH_TARGET_UNAVAILABLE`.
 `modn play` prefers a store URI when [`modn game detect`](cli.md#game-detection)
 shows that the selected folder came from the same store. Otherwise it starts
 the executable with the game folder as its working directory. A store URI opens
-through the Windows shell open handler. A module change to `launch` is a module
-release, so increment `version`. Modn 0.5.0 and earlier refuse the field as an
-unknown manifest field; the matching `main` bucket release ships only with a
-Modn release that reads it.
+through the Windows shell open handler. Play holds the transaction lock from the
+pending-transaction check until the process starts or the URI opens, so no
+install or uninstall can change the selected files in between. A module change
+to `launch` is a module release, so increment `version`. Modn 0.5.0 and earlier
+refuse the field as an unknown manifest field; the matching `main` bucket
+release ships only with a Modn release that reads it.
 
 ## Skyrim example
 

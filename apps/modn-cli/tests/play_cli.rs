@@ -8,9 +8,11 @@ mod main_bucket;
 
 use rusqlite::Connection;
 use serde_json::Value;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Child, Output, Stdio};
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 fn write(path: &Path, bytes: &[u8]) {
@@ -38,6 +40,24 @@ fn run(state: &Path, args: &[&str]) -> Output {
 fn error_code(output: &Output) -> String {
     let value: Value = serde_json::from_slice(&output.stderr).expect("JSON error");
     value["error"].as_str().expect("error code").to_owned()
+}
+
+fn wait_with_timeout(mut child: Child, timeout: Duration) -> Output {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait().expect("poll launch").is_some() {
+            return child.wait_with_output().expect("launch output");
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().expect("launch output");
+            panic!(
+                "modn play did not finish within {timeout:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        sleep(Duration::from_millis(100));
+    }
 }
 
 #[test]
@@ -232,4 +252,69 @@ return policy"#,
 
     assert!(!output.status.success());
     assert_eq!(error_code(&output), "LAUNCH_TARGET_UNAVAILABLE");
+}
+
+#[test]
+fn play_waits_for_the_transaction_lock_before_starting_the_game() {
+    let temp = tempfile::tempdir().expect("fixture");
+    let game = cyberpunk(&temp);
+    let state_dir = temp.path().join("outside");
+    let libraries = temp.path().join("libraries.json");
+    fs::write(&libraries, b"{}").expect("empty store libraries");
+    fs::copy(
+        main_bucket::modn_binary(),
+        game.join("bin/x64/Cyberpunk2077.exe"),
+    )
+    .expect("launchable fixture executable");
+    let game_path = game.to_str().expect("game path");
+    let registered = run(
+        &state_dir,
+        &["game", "add", "cyberpunk-2077", "--path", game_path],
+    );
+    assert!(
+        registered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&registered.stderr)
+    );
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(state_dir.join(".transactions.lock"))
+        .expect("transaction lock file");
+    lock.lock().expect("hold the transaction lock");
+
+    let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
+    command
+        .env_remove("MODN_GAME_MODULES_DIR")
+        .env("MODN_STORE_LIBRARIES", &libraries)
+        .arg("--state-dir")
+        .arg(&state_dir)
+        .args(["play", "cyberpunk-2077", "--path", game_path, "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().expect("run modn");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if child.try_wait().expect("poll play").is_some() {
+            let output = child.wait_with_output().expect("early play output");
+            panic!(
+                "play started before the transaction lock was released: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        sleep(Duration::from_millis(100));
+    }
+
+    drop(lock);
+    let output = wait_with_timeout(child, Duration::from_secs(20));
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON launch");
+    assert_eq!(report["target"]["kind"], "executable");
 }

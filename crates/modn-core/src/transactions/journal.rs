@@ -1,3 +1,4 @@
+use crate::error::{coded, ErrorCode};
 use crate::state::{record_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
@@ -166,7 +167,10 @@ impl Store {
             |row| row.get(0),
         )?;
         if count > 0 {
-            bail!("unfinished transaction detected; run 'modn recover' before another write");
+            return Err(coded(
+                ErrorCode::PendingTransaction,
+                "unfinished transaction detected; run 'modn recover' before another write",
+            ));
         }
         Ok(())
     }

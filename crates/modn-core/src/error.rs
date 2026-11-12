@@ -81,6 +81,8 @@ pub enum ErrorCode {
     ModNotFound,
     /// A module declares an invalid launch target.
     ModuleLaunchTargetInvalid,
+    /// A module declares a store identity that is not valid.
+    ModuleStoreIdInvalid,
     /// A native-injector package needs `--allow-native-injector`.
     NativeInjectorNotAllowed,
     /// Another installed package needs the selected package.
@@ -177,6 +179,7 @@ impl ErrorCode {
         Self::LaunchTargetUnsafe,
         Self::ModNotFound,
         Self::ModuleLaunchTargetInvalid,
+        Self::ModuleStoreIdInvalid,
         Self::NativeInjectorNotAllowed,
         Self::PackageNeeded,
         Self::PackageNotFound,
@@ -245,6 +248,7 @@ impl ErrorCode {
             Self::LaunchTargetUnsafe => "LAUNCH_TARGET_UNSAFE",
             Self::ModNotFound => "MOD_NOT_FOUND",
             Self::ModuleLaunchTargetInvalid => "MODULE_LAUNCH_TARGET_INVALID",
+            Self::ModuleStoreIdInvalid => "MODULE_STORE_ID_INVALID",
             Self::NativeInjectorNotAllowed => "NATIVE_INJECTOR_NOT_ALLOWED",
             Self::PackageNeeded => "PACKAGE_NEEDED",
             Self::PackageNotFound => "PACKAGE_NOT_FOUND",
