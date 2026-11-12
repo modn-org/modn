@@ -93,6 +93,9 @@ The undo refuses before any change in these cases:
   second undo of the same target is refused for the same reason.
 - The target release has a `manual` source, so Modn has no URL to fetch again.
   Install the archive with `modn install --file` instead.
+- The target release has a `git` or `nexus` source and its archive is no
+  longer cached. Undo restores these releases only from the archive cache; a
+  Nexus download needs a new nxm link. Reinstall the release from the catalog.
 - A restored archive does not match the recorded SHA-256, or the current game
   policy maps the release to other files than the record.
 - A package is pinned, another installed package needs it, an unfinished

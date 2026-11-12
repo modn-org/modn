@@ -61,6 +61,17 @@ fn https(url: &str) -> Value {
     json!({"kind": "https", "url": url})
 }
 
+fn nexus() -> Value {
+    json!({
+        "kind": "nexus", "game_domain": "testgame", "mod_id": 12,
+        "file_id": 34, "file_name": "example.zip"
+    })
+}
+
+fn nexus_url() -> &'static str {
+    "nexus://testgame/mods/12/files/34/example.zip"
+}
+
 /// Put `archive` where the undo cache lookup expects it, without a download.
 fn cache(fixture: &Fixture, id: &str, version: &str, url: &str, archive: &Path) {
     let root = fixture.state.join("cache");
@@ -209,6 +220,77 @@ fn undo_uninstall_restores_the_recorded_release() {
         operations[0]["packages"][0]["release_after"]["version"],
         "1.0"
     );
+}
+
+#[test]
+fn undo_uninstall_restores_a_nexus_release_from_the_cache() {
+    let fixture = Fixture::new();
+    let (archive, digest) = archive(&fixture, "nexus", &[("example.plugin", "one")]);
+    fixture.bucket("deps", "test-game", "example", &digest, &[]);
+    manifest(&fixture, "example", "1.0", &digest, nexus());
+    cache(&fixture, "example", "1.0", nexus_url(), &archive);
+    fixture.register();
+    let installed = install(&fixture, "example", &[]);
+    assert!(installed.status.success(), "{}", error(&installed));
+    let addon = fixture.game.join("addons/example.plugin");
+    assert!(fixture
+        .run(&["uninstall", "example", "--yes"])
+        .status
+        .success());
+    assert!(!addon.exists());
+
+    let uninstall = history(&fixture)[0].clone();
+    assert_eq!(
+        uninstall["packages"][0]["release_before"]["archive_sha256"],
+        digest
+    );
+    let target = id_of(&uninstall);
+    let undone = fixture.run(&["--json", "undo", &target, "--yes"]);
+    assert!(undone.status.success(), "{}", error(&undone));
+    assert_eq!(fs::read_to_string(&addon).expect("restored"), "one");
+
+    let operations = history(&fixture);
+    assert_eq!(operations[0]["kind"], "install");
+    assert_eq!(operations[0]["undoes"], target);
+    assert_eq!(
+        operations[0]["packages"][0]["files"][0]["digest_after"],
+        uninstall["packages"][0]["files"][0]["digest_before"]
+    );
+}
+
+#[test]
+fn undo_uninstall_refuses_a_nexus_release_when_the_archive_is_not_cached() {
+    let fixture = Fixture::new();
+    let (archive, digest) = archive(&fixture, "nexus", &[("example.plugin", "one")]);
+    fixture.bucket("deps", "test-game", "example", &digest, &[]);
+    manifest(&fixture, "example", "1.0", &digest, nexus());
+    cache(&fixture, "example", "1.0", nexus_url(), &archive);
+    fixture.register();
+    let installed = install(&fixture, "example", &[]);
+    assert!(installed.status.success(), "{}", error(&installed));
+    assert!(fixture
+        .run(&["uninstall", "example", "--yes"])
+        .status
+        .success());
+    let target = id_of(&history(&fixture)[0]);
+    fs::remove_dir_all(fixture.state.join("cache")).expect("clear cache");
+
+    let before_history = history(&fixture);
+    let before_packages = json_of(&fixture.run(&["--json", "list"]));
+    let marker = fs::read(fixture.game.join("bin/TestGame.exe")).expect("game marker");
+    let refused = fixture.run(&["--json", "undo", &target, "--yes"]);
+    assert!(!refused.status.success());
+    assert_eq!(error_code(&refused), "UNDO_FAILED");
+    let message = error(&refused);
+    assert!(message.contains("no longer cached"), "{message}");
+    assert!(message.contains("nxm"), "{message}");
+    assert_eq!(history(&fixture), before_history);
+    assert_eq!(json_of(&fixture.run(&["--json", "list"])), before_packages);
+    assert_eq!(
+        fs::read(fixture.game.join("bin/TestGame.exe")).expect("marker"),
+        marker
+    );
+    assert!(!fixture.game.join("addons/example.plugin").exists());
 }
 
 #[test]

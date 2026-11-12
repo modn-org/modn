@@ -8,7 +8,9 @@ use crate::nexus_auth;
 use crate::nxm::NxmLink;
 use crate::progress::Progress;
 use anyhow::{bail, Context, Result};
-use modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse, GithubReleaseAsset, NexusFile};
+use modn_core::acquisition::{
+    ArchiveCache, CacheKey, CacheUse, GitCacheKey, GithubReleaseAsset, NexusFile,
+};
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -140,7 +142,8 @@ pub(super) fn digest<'a>(
 /// Acquire the archive of one recorded release source for undo.
 ///
 /// A verified cache entry needs no network. A `manual` source is refused
-/// before this call; `git` and `nexus` need the original invocation.
+/// before this call. `git` and `nexus` sources are restored only from the
+/// archive cache; a miss refuses before any change.
 pub(super) fn acquire_source(
     cache: &ArchiveCache,
     game_id: &str,
@@ -164,11 +167,29 @@ pub(super) fn acquire_source(
             }
             url
         }
-        PackageSource::Nexus { .. } | PackageSource::Git { .. } => {
-            return Err(modn_core::error::coded(
-                modn_core::error::ErrorCode::UndoFailed,
-                "this release source cannot be fetched by undo; install it again from the catalog",
-            ));
+        PackageSource::Git { commit, .. } => {
+            let key = GitCacheKey::new(game_id, mod_id, version, commit);
+            return match cache.git_cached(&key)? {
+                Some((path, cached)) if cached == sha256 => Ok(path),
+                _ => Err(cache_miss(
+                    "this git release cannot be fetched again; reinstall it from the catalog",
+                )),
+            };
+        }
+        PackageSource::Nexus {
+            game_domain,
+            mod_id: nexus_mod_id,
+            file_id,
+            file_name,
+        } => {
+            let url = NexusFile::new(game_domain, *nexus_mod_id, *file_id, file_name)?.cache_url();
+            let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+            return match cache.cached(&key)? {
+                Some(path) => Ok(path),
+                None => Err(cache_miss(
+                    "a Nexus download needs a new nxm link; reinstall it from the catalog",
+                )),
+            };
         }
         PackageSource::Manual { .. } => {
             return Err(modn_core::error::coded(
@@ -187,6 +208,13 @@ pub(super) fn acquire_source(
         fetch_measured,
     )?;
     Ok(acquired.path)
+}
+
+fn cache_miss(detail: &str) -> anyhow::Error {
+    modn_core::error::coded(
+        modn_core::error::ErrorCode::UndoFailed,
+        format!("the recorded archive is no longer cached and {detail}"),
+    )
 }
 
 pub(super) fn add_cached<'a>(
