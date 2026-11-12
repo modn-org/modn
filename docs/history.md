@@ -117,9 +117,12 @@ History lives in `state.sqlite`:
 | `history_files` | One row per owned file with before/after SHA-256 digests. |
 | `managed_package_releases` | Release version, source descriptor and archive BLAKE3 for each installed package, so a later update or uninstall can record the side it removes. |
 
-These tables are additive. The state schema version stays 4 and old state
-opens unchanged; packages installed before these tables existed have no
-recorded release metadata, and their removal records the archive SHA-256
+These tables are additive and add no schema version of their own. A writable
+open creates them when they are missing, and it also creates the approvals
+table, so the manager schema version of state that this build writes is 5 (see
+[the data model](data-model.md#approvals-schema-version-5)). An older Modn
+build refuses that state. Packages installed before these tables existed have
+no recorded release metadata, and their removal records the archive SHA-256
 without version or source.
 
 The record is inserted in the same SQLite transaction that changes ownership:
