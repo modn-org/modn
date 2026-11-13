@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 #[tauri::command]
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "The webview contract names every approval and run field explicitly"
 )]
@@ -21,14 +21,19 @@ pub(crate) async fn install_archive(
     path: String,
     archive: String,
     allow_native_injector: bool,
-    allow_executable: bool,
+    allow_executables: Vec<String>,
     run_id: String,
 ) -> Result<Value, CommandError> {
     let backend = state.backend()?;
     let game = installation(game_id, path);
     let archive = PathBuf::from(archive);
-    let (plan, archive) = if allow_native_injector || allow_executable {
-        let dry_run = args::install_archive_dry_run(&game, &archive, allow_native_injector);
+    let (plan, archive) = if allow_native_injector || !allow_executables.is_empty() {
+        let dry_run = args::install_archive_dry_run(
+            &game,
+            &archive,
+            allow_native_injector,
+            &allow_executables,
+        )?;
         let backend = backend.clone();
         let plan = run_blocking(&state.busy, move || backend.call(&dry_run)).await?;
         (plan, archive)
@@ -45,17 +50,13 @@ pub(crate) async fn install_archive(
     if !reviewable(&plan) {
         return Err(plan_blocked().into());
     }
-    let executables = if allow_executable {
-        declared_executables(&plan)
-    } else {
-        Vec::new()
-    };
-    let commit = args::install_archive_commit(&game, &archive, allow_native_injector, &executables);
+    let commit =
+        args::install_archive_commit(&game, &archive, allow_native_injector, &allow_executables)?;
     run_write(&app, &state, run_id, commit).await
 }
 
 #[tauri::command]
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "The webview contract names every approval and run field explicitly"
 )]
@@ -66,20 +67,12 @@ pub(crate) async fn install_mod(
     path: String,
     mod_id: String,
     allow_native_injector: bool,
-    allow_executable: bool,
+    allow_executables: Vec<String>,
     run_id: String,
 ) -> Result<Value, CommandError> {
-    let backend = state.backend()?;
     let game = installation(game_id, path);
-    let executables = if allow_executable {
-        let dry_run = args::install_mod_dry_run(&game, &mod_id, allow_native_injector);
-        let backend = backend.clone();
-        let plan = run_blocking(&state.busy, move || backend.call(&dry_run)).await?;
-        declared_executables(&plan)
-    } else {
-        Vec::new()
-    };
-    let commit = args::install_mod_commit(&game, &mod_id, allow_native_injector, &executables);
+    let commit =
+        args::install_mod_commit(&game, &mod_id, allow_native_injector, &allow_executables)?;
     run_write(&app, &state, run_id, commit).await
 }
 
@@ -97,15 +90,26 @@ pub(crate) async fn uninstall(
 }
 
 #[tauri::command]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The webview contract names every approval and run field explicitly"
+)]
 pub(crate) async fn update(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     game_id: String,
     path: String,
     package_id: String,
+    allow_native_injector: bool,
+    allow_executables: Vec<String>,
     run_id: String,
 ) -> Result<Value, CommandError> {
-    let commit = args::update(&installation(game_id, path), &package_id);
+    let commit = args::update(
+        &installation(game_id, path),
+        &package_id,
+        allow_native_injector,
+        &allow_executables,
+    )?;
     run_write(&app, &state, run_id, commit).await
 }
 
@@ -117,47 +121,4 @@ pub(crate) fn cancel_run(
 ) -> Result<(), CommandError> {
     state.runs.cancel(&run_id);
     Ok(())
-}
-
-/// Reads executable paths that the dry run reports as uncovered. The UI never
-/// supplies these paths; they come from the CLI plan.
-fn declared_executables(plan: &Value) -> Vec<String> {
-    let mut paths = Vec::new();
-    let uncovered = plan
-        .get("approval")
-        .and_then(|approval| approval.get("uncovered"))
-        .and_then(|uncovered| uncovered.get("executables"));
-    for values in [uncovered, plan.get("unapproved_declared_executables")] {
-        if let Some(items) = values.and_then(Value::as_array) {
-            for item in items {
-                if let Some(path) = item.as_str()
-                    && !path.is_empty()
-                {
-                    paths.push(path.to_string());
-                }
-            }
-        }
-    }
-    paths.sort();
-    paths.dedup();
-    paths
-}
-
-#[cfg(test)]
-mod tests {
-    use super::declared_executables;
-    use serde_json::json;
-
-    #[test]
-    fn executables_come_from_both_plan_shapes_without_duplicates() {
-        let plan = json!({
-            "approval": {"uncovered": {"executables": ["bin/b.exe", "bin/a.exe"]}},
-            "unapproved_declared_executables": ["bin/a.exe", "bin/c.exe"]
-        });
-        assert_eq!(
-            declared_executables(&plan),
-            vec!["bin/a.exe", "bin/b.exe", "bin/c.exe"]
-        );
-        assert!(declared_executables(&json!({})).is_empty());
-    }
 }

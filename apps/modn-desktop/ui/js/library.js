@@ -101,7 +101,7 @@ export async function render(root, ctx) {
         path: ctx.path,
         archive: params.archive,
         allowNativeInjector: approvals.native,
-        allowExecutable: approvals.executable,
+        allowExecutables: approvals.executables,
         runId,
       }),
     onSettled: refresh,

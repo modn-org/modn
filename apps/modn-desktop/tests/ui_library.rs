@@ -104,6 +104,24 @@ fn op_button_handles_progress_cancel_and_approval() {
         op.contains("showUndoToast") && op.contains("undoLatest"),
         "a finished operation must offer Undo"
     );
+    assert!(
+        op.contains("uncovered.executables"),
+        "op-button.js must read uncovered.executables from a refusal or plan"
+    );
+    let sources = js(&ui_sources());
+    assert!(
+        sources.contains("allowExecutables: approvals.executables"),
+        "the Allow flow must send allowExecutables"
+    );
+    assert!(
+        !sources.contains("allowExecutable: approvals.executable"),
+        "no wrapper may still send a boolean allowExecutable"
+    );
+    let tile = read("ui/js/library/tile.js");
+    assert!(
+        tile.contains("planInstall("),
+        "install and update must read uncovered items from the install plan"
+    );
     let data = read("ui/js/library/data.js");
     assert!(
         data.contains("installedPackage") && data.contains("visibleModels"),

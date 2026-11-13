@@ -1,4 +1,4 @@
-import { history, installMod, undo, uninstall, update } from '../api.js';
+import { history, installMod, planInstall, undo, uninstall, update } from '../api.js';
 import { createOperationButton } from '../op-button.js';
 import { element, detailsHref, initials } from './dom.js';
 
@@ -96,11 +96,19 @@ export function createTile(model, ctx, { onChanged }) {
           label: 'Update',
           action: 'Update',
           ariaLabel: `Update ${model.name}`,
-          run: ({ runId }) =>
+          plan: () =>
+            planInstall({
+              gameId: ctx.gameId,
+              path: ctx.path,
+              modId: model.modId,
+            }),
+          run: ({ runId, approvals }) =>
             update({
               gameId: ctx.gameId,
               path: ctx.path,
               packageId: installed.id,
+              allowNativeInjector: approvals.native,
+              allowExecutables: approvals.executables,
               runId,
             }),
         }).element,
@@ -113,13 +121,19 @@ export function createTile(model, ctx, { onChanged }) {
         label: 'Install',
         action: 'Install',
         ariaLabel: `Install ${model.name}`,
+        plan: () =>
+          planInstall({
+            gameId: ctx.gameId,
+            path: ctx.path,
+            modId: model.modId,
+          }),
         run: ({ runId, approvals }) =>
           installMod({
             gameId: ctx.gameId,
             path: ctx.path,
             modId: model.modId,
             allowNativeInjector: approvals.native,
-            allowExecutable: approvals.executable,
+            allowExecutables: approvals.executables,
             runId,
           }),
       }).element,

@@ -22,7 +22,7 @@ const BLOCKED_CODES = new Set([
   'PENDING_TRANSACTION',
 ]);
 
-const NO_APPROVAL = { native: false, executable: false };
+const NO_APPROVAL = { native: false, executables: [] };
 
 /**
  * @param {unknown} error
@@ -37,20 +37,50 @@ function codeOf(error) {
 }
 
 /**
- * Reads the approval flags a refusal names. The CLI stores an approval only
- * after a committed write, so a declined ask never passes these.
+ * Finds approval details on a refusal or an install plan.
+ * @param {unknown} value
+ * @returns {{native_injector?: boolean, executables?: string[]}|null}
+ */
+function uncoveredIn(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const direct = value.uncovered;
+  if (direct && typeof direct === 'object') {
+    return direct;
+  }
+  const approval = value.approval;
+  if (approval && typeof approval === 'object' && approval.uncovered) {
+    return approval.uncovered;
+  }
+  return null;
+}
+
+/**
+ * Reads the exact items a refusal names, or falls back to the read-only
+ * install plan when the refusal carried no details. The CLI stores an approval
+ * only after a committed write, so a declined ask never passes these.
  * @param {unknown} error
  * @param {string} code
- * @returns {{native: boolean, executable: boolean}}
+ * @param {(() => Promise<Object|null>)|null} plan
+ * @returns {Promise<{native: boolean, executables: string[]}>}
  */
-function approvalsFrom(error, code) {
-  const uncovered =
-    error && typeof error === 'object' && error.uncovered && typeof error.uncovered === 'object'
-      ? error.uncovered
-      : {};
-  const executables = Array.isArray(uncovered.executables) ? uncovered.executables : [];
-  const native = Boolean(uncovered.native_injector) || code === 'NATIVE_INJECTOR_NOT_ALLOWED';
-  return { native, executable: executables.length > 0 };
+async function approvalsFrom(error, code, plan) {
+  let uncovered = uncoveredIn(error);
+  if (!uncovered && plan) {
+    try {
+      uncovered = uncoveredIn(await plan());
+    } catch {
+      uncovered = null;
+    }
+  }
+  const executables =
+    uncovered && Array.isArray(uncovered.executables)
+      ? uncovered.executables.filter((path) => typeof path === 'string' && path.length > 0)
+      : [];
+  const native = Boolean(uncovered && uncovered.native_injector)
+    || code === 'NATIVE_INJECTOR_NOT_ALLOWED';
+  return { native, executables };
 }
 
 /**
@@ -117,9 +147,11 @@ function renderAsk(host, question, onAllow, onDecline) {
  * @param {{
  *   label: string,
  *   action: string,
- *   run: (args: {runId: string, params: Object, approvals: {native: boolean, executable: boolean},
+ *   run: (args: {runId: string, params: Object,
+ *     approvals: {native: boolean, executables: string[]},
  *     operationId?: string}) => Promise<unknown>,
  *   prepare?: () => Promise<Object|null>,
+ *   plan?: () => Promise<Object|null>,
  *   askHost?: HTMLElement|null,
  *   newestOperation?: () => Promise<{id: string}|null>,
  *   runUndo?: (args: {runId: string, operationId: string}) => Promise<unknown>,
@@ -144,6 +176,7 @@ export function createOperationButton(options) {
     action,
     run,
     prepare = null,
+    plan = null,
     askHost = null,
     newestOperation = null,
     runUndo = null,
@@ -335,7 +368,10 @@ export function createOperationButton(options) {
           await onSettled();
         }
       } else if (code === 'APPROVAL_REQUIRED' || code === 'NATIVE_INJECTOR_NOT_ALLOWED') {
-        approvals = approvalsFrom(error, code);
+        approvals = await approvalsFrom(error, code, askHost ? plan : null);
+        if (generationAtStart !== generation || destroyed) {
+          return;
+        }
         setIdle(active.idleLabel);
         if (askHost) {
           renderAsk(
