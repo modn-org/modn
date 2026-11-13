@@ -11,6 +11,18 @@
     "allow-catalog",
     "allow-pick-archive",
     "allow-install-archive",
-    "allow-uninstall"
+    "allow-uninstall",
+    "allow-install-mod",
+    "allow-plan-install",
+    "allow-update",
+    "allow-history",
+    "allow-undo",
+    "allow-detect-games",
+    "allow-activate-game",
+    "allow-add-game",
+    "allow-remove-game",
+    "allow-play",
+    "allow-diagnostics",
+    "allow-cancel-run"
   ]
 }

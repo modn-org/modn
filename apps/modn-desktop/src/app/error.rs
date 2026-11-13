@@ -1,3 +1,4 @@
+use crate::backend::{BackendError, BackendErrorKind};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -27,6 +28,15 @@ impl From<anyhow::Error> for CommandError {
     fn from(error: anyhow::Error) -> Self {
         let code = classify(&error);
         Self::new(&code)
+    }
+}
+
+impl From<BackendError> for CommandError {
+    fn from(error: BackendError) -> Self {
+        if error.kind() == BackendErrorKind::Timeout {
+            return Self::new("BACKEND_TIMEOUT");
+        }
+        Self::new(error.code().unwrap_or("BACKEND_FAILED"))
     }
 }
 

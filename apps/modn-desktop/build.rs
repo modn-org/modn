@@ -6,6 +6,18 @@ const COMMANDS: &[&str] = &[
     "pick_archive",
     "install_archive",
     "uninstall",
+    "install_mod",
+    "plan_install",
+    "update",
+    "history",
+    "undo",
+    "detect_games",
+    "activate_game",
+    "add_game",
+    "remove_game",
+    "play",
+    "diagnostics",
+    "cancel_run",
 ];
 
 fn main() {
