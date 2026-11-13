@@ -179,7 +179,9 @@ then kills the process. After the commit event no inactivity kill applies. A
 call that times out returns `BACKEND_TIMEOUT`.
 
 Read-only calls keep their 60-second deadline and a 1 MiB bound per output
-stream. A call that exceeds either bound is killed and reported.
+stream. The game registration calls (activate, add and remove a game) also use
+this deadline; they write manager state only. A call that exceeds either bound
+is killed and reported.
 
 The archive check accepts a regular ZIP or 7z file up to 4 GiB. The app hashes
 the archive and runs the dry run. It checks that plan and the digest again
