@@ -43,13 +43,43 @@ pub(super) fn cached(cache: &ArchiveCache, release: &BucketPackage) -> Result<Op
         .map(|(path, sha256)| GitArchive { path, sha256 }))
 }
 
+/// Names of the cache entries a fetch of `key` may replace.
+///
+/// A Git entry name ends with `git-<commit>-<sha256>.zip`, so a probe path with
+/// a placeholder digest yields the prefix shared by entries of this release.
+fn entry_names(cache: &ArchiveCache, key: &GitCacheKey<'_>) -> Result<Vec<String>> {
+    let placeholder = "0".repeat(64);
+    let probe = cache.git_path(key, &placeholder);
+    let Some(name) = probe
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(prefix) = name.strip_suffix(&format!("{placeholder}.zip")) else {
+        return Ok(Vec::new());
+    };
+    Ok(cache
+        .entries(None)?
+        .into_iter()
+        .filter_map(|entry| {
+            entry
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| name.starts_with(prefix))
+        .collect())
+}
+
 /// Return a verified cached archive or fetch and pack the pinned commit.
 ///
 /// A fetch reports one `download` phase for the package. The phase starts at
 /// zero bytes, and ends with the packed archive size. A cancellation before
 /// the fetch starts returns [`modn_core::progress::Cancelled`] without running
 /// Git. A cancellation observed after the fetch and pack finishes removes the
-/// new cache entry, so a cancelled install changes no cache state.
+/// newly fetched cache entry, or keeps a previous entry it replaced, so a
+/// cancelled install changes no cache state for either cache use.
 pub(super) fn acquire(
     cache: &ArchiveCache,
     release: &BucketPackage,
@@ -72,14 +102,23 @@ pub(super) fn acquire(
         bytes: 0,
         total: None,
     })?;
+    let previous = entry_names(cache, &key)?;
     let acquired = source.acquire(cache, &key, cache_use)?;
     let archive = GitArchive {
         path: acquired.path,
         sha256: acquired.sha256,
     };
     if let Err(cancelled) = control.checkpoint() {
-        if cache_use == CacheUse::Reuse && acquired.origin == Origin::Download {
-            let _ = fs::remove_file(&archive.path);
+        if acquired.origin == Origin::Download {
+            let replaced = archive.path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                previous.iter().any(|old| old.as_str() == name.as_ref())
+            });
+            // An entry with the new name holds the digest that name records,
+            // so keeping it preserves the bytes of the entry it replaced.
+            if !replaced {
+                let _ = fs::remove_file(&archive.path);
+            }
         }
         return Err(cancelled.into());
     }
