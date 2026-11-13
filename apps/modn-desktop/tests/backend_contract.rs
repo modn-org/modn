@@ -213,6 +213,49 @@ fn cancel_before_commit_returns_cancelled_and_writes_nothing() {
 }
 
 #[test]
+fn a_stalled_cancel_keeps_the_pre_commit_inactivity_deadline() {
+    let f = Fixture::new();
+    let args = f.progress_args("stall-after-cancel");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_millis(200));
+    let cancel = CancelToken::new();
+    let start = Instant::now();
+    let error = backend
+        .call_with_progress(&args, &cancel, &mut |event| {
+            if event.phase == "stage" {
+                cancel.cancel();
+            }
+        })
+        .expect_err("a step that stalls after a cancel must not wait forever");
+    assert_eq!(error.kind(), BackendErrorKind::Cancelled);
+    assert_eq!(error.code(), Some("CANCELLED"));
+    assert!(
+        start.elapsed() < Duration::from_secs(25),
+        "the pre-commit inactivity deadline must still end a stalled cancel"
+    );
+    f.no_write();
+}
+
+#[test]
+fn an_oversized_result_after_commit_reports_a_committed_outcome() {
+    let f = Fixture::new();
+    let args = f.progress_args("oversized-after-commit");
+    let error = f
+        .backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect_err("an unreadable result must still report the commit");
+    assert_eq!(error.kind(), BackendErrorKind::Committed);
+    assert_eq!(error.code(), Some("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT"));
+    assert!(f.backend.state.join("write.json").is_file());
+    assert!(
+        f.backend.state.join("survived-after-output").is_file(),
+        "a committed writer must never be killed for output size"
+    );
+}
+
+#[test]
 fn cancel_after_commit_lets_the_operation_finish() {
     let f = Fixture::new();
     let args = f.progress_args("hang-after-commit");

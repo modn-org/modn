@@ -108,12 +108,20 @@ impl ProgressEvent {
 enum StderrItem {
     Event(ProgressEvent),
     ErrorCode(String),
-    Done { failed: bool },
+    /// The stream passed the output bound; the reader keeps draining it.
+    Oversized,
+    Done {
+        failed: bool,
+    },
 }
 
-struct StdoutItem {
-    bytes: Vec<u8>,
-    failed: bool,
+enum StdoutItem {
+    /// The stream passed the output bound; the reader keeps draining it.
+    Oversized,
+    Done {
+        bytes: Vec<u8>,
+        failed: bool,
+    },
 }
 
 /// Starts the configured CLI with the fixed argument prefix.
@@ -225,6 +233,7 @@ pub(super) fn call(
 
     let mut stdin = stdin;
     let mut cancel_sent = false;
+    let mut user_cancelled = false;
     let mut committed = false;
     let mut timed_out = false;
     let mut killed = false;
@@ -233,6 +242,9 @@ pub(super) fn call(
     let mut stdout_done = false;
     let mut stdout_bytes = None;
     let mut stream_failed = false;
+    let mut truncated = false;
+    let mut stdout_truncated = false;
+    let mut stdout_failed = false;
     let mut error_code = None;
 
     let status = loop {
@@ -251,6 +263,7 @@ pub(super) fn call(
                     on_event(event);
                 }
                 StderrItem::ErrorCode(code) => error_code = Some(code),
+                StderrItem::Oversized => truncated = true,
                 StderrItem::Done { failed } => {
                     stderr_done = true;
                     stream_failed |= failed;
@@ -258,25 +271,40 @@ pub(super) fn call(
             }
         }
         while let Ok(item) = stdout_rx.try_recv() {
-            stdout_done = true;
-            if item.failed || item.bytes.len() as u64 > OUTPUT_LIMIT {
-                stream_failed = true;
-            } else {
-                stdout_bytes = Some(item.bytes);
+            match item {
+                StdoutItem::Oversized => {
+                    truncated = true;
+                    stdout_truncated = true;
+                }
+                StdoutItem::Done { bytes, failed } => {
+                    stdout_done = true;
+                    if failed {
+                        stream_failed = true;
+                        stdout_failed = true;
+                    } else if !stdout_truncated {
+                        stdout_bytes = Some(bytes);
+                    }
+                }
             }
         }
         if !cancel_sent && cancel.is_cancelled() {
             send_cancel(&mut stdin);
             cancel_sent = true;
+            user_cancelled = true;
         }
-        if !committed && !cancel_sent && timeout_deadline.is_none() {
+        // A cancel stops the CLI from starting new work, but a step already
+        // past its last progress event can still stall. Keep the pre-commit
+        // inactivity deadline armed so a silent step cannot block forever.
+        if !committed && timeout_deadline.is_none() {
             let idle = start
                 .elapsed()
                 .saturating_sub(Duration::from_millis(activity.load(Ordering::Relaxed)));
             if idle >= timeout {
-                send_cancel(&mut stdin);
-                cancel_sent = true;
-                timed_out = true;
+                if !cancel_sent {
+                    send_cancel(&mut stdin);
+                    cancel_sent = true;
+                    timed_out = true;
+                }
                 timeout_deadline = Some(Instant::now() + CANCEL_GRACE);
             }
         }
@@ -285,7 +313,11 @@ pub(super) fn call(
             killed = true;
             timeout_deadline = None;
         }
-        if stream_failed {
+        // The readers keep draining after an oversized stream, so this kill is
+        // what stops an unbounded or unreadable writer before the commit.
+        // Never kill after the commit event: the files are installed and the
+        // result is recoverable.
+        if !committed && (truncated || stream_failed) {
             let _ = child.kill();
         }
         match child.try_wait() {
@@ -301,14 +333,29 @@ pub(super) fn call(
     };
     drop(stdin);
 
-    if killed || (timed_out && !committed) {
-        return Err(BackendError::timeout(timeout));
+    if committed {
+        if stdout_truncated || stdout_failed {
+            return Err(BackendError::output_after_commit());
+        }
+        if !status.success() {
+            return Err(BackendError::refused(status, error_code));
+        }
+        let bytes = stdout_bytes.ok_or_else(BackendError::output_after_commit)?;
+        let stdout = String::from_utf8_lossy(&bytes);
+        return serde_json::from_str(&stdout).map_err(|_| BackendError::invalid_json());
     }
-    if stream_failed {
+    if killed || timed_out {
+        return Err(if user_cancelled {
+            BackendError::cancelled()
+        } else {
+            BackendError::timeout(timeout)
+        });
+    }
+    if stream_failed || truncated {
         return Err(BackendError::output());
     }
     if !status.success() {
-        if cancel.is_cancelled() && !committed {
+        if user_cancelled || cancel.is_cancelled() {
             return Err(BackendError::cancelled());
         }
         return Err(BackendError::refused(status, error_code));
@@ -336,10 +383,11 @@ fn read_stderr(
     let mut reader = BufReader::new(stderr);
     let mut pending = Vec::new();
     let mut chunk = [0_u8; CHUNK];
+    let mut discarding = false;
     loop {
         match reader.read(&mut chunk) {
             Ok(0) => {
-                if !pending.is_empty() {
+                if !discarding && !pending.is_empty() {
                     emit_line(&pending, &tx);
                 }
                 let _ = tx.send(StderrItem::Done { failed: false });
@@ -347,14 +395,18 @@ fn read_stderr(
             }
             Ok(count) => {
                 touch(&activity, start);
+                if discarding {
+                    continue;
+                }
                 pending.extend_from_slice(&chunk[..count]);
                 while let Some(index) = pending.iter().position(|byte| *byte == b'\n') {
                     let line: Vec<u8> = pending.drain(..=index).collect();
                     emit_line(&line, &tx);
                 }
                 if pending.len() as u64 > OUTPUT_LIMIT {
-                    let _ = tx.send(StderrItem::Done { failed: true });
-                    return;
+                    pending.clear();
+                    discarding = true;
+                    let _ = tx.send(StderrItem::Oversized);
                 }
             }
             Err(_) => {
@@ -387,24 +439,40 @@ fn read_stdout(
     activity: Arc<AtomicU64>,
     start: Instant,
 ) {
-    let mut reader = stdout.take(OUTPUT_LIMIT + 1);
+    let mut reader = stdout;
     let mut bytes = Vec::new();
     let mut chunk = [0_u8; CHUNK];
-    let mut failed = false;
+    let mut oversized = false;
     loop {
         match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(count) => {
                 touch(&activity, start);
+                if oversized {
+                    continue;
+                }
                 bytes.extend_from_slice(&chunk[..count]);
+                if bytes.len() as u64 > OUTPUT_LIMIT {
+                    // Keep the pipe moving so a writer that committed is not
+                    // blocked, and free the unusable result as it arrives.
+                    oversized = true;
+                    bytes = Vec::new();
+                    let _ = tx.send(StdoutItem::Oversized);
+                }
             }
             Err(_) => {
-                failed = true;
-                break;
+                let _ = tx.send(StdoutItem::Done {
+                    bytes: Vec::new(),
+                    failed: true,
+                });
+                return;
             }
         }
     }
-    let _ = tx.send(StdoutItem { bytes, failed });
+    let _ = tx.send(StdoutItem::Done {
+        bytes,
+        failed: false,
+    });
 }
 
 #[cfg(all(test, windows))]
