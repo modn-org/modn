@@ -34,9 +34,14 @@ export function mergeLibrary(entries, packages) {
       manual.push(pkg);
     }
   }
+  /** @type {Set<string>} */
+  const matched = new Set();
   /** @type {LibraryModel[]} */
   const models = entries.map((entry) => {
     const pkg = installed.get(entry.id) || null;
+    if (pkg) {
+      matched.add(entry.id);
+    }
     return {
       key: `catalog-${entry.bucket || 'main'}-${entry.id}`,
       modId: entry.id,
@@ -48,6 +53,22 @@ export function mergeLibrary(entries, packages) {
       installedPackage: pkg,
     };
   });
+  for (const [modId, pkg] of installed) {
+    if (matched.has(modId)) {
+      continue;
+    }
+    const catalog = pkg.catalog && typeof pkg.catalog === 'object' ? pkg.catalog : null;
+    models.push({
+      key: `package-${pkg.id}`,
+      modId,
+      name: modId,
+      version: pkg.version || '',
+      bucket: catalog ? catalog.bucket : '',
+      nativeInjector: false,
+      hasUpdate: false,
+      installedPackage: pkg,
+    });
+  }
   for (const pkg of manual) {
     models.push({
       key: `manual-${pkg.id}`,

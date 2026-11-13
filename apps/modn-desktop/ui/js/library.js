@@ -27,6 +27,8 @@ export async function render(root, ctx) {
     query: '',
     loadToken: 0,
   };
+  /** @type {Map<string, {button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} */
+  const operations = new Map();
   const view = element('div', 'modn-view modn-library');
   const header = element('header', 'modn-view__header modn-library__hero');
   const titles = element('div', 'modn-row__text');
@@ -203,7 +205,7 @@ export async function render(root, ctx) {
       return;
     }
     for (const model of visible) {
-      grid.append(createTile(model, ctx, { onChanged: refresh }));
+      grid.append(createTile(model, ctx, { onChanged: refresh, operations }));
     }
   }
 

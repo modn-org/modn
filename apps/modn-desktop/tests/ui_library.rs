@@ -201,6 +201,73 @@ fn library_css_uses_tokens_and_fills_the_grid() {
 }
 
 #[test]
+fn catalog_less_installed_packages_stay_in_the_grid() {
+    let data = read("ui/js/library/data.js");
+    assert!(
+        data.contains("const matched = new Set()"),
+        "mergeLibrary must remember which packages a catalog entry matched"
+    );
+    assert!(
+        data.contains("for (const [modId, pkg] of installed)"),
+        "mergeLibrary must append every installed package the catalog does not list"
+    );
+    assert!(
+        data.contains("if (matched.has(modId))"),
+        "only packages without a catalog entry may become extra tiles"
+    );
+    let start = data
+        .find("for (const [modId, pkg] of installed)")
+        .expect("unmatched package loop");
+    let rest = &data[start..];
+    let end = rest.find("for (const pkg of manual)").expect("manual loop");
+    let block = &rest[..end];
+    assert!(
+        block.contains("key: `package-${pkg.id}`"),
+        "an unmatched package must get its own stable tile key"
+    );
+    assert!(
+        block.contains("bucket: catalog ? catalog.bucket : ''"),
+        "an unmatched catalog package keeps its bucket"
+    );
+    assert!(
+        block.contains("installedPackage: pkg"),
+        "the Installed filter and tile actions read installedPackage"
+    );
+    assert!(
+        block.contains("hasUpdate: false"),
+        "an unmatched package must not offer Update"
+    );
+}
+
+#[test]
+fn grid_refresh_keeps_running_operation_buttons() {
+    let library = read("ui/js/library.js");
+    assert!(
+        library.contains("const operations = new Map()"),
+        "the Library must own one registry of running operation buttons"
+    );
+    assert!(
+        library.contains("createTile(model, ctx, { onChanged: refresh, operations })"),
+        "every grid tile must receive the registry"
+    );
+    let tile = read("ui/js/library/tile.js");
+    for fragment in [
+        "function operationEntry(operations, key, build)",
+        "operations.get(key)",
+        "buttonState === 'running'",
+        "buttonState === 'finishing'",
+        "operations.set(key, entry)",
+        "actions.append(entry.button.element)",
+        "body.append(entry.askHost)",
+    ] {
+        assert!(
+            tile.contains(fragment),
+            "tile.js must reattach a running operation via {fragment}"
+        );
+    }
+}
+
+#[test]
 fn edited_files_stay_within_the_size_limit() {
     let mut files = vec![
         Path::new(ROOT).join("ui/js/library.js"),
