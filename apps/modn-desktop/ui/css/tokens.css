@@ -1,0 +1,67 @@
+:root {
+  /* colour (theme · light) */
+  --modn-color-surface: #ffffff;
+  --modn-color-surface-raised: #f5f7f6;
+  --modn-color-text: #14201c;
+  --modn-color-text-muted: #5c6b66;
+  --modn-color-primary: #1f6f5c;
+  --modn-color-primary-hover: #185848;
+  --modn-color-on-primary: #ffffff;
+  --modn-color-border: #d8dfdc;
+  --modn-color-danger: #b4472e;
+  --modn-color-success: #2e7d32;
+
+  /* radius */
+  --modn-radius-s: 6px;
+  --modn-radius-m: 12px;
+  --modn-radius-l: 24px;
+
+  /* space */
+  --modn-space-2xs: 2px;
+  --modn-space-xs: 4px;
+  --modn-space-s: 8px;
+  --modn-space-m: 12px;
+  --modn-space-l: 16px;
+  --modn-space-xl: 20px;
+  --modn-space-2xl: 24px;
+  --modn-space-3xl: 32px;
+  --modn-space-4xl: 40px;
+
+  /* opacity */
+  --modn-opacity-disabled: 40%;
+
+  /* typography */
+  --modn-font-body: Manrope;
+  --modn-font-heading: Marcellus;
+  --modn-font-size-display: 48px;
+  --modn-font-line-display: 56px;
+  --modn-font-size-heading-l: 30px;
+  --modn-font-line-heading-l: 38px;
+  --modn-font-size-heading-m: 22px;
+  --modn-font-line-heading-m: 30px;
+  --modn-font-size-heading-s: 17px;
+  --modn-font-line-heading-s: 24px;
+  --modn-font-size-body-l: 18px;
+  --modn-font-line-body-l: 28px;
+  --modn-font-size-body-m: 15px;
+  --modn-font-line-body-m: 22px;
+  --modn-font-size-body-s: 13px;
+  --modn-font-line-body-s: 18px;
+  --modn-font-size-label-m: 14px;
+  --modn-font-line-label-m: 20px;
+  --modn-font-size-label-s: 12px;
+  --modn-font-line-label-s: 16px;
+}
+
+[data-theme="dark"] {
+  --modn-color-surface: #121816;
+  --modn-color-surface-raised: #1c2421;
+  --modn-color-text: #f2f5f4;
+  --modn-color-text-muted: #9fada8;
+  --modn-color-primary: #58c2a6;
+  --modn-color-primary-hover: #7ad3ba;
+  --modn-color-on-primary: #0c1a16;
+  --modn-color-border: #34403b;
+  --modn-color-danger: #f08a72;
+  --modn-color-success: #7bd69b;
+}

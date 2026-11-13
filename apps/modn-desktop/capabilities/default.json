@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Modn main window: core commands and the app's fixed command set only",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-list-games",
+    "allow-list-installations",
+    "allow-list-packages",
+    "allow-catalog",
+    "allow-pick-archive",
+    "allow-install-archive",
+    "allow-uninstall"
+  ]
+}
