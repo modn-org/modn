@@ -14,8 +14,9 @@ use super::error::BackendError;
 use super::{Backend, OUTPUT_LIMIT};
 use serde::Serialize;
 use serde_json::Value;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, BufReader, Read, Write};
+use std::path::Path;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -126,7 +127,11 @@ struct StdoutItem {
 /// environment is cleared, then only these variables are forwarded from the
 /// app's own environment when they are set:
 ///
-/// - `SystemRoot`, `TEMP` and `TMP`: process basics on Windows.
+/// - `SystemRoot`: process basics on Windows.
+/// - `TEMP` and `TMP`: only when the value is an absolute Windows path. A
+///   POSIX value such as Git Bash's `/tmp`, or a drive-relative value, is left
+///   out so the CLI keeps its default instead of resolving the path against
+///   the current drive.
 /// - `LOCALAPPDATA`: Modn's data directory, unless `--data-dir` overrides it.
 /// - `MODN_CACHE`, `MODN_STORE_LIBRARIES` and `MODN_APPDATA`: disposable
 ///   fixture overrides.
@@ -147,13 +152,18 @@ pub(super) fn spawn(backend: &Backend, args: &[OsString], stdin: Stdio) -> io::R
     command.env_clear();
     for name in [
         "SystemRoot",
-        "TEMP",
-        "TMP",
         "MODN_CACHE",
         "MODN_STORE_LIBRARIES",
         "MODN_APPDATA",
     ] {
         if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    for name in ["TEMP", "TMP"] {
+        if let Some(value) = std::env::var_os(name)
+            && is_absolute_windows_path(&value)
+        {
             command.env(name, value);
         }
     }
@@ -173,6 +183,15 @@ pub(super) fn spawn(backend: &Backend, args: &[OsString], stdin: Stdio) -> io::R
         command.creation_flags(0x08000000);
     }
     command.spawn()
+}
+
+/// Whether `value` names an absolute Windows path.
+///
+/// [`Path::is_absolute`] needs a drive prefix or a UNC share on Windows, so
+/// `/tmp` and `\tmp` fail while `C:\tmp` and `\\server\share` pass. Only such
+/// values are safe to hand to a Windows child process.
+fn is_absolute_windows_path(value: &OsStr) -> bool {
+    Path::new(value).is_absolute()
 }
 
 /// Runs one write command with `--progress json` and cooperative cancellation.
@@ -391,4 +410,25 @@ fn read_stdout(
         }
     }
     let _ = tx.send(StdoutItem { bytes, failed });
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_drive_qualified_temp_paths_are_forwarded() {
+        for absolute in [r"C:\Users\J\AppData\Local\Temp", r"\\server\share\tmp"] {
+            assert!(
+                is_absolute_windows_path(OsStr::new(absolute)),
+                "expected an absolute Windows path: {absolute}"
+            );
+        }
+        for relative in ["/tmp", r"\tmp", "tmp", r"C:tmp"] {
+            assert!(
+                !is_absolute_windows_path(OsStr::new(relative)),
+                "must not forward a non-absolute Windows path: {relative}"
+            );
+        }
+    }
 }
