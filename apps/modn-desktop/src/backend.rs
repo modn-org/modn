@@ -1,3 +1,19 @@
+#[path = "backend/error.rs"]
+mod error;
+#[path = "backend/progress.rs"]
+mod progress;
+
+#[allow(
+    unused_imports,
+    reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
+)]
+pub(crate) use error::{BackendError, BackendErrorKind};
+#[allow(
+    unused_imports,
+    reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
+)]
+pub(crate) use progress::{CancelToken, ProgressEvent};
+
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -6,13 +22,13 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-const OUTPUT_LIMIT: u64 = 1024 * 1024;
+pub(crate) const OUTPUT_LIMIT: u64 = 1024 * 1024;
 const ARCHIVE_LIMIT: u64 = 4 * 1024 * 1024 * 1024;
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -23,6 +39,11 @@ pub(crate) struct Backend {
     pub data: Option<PathBuf>,
     pub modules: Option<PathBuf>,
     pub evidence: Option<PathBuf>,
+    /// Inactivity timeout for [`Backend::call_with_progress`].
+    ///
+    /// `None` uses 120 seconds. The timeout applies only before the CLI reports
+    /// the commit phase.
+    pub inactivity_timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -49,6 +70,7 @@ impl Backend {
             data: None,
             modules: None,
             evidence: None,
+            inactivity_timeout: None,
         };
         while let Some(flag) = args.next() {
             let value = PathBuf::from(
@@ -85,35 +107,54 @@ impl Backend {
         Ok(result)
     }
 
+    /// Sets the inactivity timeout for [`Backend::call_with_progress`].
+    ///
+    /// The default is 120 seconds. The timeout applies only before the CLI
+    /// reports the commit phase; after it the call waits for the CLI to finish
+    /// or roll back.
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
+    )]
+    pub fn with_inactivity_timeout(mut self, timeout: Duration) -> Self {
+        self.inactivity_timeout = Some(timeout);
+        self
+    }
+
+    /// Runs a write command with `--progress json` and cooperative cancellation.
+    ///
+    /// Each stderr JSON object with a `phase` field is passed to `on_event` in
+    /// the order the CLI wrote it. The final JSON result on stdout is returned.
+    /// When `cancel` is cancelled, the call writes one `cancel` line on stdin
+    /// and never kills the process for that reason.
+    ///
+    /// Before the commit event, inactivity for the configured timeout sends
+    /// `cancel`, waits 15 seconds and then kills the process. After the commit
+    /// event there is no inactivity kill, because a committed write must be
+    /// allowed to finish or roll back.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BackendError`] when the CLI refuses, the operation is
+    /// cancelled before the commit point, output is invalid or exceeds its
+    /// bound, the process cannot start, or inactivity expires before the
+    /// commit point.
+    #[allow(
+        dead_code,
+        reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
+    )]
+    pub fn call_with_progress(
+        &self,
+        args: &[OsString],
+        cancel: &CancelToken,
+        on_event: &mut dyn FnMut(ProgressEvent),
+    ) -> Result<Value, BackendError> {
+        progress::call(self, args, cancel, on_event)
+    }
+
     pub fn call(&self, args: &[OsString]) -> Result<Value> {
-        let mut command = Command::new(&self.binary);
-        command.args([
-            OsString::from("--json"),
-            OsString::from("--state-dir"),
-            self.state.clone().into_os_string(),
-        ]);
-        command
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        command.env_clear();
-        if let Some(root) = std::env::var_os("SystemRoot") {
-            command.env("SystemRoot", root);
-        }
-        if let Some(modules) = &self.modules {
-            command.env("MODN_GAME_MODULES_DIR", modules);
-        }
-        if let Some(data) = &self.data {
-            command.env("LOCALAPPDATA", data);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
-        }
-        let mut child = command
-            .spawn()
+        let mut child = progress::spawn(self, args, Stdio::null())
             .context("Cannot start configured backend. Check its path and permissions")?;
         let stdout = child.stdout.take().context("Missing backend stdout")?;
         let stderr = child.stderr.take().context("Missing backend stderr")?;
