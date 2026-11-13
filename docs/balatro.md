@@ -111,8 +111,9 @@ It does not prove that Balatro or Steamodded loads the mod.
 ## Verification
 
 Balatro support needs Modn 0.5.0 or later and `main` bucket release `v2026.11.08` or later.
-The `launch` target needs the Modn release that reads it; Modn 0.5.0 refuses
-the newer module manifest as an unknown field.
+Store detection and the `launch` target need Modn 0.6.0 or later and a `main`
+bucket release that declares them; Modn 0.5.0 refuses the newer module manifest
+as an unknown field.
 Modn 0.4.0 supports Balatro but cannot verify the signed bucket releases.
 
 Fixture tests cover detection, layouts, refusals, the native injector opt-in and the Git source.
