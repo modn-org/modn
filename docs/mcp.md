@@ -155,7 +155,9 @@ The default backend deadline is 30 seconds. `--timeout-seconds` accepts 1 throug
 Calls execute serially. A bounded queue holds four requests that arrive during a call.
 The server keeps reading input while the queue is full.
 An ordinary request above the limit receives JSON-RPC error `-32000` and does
-not run; cancellation notifications are handled at any time.
+not run; cancellation notifications are handled at any time. Malformed and
+oversized lines still receive their `-32700` and `-32600` replies while the
+queue is full.
 EOF processes a final unterminated line, then drains queued requests.
 It waits at most the configured deadline for each backend call.
 Timed-out or oversized backend processes are killed and reaped.
