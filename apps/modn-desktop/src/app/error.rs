@@ -52,12 +52,11 @@ fn error_code_from_json(text: &str) -> Option<String> {
     while let Some(index) = rest.find('{') {
         let candidate = &rest[index..];
         let mut values = serde_json::Deserializer::from_str(candidate).into_iter::<Value>();
-        if let Some(Ok(Value::Object(object))) = values.next() {
-            if let Some(code) = object.get("error").and_then(Value::as_str) {
-                if is_code(code) {
-                    return Some(code.to_string());
-                }
-            }
+        if let Some(Ok(Value::Object(object))) = values.next()
+            && let Some(code) = object.get("error").and_then(Value::as_str)
+            && is_code(code)
+        {
+            return Some(code.to_string());
         }
         rest = &candidate[1..];
     }

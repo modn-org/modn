@@ -78,10 +78,10 @@ pub(crate) async fn catalog(
     let busy = Arc::clone(&state.busy);
     let _ = path;
     let mut args: Vec<OsString> = vec!["--game".into(), game_id.into(), "search".into()];
-    if let Some(query) = query.map(|value| value.trim().to_string()) {
-        if !query.is_empty() {
-            args.push(query.into());
-        }
+    if let Some(query) = query.map(|value| value.trim().to_string())
+        && !query.is_empty()
+    {
+        args.push(query.into());
     }
     run_blocking(&busy, move || backend.call(&args)).await
 }
@@ -100,10 +100,15 @@ pub(crate) async fn install_archive(
     let busy = Arc::clone(&state.busy);
     let game = installation(game_id, path);
     let archive = PathBuf::from(archive);
-    let _ = allow_executable;
     let _ = run_id;
     run_blocking(&busy, move || {
-        install_one_click(&backend, &game, &archive, allow_native_injector)
+        install_one_click(
+            &backend,
+            &game,
+            &archive,
+            allow_native_injector,
+            allow_executable,
+        )
     })
     .await
 }
@@ -115,8 +120,9 @@ fn install_one_click(
     game: &Game,
     archive: &Path,
     allow_native_injector: bool,
+    allow_executable: bool,
 ) -> anyhow::Result<Value> {
-    if !allow_native_injector {
+    if !allow_native_injector && !allow_executable {
         let review = backend.review(game, archive)?;
         // The review keeps the originally chosen path for evidence; the
         // installation itself uses the canonical archive path.
@@ -135,12 +141,38 @@ fn install_one_click(
     if !reviewable(&plan) {
         return Err(plan_blocked());
     }
-    backend.call(&archive_args(
-        game,
-        archive,
-        &["--yes"],
-        allow_native_injector,
-    ))
+    let mut args = archive_args(game, archive, &["--yes"], allow_native_injector);
+    if allow_executable {
+        for executable in declared_executables(&plan) {
+            args.push("--allow-executable".into());
+            args.push(executable.into());
+        }
+    }
+    backend.call(&args)
+}
+
+/// Reads executable paths that the dry run reports as uncovered. The UI never
+/// supplies these paths; they come from the CLI plan.
+fn declared_executables(plan: &Value) -> Vec<String> {
+    let mut paths = Vec::new();
+    let uncovered = plan
+        .get("approval")
+        .and_then(|approval| approval.get("uncovered"))
+        .and_then(|uncovered| uncovered.get("executables"));
+    for values in [uncovered, plan.get("unapproved_declared_executables")] {
+        if let Some(items) = values.and_then(Value::as_array) {
+            for item in items {
+                if let Some(path) = item.as_str()
+                    && !path.is_empty()
+                {
+                    paths.push(path.to_string());
+                }
+            }
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 fn archive_args(

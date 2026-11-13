@@ -52,16 +52,16 @@ fn guard_close(app: &mut tauri::App) {
     };
     let handle = window.clone();
     window.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { api, .. } = event {
-            if handle.state::<AppState>().busy.is_busy() {
-                api.prevent_close();
-                handle
-                    .dialog()
-                    .message("Modn is still working. Wait for the operation to finish.")
-                    .title("Modn")
-                    .kind(MessageDialogKind::Warning)
-                    .show(|_| {});
-            }
+        if let WindowEvent::CloseRequested { api, .. } = event
+            && handle.state::<AppState>().busy.is_busy()
+        {
+            api.prevent_close();
+            handle
+                .dialog()
+                .message("Modn is still working. Wait for the operation to finish.")
+                .title("Modn")
+                .kind(MessageDialogKind::Warning)
+                .show(|_| {});
         }
     });
 }

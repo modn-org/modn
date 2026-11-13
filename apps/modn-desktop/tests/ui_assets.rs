@@ -128,10 +128,10 @@ fn css_variables_are_defined_in_tokens() {
     let mut definitions = Vec::new();
     for line in tokens.lines() {
         let line = line.trim();
-        if let Some(rest) = line.strip_prefix("--modn-") {
-            if let Some((name, _)) = rest.split_once(':') {
-                definitions.push(format!("--modn-{name}"));
-            }
+        if let Some(rest) = line.strip_prefix("--modn-")
+            && let Some((name, _)) = rest.split_once(':')
+        {
+            definitions.push(format!("--modn-{name}"));
         }
     }
     assert!(!definitions.is_empty(), "tokens.css defines no variables");

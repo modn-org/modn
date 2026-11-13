@@ -55,3 +55,19 @@ impl Drop for BusyGuard {
         self.busy.count.fetch_sub(1, Ordering::SeqCst);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Busy;
+    use std::sync::Arc;
+
+    #[test]
+    fn busy_guard_tracks_running_calls() {
+        let busy = Arc::new(Busy::default());
+        assert!(!busy.is_busy());
+        let guard = busy.begin();
+        assert!(busy.is_busy());
+        drop(guard);
+        assert!(!busy.is_busy());
+    }
+}
