@@ -397,8 +397,8 @@ pub(super) fn run(
             removed = store.uninstall_for_undo(&target.installation, &target)?;
         }
         HistoryKind::Update => {
-            let mut restores = restores(&store, state_path, &target, args, progress)?;
-            for (package, restore) in target.packages.iter().zip(restores.drain(..)) {
+            let mut restored = restores(&store, state_path, &target, args, progress)?;
+            for (package, restore) in target.packages.iter().zip(restored.drain(..)) {
                 let release = restore
                     .release
                     .as_ref()

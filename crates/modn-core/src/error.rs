@@ -362,9 +362,11 @@ impl<T> ResultExt<T> for anyhow::Result<T> {
 /// The specific code of `error`, or `None` when the error has none.
 ///
 /// A cancellation, also one that a [`crate::progress::DownloadReader`] wraps
-/// in an I/O error, wins over every other code. Otherwise the outermost
-/// [`CodedError`] wins, then the code of a known error type in the chain, then
-/// a legacy `CODE: message` prefix whose code is in [`ErrorCode::ALL`].
+/// in an I/O error, wins over every other code. Otherwise the first match in
+/// this order wins: a native-injector refusal in the chain, the outermost
+/// [`CodedError`], a legacy `CODE: message` prefix whose code is in
+/// [`ErrorCode::ALL`], then the code of a known library error type such as a
+/// SQLite or ZIP error.
 #[must_use]
 pub fn code_of(error: &anyhow::Error) -> Option<ErrorCode> {
     let cancelled_read = error
