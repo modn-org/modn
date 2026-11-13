@@ -179,8 +179,9 @@ receives them and gains no filesystem or process API from them.
 An unknown key or a malformed identity makes the module invalid. The error
 starts with `MODULE_STORE_ID_INVALID`. Any API version can declare `stores`.
 A change to `stores` is a module release, so increment `version`.
-Modn 0.5.0 and earlier refuse the field as an unknown manifest field; the
-matching `main` bucket release ships only with a Modn release that reads it.
+Modn 0.5.0 and earlier refuse the field as an unknown manifest field; Modn 0.6.0
+reads it. The matching `main` bucket release ships only after Modn 0.6.0 is
+published.
 
 Rust reads the store libraries on Windows. This code knows store formats, not
 games:
@@ -241,8 +242,8 @@ through the Windows shell open handler. Play holds the transaction lock from the
 pending-transaction check until the process starts or the URI opens, so no
 install or uninstall can change the selected files in between. A module change
 to `launch` is a module release, so increment `version`. Modn 0.5.0 and earlier
-refuse the field as an unknown manifest field; the matching `main` bucket
-release ships only with a Modn release that reads it.
+refuse the field as an unknown manifest field; Modn 0.6.0 reads it. The matching
+`main` bucket release ships only after Modn 0.6.0 is published.
 
 ## Skyrim example
 

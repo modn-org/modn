@@ -14,8 +14,9 @@ installed the selected folder, Modn opens `steam://rungameid/1091500`. Any other
 installation starts `bin/x64/Cyberpunk2077.exe` with the game folder as its
 working directory. The module declares no GOG or Epic launch URI because their
 formats are not verified; those installations use the executable fallback.
-The `launch` target needs the Modn release that reads it; Modn 0.5.0 refuses
-the newer module manifest as an unknown field.
+Store detection and the `launch` target need Modn 0.6.0 or later and a `main`
+bucket release that declares them; Modn 0.5.0 refuses the newer module
+manifest as an unknown field.
 
 ```powershell
 modn play cyberpunk-2077 --json
