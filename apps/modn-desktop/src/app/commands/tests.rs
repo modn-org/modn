@@ -1,11 +1,13 @@
 //! Contract tests: the registered handlers, the capability, the build manifest
 //! and the webview API must name the same commands.
 
-use super::{COMMANDS, progress_payload};
+use super::{COMMANDS, ensure_not_cancelled, progress_payload};
+use crate::app::state::Runs;
 use crate::backend::ProgressEvent;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 fn read(relative: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
@@ -132,4 +134,58 @@ fn progress_payload_uses_the_contract_shape() {
     assert_eq!(payload["event"]["package"], "main/example/mod");
     assert!(payload["event"].get("bytes").is_none());
     assert!(payload["event"].get("outcome").is_none());
+}
+
+#[test]
+fn a_cancel_that_arrives_during_the_checks_refuses_the_write() {
+    let runs = Arc::new(Runs::default());
+    let run = runs.start("run-1");
+    ensure_not_cancelled(&run).expect("a fresh run may write");
+
+    // The archive review or catalog lookup runs while the guard is held.
+    assert!(runs.cancel("run-1"));
+
+    let error = ensure_not_cancelled(&run).expect_err("a cancelled run must not write");
+    assert_eq!(error.code, "CANCELLED");
+}
+
+fn handler_body<'a>(source: &'a str, name: &str) -> &'a str {
+    let marker = format!("pub(crate) async fn {name}(");
+    let start = source
+        .find(&marker)
+        .unwrap_or_else(|| panic!("{name} is a write command"));
+    let rest = &source[start + marker.len()..];
+    let end = rest.find("\n#[tauri::command]").unwrap_or(rest.len());
+    &rest[..end]
+}
+
+#[test]
+fn every_write_command_registers_cancellation_before_its_checks() {
+    for (file, handlers) in [
+        (
+            "src/app/commands/operations.rs",
+            &["install_archive", "install_mod", "uninstall", "update"][..],
+        ),
+        ("src/app/commands/history.rs", &["undo"][..]),
+    ] {
+        let source = read(file);
+        for name in handlers {
+            let body = handler_body(&source, name);
+            let registered = body
+                .find("state.runs.start(&run_id)")
+                .unwrap_or_else(|| panic!("{name} must register its run first"));
+            for marker in ["run_blocking(", "args::", "run_write("] {
+                if let Some(index) = body.find(marker) {
+                    assert!(
+                        registered < index,
+                        "{name} must register the run before {marker}"
+                    );
+                }
+            }
+            assert!(
+                body.contains("run_write(&app, &state, run, commit)"),
+                "{name} must pass its registered run to the write"
+            );
+        }
+    }
 }

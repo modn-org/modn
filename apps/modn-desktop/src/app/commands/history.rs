@@ -25,6 +25,7 @@ pub(crate) async fn undo(
     operation_id: String,
     run_id: String,
 ) -> Result<Value, CommandError> {
+    let run = state.runs.start(&run_id);
     let commit = args::undo(&operation_id);
-    run_write(&app, &state, run_id, commit).await
+    run_write(&app, &state, run, commit).await
 }

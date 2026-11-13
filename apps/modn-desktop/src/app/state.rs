@@ -108,6 +108,10 @@ impl RunGuard {
     pub(crate) fn token(&self) -> CancelToken {
         self.token.clone()
     }
+
+    pub(crate) fn run_id(&self) -> &str {
+        &self.run_id
+    }
 }
 
 impl Drop for RunGuard {

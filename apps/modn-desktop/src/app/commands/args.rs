@@ -6,8 +6,50 @@
 
 use crate::app::error::CommandError;
 use crate::backend::Game;
+use serde::Deserialize;
+use serde_json::Value;
 use std::ffi::OsString;
 use std::path::Path;
+
+/// The catalog fields of one `modn list --json` package.
+#[derive(Deserialize)]
+struct CatalogTarget {
+    bucket: String,
+    game_id: String,
+    mod_id: String,
+}
+
+/// The `modn list --json` fields this module needs to name an update target.
+#[derive(Deserialize)]
+struct InstalledPackage {
+    id: String,
+    #[serde(default)]
+    catalog: Option<CatalogTarget>,
+}
+
+/// Resolves the qualified `bucket/game/mod` catalog name of one installed
+/// package.
+///
+/// `modn update` selects a catalog release, not a managed package, so the
+/// package id from the inventory is not a valid target.
+fn catalog_target(packages: &Value, package_id: &str) -> Result<String, CommandError> {
+    let packages: Vec<InstalledPackage> = serde_json::from_value(packages.clone())
+        .map_err(|error| CommandError::from(anyhow::Error::from(error)))?;
+    let package = packages
+        .into_iter()
+        .find(|package| package.id == package_id)
+        .ok_or_else(CommandError::package_not_found)?;
+    let catalog = package
+        .catalog
+        .ok_or_else(CommandError::update_not_in_catalog)?;
+    if catalog.bucket.is_empty() || catalog.game_id.is_empty() || catalog.mod_id.is_empty() {
+        return Err(CommandError::update_not_in_catalog());
+    }
+    Ok(format!(
+        "{}/{}/{}",
+        catalog.bucket, catalog.game_id, catalog.mod_id
+    ))
+}
 
 fn selected(game: &Game) -> Vec<OsString> {
     vec!["--game".into(), game.game_id.clone().into()]
@@ -136,13 +178,15 @@ pub(super) fn uninstall(game: &Game, package_id: &str) -> Vec<OsString> {
 
 pub(super) fn update(
     game: &Game,
+    packages: &Value,
     package_id: &str,
     allow_native_injector: bool,
     executables: &[String],
 ) -> Result<Vec<OsString>, CommandError> {
+    let target = catalog_target(packages, package_id)?;
     let mut args = selected(game);
     args.push("update".into());
-    args.push(package_id.into());
+    args.push(target.into());
     args.push("--yes".into());
     let args = with_native_injector(with_path(args, &game.path), allow_native_injector);
     with_executables(args, executables)

@@ -15,7 +15,7 @@ mod args;
 mod tests;
 
 use crate::app::error::CommandError;
-use crate::app::state::{AppState, Busy};
+use crate::app::state::{AppState, Busy, RunGuard};
 use crate::backend::{CancelToken, Game, ProgressEvent};
 use serde_json::Value;
 use std::ffi::OsString;
@@ -76,19 +76,30 @@ where
     }
 }
 
+/// Refuses a write whose cancel arrived while its checks ran.
+pub(super) fn ensure_not_cancelled(run: &RunGuard) -> Result<(), CommandError> {
+    if run.token().is_cancelled() {
+        return Err(CommandError::cancelled());
+    }
+    Ok(())
+}
+
 /// Runs one write command with `--progress json`, forwards every event to the
 /// main window and removes the cancel token when the run ends.
+///
+/// The caller registers the run before any pre-write check, so a cancel that
+/// arrives during those checks reaches this token and stops the write here.
 pub(super) async fn run_write(
     app: &tauri::AppHandle,
     state: &AppState,
-    run_id: String,
+    run: RunGuard,
     args: Vec<OsString>,
 ) -> Result<Value, CommandError> {
+    ensure_not_cancelled(&run)?;
     let backend = state.backend()?;
-    let run = state.runs.start(&run_id);
     let cancel: CancelToken = run.token();
     let app = app.clone();
-    let event_run_id = run_id.clone();
+    let event_run_id = run.run_id().to_string();
     let _guard = state.busy.begin();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let mut on_event = |event: ProgressEvent| {

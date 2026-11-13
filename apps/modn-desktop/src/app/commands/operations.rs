@@ -2,7 +2,7 @@
 //! CLI's commit point.
 
 use super::args;
-use super::{installation, run_blocking, run_write};
+use super::{ensure_not_cancelled, installation, run_blocking, run_write};
 use crate::app::error::{CommandError, plan_blocked};
 use crate::app::state::AppState;
 use crate::backend::reviewable;
@@ -24,6 +24,7 @@ pub(crate) async fn install_archive(
     allow_executables: Vec<String>,
     run_id: String,
 ) -> Result<Value, CommandError> {
+    let run = state.runs.start(&run_id);
     let backend = state.backend()?;
     let game = installation(game_id, path);
     let archive = PathBuf::from(archive);
@@ -47,12 +48,14 @@ pub(crate) async fn install_archive(
         .await?;
         (review.plan, review.archive)
     };
+    ensure_not_cancelled(&run)?;
     if !reviewable(&plan) {
         return Err(plan_blocked().into());
     }
     let commit =
         args::install_archive_commit(&game, &archive, allow_native_injector, &allow_executables)?;
-    run_write(&app, &state, run_id, commit).await
+    ensure_not_cancelled(&run)?;
+    run_write(&app, &state, run, commit).await
 }
 
 #[tauri::command]
@@ -70,10 +73,11 @@ pub(crate) async fn install_mod(
     allow_executables: Vec<String>,
     run_id: String,
 ) -> Result<Value, CommandError> {
+    let run = state.runs.start(&run_id);
     let game = installation(game_id, path);
     let commit =
         args::install_mod_commit(&game, &mod_id, allow_native_injector, &allow_executables)?;
-    run_write(&app, &state, run_id, commit).await
+    run_write(&app, &state, run, commit).await
 }
 
 #[tauri::command]
@@ -85,8 +89,9 @@ pub(crate) async fn uninstall(
     package_id: String,
     run_id: String,
 ) -> Result<Value, CommandError> {
+    let run = state.runs.start(&run_id);
     let commit = args::uninstall(&installation(game_id, path), &package_id);
-    run_write(&app, &state, run_id, commit).await
+    run_write(&app, &state, run, commit).await
 }
 
 #[tauri::command]
@@ -104,13 +109,21 @@ pub(crate) async fn update(
     allow_executables: Vec<String>,
     run_id: String,
 ) -> Result<Value, CommandError> {
+    let run = state.runs.start(&run_id);
+    let backend = state.backend()?;
+    let game = installation(game_id, path);
+    let list = args::list_packages(&game);
+    let packages = run_blocking(&state.busy, move || backend.call(&list)).await?;
+    ensure_not_cancelled(&run)?;
     let commit = args::update(
-        &installation(game_id, path),
+        &game,
+        &packages,
         &package_id,
         allow_native_injector,
         &allow_executables,
     )?;
-    run_write(&app, &state, run_id, commit).await
+    ensure_not_cancelled(&run)?;
+    run_write(&app, &state, run, commit).await
 }
 
 /// Cancels a running write. An unknown run id is a no-op.
