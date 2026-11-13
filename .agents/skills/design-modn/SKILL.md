@@ -89,7 +89,7 @@ Top-level frames are a page's direct children, component sets included. Keep
 a gap of 200 px between neighbours, in a row and between rows. Pages that
 exist today keep their current gaps; the 200 px rule applies to frames you add
 or move from now on. Align the top-left x of frames in a column and the y of
-frames in a row. Run `python -I .agents/skills/design-modn/scripts/overlap.py design/design.figcraft` after moving or adding a top-level frame; it must report 0 overlapping pairs on every page. The script checks intersections only (touching edges count), not spacing.
+frames in a row. Save the file, then run `python -I .agents/skills/design-modn/scripts/overlap.py design/design.figcraft` after moving or adding a top-level frame, and run it again after any later placement change. It reads the saved file and must report 0 overlapping pairs on every page. It checks intersections only (touching edges count), not spacing.
 
 ## 5. Design-system changes
 
