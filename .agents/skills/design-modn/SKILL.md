@@ -86,10 +86,10 @@ Add the page after the divider and its first frame, as one `batch`:
 ## Frame placement
 
 Top-level frames are a page's direct children, component sets included. Keep
-one constant gap between neighbours, in a row and between rows: the gap that
-already separates the first two non-overlapping frames of the page, or 200 px
-when no two are separate. Align the top-left x of frames in a column and the y
-of frames in a row. Run `python -I .agents/skills/design-modn/scripts/overlap.py design/design.figcraft` after moving or adding a top-level frame; it must report 0 overlapping pairs on every page.
+a gap of 200 px between neighbours, in a row and between rows. Pages that
+exist today keep their current gaps; the 200 px rule applies to frames you add
+or move from now on. Align the top-left x of frames in a column and the y of
+frames in a row. Run `python -I .agents/skills/design-modn/scripts/overlap.py design/design.figcraft` after moving or adding a top-level frame; it must report 0 overlapping pairs on every page. The script checks intersections only (touching edges count), not spacing.
 
 ## 5. Design-system changes
 
