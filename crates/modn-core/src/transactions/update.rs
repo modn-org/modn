@@ -3,6 +3,7 @@ use super::install::Fault;
 use super::journal::{lock_store, ManagedPackage, Roots};
 use super::native_injector::NativeInjectorPolicy;
 use super::uninstall::Dependents;
+use crate::error::{coded, ErrorCode};
 use crate::history::HistoryFile;
 use crate::planning::InstallPlan;
 use crate::state::Store;
@@ -139,7 +140,12 @@ impl Store {
             .find(|package| package.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
         if old.pinned {
-            bail!("managed package {package_id} is pinned; run `modn unpin {package_id}` to update it");
+            return Err(coded(
+                ErrorCode::PackagePinned,
+                format!(
+                    "managed package {package_id} is pinned; run `modn unpin {package_id}` to update it"
+                ),
+            ));
         }
         self.check_pinned_dependents(&game, &old, release)?;
         if old.catalog.as_ref() != Some(&release.reference) {
@@ -257,11 +263,13 @@ impl Store {
                             .unwrap_or(false)
                     });
                     if !accepted {
-                        bail!(
-                            "managed package {} is pinned and requires {} {text}",
-                            dependent.id,
-                            release.reference
-                        );
+                        return Err(coded(
+                            ErrorCode::PackagePinned,
+                            format!(
+                                "managed package {} is pinned and requires {} {text}",
+                                dependent.id, release.reference
+                            ),
+                        ));
                     }
                 }
             }
