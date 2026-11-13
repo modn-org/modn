@@ -8,7 +8,10 @@ fails if the server sends nothing for 60 seconds. Each attempt writes its own
 `<entry>.<random>.download` file, so concurrent downloads never share bytes.
 Modn checks the manifest's SHA-256 and a 4 GiB size limit, then atomically
 renames the file into place. A failed check removes that attempt's partial
-file and prints the URL with the expected and actual digests. Unlike Scoop,
+file and prints the URL with the expected and actual digests. A cancelled
+download also removes its partial file, so the cache keeps only complete,
+verified entries. `--progress json` reports the bytes received and the
+expected total; see [cli.md](cli.md#progress-events-and-cancellation). Unlike Scoop,
 an entry exists only after its digest is verified. Modn verifies an entry
 again each time it uses it; an entry that fails is never used, and the next
 download replaces it. The cache directory, like the state directory, must be

@@ -76,6 +76,7 @@ fn content_root_rollback_and_recovery_remove_only_created_state() {
                 &[],
                 None,
                 NativeInjectorPolicy::Refuse,
+                None,
             )
             .expect_err("simulated crash");
         assert!(appdata.join("Fixture/Mods/a.lua").exists());

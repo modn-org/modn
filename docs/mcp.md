@@ -103,21 +103,66 @@ Clients must disconnect if they cannot support that version.
 Unknown notifications produce no response. Notifications never execute tools.
 Unknown methods return `-32601`; malformed JSON returns `-32700`.
 Malformed envelopes and oversized messages return `-32600` with a null ID.
-Batches, resources, prompts, sampling, pagination, cancellation, and progress are outside this MVP.
+Batches, resources, prompts, sampling, and pagination are outside this MVP.
 Standard MCP shutdown closes stdin. There is no `shutdown` request.
+
+## Progress and cancellation
+
+A `tools/call` request may carry `params._meta.progressToken`, a string or an
+integer. While the call runs, the server sends one
+`notifications/progress` message for each CLI phase: resolve, each download,
+extract, stage, commit, and result.
+Each notification repeats the token and has a strictly increasing `progress`.
+A download also carries `total` when the CLI states the expected size.
+The `message` field is a short phase label, such as `committing <package>`.
+A call without a token sends no progress notification and otherwise behaves as before.
+
+A client cancels with `notifications/cancelled` and `params.requestId` set to
+the running request ID.
+The server writes one `cancel` line to the CLI and keeps serving later requests.
+A cancellation for a request still waiting in the queue removes that request.
+The removed request never starts and sends no response.
+The server keeps reading input while a call runs, including when the bounded
+queue is full, so a cancellation for the active call is never delayed by queued
+requests.
+The CLI's [commit point](transactions.md) decides the result.
+Before it, the call stops and the server sends no response for that request;
+game files, manager state and ownership stay unchanged.
+After it, the CLI ignores the request and the call completes normally, with its
+usual response.
+The server tracks the commit phase from the CLI events, also when no progress
+token was requested.
+The server drains every queued progress notification before it writes the
+matching `tools/call` response, so the final `result` notification always
+precedes that response.
+The client must read progress notifications before the matching response.
+
+The CLI keeps its normal deadline, byte limits and serial execution.
+Cancellation is cooperative; a backend that does not report events is only
+stopped by its deadline.
 
 Each input line is limited to 65,536 bytes, including its newline.
 The server discards an oversized line and resumes at the next newline.
-Each backend stream is limited to 262,144 bytes.
+Backend standard output is limited to 262,144 bytes.
+A backend that exceeds it is killed at once and the call fails with the
+output-limit error.
+Diagnostic stderr lines are limited to 262,144 bytes in total.
+Valid `--progress json` event lines do not count toward that diagnostic limit,
+so a large download does not exhaust it.
 Serialized responses are limited to 524,288 bytes before the newline.
 Backend failures never echo complete stderr or environment variables.
 The default backend deadline is 30 seconds. `--timeout-seconds` accepts 1 through 300.
-Calls execute serially. The input queue holds one pending message.
+Calls execute serially. A bounded queue holds four requests that arrive during a call.
+The server keeps reading input while the queue is full.
+An ordinary request above the limit receives JSON-RPC error `-32000` and does
+not run; cancellation notifications are handled at any time. Malformed and
+oversized lines still receive their `-32700` and `-32600` replies while the
+queue is full.
 EOF processes a final unterminated line, then drains queued requests.
 It waits at most the configured deadline for each backend call.
 Timed-out or oversized backend processes are killed and reaped.
 No backend remains after normal server exit. Clients can terminate the server if its output consumer stalls.
-stdout contains protocol responses only. Startup diagnostics use stderr.
+stdout contains protocol responses and progress notifications only. Startup diagnostics use stderr.
 
 ## Implementation choice and limits
 
@@ -144,4 +189,4 @@ No live game verification or cross-platform verification is implied by fixture r
 Follow [.agents/skills/verify-modn-mcp/SKILL.md](../.agents/skills/verify-modn-mcp/SKILL.md).
 The Python driver creates disposable game, archive, bucket, and manager fixtures.
 It preserves protocol transcripts and a nonzero check count outside the fixtures.
-It verifies default write refusal, preview byte preservation, explicit approval, and core drift protection.
+It verifies default write refusal, preview byte preservation, explicit approval, core drift protection, progress notifications, and cancellation before and after the commit point.

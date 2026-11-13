@@ -1,0 +1,410 @@
+//! Stable, machine-readable error codes for user-visible errors.
+//!
+//! Every error that a front end shows carries one [`ErrorCode`]. A specific
+//! code names a condition a caller can act on. When no specific code applies,
+//! the front end reports the default code of the command that failed, such as
+//! [`ErrorCode::InstallFailed`]. Codes are stable: a released code keeps its
+//! spelling and meaning.
+
+use crate::progress::Cancelled;
+use crate::transactions::NativeInjectorNotAllowed;
+use serde::{Serialize, Serializer};
+use std::fmt;
+
+/// A stable, SCREAMING_SNAKE_CASE error code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ErrorCode {
+    /// The update target already uses the selected archive.
+    AlreadyInstalled,
+    /// A mod name matches several catalog mods.
+    AmbiguousTarget,
+    /// A write needs `--yes` or an interactive confirmation.
+    ApprovalRequired,
+    /// An archive cannot be read or changed during the operation.
+    ArchiveInvalid,
+    /// A mod has no downloadable source and needs `--file`.
+    ArchiveRequired,
+    /// The operation was cancelled before its commit point.
+    Cancelled,
+    /// A declared or ownership conflict blocks the operation.
+    Conflict,
+    /// A dependency is not installed or not intact.
+    DependencyMissing,
+    /// The game module did not confirm a folder that matched its store identity.
+    DetectFolderUnconfirmed,
+    /// A detected game folder cannot be accessed.
+    DetectFolderUnreadable,
+    /// The game module failed while confirming a folder.
+    DetectModuleFailed,
+    /// The game module of a requested game cannot be read.
+    DetectModuleUnreadable,
+    /// A downloaded or supplied archive does not match its pinned digest.
+    DigestMismatch,
+    /// A download did not complete.
+    DownloadFailed,
+    /// A game module failed to load or run.
+    GameModuleError,
+    /// Modn cannot select one registered game installation.
+    GameNotSelected,
+    /// A Git source resolved to another commit.
+    GitSourceCommitMismatch,
+    /// A Git source could not be fetched or read.
+    GitSourceFetchFailed,
+    /// A Git source contains an entry Modn does not install.
+    GitSourceUnsupportedEntry,
+    /// Default code of `modn history`.
+    HistoryFailed,
+    /// The command line is invalid.
+    InvalidArguments,
+    /// A filesystem operation failed.
+    IoError,
+    /// Manager-owned file drift cannot be checked before launch.
+    LaunchDriftCheckFailed,
+    /// `--game` does not match the game `modn play` selects.
+    LaunchGameMismatch,
+    /// The selected play installation cannot be resolved.
+    LaunchInstallationInvalid,
+    /// The selected play installation is not registered.
+    LaunchInstallationUnregistered,
+    /// Manager-owned files changed since Modn installed them.
+    LaunchManagedFilesChanged,
+    /// An unfinished transaction must be recovered before launch.
+    LaunchRecoveryPending,
+    /// The game process or store URI cannot be started.
+    LaunchStartFailed,
+    /// The game module declares no launch target for this installation.
+    LaunchTargetUnavailable,
+    /// A launch target is missing, is not a file, or resolves outside the game.
+    LaunchTargetUnsafe,
+    /// No catalog mod matches the target.
+    ModNotFound,
+    /// A module declares an invalid launch target.
+    ModuleLaunchTargetInvalid,
+    /// A module declares a store identity that is not valid.
+    ModuleStoreIdInvalid,
+    /// A native-injector package needs `--allow-native-injector`.
+    NativeInjectorNotAllowed,
+    /// Another installed package needs the selected package.
+    PackageNeeded,
+    /// No managed package matches the selector.
+    PackageNotFound,
+    /// The managed package is pinned.
+    PackagePinned,
+    /// An interrupted transaction must be recovered first.
+    PendingTransaction,
+    /// The installation plan has blockers.
+    PlanBlocked,
+    /// Manager state cannot be read or written.
+    StateError,
+    /// Default code of `modn adopt`.
+    AdoptFailed,
+    /// Default code of `modn asset`.
+    AssetFailed,
+    /// Default code of `modn auth`.
+    AuthFailed,
+    /// Default code of `modn bucket`.
+    BucketFailed,
+    /// Default code of `modn cache`.
+    CacheFailed,
+    /// Default code of `modn doctor`.
+    DoctorFailed,
+    /// Default code of `modn game`.
+    GameFailed,
+    /// Default code of `modn inspect`.
+    InspectFailed,
+    /// Default code of `modn install`.
+    InstallFailed,
+    /// Default code of `modn list`.
+    ListFailed,
+    /// Default code of `modn module`.
+    ModuleFailed,
+    /// Default code of `modn pin` and `modn unpin`.
+    PinFailed,
+    /// Default code of `modn play`.
+    PlayFailed,
+    /// Default code of `modn recover`.
+    RecoverFailed,
+    /// Default code of `modn scan`.
+    ScanFailed,
+    /// Default code of `modn search`.
+    SearchFailed,
+    /// Default code of `modn uninstall`.
+    UninstallFailed,
+    /// Default code of `modn undo`.
+    UndoFailed,
+    /// The history ID to undo does not exist.
+    UndoNotFound,
+    /// A later operation changed the same files or package.
+    UndoConflict,
+    /// The recorded release has a `manual` source and cannot be fetched again.
+    UndoSourceManual,
+    /// Default code of `modn update`.
+    UpdateFailed,
+}
+
+impl ErrorCode {
+    /// Every code, in documentation order.
+    pub const ALL: &'static [Self] = &[
+        Self::AlreadyInstalled,
+        Self::AmbiguousTarget,
+        Self::ApprovalRequired,
+        Self::ArchiveInvalid,
+        Self::ArchiveRequired,
+        Self::Cancelled,
+        Self::Conflict,
+        Self::DependencyMissing,
+        Self::DetectFolderUnconfirmed,
+        Self::DetectFolderUnreadable,
+        Self::DetectModuleFailed,
+        Self::DetectModuleUnreadable,
+        Self::DigestMismatch,
+        Self::DownloadFailed,
+        Self::GameModuleError,
+        Self::GameNotSelected,
+        Self::GitSourceCommitMismatch,
+        Self::GitSourceFetchFailed,
+        Self::GitSourceUnsupportedEntry,
+        Self::HistoryFailed,
+        Self::InvalidArguments,
+        Self::IoError,
+        Self::LaunchDriftCheckFailed,
+        Self::LaunchGameMismatch,
+        Self::LaunchInstallationInvalid,
+        Self::LaunchInstallationUnregistered,
+        Self::LaunchManagedFilesChanged,
+        Self::LaunchRecoveryPending,
+        Self::LaunchStartFailed,
+        Self::LaunchTargetUnavailable,
+        Self::LaunchTargetUnsafe,
+        Self::ModNotFound,
+        Self::ModuleLaunchTargetInvalid,
+        Self::ModuleStoreIdInvalid,
+        Self::NativeInjectorNotAllowed,
+        Self::PackageNeeded,
+        Self::PackageNotFound,
+        Self::PackagePinned,
+        Self::PendingTransaction,
+        Self::PlanBlocked,
+        Self::StateError,
+        Self::AdoptFailed,
+        Self::AssetFailed,
+        Self::AuthFailed,
+        Self::BucketFailed,
+        Self::CacheFailed,
+        Self::DoctorFailed,
+        Self::GameFailed,
+        Self::InspectFailed,
+        Self::InstallFailed,
+        Self::ListFailed,
+        Self::ModuleFailed,
+        Self::PinFailed,
+        Self::PlayFailed,
+        Self::RecoverFailed,
+        Self::ScanFailed,
+        Self::SearchFailed,
+        Self::UninstallFailed,
+        Self::UndoFailed,
+        Self::UndoNotFound,
+        Self::UndoConflict,
+        Self::UndoSourceManual,
+        Self::UpdateFailed,
+    ];
+
+    /// The code as it appears in JSON output.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AlreadyInstalled => "ALREADY_INSTALLED",
+            Self::AmbiguousTarget => "AMBIGUOUS_TARGET",
+            Self::ApprovalRequired => "APPROVAL_REQUIRED",
+            Self::ArchiveInvalid => "ARCHIVE_INVALID",
+            Self::ArchiveRequired => "ARCHIVE_REQUIRED",
+            Self::Cancelled => "CANCELLED",
+            Self::Conflict => "CONFLICT",
+            Self::DependencyMissing => "DEPENDENCY_MISSING",
+            Self::DetectFolderUnconfirmed => "DETECT_FOLDER_UNCONFIRMED",
+            Self::DetectFolderUnreadable => "DETECT_FOLDER_UNREADABLE",
+            Self::DetectModuleFailed => "DETECT_MODULE_FAILED",
+            Self::DetectModuleUnreadable => "DETECT_MODULE_UNREADABLE",
+            Self::DigestMismatch => "DIGEST_MISMATCH",
+            Self::DownloadFailed => "DOWNLOAD_FAILED",
+            Self::GameModuleError => "GAME_MODULE_ERROR",
+            Self::GameNotSelected => "GAME_NOT_SELECTED",
+            Self::GitSourceCommitMismatch => "GIT_SOURCE_COMMIT_MISMATCH",
+            Self::GitSourceFetchFailed => "GIT_SOURCE_FETCH_FAILED",
+            Self::GitSourceUnsupportedEntry => "GIT_SOURCE_UNSUPPORTED_ENTRY",
+            Self::HistoryFailed => "HISTORY_FAILED",
+            Self::InvalidArguments => "INVALID_ARGUMENTS",
+            Self::IoError => "IO_ERROR",
+            Self::LaunchDriftCheckFailed => "LAUNCH_DRIFT_CHECK_FAILED",
+            Self::LaunchGameMismatch => "LAUNCH_GAME_MISMATCH",
+            Self::LaunchInstallationInvalid => "LAUNCH_INSTALLATION_INVALID",
+            Self::LaunchInstallationUnregistered => "LAUNCH_INSTALLATION_UNREGISTERED",
+            Self::LaunchManagedFilesChanged => "LAUNCH_MANAGED_FILES_CHANGED",
+            Self::LaunchRecoveryPending => "LAUNCH_RECOVERY_PENDING",
+            Self::LaunchStartFailed => "LAUNCH_START_FAILED",
+            Self::LaunchTargetUnavailable => "LAUNCH_TARGET_UNAVAILABLE",
+            Self::LaunchTargetUnsafe => "LAUNCH_TARGET_UNSAFE",
+            Self::ModNotFound => "MOD_NOT_FOUND",
+            Self::ModuleLaunchTargetInvalid => "MODULE_LAUNCH_TARGET_INVALID",
+            Self::ModuleStoreIdInvalid => "MODULE_STORE_ID_INVALID",
+            Self::NativeInjectorNotAllowed => "NATIVE_INJECTOR_NOT_ALLOWED",
+            Self::PackageNeeded => "PACKAGE_NEEDED",
+            Self::PackageNotFound => "PACKAGE_NOT_FOUND",
+            Self::PackagePinned => "PACKAGE_PINNED",
+            Self::PendingTransaction => "PENDING_TRANSACTION",
+            Self::PlanBlocked => "PLAN_BLOCKED",
+            Self::StateError => "STATE_ERROR",
+            Self::AdoptFailed => "ADOPT_FAILED",
+            Self::AssetFailed => "ASSET_FAILED",
+            Self::AuthFailed => "AUTH_FAILED",
+            Self::BucketFailed => "BUCKET_FAILED",
+            Self::CacheFailed => "CACHE_FAILED",
+            Self::DoctorFailed => "DOCTOR_FAILED",
+            Self::GameFailed => "GAME_FAILED",
+            Self::InspectFailed => "INSPECT_FAILED",
+            Self::InstallFailed => "INSTALL_FAILED",
+            Self::ListFailed => "LIST_FAILED",
+            Self::ModuleFailed => "MODULE_FAILED",
+            Self::PinFailed => "PIN_FAILED",
+            Self::PlayFailed => "PLAY_FAILED",
+            Self::RecoverFailed => "RECOVER_FAILED",
+            Self::ScanFailed => "SCAN_FAILED",
+            Self::SearchFailed => "SEARCH_FAILED",
+            Self::UninstallFailed => "UNINSTALL_FAILED",
+            Self::UndoFailed => "UNDO_FAILED",
+            Self::UndoNotFound => "UNDO_NOT_FOUND",
+            Self::UndoConflict => "UNDO_CONFLICT",
+            Self::UndoSourceManual => "UNDO_SOURCE_MANUAL",
+            Self::UpdateFailed => "UPDATE_FAILED",
+        }
+    }
+}
+
+impl fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Serialize for ErrorCode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+/// An error with a stable code. Its message is the human-readable text.
+#[derive(Debug)]
+pub struct CodedError {
+    code: ErrorCode,
+    message: String,
+}
+
+impl CodedError {
+    /// Creates an error with `code` and `message`.
+    #[must_use]
+    pub fn new(code: ErrorCode, message: impl fmt::Display) -> Self {
+        Self {
+            code,
+            message: message.to_string(),
+        }
+    }
+
+    /// The stable code of this error.
+    #[must_use]
+    pub const fn code(&self) -> ErrorCode {
+        self.code
+    }
+}
+
+impl fmt::Display for CodedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CodedError {}
+
+/// Creates an [`anyhow::Error`] with `code` and `message`.
+#[must_use]
+pub fn coded(code: ErrorCode, message: impl fmt::Display) -> anyhow::Error {
+    anyhow::Error::new(CodedError::new(code, message))
+}
+
+/// Gives `error` the code `code` unless it already has a specific code.
+///
+/// The message stays the same, including its context chain.
+#[must_use]
+pub fn with_code(error: anyhow::Error, code: ErrorCode) -> anyhow::Error {
+    if code_of(&error).is_some() {
+        return error;
+    }
+    coded(code, format!("{error:#}"))
+}
+
+/// Adds a stable code to the error of a fallible result.
+pub trait ResultExt<T> {
+    /// Gives the error the code `code` unless it already has a specific code.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original error, with `code` when it had no specific code.
+    fn code(self, code: ErrorCode) -> anyhow::Result<T>;
+}
+
+impl<T> ResultExt<T> for anyhow::Result<T> {
+    fn code(self, code: ErrorCode) -> anyhow::Result<T> {
+        self.map_err(|error| with_code(error, code))
+    }
+}
+
+/// The specific code of `error`, or `None` when the error has none.
+///
+/// A cancellation, also one that a [`crate::progress::DownloadReader`] wraps
+/// in an I/O error, wins over every other code. Otherwise the first match in
+/// this order wins: a native-injector refusal in the chain, the outermost
+/// [`CodedError`], a legacy `CODE: message` prefix whose code is in
+/// [`ErrorCode::ALL`], then the code of a known library error type such as a
+/// SQLite or ZIP error.
+#[must_use]
+pub fn code_of(error: &anyhow::Error) -> Option<ErrorCode> {
+    let cancelled_read = error
+        .downcast_ref::<std::io::Error>()
+        .and_then(std::io::Error::get_ref)
+        .is_some_and(|inner| inner.is::<Cancelled>());
+    if cancelled_read || error.downcast_ref::<Cancelled>().is_some() {
+        return Some(ErrorCode::Cancelled);
+    }
+    if error.downcast_ref::<NativeInjectorNotAllowed>().is_some() {
+        return Some(ErrorCode::NativeInjectorNotAllowed);
+    }
+    if let Some(coded) = error.downcast_ref::<CodedError>() {
+        return Some(coded.code);
+    }
+    if let Some(code) = error
+        .chain()
+        .filter_map(|cause| cause.to_string().split(':').next().map(str::to_owned))
+        .find_map(|prefix| {
+            ErrorCode::ALL
+                .iter()
+                .copied()
+                .find(|code| code.as_str() == prefix)
+        })
+    {
+        return Some(code);
+    }
+    if error.downcast_ref::<rusqlite::Error>().is_some() {
+        return Some(ErrorCode::StateError);
+    }
+    if error.downcast_ref::<zip::result::ZipError>().is_some() {
+        return Some(ErrorCode::ArchiveInvalid);
+    }
+    if error.downcast_ref::<std::io::Error>().is_some() {
+        return Some(ErrorCode::IoError);
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests;

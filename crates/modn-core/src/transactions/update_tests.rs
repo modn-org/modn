@@ -3,6 +3,7 @@ use super::install::Fault;
 use super::journal::{target_path, temp_path};
 use super::{CatalogDependency, CatalogRelease, ManagedPackage, NativeInjectorPolicy};
 use crate::archive::inspect;
+use crate::error::{code_of, ErrorCode};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -100,6 +101,7 @@ fn pin_after_preview_blocks_update_before_withdrawal() {
         .expect_err("pinned dependent blocks update");
     assert!(error.to_string().contains("pinned"));
     assert!(error.to_string().contains(&installed.top.id));
+    assert_eq!(code_of(&error), Some(ErrorCode::PackagePinned));
     assert_eq!(
         fs::read(game.join("addons/base.plugin")).expect("content"),
         before
@@ -190,6 +192,7 @@ fn target_pinned_after_planning_stays_installed() {
         .expect("pin target");
     let error = installed.update(None).expect_err("pinned target");
     assert!(error.to_string().contains("pinned"));
+    assert_eq!(code_of(&error), Some(ErrorCode::PackagePinned));
     assert_eq!(
         fs::read_to_string(game.join("addons/base.plugin")).expect("old content"),
         "v1"

@@ -3,11 +3,22 @@
 ## Detection
 
 Balatro support is Windows-only.
-Modn recognizes Steam app `2379780`.
-Detection requires the `Balatro.exe` marker in the game folder.
-Modn reads `steam_name` from `steamapps/appmanifest_2379780.acf` and uses its `installdir` value.
-If the manifest does not name the folder, Modn uses `Balatro`.
-Epic Games Store and Microsoft Store installations are unsupported.
+The module declares Steam app `2379780` as its only store identity.
+`modn game detect` finds the folder that the Steam library lists for that app.
+Detection and registration require the `Balatro.exe` marker in the game folder.
+The module declares no GOG or Epic identity because no verified product identity is known for them.
+Microsoft Store installations are unsupported.
+
+## Launch
+
+`modn play balatro` starts the game. When detection shows that Steam installed
+the selected folder, Modn opens `steam://rungameid/2379780`. Any other
+installation starts `Balatro.exe` with the game folder as its working directory.
+
+```powershell
+modn play balatro --json
+modn play balatro --path "<game-root>"
+```
 
 ## Roots and saves
 
@@ -100,6 +111,8 @@ It does not prove that Balatro or Steamodded loads the mod.
 ## Verification
 
 Balatro support needs Modn 0.5.0 or later and `main` bucket release `v2026.11.08` or later.
+The `launch` target needs the Modn release that reads it; Modn 0.5.0 refuses
+the newer module manifest as an unknown field.
 Modn 0.4.0 supports Balatro but cannot verify the signed bucket releases.
 
 Fixture tests cover detection, layouts, refusals, the native injector opt-in and the Git source.

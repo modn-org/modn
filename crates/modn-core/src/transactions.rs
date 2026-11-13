@@ -17,11 +17,17 @@ mod cleanup;
 mod directory_ledger;
 #[cfg(test)]
 mod generic_tests;
+#[cfg(test)]
+mod history_release_tests;
+#[cfg(test)]
+mod history_tests;
 mod install;
 mod journal;
 #[cfg(test)]
 mod lifecycle_tests;
 mod native_injector;
+#[cfg(test)]
+mod progress_tests;
 mod recovery;
 #[cfg(test)]
 mod roots_tests;
@@ -29,6 +35,9 @@ mod stack;
 mod staging;
 #[cfg(test)]
 mod tests;
+mod undo_digests;
+#[cfg(test)]
+mod undo_digests_tests;
 mod uninstall;
 mod uninstall_plan;
 #[cfg(test)]
@@ -41,7 +50,7 @@ mod validation;
 pub use adoption::AdoptionApproval;
 pub use catalog::{
     CatalogConflict, CatalogDependency, CatalogReference, CatalogRelease, DependencyState,
-    RecordedDependency,
+    RecordedDependency, ReleaseDeclarations,
 };
 pub use cleanup::CleanupApproval;
 pub(crate) use journal::lock_store;
@@ -53,3 +62,6 @@ pub use native_injector::{
 pub use stack::StackMember;
 pub use uninstall_plan::{PlannedRemoval, UninstallScope};
 pub(crate) use validation::validate_transaction_root;
+
+pub mod undo;
+pub use undo::{conflict, inverse, UndoConflict, UndoRestore};

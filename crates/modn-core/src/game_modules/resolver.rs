@@ -29,6 +29,22 @@ pub fn with_module_source<T>(source: Option<&Path>, action: impl FnOnce() -> T) 
     action()
 }
 
+/// Game IDs of every module that ordinary commands can select: the official
+/// `main` modules and the registered third-party modules, without duplicates.
+///
+/// A registered module whose release cannot be read stays listed, so detection
+/// reports it in its `skipped` list instead of failing every game.
+/// Development overrides are not listed, because they name no game until a
+/// command selects one.
+pub fn available_games() -> Result<Vec<String>> {
+    let data = data_dir::profile_directory()?;
+    let mut games = BucketStore::new(&data).official_games()?;
+    games.extend(ModuleRegistry::new(&data).game_ids()?);
+    games.sort();
+    games.dedup();
+    Ok(games)
+}
+
 pub(crate) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     if !loader::valid_game_id(game) {
         bail!("invalid game module identifier");

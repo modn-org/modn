@@ -1,3 +1,4 @@
+use crate::error::{coded, ErrorCode};
 use crate::state::{record_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
@@ -22,6 +23,21 @@ pub struct ManagedPackage {
     pub directories: Vec<String>,
     /// Catalog identity, when the package was installed from a bucket.
     pub catalog: Option<super::CatalogReference>,
+    /// Catalog mod ID, or the standalone archive stem.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_id: Option<String>,
+    /// Release version, when recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Release source descriptor, when recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::buckets::PackageSource>,
+    /// Archive BLAKE3 digest as `blake3:<hex>`, when recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive_blake3: Option<String>,
+    /// Declared catalog data recorded with this package.
+    #[serde(skip)]
+    pub declarations: Option<super::catalog::ReleaseDeclarations>,
 }
 
 /// Manifest record for a file owned by a managed package.
@@ -154,7 +170,10 @@ impl Store {
             |row| row.get(0),
         )?;
         if count > 0 {
-            bail!("unfinished transaction detected; run 'modn recover' before another write");
+            return Err(coded(
+                ErrorCode::PendingTransaction,
+                "unfinished transaction detected; run 'modn recover' before another write",
+            ));
         }
         Ok(())
     }
@@ -173,7 +192,6 @@ impl Store {
         files: &[JournalFile],
         directories: &[String],
     ) -> Result<()> {
-        self.ensure_no_pending()?;
         let tx = self.connection.transaction()?;
         tx.execute(
             "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
@@ -306,9 +324,48 @@ impl Store {
         directories: &[JournalDirectory],
         content: Option<&Path>,
         catalog: Option<&super::catalog::CatalogRecord>,
+        archive_blake3: Option<&str>,
+        stack_id: Option<&str>,
     ) -> Result<()> {
+        let context = self.history.clone();
         let tx = self.connection.transaction()?;
         let replaced = catalog.and_then(|catalog| catalog.replacing);
+        let metadata = context.as_ref().map(|context| {
+            crate::history::metadata_for(
+                context,
+                id,
+                catalog.map(|catalog| catalog.release),
+                archive_blake3,
+            )
+        });
+        let record = match (context.as_ref(), metadata.as_ref()) {
+            (Some(context), Some(metadata)) if stack_id.is_none() => {
+                let previous = match replaced {
+                    Some(replaced) => {
+                        Some(crate::history::package_snapshot(&tx, replaced.package_id)?)
+                    }
+                    None => None,
+                };
+                let specs: Vec<crate::history::FileSpec> = files
+                    .iter()
+                    .map(|file| crate::history::FileSpec {
+                        root: file.root.label().to_owned(),
+                        destination: file.destination.clone(),
+                        digest: file.sha256.clone(),
+                    })
+                    .collect();
+                Some(crate::history::install_operation(
+                    context,
+                    id,
+                    id,
+                    metadata.clone(),
+                    hash,
+                    &specs,
+                    previous,
+                ))
+            }
+            _ => None,
+        };
         if let Some(replaced) = replaced {
             super::update::vacate(&tx, replaced)?;
         }
@@ -320,6 +377,9 @@ impl Store {
             "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES (?1,?2,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
+        if let Some(metadata) = &metadata {
+            crate::history::record_metadata(&tx, id, metadata)?;
+        }
         for f in files {
             tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,sha256,bytes)
                 VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -343,10 +403,20 @@ impl Store {
         if let Some(catalog) = catalog {
             super::catalog::record(&tx, id, catalog)?;
         }
+        if let Some(stack_id) = stack_id {
+            tx.execute(
+                "INSERT INTO pending_stack_packages(stack_id,ord,package_id)
+                 SELECT ?1, COUNT(*), ?2 FROM pending_stack_packages WHERE stack_id=?1",
+                params![stack_id, id],
+            )?;
+        }
         if let Some(replaced) = replaced {
             super::update::retire(&tx, replaced, id)?;
         }
         super::created_dirs::commit(&tx, id, game, content)?;
+        if let Some(record) = &record {
+            crate::history::insert(&tx, record)?;
+        }
         tx.execute(
             "UPDATE pending_transactions SET status='committed' WHERE id=?1",
             [id],
@@ -356,21 +426,69 @@ impl Store {
     }
 
     pub(super) fn commit_uninstall(&mut self, journal_id: &str, package_id: &str) -> Result<()> {
+        self.commit_uninstall_many(&[(journal_id.to_owned(), package_id.to_owned())])
+    }
+
+    /// Commit the removal of one or more withdrawn packages in one transaction.
+    ///
+    /// Every journal must still be pending. The transaction deletes the
+    /// ownership records, writes one history record when a context is set and
+    /// marks each journal committed, so a failure keeps every file recoverable.
+    pub(crate) fn commit_uninstall_many(&mut self, removals: &[(String, String)]) -> Result<()> {
+        let context = self.history.clone();
         let tx = self.connection.transaction()?;
-        tx.execute(
-            "DELETE FROM managed_directories WHERE package_id=?1",
-            [package_id],
-        )?;
-        tx.execute(
-            "DELETE FROM managed_files WHERE package_id=?1",
-            [package_id],
-        )?;
-        super::catalog::forget(&tx, package_id)?;
-        tx.execute("DELETE FROM managed_packages WHERE id=?1", [package_id])?;
-        tx.execute(
-            "UPDATE pending_transactions SET status='committed' WHERE id=?1",
-            [journal_id],
-        )?;
+        let record = match (context.as_ref(), removals) {
+            (Some(context), [(journal_id, package_id)]) => {
+                let package = crate::history::package_snapshot(&tx, package_id)?;
+                Some(crate::history::uninstall_operation(
+                    context, journal_id, package,
+                ))
+            }
+            (Some(context), _) => {
+                let mut packages = Vec::new();
+                for (_, package_id) in removals {
+                    packages.push(crate::history::package_snapshot(&tx, package_id)?);
+                }
+                Some(crate::history::uninstall_operation_many(
+                    context,
+                    &removals[0].0,
+                    packages,
+                ))
+            }
+            (None, _) => None,
+        };
+        for (_, package_id) in removals {
+            tx.execute(
+                "DELETE FROM package_dependencies WHERE dependency_id=?1",
+                [package_id],
+            )?;
+        }
+        for (journal_id, package_id) in removals {
+            tx.execute(
+                "DELETE FROM managed_directories WHERE package_id=?1",
+                [package_id],
+            )?;
+            tx.execute(
+                "DELETE FROM managed_files WHERE package_id=?1",
+                [package_id],
+            )?;
+            super::catalog::forget(&tx, package_id)?;
+            tx.execute(
+                "DELETE FROM managed_package_releases WHERE package_id=?1",
+                [package_id],
+            )?;
+            tx.execute("DELETE FROM managed_packages WHERE id=?1", [package_id])?;
+            let committed = tx.execute(
+                "UPDATE pending_transactions SET status='committed' WHERE id=?1 AND status='pending'",
+                [journal_id],
+            )?;
+            if committed != 1 {
+                bail!("removal journal {journal_id} is no longer pending; run 'modn recover'");
+            }
+        }
+        if let Some(record) = &record {
+            crate::history::insert(&tx, record)?;
+        }
         tx.commit()?;
         Ok(())
     }

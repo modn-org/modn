@@ -1,3 +1,4 @@
+use crate::progress::OperationControl;
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use rusqlite::{params, Connection, OpenFlags, TransactionBehavior};
@@ -19,9 +20,20 @@ pub struct GameInstallation {
 pub struct Store {
     pub(crate) connection: Connection,
     pub(crate) state_root: PathBuf,
+    pub(crate) control: OperationControl,
+    pub(crate) history: Option<crate::history::HistoryContext>,
 }
 
 impl Store {
+    /// Report the progress of later operations to `control` and let its
+    /// token cancel them before their commit point.
+    ///
+    /// Install, update, stack install and uninstall use it. A new store
+    /// uses [`OperationControl::default`], which reports nothing.
+    pub fn set_control(&mut self, control: OperationControl) {
+        self.control = control;
+    }
+
     /// Open the manager-owned SQLite database and initialize its schema.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
@@ -158,6 +170,44 @@ impl Store {
                 ord INTEGER NOT NULL,
                 package_id TEXT NOT NULL UNIQUE REFERENCES managed_packages(id),
                 PRIMARY KEY(stack_id, ord)
+            );
+            CREATE TABLE IF NOT EXISTS managed_package_releases (
+                package_id TEXT PRIMARY KEY REFERENCES managed_packages(id),
+                mod_id TEXT NOT NULL,
+                version TEXT,
+                source TEXT,
+                archive_blake3 TEXT,
+                catalog TEXT,
+                declarations TEXT
+            );
+            CREATE TABLE IF NOT EXISTS history_operations (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                installation TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                undoes TEXT
+            );
+            CREATE TABLE IF NOT EXISTS history_packages (
+                operation_id TEXT NOT NULL,
+                ord INTEGER NOT NULL,
+                mod_id TEXT NOT NULL,
+                package_id_before TEXT,
+                package_id_after TEXT,
+                release_before TEXT,
+                release_after TEXT,
+                PRIMARY KEY(operation_id, ord)
+            );
+            CREATE TABLE IF NOT EXISTS history_files (
+                operation_id TEXT NOT NULL,
+                package_ord INTEGER NOT NULL,
+                ord INTEGER NOT NULL,
+                root TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                digest_before TEXT,
+                digest_after TEXT,
+                PRIMARY KEY(operation_id, package_ord, ord)
             );",
         )?;
         if !existing_state {
@@ -175,6 +225,9 @@ impl Store {
             roots::migrate_to_v3(&tx)?;
         }
         migrate_ownership_keys(&tx)?;
+        crate::approval::ensure_schema(&tx)?;
+        ensure_history_undoes(&tx)?;
+        crate::history::ensure_release_schema(&tx)?;
         tx.commit()?;
         Ok(Self {
             connection,
@@ -182,6 +235,8 @@ impl Store {
                 .parent()
                 .context("missing state parent")?
                 .canonicalize()?,
+            control: OperationControl::default(),
+            history: None,
         })
     }
 
@@ -197,12 +252,15 @@ impl Store {
         if version < roots::SCHEMA_VERSION {
             roots::attach_legacy_views(&connection)?;
         }
+        crate::approval::attach_missing_view(&connection)?;
         Ok(Self {
             connection,
             state_root: path
                 .parent()
                 .context("missing state parent")?
                 .canonicalize()?,
+            control: OperationControl::default(),
+            history: None,
         })
     }
 
@@ -392,9 +450,22 @@ fn migrate_ownership_keys(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn ensure_history_undoes(connection: &Connection) -> Result<()> {
+    let present: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('history_operations') WHERE name='undoes')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !present {
+        connection.execute_batch("ALTER TABLE history_operations ADD COLUMN undoes TEXT;")?;
+    }
+    Ok(())
+}
+
 fn validate_package_schema(connection: &Connection) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if !(1..=roots::SCHEMA_VERSION).contains(&version) {
+    let latest = roots::SCHEMA_VERSION.max(crate::approval::SCHEMA_VERSION);
+    if !(1..=latest).contains(&version) {
         bail!("unsupported manager state schema; start with a fresh state directory");
     }
     let (archive_required, manual_origin): (Option<i64>, bool) = connection.query_row(
@@ -414,7 +485,9 @@ fn validate_package_schema(connection: &Connection) -> Result<()> {
 mod roots;
 #[cfg(test)]
 pub(crate) use roots::tests::{link_directory, unlink_directory};
-pub(crate) use roots::{is_recorded, record_root, recorded_root, resolve_root, RootKind};
+pub(crate) use roots::{
+    check_root, is_recorded, record_root, recorded_root, resolve_root, RootKind,
+};
 
 #[cfg(test)]
 mod tests;

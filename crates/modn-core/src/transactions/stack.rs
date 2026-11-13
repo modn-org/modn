@@ -1,6 +1,7 @@
 use super::catalog::{CatalogInstall, CatalogRelease};
 use super::journal::{lock_store, ManagedPackage};
 use super::native_injector::NativeInjectorPolicy;
+use crate::error::{coded, ErrorCode};
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{anyhow, bail, Context, Result};
@@ -60,6 +61,7 @@ impl Store {
         if members.is_empty() {
             bail!("installation stack is empty");
         }
+        self.control.checkpoint()?;
         let stack_id = self.begin_stack(&game)?;
         let mut installed = Vec::new();
         for member in members {
@@ -73,10 +75,10 @@ impl Store {
                     &member.approved_executables,
                     Some(CatalogInstall {
                         release: &member.release,
-                        stack_id: Some(&stack_id),
                         replacing: None,
                     }),
                     policy,
+                    Some(&stack_id),
                 )
             });
             match result {
@@ -94,21 +96,22 @@ impl Store {
                 }
             }
         }
-        self.finish_stack(&stack_id).context(
+        self.finish_stack(&stack_id, Some(&installed)).context(
             "installation stack not finalized; 'modn recover' rolls back all of its packages",
         )?;
         Ok(installed)
     }
 
-    pub(super) fn ensure_idle(&self) -> Result<()> {
+    pub(crate) fn ensure_idle(&self) -> Result<()> {
         self.ensure_no_pending()?;
         let stacks: i64 =
             self.connection
                 .query_row("SELECT COUNT(*) FROM pending_stacks", [], |row| row.get(0))?;
         if stacks > 0 {
-            bail!(
-                "unfinished installation stack detected; run 'modn recover' before another write"
-            );
+            return Err(coded(
+                ErrorCode::PendingTransaction,
+                "unfinished installation stack detected; run 'modn recover' before another write",
+            ));
         }
         Ok(())
     }
@@ -129,7 +132,7 @@ impl Store {
         Ok(stacks.len())
     }
 
-    pub(super) fn begin_stack(&mut self, game: &Path) -> Result<String> {
+    pub(crate) fn begin_stack(&mut self, game: &Path) -> Result<String> {
         let marker = Builder::new()
             .prefix("stack-")
             .tempdir_in(&self.state_root)?;
@@ -146,15 +149,31 @@ impl Store {
         Ok(id)
     }
 
-    fn finish_stack(&mut self, id: &str) -> Result<()> {
+    fn finish_stack(&mut self, id: &str, installed: Option<&[ManagedPackage]>) -> Result<()> {
+        let record = match (self.history.as_ref(), installed) {
+            (Some(context), Some(packages)) => {
+                Some(crate::history::stack_operation(context, id, packages))
+            }
+            _ => None,
+        };
         let tx = self.connection.transaction()?;
+        if let Some(record) = &record {
+            crate::history::insert(&tx, record)?;
+        }
         tx.execute("DELETE FROM pending_stack_packages WHERE stack_id=?1", [id])?;
         tx.execute("DELETE FROM pending_stacks WHERE id=?1", [id])?;
         tx.commit()?;
         Ok(())
     }
 
-    fn rollback_stack(&mut self, id: &str, game: &Path) -> Result<usize> {
+    pub(crate) fn rollback_stack(&mut self, id: &str, game: &Path) -> Result<usize> {
+        let context = self.history.take();
+        let result = self.rollback_stack_members(id, game);
+        self.history = context;
+        result
+    }
+
+    fn rollback_stack_members(&mut self, id: &str, game: &Path) -> Result<usize> {
         let mut statement = self.connection.prepare(
             "SELECT package_id FROM pending_stack_packages WHERE stack_id=?1 ORDER BY ord DESC",
         )?;
@@ -166,7 +185,7 @@ impl Store {
             self.uninstall_locked(game, package_id)
                 .with_context(|| format!("cannot roll back stack package {package_id}"))?;
         }
-        self.finish_stack(id)?;
+        self.finish_stack(id, None)?;
         Ok(members.len())
     }
 }

@@ -11,6 +11,8 @@ import sys
 import tempfile
 import zipfile
 
+from undo_checks import verify_undo_history
+
 REPO = Path(__file__).resolve().parents[4]
 FIXTURE = REPO / "tests" / "fixtures" / "test-game"
 PAYLOAD = b"fixture-owned-archive"
@@ -272,12 +274,14 @@ def verify(driver):
     require(not cyber_file.exists(), "second game's owned file not removed")
     require(driver.json("cyberpunk-installed-empty", ["list", "--path", cyberpunk]) == [],
             "second game's ownership record remains")
+    undo_history = verify_undo_history(driver, game, test_zip)
     require(driver.json("recover-idle", ["recover", "--yes"])["recovered"] == 0,
             "unexpected recovery pending")
     return {
         "result": "PASS", "game_module": "test-game",
         "test_game_install": "full ordinary CLI lifecycle verified",
         "second_game": "concurrent Cyberpunk/test-game owned installs isolated and uninstalled",
+        "undo_history": undo_history,
         "command_count": driver.index, "package_id": package_id,
         "game_files_after": snapshot(game),
     }

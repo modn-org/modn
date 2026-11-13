@@ -1,8 +1,11 @@
 use crate::catalog_install;
 use crate::commands::InstallArgs;
 use crate::modules::content_root_appdata;
+use crate::progress::Progress;
 use crate::state_access::{InstallationAccess, ManagerState};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
+use modn_core::buckets::PackageSource;
+use modn_core::history::{HistoryContext, StandalonePackage};
 use modn_core::planning::{preview_install_zip_with_appdata, preview_install_zip_with_permissions};
 use std::path::{Path, PathBuf};
 
@@ -24,12 +27,14 @@ pub(super) fn run(
     state_path: &Path,
     requested: Option<&str>,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
+    progress.begin()?;
     if args.download && !args.dry_run {
         bail!("--download only prepares a --dry-run; an install downloads what it needs");
     }
     if !is_standalone_archive(args) {
-        return catalog_install::run(args, state_path, requested, json);
+        return catalog_install::run(args, state_path, requested, json, progress);
     }
     if !args.file.is_empty() {
         bail!("--file applies only to cataloged mods, not standalone archives");
@@ -37,7 +42,7 @@ pub(super) fn run(
     if args.download {
         bail!("--download applies only to cataloged mods, not standalone archives");
     }
-    install_archive(args, state_path, requested, json)
+    install_archive(args, state_path, requested, json, progress)
 }
 
 fn install_archive(
@@ -45,6 +50,7 @@ fn install_archive(
     state_path: &Path,
     requested: Option<&str>,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
     let access = if args.dry_run {
         InstallationAccess::ArchivePreview
@@ -55,6 +61,9 @@ fn install_archive(
         .for_installation(args.path.clone(), requested)?
         .open(access)?;
     let mut store = selected.store;
+    if let Some(store) = store.as_mut() {
+        store.set_control(progress.control().clone());
+    }
     let game_id = selected.game_id;
     let game = selected.root;
     let archive = PathBuf::from(&args.target);
@@ -78,15 +87,31 @@ fn install_archive(
         }
         return Ok(());
     }
-    let package = store
-        .as_mut()
-        .expect("approved installation opens writable state")
-        .install_operations_zip_with_permissions(
+    let package = {
+        let filename = archive
+            .file_name()
+            .and_then(|name| name.to_str())
+            .context("archive filename must be UTF-8")?
+            .to_owned();
+        let mod_id = archive
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("archive")
+            .to_owned();
+        let history = HistoryContext::new(game_id.clone(), game.clone()).with_standalone(
+            StandalonePackage::new(mod_id, PackageSource::Manual { filename }),
+        );
+        let store = store
+            .as_mut()
+            .expect("approved installation opens writable state");
+        store.set_history_context(history);
+        store.install_operations_zip_with_permissions(
             &game,
             &archive,
             &report,
             &args.allow_executable,
-        )?;
+        )?
+    };
     if json {
         println!("{}", serde_json::to_string_pretty(&package)?);
     } else {

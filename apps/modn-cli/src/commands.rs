@@ -8,6 +8,10 @@ pub(super) struct Cli {
     #[arg(long, global = true)]
     pub(super) json: bool,
 
+    /// Stream operation events as JSON lines on stderr; stdin line `cancel` cancels.
+    #[arg(long, global = true, value_name = "FORMAT")]
+    pub(super) progress: Option<crate::progress::ProgressFormat>,
+
     #[arg(long, global = true, value_name = "DIR")]
     pub(super) state_dir: Option<PathBuf>,
 
@@ -57,6 +61,10 @@ pub(super) enum Command {
     },
     /// Remove a managed package; --force removes changed owned files only.
     Uninstall(UninstallArgs),
+    /// List committed install, update and uninstall operations, newest first.
+    History,
+    /// Undo one committed operation, or the newest one.
+    Undo(UndoArgs),
     /// Safely roll back interrupted installs/uninstalls.
     Recover {
         #[arg(long, help = "Confirm rollback of interrupted transactions")]
@@ -82,6 +90,14 @@ pub(super) enum Command {
     Game {
         #[command(subcommand)]
         command: GameCommand,
+    },
+    /// Launch a registered game installation with its module's launch target.
+    Play {
+        /// Game ID to launch.
+        game: String,
+        /// Select one installation when several are registered.
+        #[arg(long)]
+        path: Option<PathBuf>,
     },
     /// Inspect known mod directories without modifying game files.
     Scan {
@@ -163,6 +179,12 @@ pub(super) enum GameCommand {
     },
     /// Show registered installations.
     List,
+    /// Find installations in the Steam, GOG and Epic libraries.
+    Detect {
+        /// Register each new confirmed installation (writes manager state only).
+        #[arg(long)]
+        register: bool,
+    },
     /// Unregister an installation only when no managed mods or pending operations remain.
     Remove {
         game: String,
@@ -261,6 +283,33 @@ pub(super) struct InstallArgs {
     pub(super) allow_native_injector: bool,
     #[arg(skip)]
     pub(super) nxm_links: Vec<NxmLink>,
+}
+
+/// Options for reversing one committed operation.
+#[derive(Args)]
+pub(super) struct UndoArgs {
+    /// Operation ID from `modn history`; omit it to undo the newest operation.
+    pub(super) id: Option<String>,
+    #[arg(long)]
+    pub(super) path: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Confirm changing game files back",
+        conflicts_with = "dry_run"
+    )]
+    pub(super) yes: bool,
+    #[arg(
+        long,
+        help = "Show the inverse operation and its packages without writing",
+        conflicts_with = "yes"
+    )]
+    pub(super) dry_run: bool,
+    /// Independently authorize one exact game-relative tool executable in a restored archive.
+    #[arg(long = "allow-executable", value_name = "GAME_RELATIVE_PATH")]
+    pub(super) allow_executable: Vec<String>,
+    /// Restore a package whose manifest marks it as a native injector.
+    #[arg(long)]
+    pub(super) allow_native_injector: bool,
 }
 
 /// Options for refreshing every catalog or replacing an installed catalog mod.

@@ -4,10 +4,14 @@ use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, StackRequest};
 use crate::modules::content_root_appdata;
+use crate::progress::Progress;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse};
+use modn_core::approval::Capabilities;
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
+use modn_core::error::{coded, ErrorCode};
+use modn_core::history::HistoryContext;
 use modn_core::planning::{
     preview_install_zip_with_appdata, preview_install_zip_with_permissions, PlanStatus,
 };
@@ -107,28 +111,63 @@ pub(super) fn run(
     state: ManagerState,
     args: &InstallArgs,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
+    if progress.enabled() && !args.yes {
+        return Err(coded(
+            ErrorCode::ApprovalRequired,
+            "installation writes game files; pass --yes with --progress json",
+        ));
+    }
     let releases = releases(&stack)?;
+    let mut history = HistoryContext::new(stack.game_id.clone(), stack.installation.clone());
+    for release in &releases {
+        history = history.with_source(&reference_of(release), release.package.source.clone());
+    }
     download::validate_links(&args.nxm_links, &releases)?;
-    let interactive = !args.yes;
-    let policy = if args.allow_native_injector {
+    let interactive = !args.yes && !progress.enabled();
+    let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
+    let checks: Vec<install_consent::ApprovalCheck> = releases
+        .iter()
+        .map(|release| {
+            let reference = reference_of(release);
+            let stored = install_consent::stored_approval(
+                state.existing(),
+                &stack.installation,
+                &reference,
+            )?;
+            let needed = Capabilities::new(
+                release.package.native_injector,
+                release.package.executables.iter().cloned(),
+            );
+            Ok(install_consent::ApprovalCheck::new(
+                reference, needed, stored, &flags,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(check) = checks.iter().find(|check| check.uncovered.native_injector) {
+        return check.ensure_approved();
+    }
+    let unapproved: Vec<String> = checks
+        .iter()
+        .flat_map(|check| check.uncovered.executables.iter().cloned())
+        .collect();
+    if !interactive {
+        if let Some(check) = checks
+            .iter()
+            .find(|check| !check.uncovered.executables.is_empty())
+        {
+            return check.ensure_approved();
+        }
+    }
+    let policy = if releases
+        .iter()
+        .any(|release| release.package.native_injector)
+    {
         NativeInjectorPolicy::Allow
     } else {
         NativeInjectorPolicy::Refuse
     };
-    let explicit = &args.allow_executable;
-    let unapproved: Vec<String> = releases
-        .iter()
-        .flat_map(|release| &release.package.executables)
-        .filter(|path| !explicit.contains(path))
-        .cloned()
-        .collect();
-    if !interactive && !unapproved.is_empty() {
-        bail!(
-            "installation blocked; catalog manifests declare {}. Confirm in a terminal without --yes, or pass --allow-executable for each path",
-            unapproved.join(", ")
-        );
-    }
     let packages: Vec<String> = releases
         .iter()
         .map(|release| {
@@ -162,18 +201,20 @@ pub(super) fn run(
         &mut stack.digests,
         &args.nxm_links,
         json,
+        progress,
     )?;
     let mut digests = BTreeMap::new();
     let members = releases
         .iter()
-        .map(|release| {
+        .zip(&checks)
+        .map(|(release, check)| {
             let archive = stack
                 .archives
                 .get(&reference_of(release).to_string())
                 .context("every stack member has a supplied, cached or downloaded archive")?;
-            let mut approved = explicit.clone();
+            let mut approved = check.approved_executables();
             if interactive {
-                approved.extend(release.package.executables.iter().cloned());
+                approved.extend(check.uncovered.executables.iter().cloned());
             }
             let digest = download::digest(release, &stack.digests)
                 .with_context(|| format!("{} has no archive digest", reference_of(release)))?
@@ -190,6 +231,12 @@ pub(super) fn run(
         game: Some(stack.game_id.clone()),
         root: Some(stack.installation.clone()),
     })?;
+    store.set_control(progress.control().clone());
+    store.set_history_context(history);
+    let mut installed_capabilities: BTreeMap<String, Capabilities> = checks
+        .iter()
+        .map(|check| (check.reference.to_string(), check.needed.clone()))
+        .collect();
     let installed =
         store.install_catalog_stack(&stack.installation, &members, policy, |member| {
             let reference = member.release.reference.to_string();
@@ -218,8 +265,29 @@ pub(super) fn run(
                     .collect();
                 bail!("{reference}: installation blocked: {}", blockers.join("; "));
             }
+            if let Some(capabilities) = installed_capabilities.get_mut(&reference) {
+                let destinations: BTreeSet<String> = plan
+                    .operations
+                    .iter()
+                    .map(|operation| operation.destination.clone())
+                    .collect();
+                *capabilities = Capabilities::new(
+                    capabilities.native_injector,
+                    capabilities
+                        .executables
+                        .iter()
+                        .filter(|path| destinations.contains(path.as_str()))
+                        .cloned(),
+                );
+            }
             Ok(plan)
         })?;
+    for check in &checks {
+        let needed = installed_capabilities
+            .get(&check.reference.to_string())
+            .unwrap_or(&check.needed);
+        install_consent::record(&mut store, &stack.installation, &check.reference, needed)?;
+    }
     let report: Vec<_> = members
         .iter()
         .zip(&installed)

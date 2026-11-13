@@ -158,6 +158,92 @@ A catalog sync imports modules only from trusted buckets. It reports and ignores
 
 Modn refuses a module whose bucket is no longer trusted. The refusal names the bucket and the recovery command. Run `modn bucket trust-modules <bucket>` to trust the bucket again, or `modn module remove <game-id>` to remove the module. `modn doctor` reports the same condition as `MODULE_SOURCE_UNTRUSTED`.
 
+## Store identities and detection
+
+A module can declare its store identities as data in `module.json`. Lua never
+receives them and gains no filesystem or process API from them.
+
+```json
+{"game_id":"cyberpunk-2077","version":"0.2.0","api_version":1,"entrypoint":"module.lua",
+ "stores":{"steam":"1091500","gog":"1423049311","epic":"Ginger"}}
+```
+
+`stores` is optional. Each key is optional and names one store:
+
+| Key | Identity | Shape |
+| --- | --- | --- |
+| `steam` | Steam app ID | 1 to 10 decimal digits |
+| `gog` | GOG product ID | 1 to 20 decimal digits |
+| `epic` | Epic Games Launcher `AppName` | 1 to 64 ASCII letters, digits, `-`, `_` or `.` |
+
+An unknown key or a malformed identity makes the module invalid. The error
+starts with `MODULE_STORE_ID_INVALID`. Any API version can declare `stores`.
+A change to `stores` is a module release, so increment `version`.
+Modn 0.5.0 and earlier refuse the field as an unknown manifest field; the
+matching `main` bucket release ships only with a Modn release that reads it.
+
+Rust reads the store libraries on Windows. This code knows store formats, not
+games:
+- **Steam**: the Steam folder from the registry (`SteamPath`, `InstallPath`)
+  and `%ProgramFiles(x86)%\Steam`. `steamapps/libraryfolders.vdf` lists more
+  libraries. Each `steamapps/appmanifest_<app id>.acf` names its folder below
+  `steamapps/common` with `installdir`.
+- **GOG**: the `HKLM\SOFTWARE\WOW6432Node\GOG.com\Games` registry keys and
+  their `gameID` and `path` values.
+- **Epic**: the `.item` manifests in
+  `%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests`. Add-on content and
+  incomplete installations are skipped.
+
+A library only proposes a folder. Modn then runs the module's `validate`
+policy with that folder as the only readable root, the same check as
+`game add --path`. A folder that the module does not confirm is reported as
+refused, with the reason. A registered module whose release cannot be read is
+reported as skipped, and detection still inspects the other games. Detection
+writes nothing; see
+[`modn game detect`](cli.md#game-detection).
+
+## Launch targets
+
+A module can declare how to start its game as data in `module.json`. Rust
+validates every target, and `modn play` starts it. Lua never receives launch
+targets and gains no process API.
+
+```json
+{"game_id":"cyberpunk-2077","version":"0.3.0","api_version":1,"entrypoint":"module.lua",
+ "launch":{"steam":"steam://rungameid/1091500","executable":"bin/x64/Cyberpunk2077.exe"}}
+```
+
+`launch` is optional. Each key is optional, but a present `launch` object must
+declare at least one target. Any host API version can declare `launch`:
+
+| Key | Shape |
+| --- | --- |
+| `steam` | `steam://rungameid/<app id>`; the app ID must equal `stores.steam` |
+| `gog` | A `goggalaxy:` URI; `stores.gog` must be declared |
+| `epic` | A `com.epicgames.launcher:` URI; `stores.epic` must be declared |
+| `executable` | A game-relative `.exe` path |
+
+An unknown key, an unsupported scheme, a store URI without its matching store
+identity, or a malformed value makes the module invalid. The error starts with
+`MODULE_LAUNCH_TARGET_INVALID`. An executable path must be relative and
+normalized. Absolute paths, `..` components, backslashes, reserved Windows
+names and non-`.exe` files are refused.
+
+At launch, Rust canonicalizes the executable below the selected installation.
+A missing file, a non-file, or a path that resolves outside the installation is
+refused with `LAUNCH_TARGET_UNSAFE`. A module with no target that applies to
+the selected installation is refused with `LAUNCH_TARGET_UNAVAILABLE`.
+
+`modn play` prefers a store URI when [`modn game detect`](cli.md#game-detection)
+shows that the selected folder came from the same store. Otherwise it starts
+the executable with the game folder as its working directory. A store URI opens
+through the Windows shell open handler. Play holds the transaction lock from the
+pending-transaction check until the process starts or the URI opens, so no
+install or uninstall can change the selected files in between. A module change
+to `launch` is a module release, so increment `version`. Modn 0.5.0 and earlier
+refuse the field as an unknown manifest field; the matching `main` bucket
+release ships only with a Modn release that reads it.
+
 ## Skyrim example
 
 Source: `examples/game-modules/skyrim-special-edition/`.
@@ -192,7 +278,7 @@ API 2 modules accept the API 1 manifest fields plus an optional `content_root`.
 The host accepts API 1 and API 2 modules. An API 1 module with `content_root` is rejected.
 
 ```json
-{"game_id":"balatro","version":"0.1.0","api_version":2,"entrypoint":"module.lua",
+{"game_id":"balatro","version":"0.2.0","api_version":2,"entrypoint":"module.lua",
  "content_root":{"base":"appdata","path":"Balatro/Mods"}}
 ```
 

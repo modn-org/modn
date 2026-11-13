@@ -1,4 +1,5 @@
 use crate::commands::GameCommand;
+use crate::game_detect;
 use crate::selection::choose_candidate;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Result};
@@ -20,6 +21,7 @@ pub(super) fn run(
         GameCommand::Add { game, path } => add(&game, path, state_path, json),
         GameCommand::Remove { game, path } => remove(&game, path.as_deref(), state_path, json),
         GameCommand::List => list(state_path, json),
+        GameCommand::Detect { register } => game_detect::run(state_path, requested, register, json),
     }
 }
 

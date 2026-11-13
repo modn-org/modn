@@ -3,13 +3,13 @@ use crate::integrity::package_intact;
 use crate::state::Store;
 use anyhow::{bail, Result};
 use rusqlite::{params, OptionalExtension, Transaction};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
 
 /// Qualified catalog identity of one mod: `bucket/game/mod`.
 #[expect(missing_docs, reason = "Field and variant names state their meaning")]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct CatalogReference {
     pub bucket: String,
@@ -31,7 +31,7 @@ impl CatalogReference {
 
 /// A catalog mod that must not share a game installation with a release.
 #[expect(missing_docs, reason = "Field and variant names state their meaning")]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct CatalogConflict {
     pub reference: CatalogReference,
@@ -130,7 +130,7 @@ impl fmt::Display for CatalogReference {
 
 /// One required catalog release, identified by its manifest-pinned archive digest.
 #[expect(missing_docs, reason = "Field and variant names state their meaning")]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct CatalogDependency {
     /// Catalog identity used in diagnostics.
@@ -138,6 +138,31 @@ pub struct CatalogDependency {
     pub archive_sha256: String,
     /// The dependent manifest's version requirement for this dependency.
     pub requirement: Option<String>,
+}
+
+/// Declared dependency, conflict and native-injector data of one release.
+///
+/// A history record stores this data so undo can rebuild the release without
+/// the bucket snapshot that produced it.
+#[expect(missing_docs, reason = "Field names state their meaning")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ReleaseDeclarations {
+    pub dependencies: Vec<CatalogDependency>,
+    pub conflicts: Vec<CatalogConflict>,
+    pub native_injector: bool,
+}
+
+impl ReleaseDeclarations {
+    /// The declarations of `release`.
+    #[must_use]
+    pub fn of(release: &CatalogRelease) -> Self {
+        Self {
+            dependencies: release.dependencies.clone(),
+            conflicts: release.conflicts.clone(),
+            native_injector: release.native_injector,
+        }
+    }
 }
 
 /// Catalog identity and prerequisites for one managed install.
@@ -159,14 +184,12 @@ pub struct CatalogRelease {
 #[derive(Clone, Copy)]
 pub(super) struct CatalogInstall<'a> {
     pub(super) release: &'a CatalogRelease,
-    pub(super) stack_id: Option<&'a str>,
     pub(super) replacing: Option<super::update::Replacement<'a>>,
 }
 
 pub(super) struct CatalogRecord<'a> {
     pub(super) release: &'a CatalogRelease,
     pub(super) dependency_ids: Vec<String>,
-    pub(super) stack_id: Option<&'a str>,
     pub(super) replacing: Option<super::update::Replacement<'a>>,
 }
 
@@ -357,13 +380,6 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
                 dependency.archive_sha256,
                 dependency.requirement
             ],
-        )?;
-    }
-    if let Some(stack_id) = record.stack_id {
-        tx.execute(
-            "INSERT INTO pending_stack_packages(stack_id,ord,package_id)
-             SELECT ?1, COUNT(*), ?2 FROM pending_stack_packages WHERE stack_id=?1",
-            params![stack_id, package_id],
         )?;
     }
     super::conflicts::record(tx, package_id, record.release)?;

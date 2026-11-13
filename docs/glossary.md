@@ -43,6 +43,23 @@ _Avoid_: Game installation
 One concrete directory containing an installed copy of a game.
 _Avoid_: Game, game ID
 
+**Store identity**:
+The identity of a game in one store, such as Steam app `1091500` for Cyberpunk
+2077. A game module declares it as data in `module.json`.
+_Avoid_: Store ID mapping, discovery path
+
+**Store library**:
+The record of installed games that a store keeps, such as the Steam
+`libraryfolders.vdf` and app manifests. Rust reads it; a game module confirms
+each folder it proposes.
+_Avoid_: Game library, scan root
+
+**Launch target**:
+The data in a game module that starts one installation: a store URI for a store
+that detection matched, or a game-relative `.exe`. Rust validates the target;
+Lua has no process API.
+_Avoid_: Game command line, arbitrary executable
+
 **Game module**:
 A versioned Lua integration that defines game-specific discovery,
 installation policy, diagnostics and tool behavior.

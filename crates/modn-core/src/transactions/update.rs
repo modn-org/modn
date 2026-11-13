@@ -3,6 +3,8 @@ use super::install::Fault;
 use super::journal::{lock_store, ManagedPackage, Roots};
 use super::native_injector::NativeInjectorPolicy;
 use super::uninstall::Dependents;
+use crate::error::{coded, ErrorCode};
+use crate::history::HistoryFile;
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{anyhow, bail, Context, Result};
@@ -79,6 +81,40 @@ impl Store {
         )
     }
 
+    /// Replace `package_id` with another release only when `archive` restores
+    /// the bytes that `expected` records for every `(root, destination)`.
+    ///
+    /// Undo uses this entry point: the archive is verified before the update
+    /// starts, so a changed module selection refuses with `UNDO_FAILED`
+    /// instead of committing different bytes than the history record.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the checked update keeps the recorded restore expectations explicit"
+    )]
+    pub fn update_catalog_release_checked(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        archive: &Path,
+        proposal: &InstallPlan,
+        release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
+        approved: &[String],
+        expected: &[HistoryFile],
+    ) -> Result<ManagedPackage> {
+        self.verify_restored_bytes(archive, proposal, expected)?;
+        self.update_inner(
+            game,
+            package_id,
+            archive,
+            proposal,
+            release,
+            approved,
+            policy,
+            test_fault(),
+        )
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "tests inject a fault into the public update"
@@ -104,7 +140,12 @@ impl Store {
             .find(|package| package.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
         if old.pinned {
-            bail!("managed package {package_id} is pinned; run `modn unpin {package_id}` to update it");
+            return Err(coded(
+                ErrorCode::PackagePinned,
+                format!(
+                    "managed package {package_id} is pinned; run `modn unpin {package_id}` to update it"
+                ),
+            ));
         }
         self.check_pinned_dependents(&game, &old, release)?;
         if old.catalog.as_ref() != Some(&release.reference) {
@@ -131,10 +172,10 @@ impl Store {
                 release.reference
             );
         }
+        self.control.checkpoint()?;
         let journal_id = self.withdraw_locked(&game, package_id, Dependents::Repoint)?;
         let catalog = CatalogInstall {
             release,
-            stack_id: None,
             replacing: Some(Replacement {
                 package_id,
                 journal_id: &journal_id,
@@ -148,6 +189,7 @@ impl Store {
             approved,
             Some(catalog),
             policy,
+            None,
         ) {
             Ok(package) => {
                 self.prune_created(&Roots {
@@ -221,11 +263,13 @@ impl Store {
                             .unwrap_or(false)
                     });
                     if !accepted {
-                        bail!(
-                            "managed package {} is pinned and requires {} {text}",
-                            dependent.id,
-                            release.reference
-                        );
+                        return Err(coded(
+                            ErrorCode::PackagePinned,
+                            format!(
+                                "managed package {} is pinned and requires {} {text}",
+                                dependent.id, release.reference
+                            ),
+                        ));
                     }
                 }
             }
@@ -260,6 +304,10 @@ pub(super) fn vacate(tx: &Transaction<'_>, replaced: Replacement<'_>) -> Result<
         [package_id],
     )?;
     super::catalog::forget(tx, package_id)?;
+    tx.execute(
+        "DELETE FROM managed_package_releases WHERE package_id=?1",
+        [package_id],
+    )?;
     Ok(())
 }
 

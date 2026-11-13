@@ -4117,6 +4117,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "winapi-util",
+ "windows-registry 0.6.1",
  "zip",
 ]
 

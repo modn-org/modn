@@ -1,5 +1,6 @@
 use super::journal::{lock_store, ManagedPackage};
 use super::CatalogReference;
+use crate::error::{coded, ErrorCode};
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -148,10 +149,13 @@ impl Store {
                 .filter(|id| **id != target)
                 .map(|id| label(id))
                 .collect();
-            bail!(
-                "managed package {target} is required by {}; uninstall dependents first or remove them together",
-                others.join(", ")
-            );
+            return Err(coded(
+                ErrorCode::PackageNeeded,
+                format!(
+                    "managed package {target} is required by {}; uninstall dependents first or remove them together",
+                    others.join(", ")
+                ),
+            ));
         }
 
         if scope.dependencies {
@@ -211,6 +215,7 @@ impl Store {
         let game = self.transaction_root(game)?;
         let mut removed: Vec<String> = Vec::new();
         for step in &plan {
+            self.begin_removal(&game, &step.id)?;
             if let Err(error) = self.uninstall_locked(&game, &step.id) {
                 let gone = self.removed_from(&game, &plan).unwrap_or(removed);
                 return Err(error.context(format!(

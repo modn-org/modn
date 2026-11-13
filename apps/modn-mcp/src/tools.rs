@@ -183,9 +183,34 @@ pub fn arguments(config: &Config, name: &str, input: Value) -> Result<Vec<OsStri
     Ok(args)
 }
 
-pub async fn call(config: &Config, args: &[OsString]) -> Value {
-    match backend::run(config, args).await {
+/// What the stdio loop should do after one tool call.
+pub enum Reply {
+    Response(Value),
+    /// The client cancelled before the commit point, so MCP sends no response.
+    Cancelled,
+}
+
+/// Maps one backend completion to the client response.
+pub fn reply(completion: backend::Completion) -> Reply {
+    if completion.cancelled && !completion.committed {
+        return Reply::Cancelled;
+    }
+    Reply::Response(match completion.result {
         Ok(value) => json!({"content":[{"type":"text","text":value.to_string()}],"isError":false}),
         Err(error) => json!({"content":[{"type":"text","text":format!("{error}")}],"isError":true}),
-    }
+    })
+}
+
+pub async fn call(
+    config: &Config,
+    args: &[OsString],
+    token: Option<Value>,
+    notifications: tokio::sync::mpsc::UnboundedSender<Value>,
+    cancellation: tokio::sync::mpsc::UnboundedReceiver<()>,
+) -> Reply {
+    let channels = backend::Channels {
+        notifications,
+        cancellation,
+    };
+    reply(backend::run(config, args, token, channels).await)
 }

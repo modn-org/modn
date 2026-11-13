@@ -12,6 +12,45 @@ Each committed install records the installation's game root in manager state (sc
 
 Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), automatic adoption, migration, or automatic recovery. Package updates use the same journals; see [Pinning and updating mods](updating.md). Always try it on a disposable game fixture before testing against a real game.
 
+## The commit point and cancellation
+
+An install, update, uninstall or download may report progress and accept a
+cancellation request. The **commit point** is the `commit` event: the moment
+the transaction starts to change game files or the records that own them.
+
+- **Install and stack install:** the commit point is before Modn records the
+  content root and before it creates any game file or ownership record.
+  Extraction, verification and staging happen before it in manager-owned
+  staging.
+- **Update:** the commit point is before Modn creates the new release's files.
+  The old release moves aside under a pending uninstall journal before that;
+  a cancellation before the commit point restores it.
+- **Uninstall and forced cleanup:** the commit point is before Modn
+  quarantines the first owned file.
+- **Download:** the commit point is the digest check that renames the
+  complete partial file into the verified cache entry. A cancelled download
+  removes the partial file and keeps no entry.
+
+Before the commit point, a cancellation stops the operation with
+`CANCELLED`, rolls back staging or a withdrawn release, and leaves the game
+files, manager state and ownership records as they were. From the commit
+point on, Modn ignores cancellation and finishes, or rolls back, the
+operation as it does without one. [cli.md](cli.md#progress-events-and-cancellation)
+defines the CLI protocol and the event schema.
+
+## Operation history at the commit point
+
+The commit transaction that records ownership also writes one operation
+history record: the new package or the removal, plus the file digests before
+and after. A failed history insert fails the transaction, so ownership and
+history share one outcome. An installation stack commits each member's
+ownership first and writes its single record in the transaction that removes
+the stack marker; recovery rolls back an unfinished stack and writes no
+record. An undo uses the same paths: a removed install or a restored release
+writes its own record with the target's ID in `undoes`, and a failed
+multi-package undo rolls back or writes nothing. See
+[operation history](history.md).
+
 ## Directories Modn creates
 
 An install creates the missing parent directories of its files. Modn

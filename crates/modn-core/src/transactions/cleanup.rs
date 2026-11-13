@@ -48,6 +48,7 @@ impl Store {
         }
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
+        self.begin_removal(game, package_id)?;
         self.uninstall_with_mode_locked(game, package_id, RemovalMode::ModifiedOwned, fault)
     }
 }

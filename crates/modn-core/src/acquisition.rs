@@ -6,6 +6,8 @@
 //! before a download becomes a cache entry, and again on every cache hit. A
 //! cache entry is therefore always a verified artifact. Fetching is supplied
 //! by the caller, so this module needs no network client.
+use crate::error::{coded, ErrorCode, ResultExt};
+use crate::progress::{DownloadReader, OperationControl};
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -215,6 +217,37 @@ impl ArchiveCache {
         self.acquire_limited(key, cache_use, MAX_DOWNLOAD_BYTES, fetch)
     }
 
+    /// Return a verified archive for `key`, reporting progress and honouring
+    /// cancellation through `control`.
+    ///
+    /// `fetch` returns the response body and its expected length, when the
+    /// source states one. Every [`crate::progress::ProgressEvent::Download`]
+    /// event names `package`. A cancellation before the commit point stops
+    /// the read, and the cache keeps no partial entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of `fetch`, a [`crate::progress::Cancelled`] wrapped
+    /// in an I/O error, or [`ErrorCode::DigestMismatch`].
+    pub fn acquire_with_control<R: Read>(
+        &self,
+        key: &CacheKey<'_>,
+        cache_use: CacheUse,
+        package: Option<String>,
+        control: &OperationControl,
+        fetch: impl FnOnce(&str) -> Result<(R, Option<u64>)>,
+    ) -> Result<Acquired> {
+        self.acquire(key, cache_use, |url| {
+            let (body, total) = fetch(url)?;
+            Ok(DownloadReader::new(
+                body,
+                total,
+                package.clone(),
+                control.clone(),
+            )?)
+        })
+    }
+
     fn acquire_limited<R: Read>(
         &self,
         key: &CacheKey<'_>,
@@ -238,22 +271,26 @@ impl ArchiveCache {
             .prefix(&format!("{name}."))
             .suffix(".download")
             .tempfile_in(&self.root)?;
-        let body = fetch(key.url).with_context(|| format!("download failed: {}", key.url))?;
+        let body = fetch(key.url)
+            .with_context(|| format!("download failed: {}", key.url))
+            .code(ErrorCode::DownloadFailed)?;
         let (bytes, actual) = copy_hashed(body, partial.as_file_mut(), limit)
-            .with_context(|| format!("download failed: {}", key.url))?;
+            .with_context(|| format!("download failed: {}", key.url))
+            .code(ErrorCode::DownloadFailed)?;
         if bytes > limit {
-            bail!("download exceeds {limit} bytes: {}", key.url);
+            return Err(coded(
+                ErrorCode::DownloadFailed,
+                format!("download exceeds {limit} bytes: {}", key.url),
+            ));
         }
         if actual != key.sha256 {
-            bail!(
-                "hash check failed for {}/{} {}\nURL:      {}\nExpected: {}\nActual:   {}",
-                key.game_id,
-                key.mod_id,
-                key.version,
-                key.url,
-                key.sha256,
-                actual
-            );
+            return Err(coded(
+                ErrorCode::DigestMismatch,
+                format!(
+                    "hash check failed for {}/{} {}\nURL:      {}\nExpected: {}\nActual:   {}",
+                    key.game_id, key.mod_id, key.version, key.url, key.sha256, actual
+                ),
+            ));
         }
         partial.as_file().sync_all()?;
         partial

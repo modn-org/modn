@@ -105,6 +105,9 @@ It rejects `--cascade` and `--include-deps`, so approval covers one package only
 Its dry-run JSON lists individual owned files and `verification_required`.
 Missing files, unsafe paths, directory identities, and pending transactions are checked again under the commit lock.
 Normal uninstall preserves its existing selection and strict removal behavior.
+`modn uninstall` accepts `--progress json`; a cancellation before its commit
+point leaves the owned files and records unchanged, and a cancellation after
+it is ignored. See [cli.md](cli.md#progress-events-and-cancellation).
 
 The local MCP companion supports its documented ordinary lifecycle subset.
 See [MCP startup and limits](mcp.md). It exposes neither adoption nor forced cleanup.

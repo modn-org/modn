@@ -9,6 +9,7 @@ use super::validation::{
 };
 use crate::archive::inspect;
 use crate::planning::InstallPlan;
+use crate::progress::ProgressEvent;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -149,10 +150,11 @@ impl Store {
         self.ensure_idle()?;
         let catalog = release.map(|release| CatalogInstall {
             release,
-            stack_id: None,
             replacing: None,
         });
-        self.install_locked(game, archive, proposal, fault, approved, catalog, policy)
+        self.install_locked(
+            game, archive, proposal, fault, approved, catalog, policy, None,
+        )
     }
 
     #[expect(
@@ -168,6 +170,7 @@ impl Store {
         approved: &[String],
         catalog: Option<CatalogInstall<'_>>,
         policy: NativeInjectorPolicy,
+        stack_id: Option<&str>,
     ) -> Result<ManagedPackage> {
         if let Some(release) = catalog.map(|catalog| catalog.release) {
             release.ensure_native_injector_allowed(policy)?;
@@ -189,7 +192,7 @@ impl Store {
             content,
         };
         if let Some(content) = &roots.content {
-            crate::state::record_root(
+            crate::state::check_root(
                 &self.connection,
                 &roots.game,
                 crate::state::RootKind::Content,
@@ -205,6 +208,11 @@ impl Store {
             bail!("manager state must be separate from every installation root");
         }
         let inspection = inspect(archive)?;
+        let archive_blake3 = if self.history.is_some() {
+            Some(crate::history::digest_blake3(archive)?)
+        } else {
+            None
+        };
         validate_execution_plan(&inspection, &roots, proposal, approved)?;
         validate_ownership(self, &game, proposal, replaced_package)?;
         let directories = exclusive_roots(&game, proposal)?;
@@ -231,11 +239,15 @@ impl Store {
                 Ok(CatalogRecord {
                     release: catalog.release,
                     dependency_ids,
-                    stack_id: catalog.stack_id,
                     replacing: catalog.replacing,
                 })
             })
             .transpose()?;
+        let package = release.map(|release| release.reference.to_string());
+        let control = self.control.clone();
+        control.advance(ProgressEvent::Extract {
+            package: package.clone(),
+        })?;
         let staging = Builder::new().prefix("txn-").tempdir_in(&self.state_root)?;
         let id = staging
             .path()
@@ -247,8 +259,13 @@ impl Store {
         self.ensure_content_root(&id, &roots, proposal.content_base.as_deref())?;
         let staged = (|| -> Result<Vec<JournalFile>> {
             if inspection.format == crate::archive::ArchiveFormat::SevenZ {
-                let files =
-                    super::staging::stage_7z(archive, &inspection, proposal, staging.path())?;
+                let files = super::staging::stage_7z(
+                    archive,
+                    &inspection,
+                    proposal,
+                    staging.path(),
+                    &control,
+                )?;
                 if inspect(archive)?.sha256 != inspection.sha256 {
                     bail!("archive changed between inspection and extraction");
                 }
@@ -267,6 +284,7 @@ impl Store {
                 .collect();
             let mut files = Vec::new();
             for (n, op) in proposal.operations.iter().enumerate() {
+                control.checkpoint()?;
                 let archive_name = original_names
                     .get(op.source.as_str())
                     .context("source is not present in inspected ZIP")?;
@@ -301,6 +319,10 @@ impl Store {
             Ok(files)
         })();
         let staged = staged.and_then(|files| {
+            control.advance(ProgressEvent::Stage {
+                package: package.clone(),
+            })?;
+            control.checkpoint()?;
             super::content::validate_staged_content(proposal, staging.path())?;
             Ok(files)
         });
@@ -322,7 +344,21 @@ impl Store {
                 identity: None,
             })
             .collect();
-        if let Err(err) = self.stage_ready(&id, &files, &journal_directories) {
+        let ready = (|| -> Result<()> {
+            control.advance(ProgressEvent::Commit {
+                package: package.clone(),
+            })?;
+            if let Some(content) = &roots.content {
+                crate::state::record_root(
+                    &self.connection,
+                    &roots.game,
+                    crate::state::RootKind::Content,
+                    content,
+                )?;
+            }
+            self.stage_ready(&id, &files, &journal_directories)
+        })();
+        if let Err(err) = ready {
             drop(staging);
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
@@ -380,6 +416,8 @@ impl Store {
                 &journal_directories,
                 roots.content.as_deref(),
                 catalog.as_ref(),
+                archive_blake3.as_deref(),
+                stack_id,
             )
         })();
         if let Err(err) = attempt {
@@ -395,6 +433,14 @@ impl Store {
             return Err(err);
         }
         self.recover_locked()?;
+        let metadata = self.history.as_ref().map(|context| {
+            crate::history::metadata_for(
+                context,
+                &id,
+                catalog.as_ref().map(|catalog| catalog.release),
+                archive_blake3.as_deref(),
+            )
+        });
         Ok(ManagedPackage {
             id,
             pinned: false,
@@ -402,6 +448,17 @@ impl Store {
             archive_sha256: inspection.sha256,
             directories,
             catalog: catalog.as_ref().map(|c| c.release.reference.clone()),
+            mod_id: metadata.as_ref().map(|metadata| metadata.mod_id.clone()),
+            version: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.version.clone()),
+            source: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.source.clone()),
+            archive_blake3: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.archive_blake3.clone()),
+            declarations: release.map(super::catalog::ReleaseDeclarations::of),
             files: files
                 .into_iter()
                 .map(|f| OwnedFile {

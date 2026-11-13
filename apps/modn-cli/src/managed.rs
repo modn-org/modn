@@ -1,7 +1,10 @@
 use crate::commands::PinArgs;
 use crate::commands::UninstallArgs;
+use crate::progress::Progress;
 use crate::state_access::{InstallationAccess, ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
+use modn_core::error::{coded, ErrorCode};
+use modn_core::history::HistoryContext;
 use modn_core::transactions::{CleanupApproval, UninstallScope};
 use std::path::{Path, PathBuf};
 
@@ -54,7 +57,9 @@ pub(super) fn uninstall(
     state_path: &Path,
     requested: Option<&str>,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
+    progress.begin()?;
     let state = ManagerState::load(state_path)?;
     let state = state.for_installation(args.path.clone(), requested)?;
     let scope = UninstallScope::default()
@@ -114,11 +119,16 @@ pub(super) fn uninstall(
         return Ok(());
     }
     if !args.yes {
-        bail!("uninstall removes game files; rerun with --yes, or --dry-run to preview");
+        return Err(coded(
+            ErrorCode::ApprovalRequired,
+            "uninstall removes game files; rerun with --yes, or --dry-run to preview",
+        ));
     }
     let selected = state.open(InstallationAccess::Write)?;
     let mut store = selected.store.expect("write access opens manager state");
+    store.set_control(progress.control().clone());
     let game = selected.root;
+    store.set_history_context(HistoryContext::new(selected.game_id, game.clone()));
     let removed = if args.force {
         let plan = store.plan_uninstall(&game, &args.package, scope)?;
         let id = &plan.first().expect("a removal plan selects one package").id;

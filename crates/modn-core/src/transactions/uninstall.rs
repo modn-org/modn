@@ -2,18 +2,47 @@ use super::cleanup::RemovalMode;
 use super::directory::{covers, quarantine, quarantine_path};
 use super::install::Fault;
 use super::journal::{digest, lock_store, target_path, temp_path, JournalFile, Roots};
+use crate::error::{coded, ErrorCode};
+use crate::progress::ProgressEvent;
 use crate::state::{resolve_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
 use tempfile::Builder;
 
+/// Whether a withdrawal must start from an idle manager.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PendingPolicy {
+    /// Refuse when any transaction is unfinished.
+    RequireIdle,
+    /// Trust the caller's earlier idle check, as in one multi-package undo.
+    Allowed,
+}
+
 impl Store {
     /// Uninstall only unchanged manager-owned files, keeping reversible hard-link backups until commit.
     pub fn uninstall(&mut self, game: &Path, package_id: &str) -> Result<()> {
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
+        self.begin_removal(game, package_id)?;
         self.uninstall_locked(game, package_id)
+    }
+
+    /// Pass the commit point of removing `package_id`.
+    ///
+    /// The event names the package's catalog reference, or its ID when it
+    /// has none.
+    pub(crate) fn begin_removal(&self, game: &Path, package_id: &str) -> Result<()> {
+        let catalog = self
+            .installed(game)
+            .ok()
+            .and_then(|packages| packages.into_iter().find(|p| p.id == package_id))
+            .and_then(|package| package.catalog);
+        let package = catalog.map_or_else(|| package_id.to_owned(), |c| c.to_string());
+        self.control.advance(ProgressEvent::Commit {
+            package: Some(package),
+        })?;
+        Ok(())
     }
 
     pub(super) fn uninstall_locked(&mut self, game: &Path, package_id: &str) -> Result<()> {
@@ -39,8 +68,15 @@ impl Store {
             None
         };
         let roots = Roots { game, content };
-        let id =
-            self.withdraw_with_mode_locked(&roots, package_id, Dependents::Refuse, mode, fault)?;
+        let id = self.withdraw_with_mode_locked(
+            &roots,
+            package_id,
+            Dependents::Refuse,
+            mode,
+            fault,
+            &std::collections::BTreeSet::new(),
+            PendingPolicy::RequireIdle,
+        )?;
         if let Err(err) = self.commit_uninstall(&id, package_id) {
             if let Err(recovery_error) = self.recover_locked() {
                 bail!(
@@ -74,9 +110,54 @@ impl Store {
             None
         };
         let roots = Roots { game, content };
-        self.withdraw_with_mode_locked(&roots, package_id, dependents, RemovalMode::Strict, None)
+        self.withdraw_with_mode_locked(
+            &roots,
+            package_id,
+            dependents,
+            RemovalMode::Strict,
+            None,
+            &std::collections::BTreeSet::new(),
+            PendingPolicy::RequireIdle,
+        )
     }
 
+    /// Withdraw one member of a multi-package undo.
+    ///
+    /// Dependents inside `allowed` do not block the removal; a dependent
+    /// outside it still does.
+    pub(crate) fn withdraw_member_locked(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        allowed: &std::collections::BTreeSet<String>,
+    ) -> Result<String> {
+        let game = self.transaction_root(game)?;
+        let content = if self
+            .installed(&game)?
+            .iter()
+            .find(|package| package.id == package_id)
+            .is_some_and(|package| package.files.iter().any(|file| file.root == "content"))
+        {
+            Some(resolve_root(&self.connection, &game, RootKind::Content)?)
+        } else {
+            None
+        };
+        let roots = Roots { game, content };
+        self.withdraw_with_mode_locked(
+            &roots,
+            package_id,
+            Dependents::Refuse,
+            RemovalMode::Strict,
+            None,
+            allowed,
+            PendingPolicy::Allowed,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the withdrawal keeps roots, dependent policy, mode and pending policy explicit"
+    )]
     fn withdraw_with_mode_locked(
         &mut self,
         roots: &Roots,
@@ -84,19 +165,30 @@ impl Store {
         dependents: Dependents,
         mode: RemovalMode,
         fault: Option<Fault>,
+        allowed: &std::collections::BTreeSet<String>,
+        pending: PendingPolicy,
     ) -> Result<String> {
-        self.ensure_no_pending()?;
+        if matches!(pending, PendingPolicy::RequireIdle) {
+            self.ensure_no_pending()?;
+        }
         let package = self
             .installed(&roots.game)?
             .into_iter()
             .find(|p| p.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
         let needed_by = super::catalog::dependents(self, &package.id)?;
-        if matches!(dependents, Dependents::Refuse) && !needed_by.is_empty() {
-            bail!(
-                "managed package {package_id} is required by {}; uninstall dependents first",
-                needed_by.join(", ")
-            );
+        if matches!(dependents, Dependents::Refuse)
+            && needed_by
+                .iter()
+                .any(|label| !allowed.contains(label.split(' ').next().unwrap_or(label)))
+        {
+            return Err(coded(
+                ErrorCode::PackageNeeded,
+                format!(
+                    "managed package {package_id} is required by {}; uninstall dependents first",
+                    needed_by.join(", ")
+                ),
+            ));
         }
         let forced = matches!(mode, RemovalMode::ModifiedOwned);
         let mut files: Vec<_> = package
@@ -117,16 +209,22 @@ impl Store {
             if forced {
                 let metadata = fs::symlink_metadata(&target)?;
                 if !metadata.is_file() || metadata.file_type().is_symlink() {
-                    bail!("unsafe owned target: {}", target.display());
+                    return Err(coded(
+                        ErrorCode::Conflict,
+                        format!("unsafe owned target: {}", target.display()),
+                    ));
                 }
                 f.sha256 = digest(&target)?;
                 f.bytes = metadata.len();
             }
             if !target.is_file() || digest(&target)? != f.sha256 {
-                bail!(
-                    "owned file missing or modified; refusing uninstall: {}",
-                    target.display()
-                );
+                return Err(coded(
+                    ErrorCode::Conflict,
+                    format!(
+                        "owned file missing or modified; refusing uninstall: {}",
+                        target.display()
+                    ),
+                ));
             }
         }
         for (index, root) in package.directories.iter().enumerate() {
@@ -137,7 +235,10 @@ impl Store {
                 || fs::symlink_metadata(quarantine_path(&roots.game, root, "preflight", index)?)
                     .is_ok()
             {
-                bail!("unsafe owned directory: {}", path.display());
+                return Err(coded(
+                    ErrorCode::Conflict,
+                    format!("unsafe owned directory: {}", path.display()),
+                ));
             }
             let identity = self.managed_directory_identity(package_id, root)?;
             super::directory::verify_directory(&path, &identity)?;
@@ -178,7 +279,10 @@ impl Store {
                 }
                 let target = roots.target(f.root, &f.destination)?;
                 if !target.is_file() || digest(&target)? != f.sha256 {
-                    bail!("owned file modified during uninstall: {}", target.display());
+                    return Err(coded(
+                        ErrorCode::Conflict,
+                        format!("owned file modified during uninstall: {}", target.display()),
+                    ));
                 }
                 let temp = temp_path(&target, &id, f.ordinal)?;
                 fs::hard_link(&target, &temp)?;
@@ -186,10 +290,13 @@ impl Store {
                     || digest(&temp)? != f.sha256
                     || digest(&target)? != f.sha256
                 {
-                    bail!(
-                        "owned file changed while backing it up: {}",
-                        target.display()
-                    );
+                    return Err(coded(
+                        ErrorCode::Conflict,
+                        format!(
+                            "owned file changed while backing it up: {}",
+                            target.display()
+                        ),
+                    ));
                 }
                 fs::remove_file(&target)?;
                 if fault.is_some_and(|fault| fault.after_files() == f.ordinal + 1) {

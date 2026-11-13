@@ -25,6 +25,7 @@ struct Fixture {
     temp: TempDir,
     game: PathBuf,
     state: PathBuf,
+    modules: Option<PathBuf>,
 }
 
 impl Fixture {
@@ -34,16 +35,23 @@ impl Fixture {
         fs::create_dir_all(game.join("bin/x64")).expect("game directories");
         fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").expect("game marker");
         let state = temp.path().join("state");
-        Self { temp, game, state }
+        Self {
+            temp,
+            game,
+            state,
+            modules: None,
+        }
     }
 
     fn cli(&self, args: &[&str]) -> Output {
-        main_bucket::command(env!("CARGO_BIN_EXE_modn"))
+        let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
+        command
             .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
-            .arg(&self.state)
-            .args(args)
-            .output()
-            .expect("CLI")
+            .arg(&self.state);
+        if let Some(modules) = &self.modules {
+            command.env("MODN_GAME_MODULES_DIR", modules);
+        }
+        command.args(args).output().expect("CLI")
     }
 
     fn json(&self, args: &[&str]) -> Value {
@@ -215,6 +223,71 @@ fn catalog_compiler_requires_exact_operator_approval() {
     assert!(!fixture.game.join(EXTRA_TOOL).exists());
 }
 
+/// Copy the real Cyberpunk module and teach its redscript-runtime plan to map
+/// one undeclared tool executable, so the test exercises explicit flags
+/// instead of the module's unrecognized-layout refusal.
+fn module_with_undeclared_tool(fixture: &mut Fixture) {
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
+    let modules = fixture.temp.path().join("modules/cyberpunk-2077");
+    fs::create_dir_all(&modules).expect("modules");
+    fs::copy(source.join("module.json"), modules.join("module.json")).expect("module manifest");
+    let script = fs::read_to_string(source.join("module.lua")).expect("module script");
+    let marker = r#"if framework == "redscript-runtime" and (relative == "engine/tools/scc.exe" or relative == "engine/tools/scc_lib.dll""#;
+    let replacement = r#"if framework == "redscript-runtime" and relative == "engine/tools/extra.exe" then return framework end
+        if framework == "redscript-runtime" and (relative == "engine/tools/scc.exe" or relative == "engine/tools/scc_lib.dll""#;
+    assert!(script.contains(marker), "module script shape changed");
+    fs::write(
+        modules.join("module.lua"),
+        script.replace(marker, replacement),
+    )
+    .expect("module script");
+    fixture.modules = Some(fixture.temp.path().join("modules"));
+}
+
+#[test]
+fn explicit_flags_cover_undeclared_tool_payloads_without_storing_them() {
+    let Catalog {
+        mut fixture,
+        smuggler,
+        ..
+    } = catalog();
+    module_with_undeclared_tool(&mut fixture);
+    let approvals = [
+        "--allow-executable",
+        COMPILER,
+        "--allow-executable",
+        EXTRA_TOOL,
+    ];
+    let installed = fixture.install(SMUGGLER, &smuggler, &[&approvals[..], &["--yes"]].concat());
+    assert!(
+        installed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&installed.stderr)
+    );
+    assert_eq!(
+        fs::read(fixture.game.join(COMPILER)).expect("declared compiler"),
+        b"compiler"
+    );
+    assert_eq!(
+        fs::read(fixture.game.join(EXTRA_TOOL)).expect("undeclared tool"),
+        b"extra"
+    );
+
+    let database =
+        rusqlite::Connection::open(fixture.state.join("state.sqlite")).expect("state database");
+    let stored: String = database
+        .query_row(
+            "SELECT executables FROM mod_approvals WHERE mod_id='smuggler'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stored approval");
+    let stored: std::collections::BTreeSet<String> =
+        serde_json::from_str(&stored).expect("approval paths");
+    assert_eq!(stored, [COMPILER.to_owned()].into_iter().collect());
+}
+
 #[test]
 fn approved_catalog_compiler_unblocks_dependents_and_uninstalls_cleanly() {
     let Catalog {
@@ -311,6 +384,46 @@ fn declared_executable_is_reported_but_never_approved_by_yes() {
     assert!(!unattended.status.success());
     assert!(String::from_utf8_lossy(&unattended.stderr).contains("confirm in a terminal"));
     assert!(!fixture.game.join(COMPILER).exists());
+}
+
+#[test]
+fn stored_executable_approval_covers_reinstall() {
+    let Catalog {
+        fixture, redscript, ..
+    } = catalog();
+    let preview = fixture.install(REDSCRIPT, &redscript, &["--dry-run"]);
+    let preview: Value = serde_json::from_slice(&preview.stdout).expect("preview JSON");
+    assert_eq!(preview["approval"]["required"], true, "{preview}");
+    assert_eq!(preview["approval"]["covered_by_stored_approval"], false);
+    assert_eq!(
+        preview["approval"]["uncovered"]["executables"],
+        json!([COMPILER])
+    );
+
+    let approval = ["--allow-executable", COMPILER];
+    let installed = fixture.install(REDSCRIPT, &redscript, &[&approval[..], &["--yes"]].concat());
+    assert!(
+        installed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&installed.stderr)
+    );
+    let uninstalled = fixture.cli(&["uninstall", REDSCRIPT, "--yes"]);
+    assert!(
+        uninstalled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&uninstalled.stderr)
+    );
+
+    let covered = fixture.install(REDSCRIPT, &redscript, &["--dry-run"]);
+    let covered: Value = serde_json::from_slice(&covered.stdout).expect("preview JSON");
+    assert_eq!(covered["approval"]["required"], false, "{covered}");
+    assert_eq!(covered["approval"]["covered_by_stored_approval"], true);
+    let reinstalled = fixture.install(REDSCRIPT, &redscript, &["--yes"]);
+    assert!(
+        reinstalled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reinstalled.stderr)
+    );
 }
 
 #[test]

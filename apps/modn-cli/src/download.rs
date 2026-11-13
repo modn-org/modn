@@ -6,8 +6,11 @@ use crate::commands::CacheCommand;
 use crate::git_source;
 use crate::nexus_auth;
 use crate::nxm::NxmLink;
+use crate::progress::Progress;
 use anyhow::{bail, Context, Result};
-use modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse, GithubReleaseAsset, NexusFile};
+use modn_core::acquisition::{
+    ArchiveCache, CacheKey, CacheUse, GitCacheKey, GithubReleaseAsset, NexusFile,
+};
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -136,6 +139,88 @@ pub(super) fn digest<'a>(
         .or(release.package.sha256.as_deref())
 }
 
+/// Acquire the archive of one recorded release source for undo.
+///
+/// A verified cache entry needs no network. A `manual` source is refused
+/// before this call. `git` and `nexus` sources are restored only from the
+/// archive cache; a miss refuses before any change.
+pub(super) fn acquire_source(
+    cache: &ArchiveCache,
+    game_id: &str,
+    mod_id: &str,
+    version: &str,
+    source: &PackageSource,
+    sha256: &str,
+    progress: &Progress,
+) -> Result<PathBuf> {
+    let url = match source {
+        PackageSource::Https { url } => url.clone(),
+        PackageSource::GithubRelease {
+            repository,
+            tag,
+            asset,
+        } => {
+            let url = format!("https://github.com/{repository}/releases/download/{tag}/{asset}");
+            let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+            if let Some(path) = cache.cached(&key)? {
+                return Ok(path);
+            }
+            let provider = GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
+            if provider.resolve(fetch_metadata)? != url {
+                bail!("provider source changed during resolution");
+            }
+            url
+        }
+        PackageSource::Git { commit, .. } => {
+            let key = GitCacheKey::new(game_id, mod_id, version, commit);
+            return match cache.git_cached(&key)? {
+                Some((path, cached)) if cached == sha256 => Ok(path),
+                _ => Err(cache_miss(
+                    "this git release cannot be fetched again; reinstall it from the catalog",
+                )),
+            };
+        }
+        PackageSource::Nexus {
+            game_domain,
+            mod_id: nexus_mod_id,
+            file_id,
+            file_name,
+        } => {
+            let url = NexusFile::new(game_domain, *nexus_mod_id, *file_id, file_name)?.cache_url();
+            let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+            return match cache.cached(&key)? {
+                Some(path) => Ok(path),
+                None => Err(cache_miss(
+                    "a Nexus download needs a new nxm link; reinstall it from the catalog",
+                )),
+            };
+        }
+        PackageSource::Manual { .. } => {
+            return Err(modn_core::error::coded(
+                modn_core::error::ErrorCode::UndoSourceManual,
+                "a manual source cannot be fetched again",
+            ));
+        }
+        _ => bail!("unknown release source"),
+    };
+    let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+    let acquired = cache.acquire_with_control(
+        &key,
+        CacheUse::Reuse,
+        Some(format!("{game_id}/{mod_id}")),
+        progress.control(),
+        fetch_measured,
+    )?;
+    Ok(acquired.path)
+}
+
+fn cache_miss(detail: &str) -> anyhow::Error {
+    modn_core::error::coded(
+        modn_core::error::ErrorCode::UndoFailed,
+        format!("the recorded archive is no longer cached and {detail}"),
+    )
+}
+
 pub(super) fn add_cached<'a>(
     cache: &ArchiveCache,
     releases: impl IntoIterator<Item = &'a BucketPackage>,
@@ -163,6 +248,10 @@ pub(super) fn add_cached<'a>(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the download step keeps the verified cache, package set and progress explicit"
+)]
 pub(super) fn download(
     cache: &ArchiveCache,
     cache_use: CacheUse,
@@ -171,6 +260,7 @@ pub(super) fn download(
     digests: &mut BTreeMap<String, String>,
     links: &[NxmLink],
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
     for release in releases {
         let reference = reference_of(release).to_string();
@@ -178,13 +268,13 @@ pub(super) fn download(
             continue;
         }
         if let PackageSource::Git { repository, commit } = &release.package.source {
-            if !json {
+            if !json && !progress.enabled() {
                 eprintln!(
                     "Fetching {reference} {} commit {commit} from {repository}",
                     release.package.version
                 );
             }
-            let archive = git_source::acquire(cache, release, cache_use)?;
+            let archive = git_source::acquire(cache, release, cache_use, progress)?;
             archives.insert(reference.clone(), archive.path);
             digests.insert(reference, archive.sha256);
             continue;
@@ -200,7 +290,7 @@ pub(super) fn download(
             let link = nexus_download::matching_link(links, game_domain, *mod_id, *file_id);
             let url = file.cache_url();
             let key = key(release, &url);
-            if !json {
+            if !json && !progress.enabled() {
                 eprintln!(
                     "Downloading {reference} {} from {}",
                     key.version,
@@ -215,9 +305,13 @@ pub(super) fn download(
             }
             let api_key = nexus_auth::load_key()?;
             let download_url = nexus_download::resolve(&file, &api_key, link)?;
-            let acquired = cache.acquire(&key, cache_use, |_cache_url| {
-                nexus_download::open(&download_url)
-            })?;
+            let acquired = cache.acquire_with_control(
+                &key,
+                cache_use,
+                Some(reference.clone()),
+                progress.control(),
+                |_cache_url| nexus_download::open(&download_url),
+            )?;
             archives.insert(reference, acquired.path);
             continue;
         }
@@ -237,10 +331,16 @@ pub(super) fn download(
             }
         }
         let key = key(release, &url);
-        if !json {
+        if !json && !progress.enabled() {
             eprintln!("Downloading {reference} {} from {}", key.version, key.url);
         }
-        let acquired = cache.acquire(&key, cache_use, fetch)?;
+        let acquired = cache.acquire_with_control(
+            &key,
+            cache_use,
+            Some(reference.clone()),
+            progress.control(),
+            fetch_measured,
+        )?;
         archives.insert(reference, acquired.path);
     }
     Ok(())
@@ -271,9 +371,13 @@ fn fetch_metadata(url: &str) -> Result<Box<dyn Read>> {
 }
 
 pub(super) fn fetch(url: &str) -> Result<Box<dyn Read>> {
+    Ok(fetch_measured(url)?.0)
+}
+
+fn fetch_measured(url: &str) -> Result<(Box<dyn Read>, Option<u64>)> {
     #[cfg(test)]
     if let Some(response) = fixture_response(url) {
-        return response;
+        return Ok((response?, None));
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
@@ -283,7 +387,12 @@ pub(super) fn fetch(url: &str) -> Result<Box<dyn Read>> {
         .build()
         .into();
     let response = agent.get(url).call()?;
-    Ok(Box::new(response.into_body().into_reader()))
+    let total = response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok());
+    Ok((Box::new(response.into_body().into_reader()), total))
 }
 
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {
@@ -322,3 +431,6 @@ pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Resul
     println!("{verb}: {} file(s), {bytes} bytes", entries.len());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

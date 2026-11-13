@@ -219,11 +219,9 @@ fn declared_executables_need_explicit_approval_before_the_stack_starts() {
     let files = [base.as_path(), middle.as_path(), top.as_path()];
     let blocked = run(&fixture, &["install", "top", "--yes"], &files);
     assert!(!blocked.status.success());
-    assert!(
-        error(&blocked).contains("catalog manifests declare engine/tools/fixture.exe"),
-        "{}",
-        error(&blocked)
-    );
+    let message = error(&blocked);
+    assert!(message.contains("engine/tools/fixture.exe"), "{message}");
+    assert!(message.contains("--allow-executable"), "{message}");
     assert!(!fixture.game.join("addons").exists());
     assert_eq!(managed(&fixture), 0);
 

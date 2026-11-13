@@ -1,5 +1,7 @@
 use super::capabilities::{AllowedRoots, ReadProfile};
+use super::launch_data::LaunchTargets;
 use super::runtime;
+use super::store_data::StoreIdentities;
 use anyhow::{bail, Context, Result};
 use mlua::Table;
 use semver::Version;
@@ -80,6 +82,10 @@ pub(super) struct ModuleManifest {
     pub(super) min_modn_version: Option<String>,
     #[serde(default)]
     pub(super) content_root: Option<ContentRootSpec>,
+    #[serde(default)]
+    pub(super) stores: Option<StoreIdentities>,
+    #[serde(default)]
+    pub(super) launch: Option<LaunchTargets>,
 }
 
 pub(super) fn bounded_file(path: &Path, root: &Path, limit: u64) -> Result<Vec<u8>> {
@@ -165,6 +171,17 @@ pub(super) fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
     if let Some(content_root) = &manifest.content_root {
         content_root.validate(manifest.api_version)?;
     }
+    if let Some(stores) = &manifest.stores {
+        stores.validate()?;
+    }
+    if let Some(launch) = &manifest.launch {
+        launch.validate(
+            manifest
+                .stores
+                .as_ref()
+                .unwrap_or(&StoreIdentities::default()),
+        )?;
+    }
     if !valid_game_id(&manifest.game_id) {
         bail!("invalid module game_id; use lowercase ASCII letters, digits and hyphens");
     }
@@ -234,6 +251,8 @@ pub fn check_module_with_roots(
         entrypoint: info.entrypoint.clone(),
         min_modn_version: None,
         content_root: None,
+        stores: None,
+        launch: None,
     };
     execute_module(script.as_bytes(), &manifest, roots)
         .with_context(|| format!("module {} failed validation", manifest.game_id))?;
@@ -247,6 +266,8 @@ pub(super) struct VerifiedModule {
     pub(super) api_version: u32,
     pub(super) entrypoint: String,
     pub(super) content_root: Option<ContentRootSpec>,
+    pub(super) stores: StoreIdentities,
+    pub(super) launch: LaunchTargets,
 }
 
 impl From<VerifiedModule> for GameModuleInfo {
@@ -291,6 +312,8 @@ fn verified(manifest: ModuleManifest, script: &[u8]) -> Result<(VerifiedModule, 
             api_version: manifest.api_version,
             entrypoint: manifest.entrypoint,
             content_root: manifest.content_root,
+            stores: manifest.stores.unwrap_or_default(),
+            launch: manifest.launch.unwrap_or_default(),
         },
         source.to_owned(),
     ))

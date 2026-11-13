@@ -36,6 +36,7 @@ Bucket -> BucketSnapshot -> ModRelease -> Game
                                      -> Dependency -> ModRelease
 GameInstallation -> ManagedPackage -> OwnershipClaim
                  -> PendingTransaction
+                 -> ModApproval
 ```
 
 A game can have multiple installations, each with independent ownership and
@@ -161,6 +162,30 @@ satisfied their dependencies, committed atomically with ownership. Recorded
 dependencies cannot be uninstalled while a dependent remains. Provenance does
 not replace the ownership evidence.
 
+### Mod approval
+
+A **ModApproval** records the capabilities of one catalog mod that the user
+approved for one game installation. Its identity is
+`(game_path, bucket, mod_id)`: two buckets may publish a mod with the same ID,
+and an approval for one publisher must not cover the other.
+
+- `native_injector` records that native code is approved.
+- `executables` is the set of normalized game-relative executable payload
+  paths that are approved.
+
+An install or update whose release capabilities the approval covers needs no
+flag. A release that adds native code or an executable path is refused with
+`NATIVE_INJECTOR_NOT_ALLOWED` or `APPROVAL_REQUIRED` until the user passes the
+matching flag or confirms the executable paths interactively. A committed
+operation then stores or widens the approval. A cancelled, refused, dry-run or
+rolled-back operation stores nothing. Uninstall keeps the approval. A release
+that drops a capability does not shrink it. An undo restore reads the stored
+approval and the explicit flags but writes no approval. An explicit
+`--allow-executable` path for an undeclared archive member authorizes that
+operation and is not stored. Only the CLI backend writes approvals; the MCP and
+desktop surfaces inherit the stored decision. There is no approval revoke
+command.
+
 ### Ownership claim
 
 A recorded file or exclusive directory target owned by one managed package
@@ -180,6 +205,19 @@ installation, package and staged file/directory operations. Recovery uses
 journal evidence and actual disk state, not a mutable bucket definition.
 Pending transactions block conflicting managed writes until resolved.
 
+### Operation history
+
+A durable record of one committed install, update or uninstall. It names the
+game installation and per package the mod ID, package IDs and release sides
+before and after, each release's qualified catalog identity and declared
+dependencies, conflicts and native-injector flag when recorded, source
+descriptor, archive SHA-256 and BLAKE3 digests, and every owned file the
+operation created, replaced or removed with its content digest before and
+after. A record written by an undo also names the operation it reversed. History is evidence for undo, not an
+ownership claim: it never grants authority over a file. The record is committed
+in the same SQLite transaction as the ownership change it describes, so
+rollback, cancellation and recovery leave no disagreeing record.
+
 Lua modules may invoke powerful game-specific integrations. Do not represent
 those external effects as a committed managed Rust transaction unless they
 actually used Modn's managed-install path.
@@ -195,6 +233,7 @@ fixture exercises game-agnostic support.
 | --- | --- |
 | Game installation | `state.sqlite / game_installations(game_id, path, source)` |
 | Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at, pinned)` |
+| Mod approval | `state.sqlite / mod_approvals(game_path, bucket, mod_id, native_injector, executables)` |
 | Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
 | Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
 | Installation root | `state.sqlite / installation_roots(game_path, root, path, path_key)` |
@@ -202,6 +241,8 @@ fixture exercises game-agnostic support.
 | Directory ownership | `state.sqlite / managed_directories(game_path, root, path_key, ...)` |
 | Created folder | `state.sqlite / created_directories(game_path, root, path_key, ...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
+| Package release metadata | `state.sqlite / managed_package_releases(package_id, mod_id, version, source, archive_blake3, catalog, declarations)` |
+| Operation history | `state.sqlite / history_operations, history_packages, history_files` |
 | Official game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
 | Retained module release | `<data-directory>/game-modules/<game-id>/versions/<version>/`, with a verified `registration.json` receipt |
 | Active or pinned module release | `<data-directory>/game-modules/<game-id>/current` and `pin.json` |
@@ -247,10 +288,31 @@ SQLite rolls the transaction back and the old state stays unchanged and readable
 A second open of migrated state changes nothing.
 A read-only open of version 1 or 2 state presents the same rows through temporary views and writes nothing.
 
+Operation history and the package release metadata are additive tables in the
+same schema version 4. A writable open creates them when missing, so a state
+database from an earlier build opens unchanged. Packages recorded before these
+tables existed have no release metadata; their uninstall history names the
+archive SHA-256 without a version or source. See [history.md](history.md).
+
 Older Modn builds accept only schema versions 1 and 2.
-They refuse version 3 or 4 state with `unsupported manager state schema; start with a fresh state directory`.
+They refuse version 3, 4 or 5 state with `unsupported manager state schema; start with a fresh state directory`.
 They do not misread it, but that message suggests a fresh state directory.
 Do not follow that advice for state that holds ownership; install a current build instead.
+
+### Approvals (schema version 5)
+
+Manager schema version 5 adds the `mod_approvals` table. The table is keyed by
+`(game_path, bucket, mod_id)` and stores a native-injector flag and a JSON array
+of normalized executable payload paths. A writable open creates it in the same
+transaction as the rest of the schema and leaves schema version 4 state
+readable. A read-only open of version 4 state sees an empty approval table and
+writes nothing. An unreleased schema-5 build keyed approvals by
+`(game_path, mod_id)` only. Such a row cannot name the bucket that published
+the mod, so a writable open rebuilds the table in the bucket-keyed shape,
+discards the old rows and keeps schema version 5; the user is asked again. A
+read-only open of that state writes nothing and sees an empty approval table.
+Approvals are independent of ownership, managed packages and pending
+transactions; uninstall and recovery do not change them.
 
 The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>.json` and other releases at

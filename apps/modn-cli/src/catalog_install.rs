@@ -1,24 +1,28 @@
+use crate::catalog_approval;
 use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, Request};
 use crate::modules::content_root_appdata;
+use crate::progress::Progress;
 use crate::selection::selected_installation;
 use crate::stack_install;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
+use modn_core::approval::Capabilities;
 use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
+use modn_core::error::{coded, ErrorCode};
+use modn_core::history::HistoryContext;
 use modn_core::planning::{
     preview_install_zip_with_appdata, preview_install_zip_with_permissions, InstallPlan, PlanStatus,
 };
 use modn_core::transactions::{CatalogReference, NativeInjectorPolicy};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
-
 #[cfg(test)]
 #[path = "catalog_snapshot_tests.rs"]
 mod tests;
@@ -33,7 +37,7 @@ pub(super) struct AmbiguousTarget {
 impl AmbiguousTarget {
     pub(super) fn as_json(&self) -> serde_json::Value {
         serde_json::json!({
-            "error": "ambiguous_target",
+            "error": ErrorCode::AmbiguousTarget.as_str(),
             "query": self.query,
             "candidates": self.candidates,
         })
@@ -56,7 +60,10 @@ impl std::error::Error for AmbiguousTarget {}
 pub(super) fn resolve(query: &str, catalog: &BucketSnapshot, json: bool) -> Result<BucketPackage> {
     let mut candidates = catalog.candidates(query)?;
     match candidates.len() {
-        0 => bail!("catalog mod not found: {query}"),
+        0 => Err(coded(
+            ErrorCode::ModNotFound,
+            format!("catalog mod not found: {query}"),
+        )),
         1 => Ok(candidates.remove(0)),
         _ if json || !io::stdin().is_terminal() || !io::stderr().is_terminal() => {
             Err(AmbiguousTarget {
@@ -139,61 +146,26 @@ fn match_archives(
     Ok(archives)
 }
 
-fn ensure_native_injectors_allowed(
-    selected: &BucketPackage,
-    order: &[BucketPackage],
-    args: &InstallArgs,
-    state_path: &Path,
-) -> Result<()> {
-    if args.allow_native_injector {
-        return Ok(());
-    }
-    let state = ManagerState::load_deferred(state_path)?;
-    let installing: Vec<&BucketPackage> = match selected_installation(
-        state.existing(),
-        args.path.clone(),
-        Some(&selected.package.game),
-    ) {
-        Ok((_, installation)) => {
-            let planned = dependency_plan::plan(
-                order,
-                &BTreeMap::new(),
-                &BTreeMap::new(),
-                state.existing(),
-                &installation,
-            )?;
-            order
-                .iter()
-                .zip(&planned)
-                .filter(|(_, dependency)| dependency.missing())
-                .map(|(release, _)| release)
-                .chain([selected])
-                .collect()
-        }
-        // Game selection can fail for ordinary reasons, such as no registration
-        // or a missing --path. Refuse native injectors conservatively so the
-        // policy error still precedes those generic errors.
-        Err(_) => order.iter().chain([selected]).collect(),
-    };
-    for package in installing {
-        NativeInjectorPolicy::Refuse
-            .check(&reference_of(package), package.package.native_injector)?;
-    }
-    Ok(())
-}
-
 fn install_mod(
     selected: BucketPackage,
     catalog: &BucketSnapshot,
     args: &InstallArgs,
     state_path: &Path,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
-    let reference = reference_of(&selected).to_string();
+    if progress.enabled() && !args.yes && !args.dry_run {
+        return Err(coded(
+            ErrorCode::ApprovalRequired,
+            "installation writes game files; pass --yes with --progress json",
+        ));
+    }
+    let reference_key = reference_of(&selected);
+    let reference = reference_key.to_string();
     let mut order = catalog.install_order(&selected)?;
     order.pop();
-    let interactive = !args.yes && !args.dry_run;
-    ensure_native_injectors_allowed(&selected, &order, args, state_path)?;
+    let interactive = !args.yes && !args.dry_run && !progress.enabled();
+    catalog_approval::check_native_approvals(&selected, &order, args, state_path)?;
     let mut archives = match_archives(&args.file, &selected, &order)?;
     let mut digests = BTreeMap::new();
     let cache = download::cache_for(state_path)?;
@@ -221,7 +193,13 @@ fn install_mod(
         args.path.clone(),
         Some(&selected.package.game),
     )?;
-    let policy = if args.allow_native_injector {
+    let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
+    let stored = install_consent::stored_approval(state.existing(), &installation, &reference_key)?;
+    let native_covered = args.allow_native_injector
+        || stored
+            .as_ref()
+            .is_some_and(|approval| approval.native_injector);
+    let policy = if selected.package.native_injector && native_covered {
         NativeInjectorPolicy::Allow
     } else {
         NativeInjectorPolicy::Refuse
@@ -255,6 +233,7 @@ fn install_mod(
             &mut digests,
             &args.nxm_links,
             json,
+            progress,
         )?;
         dependencies =
             dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
@@ -288,7 +267,7 @@ fn install_mod(
             game_id,
             installation,
         };
-        return stack_install::run(stack, state, args, json);
+        return stack_install::run(stack, state, args, json, progress);
     }
     if !args.dry_run {
         match state.existing() {
@@ -325,15 +304,23 @@ fn install_mod(
             &mut digests,
             &args.nxm_links,
             json,
+            progress,
         )?;
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
+        let needed = Capabilities::new(
+            selected.package.native_injector,
+            selected.package.executables.iter().cloned(),
+        );
+        let check =
+            install_consent::ApprovalCheck::new(reference_key.clone(), needed, stored, &flags);
         return dependency_plan::report(
             &reference,
             &selected,
             None,
             &dependencies,
             &conflicts,
+            Some(&check),
             json,
         );
     };
@@ -351,29 +338,33 @@ fn install_mod(
         }
         Ok(plan)
     };
-    let explicit = &args.allow_executable;
     let declared = &selected.package.executables;
-    let mut plan = preview(explicit)?;
-    let mut candidate_approvals = explicit.clone();
-    candidate_approvals.extend(
-        declared
-            .iter()
-            .filter(|path| !explicit.contains(path))
-            .cloned(),
-    );
-    let candidate = if candidate_approvals.len() > explicit.len() {
-        Some(preview(&candidate_approvals)?)
-    } else {
+    let mut candidate_approvals = args.allow_executable.clone();
+    let additions: Vec<String> = declared
+        .iter()
+        .filter(|path| !candidate_approvals.contains(path))
+        .cloned()
+        .collect();
+    candidate_approvals.extend(additions);
+    let candidate = if candidate_approvals.is_empty() {
         None
+    } else {
+        Some(preview(&candidate_approvals)?)
     };
-    let pending = candidate.as_ref().map_or_else(Vec::new, |candidate| {
+    let present = candidate.as_ref().map_or_else(BTreeSet::new, |candidate| {
         let destinations: Vec<&str> = candidate
             .operations
             .iter()
             .map(|operation| operation.destination.as_str())
             .collect();
-        install_consent::pending_executables(declared, explicit, &destinations)
+        install_consent::present_executables(declared, &destinations)
     });
+    let needed = Capabilities::new(selected.package.native_injector, present);
+    let check =
+        install_consent::ApprovalCheck::new(reference_key.clone(), needed.clone(), stored, &flags);
+    let pending = check.uncovered.executables.clone();
+    let mut approved = check.approved_executables();
+    let mut plan = preview(&approved)?;
     if args.dry_run {
         let preview = dependency_plan::ArchivePreview {
             plan: &plan,
@@ -385,21 +376,18 @@ fn install_mod(
             Some(preview),
             &dependencies,
             &conflicts,
+            Some(&check),
             json,
         );
     }
-    let mut approved = explicit.clone();
+    if !check.uncovered.is_empty() && (!interactive || check.uncovered.native_injector) {
+        return check.ensure_approved();
+    }
     if interactive && !pending.is_empty() {
         approved.extend(pending.iter().cloned());
         plan = preview(&approved)?;
     }
     if plan.status != PlanStatus::Reviewable {
-        if !pending.is_empty() && !interactive {
-            bail!(
-                "{reference}: installation blocked; its manifest declares {}. Confirm in a terminal without --yes, or pass --allow-executable for each path",
-                pending.join(", ")
-            );
-        }
         bail!("{reference}: installation blocked; inspect with --dry-run first");
     }
     if interactive {
@@ -414,9 +402,14 @@ fn install_mod(
         }
     }
     let mut store = state.open_writable(&ProtectedTarget {
-        game: Some(game_id),
+        game: Some(game_id.clone()),
         root: Some(installation.clone()),
     })?;
+    store.set_control(progress.control().clone());
+    store.set_history_context(
+        HistoryContext::new(game_id, installation.clone())
+            .with_source(&reference_of(&selected), selected.package.source.clone()),
+    );
     let package = store.install_catalog_release_with_permissions(
         &installation,
         archive,
@@ -425,6 +418,7 @@ fn install_mod(
         policy,
         &approved,
     )?;
+    install_consent::record(&mut store, &installation, &reference_key, &needed)?;
     if json {
         println!(
             "{}",
@@ -446,11 +440,12 @@ pub(super) fn run(
     state_path: &Path,
     game_filter: Option<&str>,
     json: bool,
+    progress: &Progress,
 ) -> Result<()> {
     let root = state_path
         .parent()
         .context("invalid manager state directory")?;
     let catalog = BucketStore::new(root).snapshot(game_filter)?;
     let package = resolve(&args.target, &catalog, json)?;
-    install_mod(package, &catalog, args, state_path, json)
+    install_mod(package, &catalog, args, state_path, json, progress)
 }

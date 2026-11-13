@@ -65,7 +65,11 @@ fn provider_commands_fetch_only_after_consent_and_reject_changed_evidence() {
             let command = |args: &[&str]| {
                 let cli = Cli::try_parse_from(std::iter::once("modn").chain(args.iter().copied()))
                     .unwrap();
-                crate::run_cli(cli, &root.join("state.sqlite"))
+                crate::run_cli(
+                    cli,
+                    &root.join("state.sqlite"),
+                    &crate::progress::Progress::start(None),
+                )
             };
             command(&["bucket", "add", "fixture", catalog.to_str().unwrap()]).unwrap();
             let preview = [
