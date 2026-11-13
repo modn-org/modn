@@ -83,6 +83,14 @@ Add the page after the divider and its first frame, as one `batch`:
 
 `page.add` appends the page and makes it current. Name each further frame after the state it shows, such as `browse-empty`.
 
+## Frame placement
+
+Top-level frames are a page's direct children, component sets included. Keep
+one constant gap between neighbours, in a row and between rows: the gap that
+already separates the first two non-overlapping frames of the page, or 200 px
+when no two are separate. Align the top-left x of frames in a column and the y
+of frames in a row. Run `python -I .agents/skills/design-modn/scripts/overlap.py design/design.figcraft` after moving or adding a top-level frame; it must report 0 overlapping pairs on every page.
+
 ## 5. Design-system changes
 
 When the owner asks for one, follow [the design-system notes](references/design-system.md). Then run `audit.py design/design.figcraft --page Foundations` and `--page Components`, and export both pages as in step 2.5, to `design/renders/Foundations` and `design/renders/Components`. Done when both audits report 0 findings and the renders, of these pages and of each screen, show the intended effect.
