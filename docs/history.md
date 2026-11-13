@@ -117,10 +117,13 @@ The undo refuses before any change in these cases:
 - A package is pinned, another installed package needs it, an unfinished
   transaction exists, or ownership conflicts block the change.
 
-`modn undo --dry-run` runs these preflight checks, including the selected
-archive member digests, and reports the same refusal without writing. A
-cancellation before the commit point stops the archive reads and leaves the
-same state unchanged.
+`modn undo --dry-run` runs the restore preflight checks, including the selected
+archive member digests and the native-injector policy, and reports the same
+refusal without writing. It does not start a transaction, so it does not run
+the checks that need the live installation: a pinned package, a package that
+another installed package needs, an unfinished transaction and an ownership
+conflict. The real undo can still refuse for those. A cancellation before the
+commit point stops the archive reads and leaves the same state unchanged.
 
 An update undo and an uninstall undo rebuild the release from the record's
 catalog identity, dependencies, conflicts and native-injector flag. The
