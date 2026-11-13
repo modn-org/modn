@@ -24,7 +24,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let state = std::env::temp_dir().join(format!(
+        // Cargo owns this directory and creates it under the target directory,
+        // so the caller's TEMP/TMP cannot move fixture state outside the
+        // worktree or into the machine-global drive-root temp directory.
+        let state = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "modn-desktop-contract-{}-{}",
             std::process::id(),
             SEQUENCE.fetch_add(1, Ordering::Relaxed)
@@ -144,7 +147,10 @@ fn timeout_reaps_the_backend_process() {
     f.mode("timeout");
     let start = std::time::Instant::now();
     let error = f.backend.games().expect_err("deadline");
-    assert!(error.to_string().contains("60 seconds"));
+    assert!(
+        error.to_string().contains("60 seconds"),
+        "unexpected backend error: {error}"
+    );
     assert!(
         start.elapsed().as_secs() < 65,
         "Deadline must remain bounded"
@@ -240,10 +246,27 @@ fn the_child_environment_is_cleared_except_for_the_allowlist() {
     )
     .expect("environment JSON");
     assert_eq!(environment["SystemRoot"], true);
-    assert!(
-        environment["TEMP"] == true || environment["TMP"] == true,
-        "Windows process variables must be forwarded"
-    );
+    for name in ["TEMP", "TMP"] {
+        let absolute =
+            std::env::var_os(name).is_some_and(|value| std::path::Path::new(&value).is_absolute());
+        assert_eq!(
+            environment[name], absolute,
+            "{name} is forwarded only as an absolute Windows path"
+        );
+    }
+    for name in [
+        "LOCALAPPDATA",
+        "MODN_CACHE",
+        "MODN_STORE_LIBRARIES",
+        "MODN_APPDATA",
+        "MODN_GAME_MODULES_DIR",
+    ] {
+        let present = std::env::var_os(name).is_some();
+        assert_eq!(
+            environment[name], present,
+            "{name} is part of the fixed allowlist"
+        );
+    }
     assert_eq!(
         environment["PATH"], false,
         "The child environment must be cleared except for the allowlist"
