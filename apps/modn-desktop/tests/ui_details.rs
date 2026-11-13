@@ -71,6 +71,28 @@ fn has_length_unit(text: &str, unit: &str) -> bool {
     })
 }
 
+/// Returns the source from `marker` through its first balanced brace block.
+fn braced<'a>(source: &'a str, marker: &str) -> &'a str {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing {marker}"));
+    let open = start + source[start..].find('{').expect("opening brace");
+    let mut depth = 0usize;
+    for (offset, character) in source[open..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &source[start..open + offset + 1];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unterminated {marker}");
+}
+
 #[test]
 fn details_modules_import_resolvable_shared_code() {
     let mut reuses_operation_button = false;
@@ -100,12 +122,10 @@ fn details_modules_import_resolvable_shared_code() {
 #[test]
 fn the_file_plan_loads_only_when_the_details_section_opens() {
     let modules = details_modules();
-    let readers: Vec<&(PathBuf, String)> = modules
+    let (path, source) = modules
         .iter()
-        .filter(|(_, text)| text.contains("planInstall("))
-        .collect();
-    assert_eq!(readers.len(), 1, "exactly one module reads the file plan");
-    let (path, source) = readers[0];
+        .find(|(path, _)| path.ends_with("plan.js"))
+        .expect("the collapsed file plan module");
     assert_eq!(
         source.matches("planInstall(").count(),
         1,
@@ -142,6 +162,20 @@ fn the_file_plan_loads_only_when_the_details_section_opens() {
         body.contains("section.open"),
         "{path:?} must read the plan only when the section opens"
     );
+}
+
+#[test]
+fn the_retry_reads_the_install_plan() {
+    let details = read("ui/js/details.js");
+    let options = braced(&details, "createOperationButton({");
+    assert!(
+        options.contains("plan: () =>"),
+        "the operation must supply a plan callback for the retry"
+    );
+    let plan = braced(options, "planInstall({");
+    for field in ["gameId: ctx.gameId", "path: ctx.path", "modId: ctx.modId"] {
+        assert!(plan.contains(field), "the plan callback must pass {field}");
+    }
 }
 
 #[test]

@@ -95,6 +95,28 @@ fn home_css() -> String {
     read("ui/css/home.css")
 }
 
+/// Returns the source from `marker` through its first balanced brace block.
+fn braced<'a>(source: &'a str, marker: &str) -> &'a str {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing {marker}"));
+    let open = start + source[start..].find('{').expect("opening brace");
+    let mut depth = 0usize;
+    for (offset, character) in source[open..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &source[start..open + offset + 1];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unterminated {marker}");
+}
+
 fn rule_declares(css: &str, selector: &str, declaration: &str) -> bool {
     css.split('}')
         .any(|block| block.contains(selector) && block.contains(declaration))
@@ -181,6 +203,24 @@ fn home_toolbar_offers_scan_add_and_remove() {
     assert!(
         source.contains("canRemove"),
         "Remove from Modn must depend on an empty package list"
+    );
+}
+
+#[test]
+fn add_always_offers_every_supported_game() {
+    let data = read("ui/js/home/data.js");
+    let function = braced(&data, "export function supportedGameIds(entries)");
+    assert!(
+        function.contains("new Set(FALLBACK_GAME_IDS)"),
+        "Add must offer the supported games even when a card already exists"
+    );
+    assert!(
+        !function.contains("ids.size === 0"),
+        "Add must not offer the supported games only when the grid is empty"
+    );
+    assert!(
+        function.contains("[...ids].sort()"),
+        "Add must list every offered game once"
     );
 }
 
