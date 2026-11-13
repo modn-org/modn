@@ -74,7 +74,7 @@ function actionFor(model, ctx) {
           path: ctx.path,
           modId: ctx.modId,
           allowNativeInjector: approvals.native,
-          allowExecutable: approvals.executable,
+          allowExecutables: approvals.executables,
           runId,
         }),
     };
@@ -85,11 +85,13 @@ function actionFor(model, ctx) {
       label: 'Update',
       action: 'Update',
       ariaLabel: `Update ${name}`,
-      run: ({ runId }) =>
+      run: ({ runId, approvals }) =>
         update({
           gameId: ctx.gameId,
           path: ctx.path,
           packageId: installed.id,
+          allowNativeInjector: approvals.native,
+          allowExecutables: approvals.executables,
           runId,
         }),
     };
