@@ -114,10 +114,11 @@ export async function render(root) {
 
   /**
    * Reloads registration and detection, then rebuilds the grid.
-   * @param {string} message
+   * @param {string} message shown while the reload runs
+   * @param {string} [notice] shown when the reload succeeds
    * @returns {Promise<void>}
    */
-  async function refresh(message) {
+  async function refresh(message, notice = '') {
     menu.close();
     const current = ++generation;
     setStatus(status, message);
@@ -142,7 +143,7 @@ export async function render(root) {
     }
     setStatus(
       status,
-      state.detectError ? messageFor(state.detectError) : '',
+      state.detectError ? messageFor(state.detectError) : notice,
       Boolean(state.detectError),
     );
   }
@@ -163,7 +164,7 @@ export async function render(root) {
       showCardError(card, messageFor(error));
       return;
     }
-    await refresh(`Added ${gameLabel(entry.gameId)} to Modn.`);
+    await refresh('', `Added ${gameLabel(entry.gameId)} to Modn.`);
   }
 
   /**
@@ -187,7 +188,7 @@ export async function render(root) {
       showCardError(card, messageFor(error));
       return;
     }
-    await refresh(`Removed ${gameLabel(entry.gameId)} from Modn.`);
+    await refresh('', `Removed ${gameLabel(entry.gameId)} from Modn.`);
   }
 
   /**
@@ -200,7 +201,7 @@ export async function render(root) {
     try {
       const added = await addGame({ gameId });
       if (added) {
-        await refresh(`Added ${gameLabel(gameId)} to Modn.`);
+        await refresh('', `Added ${gameLabel(gameId)} to Modn.`);
       }
     } catch (error) {
       setStatus(status, messageFor(error), true);
@@ -218,3 +219,4 @@ export async function render(root) {
 
   await refresh(SCAN_MESSAGE);
 }
+
