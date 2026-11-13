@@ -119,7 +119,9 @@ The undo refuses before any change in these cases:
 
 `modn undo --dry-run` runs the restore preflight checks, including the selected
 archive member digests and the native-injector policy, and reports the same
-refusal without writing. It does not start a transaction, so it does not run
+refusal. It changes no game file, manager state, ownership or history, but on a
+cache miss it can download a release archive into the archive cache. It does
+not start a transaction, so it does not run
 the checks that need the live installation: a pinned package, a package that
 another installed package needs, an unfinished transaction and an ownership
 conflict. The real undo can still refuse for those. A cancellation before the

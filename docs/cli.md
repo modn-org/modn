@@ -344,8 +344,9 @@ package or none.
 `--dry-run` runs the restore preflight checks of the real undo: source and
 archive digest, stored or explicit approvals, the native-injector policy, the
 recorded roots and destinations, and the selected archive member digests. It
-verifies the archives and prints the inverse without writing. It starts no
-transaction, so it does not run the checks that need the live installation (a
+verifies the archives and prints the inverse. It changes no game file, manager
+state, ownership or history, but on a cache miss it can download a release
+archive into the archive cache. It starts no transaction, so it does not run the checks that need the live installation (a
 pinned package, a package another one needs, an unfinished transaction and an
 ownership `CONFLICT`); the real undo can still refuse for those. `--yes` is
 required to change game files. `--json` prints one object.
