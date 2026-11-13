@@ -85,6 +85,12 @@ impl Server {
         self.stdin.flush().expect("message flush");
     }
 
+    fn send_raw(&mut self, text: &str) {
+        self.stdin.write_all(text.as_bytes()).expect("raw write");
+        self.stdin.write_all(b"\n").expect("raw newline");
+        self.stdin.flush().expect("raw flush");
+    }
+
     fn next(&mut self) -> Value {
         let line = self
             .lines
@@ -273,6 +279,56 @@ fn a_full_queue_still_reads_cancellation_for_the_active_call() {
         }
         match message["id"].as_i64() {
             Some(id) if (100..=103).contains(&id) => answered += 1,
+            _ => active_answered = true,
+        }
+    }
+    assert!(!active_answered, "a cancelled call must not respond");
+    assert!(
+        !temporary.path().join("modn").join("commit").exists(),
+        "the CLI must stop before its commit point"
+    );
+}
+
+#[test]
+fn a_full_queue_still_answers_malformed_and_oversized_input() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let mut server = Server::start_mode(temporary.path(), "queued", 5);
+    server.initialize();
+    server.send_tool(
+        json!("active"),
+        "registered_games",
+        json!({}),
+        Some(json!("active-token")),
+    );
+    let first = server.next();
+    assert_eq!(first["method"], "notifications/progress", "{first}");
+    for id in [110, 111, 112, 113] {
+        server.send(json!({"jsonrpc":"2.0","id":id,"method":"ping"}));
+    }
+    server.send_raw("{");
+    server.send_raw(&"x".repeat(64 * 1024 + 1));
+    server.send(
+        json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"active"}}),
+    );
+    let mut parse_error = false;
+    let mut oversize_error = false;
+    let mut answered = 0;
+    let mut active_answered = false;
+    while !(parse_error && oversize_error && answered == 4) {
+        let message = server.next();
+        if message.get("method").is_some() {
+            continue;
+        }
+        if message["id"].is_null() {
+            match message["error"]["code"].as_i64() {
+                Some(-32700) => parse_error = true,
+                Some(-32600) => oversize_error = true,
+                _ => {}
+            }
+            continue;
+        }
+        match message["id"].as_i64() {
+            Some(id) if (110..=113).contains(&id) => answered += 1,
             _ => active_answered = true,
         }
     }

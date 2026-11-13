@@ -17,7 +17,8 @@ use tokio::sync::mpsc;
 
 /// Requests buffered while one call runs. The input loop keeps reading when
 /// this queue is full so a cancellation always reaches the active call;
-/// ordinary requests above the limit are refused.
+/// ordinary requests above the limit are refused, while malformed and
+/// oversized lines still receive their protocol error.
 const PENDING_LIMIT: usize = 4;
 
 enum Input {
@@ -176,6 +177,31 @@ async fn run() -> Result<()> {
                                                 ),
                                             )
                                             .await?;
+                                        } else {
+                                            // A full queue must not swallow a
+                                            // protocol reply: answer as the
+                                            // normal path would.
+                                            match input {
+                                                Input::Oversize => {
+                                                    write_message(
+                                                        &mut stdout,
+                                                        error(
+                                                            Value::Null,
+                                                            -32600,
+                                                            "Message exceeds 65536 bytes",
+                                                        ),
+                                                    )
+                                                    .await?;
+                                                }
+                                                Input::Line(bytes) => {
+                                                    if let Action::Reply(response) =
+                                                        session.handle(&config, &bytes).await
+                                                    {
+                                                        write_message(&mut stdout, response)
+                                                            .await?;
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
