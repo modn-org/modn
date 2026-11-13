@@ -10,6 +10,7 @@ use super::{lock_store, ManagedPackage, NativeInjectorPolicy};
 use crate::error::{coded, ErrorCode};
 use crate::history::{HistoryFile, HistoryKind, HistoryOperation, ReleaseMetadata};
 use crate::planning::InstallPlan;
+use crate::progress::OperationControl;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
@@ -218,6 +219,7 @@ impl Store {
             if let Some(release) = &restore.release {
                 release.ensure_native_injector_allowed(restore.policy)?;
             }
+            self.verify_restored_bytes(&restore.archive, &restore.plan, &restore.expected)?;
         }
         self.control.checkpoint()?;
         let stack_id = self.begin_stack(&game)?;
@@ -278,21 +280,38 @@ impl Store {
     /// Refuse when the archive members that `plan` selects would restore
     /// different bytes than the recorded `digest_before` of `expected`.
     ///
-    /// The check runs before an update starts and before any ownership
-    /// change, so a module policy that selects another archive member for the
-    /// same destination refuses with [`ErrorCode::UndoFailed`] and leaves
-    /// game files, ownership and history untouched.
-    pub(super) fn verify_restored_bytes(
+    /// The check runs before an update or an uninstall restore starts and
+    /// before any ownership change, so a module policy that selects another
+    /// archive member for the same destination refuses with
+    /// [`ErrorCode::UndoFailed`] and leaves game files, ownership and history
+    /// untouched. The store's control can stop the archive read.
+    pub fn verify_restored_bytes(
         &self,
         archive: &Path,
         plan: &InstallPlan,
         expected: &[HistoryFile],
     ) -> Result<()> {
+        self.verify_restored_bytes_with_control(archive, plan, expected, &self.control)
+    }
+
+    /// [`Store::verify_restored_bytes`] with an explicit operation control.
+    ///
+    /// A preview that reads state through a store it cannot configure, such as
+    /// `modn undo --dry-run`, passes the operation control here so a
+    /// cancellation stops the archive read.
+    pub fn verify_restored_bytes_with_control(
+        &self,
+        archive: &Path,
+        plan: &InstallPlan,
+        expected: &[HistoryFile],
+        control: &OperationControl,
+    ) -> Result<()> {
         let expected = expected_digests(expected);
         if expected.is_empty() {
             return Ok(());
         }
-        let actual = super::undo_digests::selected_digests(archive, plan, &self.state_root)?;
+        let actual =
+            super::undo_digests::selected_digests(archive, plan, &self.state_root, control)?;
         if actual != expected {
             return Err(coded(
                 ErrorCode::UndoFailed,

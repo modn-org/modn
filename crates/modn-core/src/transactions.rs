@@ -36,6 +36,8 @@ mod staging;
 #[cfg(test)]
 mod tests;
 mod undo_digests;
+#[cfg(test)]
+mod undo_digests_tests;
 mod uninstall;
 mod uninstall_plan;
 #[cfg(test)]

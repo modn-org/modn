@@ -122,6 +122,9 @@ fn restores(
         } else {
             NativeInjectorPolicy::Refuse
         };
+        if let Some(rebuilt) = &rebuilt {
+            rebuilt.ensure_native_injector_allowed(policy)?;
+        }
         let source = release.source.as_ref().with_context(|| {
             format!(
                 "{} was installed before releases were recorded; install it again",
@@ -231,6 +234,7 @@ fn restores(
                 ),
             ));
         }
+        store.verify_restored_bytes_with_control(&archive, &plan, &expected, progress.control())?;
         restores.push(UndoRestore::new(
             archive, plan, expected, rebuilt, approved, policy,
         ));

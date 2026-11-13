@@ -110,11 +110,17 @@ The undo refuses before any change in these cases:
   contacting GitHub, and downloads again only on a cache miss.
 - A restored archive does not match the recorded SHA-256, or the current game
   policy maps the release to another root or other files than the record.
-- An update undo selects an archive member whose SHA-256 differs from the
-  recorded `digest_before` of a restored file. The error is `UNDO_FAILED` and
-  no game file, ownership row or history record changes.
+- An update undo or an uninstall undo selects an archive member whose SHA-256
+  differs from the recorded `digest_before` of a restored file. The undo checks
+  the selected members before any game file changes. The error is `UNDO_FAILED`
+  and no game file, ownership row or history record changes.
 - A package is pinned, another installed package needs it, an unfinished
   transaction exists, or ownership conflicts block the change.
+
+`modn undo --dry-run` runs these preflight checks, including the selected
+archive member digests, and reports the same refusal without writing. A
+cancellation before the commit point stops the archive reads and leaves the
+same state unchanged.
 
 An update undo and an uninstall undo rebuild the release from the record's
 catalog identity, dependencies, conflicts and native-injector flag. The
