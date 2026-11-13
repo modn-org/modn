@@ -81,12 +81,12 @@ export function newRunId() {
 }
 
 /** @returns {Promise<Game[]>} `modn game list` installations. */
-export function listGames() {
+export async function listGames() {
   return invoke('list_games', {});
 }
 
 /** @param {{gameId: string}} args @returns {Promise<Game[]>} installations of one game. */
-export function listInstallations({ gameId }) {
+export async function listInstallations({ gameId }) {
   return invoke('list_installations', { gameId });
 }
 
@@ -94,7 +94,7 @@ export function listInstallations({ gameId }) {
  * @param {{gameId: string, path: string}} args
  * @returns {Promise<ManagedPackage[]>} manager-owned packages for one installation.
  */
-export function listPackages({ gameId, path }) {
+export async function listPackages({ gameId, path }) {
   return invoke('list_packages', { gameId, path });
 }
 
@@ -102,12 +102,12 @@ export function listPackages({ gameId, path }) {
  * @param {{gameId: string, path: string, query?: string}} args
  * @returns {Promise<BucketPackage[]>} bucket catalog entries for the game.
  */
-export function catalog({ gameId, path, query }) {
+export async function catalog({ gameId, path, query }) {
   return invoke('catalog', { gameId, path, query });
 }
 
 /** @returns {Promise<string|null>} chosen `.zip` or `.7z` path; null on cancel. */
-export function pickArchive() {
+export async function pickArchive() {
   return invoke('pick_archive', {});
 }
 
@@ -117,7 +117,7 @@ export function pickArchive() {
  *   allowNativeInjector: boolean, allowExecutable: boolean, runId: string}} args
  * @returns {Promise<ManagedPackage>}
  */
-export function installArchive({
+export async function installArchive({
   gameId,
   path,
   archive,
@@ -140,7 +140,7 @@ export function installArchive({
  * @param {{gameId: string, path: string, packageId: string, runId: string}} args
  * @returns {Promise<{uninstalled: string, packages: string[]}>}
  */
-export function uninstall({ gameId, path, packageId, runId }) {
+export async function uninstall({ gameId, path, packageId, runId }) {
   return invoke('uninstall', { gameId, path, packageId, runId });
 }
 
@@ -150,7 +150,7 @@ export function uninstall({ gameId, path, packageId, runId }) {
  *   allowNativeInjector: boolean, allowExecutable: boolean, runId: string}} args
  * @returns {Promise<{package: string, installed: ManagedPackage}>}
  */
-export function installMod(args) {
+export async function installMod(args) {
   return invoke('install_mod', args);
 }
 
@@ -160,7 +160,7 @@ export function installMod(args) {
  * @returns {Promise<InstallPlan|Object>} standalone plan, or catalog plan with
  *   `plan`, `approval`, `dependencies` and `blockers`.
  */
-export function planInstall({ gameId, path, modId }) {
+export async function planInstall({ gameId, path, modId }) {
   return invoke('plan_install', { gameId, path, modId });
 }
 
@@ -169,7 +169,7 @@ export function planInstall({ gameId, path, modId }) {
  * @param {{gameId: string, path: string, packageId: string, runId: string}} args
  * @returns {Promise<Object>} update report with `plan`, `files` and `blockers`.
  */
-export function update({ gameId, path, packageId, runId }) {
+export async function update({ gameId, path, packageId, runId }) {
   return invoke('update', { gameId, path, packageId, runId });
 }
 
@@ -179,7 +179,7 @@ export function update({ gameId, path, packageId, runId }) {
  * @returns {Promise<Array<{id: string, kind: string, game_id: string,
  *   installation: string, recorded_at: string, packages: Object[], undoes?: string}>>}
  */
-export function history({ gameId }) {
+export async function history({ gameId }) {
   return invoke('history', { gameId });
 }
 
@@ -188,7 +188,7 @@ export function history({ gameId }) {
  * @param {{operationId: string, runId: string}} args
  * @returns {Promise<{kind: string, installed: Object[], removed: string[], undo: string}>}
  */
-export function undo({ operationId, runId }) {
+export async function undo({ operationId, runId }) {
   return invoke('undo', { operationId, runId });
 }
 
@@ -196,7 +196,7 @@ export function undo({ operationId, runId }) {
  * Detect installed games without writing state. Implemented by a later task.
  * @returns {Promise<{installations: Object[], refused: Object[], skipped: Object[]}>}
  */
-export function detectGames() {
+export async function detectGames() {
   return invoke('detect_games', {});
 }
 
@@ -204,7 +204,7 @@ export function detectGames() {
  * Register a detected installation. Implemented by a later task.
  * @param {{gameId: string, path: string}} args @returns {Promise<Game>}
  */
-export function activateGame({ gameId, path }) {
+export async function activateGame({ gameId, path }) {
   return invoke('activate_game', { gameId, path });
 }
 
@@ -212,7 +212,7 @@ export function activateGame({ gameId, path }) {
  * Pick a game folder with a native picker, then register it. Later task.
  * @param {{gameId: string}} args @returns {Promise<Game|null>}
  */
-export function addGame({ gameId }) {
+export async function addGame({ gameId }) {
   return invoke('add_game', { gameId });
 }
 
@@ -220,7 +220,7 @@ export function addGame({ gameId }) {
  * Unregister an installation after a native confirmation. Later task.
  * @param {{gameId: string, path: string}} args @returns {Promise<Game>}
  */
-export function removeGame({ gameId, path }) {
+export async function removeGame({ gameId, path }) {
   return invoke('remove_game', { gameId, path });
 }
 
@@ -229,7 +229,7 @@ export function removeGame({ gameId, path }) {
  * @param {{gameId: string, path: string}} args
  * @returns {Promise<{game_id: string, installation: string, target: Object, warnings: string[]}>}
  */
-export function play({ gameId, path }) {
+export async function play({ gameId, path }) {
   return invoke('play', { gameId, path });
 }
 
@@ -237,7 +237,7 @@ export function play({ gameId, path }) {
  * Support text for Copy diagnostics. Later task.
  * @returns {Promise<string>}
  */
-export function diagnostics() {
+export async function diagnostics() {
   return invoke('diagnostics', {});
 }
 
@@ -245,7 +245,7 @@ export function diagnostics() {
  * Request cancellation of a run. Later task.
  * @param {{runId: string}} args @returns {Promise<void>}
  */
-export function cancelRun({ runId }) {
+export async function cancelRun({ runId }) {
   return invoke('cancel_run', { runId });
 }
 
@@ -255,7 +255,7 @@ export function cancelRun({ runId }) {
  * @param {(event: ProgressEvent) => void} callback
  * @returns {Promise<() => void>} unlisten function
  */
-export function onProgress(runId, callback) {
+export async function onProgress(runId, callback) {
   return window.__TAURI__.event.listen('modn://progress', (event) => {
     const payload = event.payload;
     if (payload && payload.runId === runId) {

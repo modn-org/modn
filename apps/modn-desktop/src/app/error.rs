@@ -85,3 +85,34 @@ fn short_message(code: &str) -> &'static str {
         _ => "The operation could not be completed.",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CommandError;
+
+    #[test]
+    fn cli_envelope_code_is_kept_without_cli_text() {
+        let error = anyhow::anyhow!(
+            "Backend refused (exit 1): {{\"error\":\"PLAN_BLOCKED\",\"message\":\"secret detail\"}}\n"
+        );
+        let mapped = CommandError::from(error);
+        assert_eq!(mapped.code, "PLAN_BLOCKED");
+        assert!(!mapped.message.contains("secret"));
+    }
+
+    #[test]
+    fn timeout_and_unknown_failures_use_backend_codes() {
+        let timeout = CommandError::from(anyhow::anyhow!(
+            "Backend exceeded 60 seconds. A write may need recovery"
+        ));
+        assert_eq!(timeout.code, "BACKEND_TIMEOUT");
+        let unknown = CommandError::from(anyhow::anyhow!("opaque transport failure"));
+        assert_eq!(unknown.code, "BACKEND_FAILED");
+    }
+
+    #[test]
+    fn plan_blocked_prefix_maps_to_the_stable_code() {
+        let mapped = CommandError::from(super::plan_blocked());
+        assert_eq!(mapped.code, "PLAN_BLOCKED");
+    }
+}
