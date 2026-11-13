@@ -9,6 +9,8 @@ mod support;
 mod tree;
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -149,6 +151,42 @@ fn cache_archives(fixture: &Fixture) -> Vec<PathBuf> {
     }
 }
 
+/// Every cache file with its bytes, so a cancel can be checked against the
+/// exact state before the fetch.
+fn cache_snapshot(fixture: &Fixture) -> BTreeMap<String, Vec<u8>> {
+    let mut snapshot = BTreeMap::new();
+    let Ok(entries) = fs::read_dir(fixture.state.join("cache")) else {
+        return snapshot;
+    };
+    for entry in entries {
+        let entry = entry.expect("cache entry");
+        if entry.file_type().expect("cache entry type").is_file() {
+            snapshot.insert(
+                entry.file_name().to_string_lossy().into_owned(),
+                fs::read(entry.path()).expect("cache bytes"),
+            );
+        }
+    }
+    snapshot
+}
+
+/// Seed the archive of a previous Modn build for the same release and commit,
+/// with a different digest than the fetch packs now.
+fn seed_previous_archive(fixture: &Fixture, commit: &str) -> String {
+    let bytes = b"packed by an older modn".to_vec();
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let root = fixture.state.join("cache");
+    fs::create_dir_all(&root).expect("cache");
+    fs::write(
+        root.join(format!(
+            "test-game#git-package#1.0#git-{commit}-{digest}.zip"
+        )),
+        &bytes,
+    )
+    .expect("previous archive");
+    digest
+}
+
 fn reports_download(line: &str) -> bool {
     let Ok(value) = serde_json::from_str::<Value>(line) else {
         return false;
@@ -254,5 +292,86 @@ fn a_cancel_during_a_git_fetch_stops_before_commit_without_cache_or_game_writes(
     assert!(
         cache_archives(&fixture).is_empty(),
         "a cancelled Git fetch kept a cache entry"
+    );
+}
+
+#[test]
+fn a_no_cache_cancel_keeps_the_previous_git_cache_entry() {
+    let fixture = Fixture::new();
+    let repository = repository(fixture.temp.path());
+    add_bucket(&fixture, fixture.temp.path(), &repository.commit);
+    fixture.register();
+    let previous = seed_previous_archive(&fixture, &repository.commit);
+    let cache_before = cache_snapshot(&fixture);
+    assert_eq!(cache_before.len(), 1, "one previous archive is seeded");
+    let game_before = tree::snapshot(&fixture.game);
+    let state_db = fixture.state.join("state.sqlite");
+    let state_before = fs::read(&state_db).expect("state bytes");
+    let game = fixture.game.to_str().expect("game path").to_owned();
+
+    let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
+    command
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .env("MODN_TEST_GIT_REMOTE_BASE", file_url(&repository.base))
+        .args([
+            "--json",
+            "--progress",
+            "json",
+            "install",
+            "test-game/git-package",
+            "--path",
+            &game,
+            "--yes",
+            "--no-cache",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().expect("spawn modn");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let stderr = child.stderr.take().expect("stderr");
+    let mut lines = Vec::new();
+    let mut cancelled_during_download = false;
+    for line in BufReader::new(stderr).lines() {
+        let line = line.expect("stderr line");
+        if !cancelled_during_download && reports_download(&line) {
+            stdin.write_all(b"cancel\n").expect("cancel line");
+            stdin.flush().expect("flush cancel");
+            cancelled_during_download = true;
+        }
+        lines.push(line);
+    }
+    drop(stdin);
+    let output = child.wait_with_output().expect("modn output");
+
+    assert!(
+        cancelled_during_download,
+        "install finished without a download phase: {}",
+        error(&output)
+    );
+    assert!(!output.status.success(), "{}", error(&output));
+    let stderr = lines.join("\n");
+    assert!(stderr.contains(r#""error":"CANCELLED""#), "{stderr}");
+    assert!(
+        stderr
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .any(|value| value["phase"] == "result" && value["outcome"] == "cancelled"),
+        "{stderr}"
+    );
+    assert_eq!(tree::snapshot(&fixture.game), game_before);
+    assert_eq!(fs::read(&state_db).expect("state bytes"), state_before);
+    assert_eq!(
+        cache_snapshot(&fixture),
+        cache_before,
+        "a cancelled --no-cache fetch changed the cache"
+    );
+    assert!(
+        cache_before
+            .keys()
+            .any(|name| name.contains(&format!("-{previous}.zip"))),
+        "the previous archive must still be cached"
     );
 }
