@@ -7,10 +7,12 @@
 #[path = "../src/backend.rs"]
 mod backend;
 
-use backend::{Backend, Game};
+use backend::{Backend, BackendErrorKind, CancelToken, Game};
+use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -41,6 +43,7 @@ impl Fixture {
             data: None,
             modules: None,
             evidence: None,
+            inactivity_timeout: None,
         };
         Self {
             backend,
@@ -56,6 +59,19 @@ impl Fixture {
             !self.backend.state.join("write.json").exists(),
             "Refusal must not invoke a write"
         );
+    }
+    fn progress_args(&self, scenario: &str) -> Vec<OsString> {
+        let archive = self.backend.state.join(format!("{scenario}.zip"));
+        fs::write(&archive, b"fixture source").expect("fixture archive bytes");
+        vec![
+            "--game".into(),
+            self.game.game_id.clone().into(),
+            "install".into(),
+            archive.into_os_string(),
+            "--yes".into(),
+            "--path".into(),
+            self.game.path.clone().into_os_string(),
+        ]
     }
 }
 
@@ -134,4 +150,173 @@ fn timeout_reaps_the_backend_process() {
         "Deadline must remain bounded"
     );
     f.no_write();
+}
+
+#[test]
+fn progress_events_arrive_in_order_and_return_the_result() {
+    let f = Fixture::new();
+    let args = f.progress_args("complete");
+    let cancel = CancelToken::new();
+    let mut events = Vec::new();
+    let result = f
+        .backend
+        .call_with_progress(&args, &cancel, &mut |event| events.push(event))
+        .expect("progress install");
+    assert_eq!(result["id"], "owned-package");
+    let phases: Vec<&str> = events.iter().map(|event| event.phase.as_str()).collect();
+    assert_eq!(
+        phases,
+        [
+            "resolve", "download", "extract", "stage", "commit", "result"
+        ]
+    );
+    assert_eq!(events[1].bytes, Some(512));
+    assert_eq!(events[1].total, Some(1024));
+    assert_eq!(
+        events.last().expect("result event").outcome.as_deref(),
+        Some("succeeded")
+    );
+    assert!(f.backend.state.join("write.json").is_file());
+    let recorded: Vec<String> = serde_json::from_slice(
+        &fs::read(f.backend.state.join("last-args.json")).expect("recorded args"),
+    )
+    .expect("argv JSON");
+    assert!(
+        recorded
+            .windows(2)
+            .any(|pair| pair == ["--progress", "json"])
+    );
+}
+
+#[test]
+fn cancel_before_commit_returns_cancelled_and_writes_nothing() {
+    let f = Fixture::new();
+    let args = f.progress_args("hang-before-commit");
+    let cancel = CancelToken::new();
+    let error = f
+        .backend
+        .call_with_progress(&args, &cancel, &mut |event| {
+            if event.phase == "stage" {
+                cancel.cancel();
+            }
+        })
+        .expect_err("cancel must stop before the commit");
+    assert_eq!(error.kind(), BackendErrorKind::Cancelled);
+    assert_eq!(error.code(), Some("CANCELLED"));
+    f.no_write();
+}
+
+#[test]
+fn cancel_after_commit_lets_the_operation_finish() {
+    let f = Fixture::new();
+    let args = f.progress_args("hang-after-commit");
+    let cancel = CancelToken::new();
+    let result = f
+        .backend
+        .call_with_progress(&args, &cancel, &mut |event| {
+            if event.phase == "commit" {
+                cancel.cancel();
+            }
+        })
+        .expect("cancel after the commit is ignored");
+    assert_eq!(result["id"], "owned-package");
+    assert!(
+        f.backend.state.join("cancel-after-commit").is_file(),
+        "The call must still write cancel after the commit"
+    );
+    assert!(f.backend.state.join("write.json").is_file());
+}
+
+#[test]
+fn the_child_environment_is_cleared_except_for_the_allowlist() {
+    let f = Fixture::new();
+    let mut args = f.progress_args("complete");
+    args.push("--record-env".into());
+    f.backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect("environment probe");
+    let environment: serde_json::Value = serde_json::from_slice(
+        &fs::read(f.backend.state.join("environment.json")).expect("environment record"),
+    )
+    .expect("environment JSON");
+    assert_eq!(environment["SystemRoot"], true);
+    assert!(
+        environment["TEMP"] == true || environment["TMP"] == true,
+        "Windows process variables must be forwarded"
+    );
+    assert_eq!(
+        environment["PATH"], false,
+        "The child environment must be cleared except for the allowlist"
+    );
+}
+
+#[test]
+fn inactivity_before_commit_cancels_then_returns_a_timeout() {
+    let f = Fixture::new();
+    let args = f.progress_args("hang-before-commit");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_millis(200));
+    let start = Instant::now();
+    let error = backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect_err("inactivity must stop the call");
+    assert_eq!(error.kind(), BackendErrorKind::Timeout);
+    assert!(
+        start.elapsed() < Duration::from_secs(10),
+        "A CLI that stops on cancel must not use the whole grace period"
+    );
+    f.no_write();
+}
+
+#[test]
+fn inactivity_after_commit_waits_for_the_cli() {
+    let f = Fixture::new();
+    let args = f.progress_args("hang-after-commit");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_millis(200));
+    let start = Instant::now();
+    let result = backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect("a committed operation must finish");
+    assert_eq!(result["id"], "owned-package");
+    assert!(
+        start.elapsed() >= Duration::from_millis(1400),
+        "The fixture finishes only after its post-commit delay"
+    );
+    assert!(f.backend.state.join("write.json").is_file());
+}
+
+#[test]
+fn progress_errors_expose_the_code_but_never_stderr_text() {
+    let f = Fixture::new();
+    let args = f.progress_args("refuse");
+    let error = f
+        .backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect_err("refusal must fail");
+    assert_eq!(error.kind(), BackendErrorKind::Refused);
+    assert_eq!(error.code(), Some("PLAN_BLOCKED"));
+    let message = error.to_string();
+    assert!(!message.contains("fixture stderr noise"));
+    assert!(!message.contains("fixture secret"));
+    f.no_write();
+}
+
+#[test]
+fn progress_activity_resets_the_inactivity_timer() {
+    let f = Fixture::new();
+    let args = f.progress_args("slow");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_millis(800));
+    let result = backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect("each event must reset the inactivity timer");
+    assert_eq!(result["id"], "owned-package");
+    assert!(f.backend.state.join("write.json").is_file());
 }

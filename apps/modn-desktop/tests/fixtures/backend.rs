@@ -1,7 +1,34 @@
+//! Disposable stand-in for `modn.exe`, used by the desktop contract tests.
+//!
+//! The fixture keeps its `mode`-file behaviours: `overflow`, `failure`,
+//! `invalid-json`, `timeout`, `slow`, `blocked`, `registration-changed`,
+//! `source-changed` and `inventory-failure`.
+//!
+//! When the arguments contain `--progress json` it also speaks the CLI's
+//! progress protocol: one JSON event per line on stderr and `cancel` lines on
+//! stdin. A scenario name in the arguments after the fixed prefix selects the
+//! behaviour:
+//!
+//! - `hang-before-commit`: emits `resolve`, `download`, `extract` and `stage`,
+//!   then waits for `cancel` and exits 1 with the CLI's `CANCELLED` envelope.
+//!   It writes nothing.
+//! - `hang-after-commit`: emits through `commit`, ignores `cancel`, waits 1.5
+//!   seconds, records the write and succeeds.
+//! - `slow`: emits each phase 250 ms apart, checks for `cancel` before the
+//!   commit, then records the write and succeeds.
+//! - `refuse`: emits plain stderr text and a `PLAN_BLOCKED` envelope, then
+//!   exits 1 without a write.
+//! - any other name: emits the full sequence and succeeds.
+
 use serde_json::json;
+use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
+use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
@@ -34,6 +61,27 @@ fn main() -> anyhow::Result<()> {
         )?,
     )?;
     fs::write(state.join("child-pid"), std::process::id().to_string())?;
+    if args.iter().any(|arg| arg == "--record-env") {
+        let names = [
+            "SystemRoot",
+            "TEMP",
+            "TMP",
+            "LOCALAPPDATA",
+            "MODN_CACHE",
+            "MODN_STORE_LIBRARIES",
+            "MODN_APPDATA",
+            "MODN_GAME_MODULES_DIR",
+            "PATH",
+        ];
+        let record: serde_json::Map<String, serde_json::Value> = names
+            .iter()
+            .map(|name| ((*name).to_owned(), json!(std::env::var_os(name).is_some())))
+            .collect();
+        fs::write(state.join("environment.json"), serde_json::to_vec(&record)?)?;
+    }
+    if args.iter().any(|arg| arg == "--progress") {
+        return progress(&args, &state);
+    }
     match mode.as_str() {
         "overflow" => {
             io::stdout().write_all(&vec![b'x'; 2 * 1024 * 1024])?;
@@ -70,19 +118,104 @@ fn main() -> anyhow::Result<()> {
         }
         json!([{"id":"owned-package", "files":["addons/demo.plugin"]}])
     } else if tail.iter().any(|s| s == "--yes") {
-        fs::write(
-            state.join("write.json"),
-            serde_json::to_vec(
-                &args
-                    .iter()
-                    .map(|arg| arg.to_string_lossy())
-                    .collect::<Vec<_>>(),
-            )?,
-        )?;
+        record_write(&args, &state)?;
         json!({"id":"owned-package"})
     } else {
         json!({})
     };
     println!("{result}");
+    Ok(())
+}
+
+fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
+    let scenario = scenario(args);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let reader = Arc::clone(&cancel);
+    thread::spawn(move || {
+        for line in io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if line.trim() == "cancel" {
+                reader.store(true, Ordering::SeqCst);
+            }
+        }
+    });
+    emit(json!({"phase":"resolve"}));
+    sleep_if_slow(scenario);
+    emit(json!({"phase":"download","package":"fixture-package","bytes":512,"total":1024}));
+    sleep_if_slow(scenario);
+    emit(json!({"phase":"extract","package":"fixture-package"}));
+    sleep_if_slow(scenario);
+    emit(json!({"phase":"stage","package":"fixture-package"}));
+    if scenario == "refuse" {
+        eprintln!("fixture stderr noise that callers must never see");
+        emit(json!({"error":"PLAN_BLOCKED","message":"fixture secret refusal text"}));
+        std::process::exit(1);
+    }
+    if scenario == "hang-before-commit" {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while !cancel.load(Ordering::SeqCst) {
+            if std::time::Instant::now() >= deadline {
+                emit(json!({"error":"FIXTURE_TIMEOUT","message":"no cancel received"}));
+                std::process::exit(2);
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        exit_cancelled();
+    }
+    sleep_if_slow(scenario);
+    if scenario == "slow" && cancel.load(Ordering::SeqCst) {
+        exit_cancelled();
+    }
+    emit(json!({"phase":"commit","package":"fixture-package"}));
+    if scenario == "hang-after-commit" {
+        thread::sleep(Duration::from_millis(1500));
+        if cancel.load(Ordering::SeqCst) {
+            fs::write(state.join("cancel-after-commit"), b"ignored")?;
+        }
+    }
+    record_write(args, state)?;
+    emit(json!({"phase":"result","outcome":"succeeded"}));
+    println!("{}", json!({"id":"owned-package"}));
+    Ok(())
+}
+
+fn scenario(args: &[OsString]) -> &'static str {
+    let tail = args.get(3..).unwrap_or_default();
+    for name in ["hang-before-commit", "hang-after-commit", "refuse", "slow"] {
+        if tail.iter().any(|arg| arg.to_string_lossy().contains(name)) {
+            return name;
+        }
+    }
+    "complete"
+}
+
+fn sleep_if_slow(scenario: &str) {
+    if scenario == "slow" {
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn exit_cancelled() -> ! {
+    emit(json!({"phase":"result","outcome":"cancelled","error":"CANCELLED"}));
+    emit(
+        json!({"error":"CANCELLED","message":"operation cancelled before the commit point; nothing changed"}),
+    );
+    std::process::exit(1);
+}
+
+fn emit(value: serde_json::Value) {
+    eprintln!("{value}");
+}
+
+fn record_write(args: &[OsString], state: &Path) -> anyhow::Result<()> {
+    fs::write(
+        state.join("write.json"),
+        serde_json::to_vec(
+            &args
+                .iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>(),
+        )?,
+    )?;
     Ok(())
 }
