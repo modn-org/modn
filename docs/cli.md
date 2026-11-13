@@ -325,7 +325,7 @@ the catalog name for `modn update`, blocks uninstalling a package it requires,
 and follows the same native-injector policy as an install: the stored approval
 or `--allow-native-injector` is required, else the undo refuses with
 `NATIVE_INJECTOR_NOT_ALLOWED` before a game write. Executable restores use the
-stored approval for `(game path, mod ID)` plus every explicit
+stored approval for `(game path, bucket, mod ID)` plus every explicit
 `--allow-executable` path; an undeclared explicit path authorizes the restore
 but is not stored as an approval.
 
@@ -357,11 +357,13 @@ The default error code is `UNDO_FAILED`.
 
 ## Native-injector and executable approval
 
-Modn stores one approval per mod and game installation. It records the release
-capabilities you approved: whether the release is a native injector, and the
-executable payload paths it declares. An install or update covered by that
-approval needs no flag. `modn uninstall` keeps the approval. A release that
-drops a capability does not shrink it.
+Modn stores one approval per bucket, mod and game installation. It records the
+release capabilities you approved: whether the release is a native injector,
+and the executable payload paths it declares. An approval for one bucket never
+covers a mod with the same ID from another bucket, because a different
+publisher may ship different native code or executables. An install or update
+covered by that approval needs no flag. `modn uninstall` keeps the approval. A
+release that drops a capability does not shrink it.
 
 A release that adds a capability the stored approval does not cover is refused
 before a game write. A new native injector, including a native-injector

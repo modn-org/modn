@@ -228,7 +228,7 @@ pub(super) fn stored_approval(
     reference: &CatalogReference,
 ) -> Result<Option<Capabilities>> {
     match store {
-        Some(store) => store.approval(game, &reference.mod_id),
+        Some(store) => store.approval(game, &reference.bucket, &reference.mod_id),
         None => Ok(None),
     }
 }
@@ -252,7 +252,7 @@ pub(super) fn record(
     needed: &Capabilities,
 ) -> Result<()> {
     store
-        .record_approval(game, &reference.mod_id, needed)
+        .record_approval(game, &reference.bucket, &reference.mod_id, needed)
         .with_context(|| format!("{reference} is installed, but its approval could not be stored"))
 }
 

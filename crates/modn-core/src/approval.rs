@@ -216,14 +216,20 @@ impl std::fmt::Display for ApprovalRefusal {
 impl std::error::Error for ApprovalRefusal {}
 
 impl Store {
-    /// Read the stored approval of one mod in one game installation.
-    pub fn approval(&self, game: &Path, mod_id: &str) -> Result<Option<Capabilities>> {
+    /// Read the stored approval of one mod of one bucket in one game
+    /// installation.
+    pub fn approval(
+        &self,
+        game: &Path,
+        bucket: &str,
+        mod_id: &str,
+    ) -> Result<Option<Capabilities>> {
         let row = self
             .connection
             .query_row(
                 "SELECT native_injector, executables FROM mod_approvals
-                 WHERE game_path=?1 AND mod_id=?2",
-                params![game.to_string_lossy().as_ref(), mod_id],
+                 WHERE game_path=?1 AND bucket=?2 AND mod_id=?3",
+                params![game.to_string_lossy().as_ref(), bucket, mod_id],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
@@ -235,7 +241,7 @@ impl Store {
         .transpose()
     }
 
-    /// Widen the stored approval of `mod_id` to `capabilities`.
+    /// Widen the stored approval of one mod of one bucket to `capabilities`.
     ///
     /// The update never shrinks a recorded native-injector or executable
     /// capability. Callers record an approval only after their operation
@@ -243,13 +249,14 @@ impl Store {
     pub fn record_approval(
         &mut self,
         game: &Path,
+        bucket: &str,
         mod_id: &str,
         capabilities: &Capabilities,
     ) -> Result<()> {
         if mod_id.is_empty() {
             bail!("mod id must not be empty");
         }
-        let widened = match self.approval(game, mod_id)? {
+        let widened = match self.approval(game, bucket, mod_id)? {
             Some(stored) => stored.union(capabilities),
             None => capabilities.clone(),
         };
@@ -259,13 +266,14 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
-            "INSERT INTO mod_approvals(game_path, mod_id, native_injector, executables)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(game_path, mod_id) DO UPDATE SET
+            "INSERT INTO mod_approvals(game_path, bucket, mod_id, native_injector, executables)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(game_path, bucket, mod_id) DO UPDATE SET
                  native_injector=excluded.native_injector,
                  executables=excluded.executables",
             params![
                 game.to_string_lossy().as_ref(),
+                bucket,
                 mod_id,
                 i64::from(widened.native_injector),
                 executables
@@ -277,16 +285,29 @@ impl Store {
 }
 
 pub(crate) fn ensure_schema(connection: &Connection) -> Result<()> {
-    connection.execute_batch(
-        "CREATE TABLE IF NOT EXISTS mod_approvals (
-            game_path TEXT NOT NULL,
-            mod_id TEXT NOT NULL,
-            native_injector INTEGER NOT NULL DEFAULT 0,
-            executables TEXT NOT NULL DEFAULT '[]',
-            approved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (game_path, mod_id)
-        );",
+    let has_bucket: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('mod_approvals')
+         WHERE name='bucket')",
+        [],
+        |row| row.get(0),
     )?;
+    if !has_bucket {
+        // An unreleased schema-5 build keyed approvals by mod ID only. A row
+        // without a bucket cannot be attributed to one publisher, so rebuild
+        // the table and ask the user again (fail closed).
+        connection.execute_batch(
+            "DROP TABLE IF EXISTS mod_approvals;
+             CREATE TABLE mod_approvals (
+                 game_path TEXT NOT NULL,
+                 bucket TEXT NOT NULL,
+                 mod_id TEXT NOT NULL,
+                 native_injector INTEGER NOT NULL DEFAULT 0,
+                 executables TEXT NOT NULL DEFAULT '[]',
+                 approved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 PRIMARY KEY (game_path, bucket, mod_id)
+             );",
+        )?;
+    }
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version < SCHEMA_VERSION {
         connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -294,20 +315,21 @@ pub(crate) fn ensure_schema(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Present a v4 database without an approval table as an empty approval table
-/// on a read-only connection.
+/// Present a v4 database without an approval table, or a schema-5 database
+/// whose approval table predates bucket keys, as an empty bucket-keyed
+/// approval table on a read-only connection.
 pub(crate) fn attach_missing_view(connection: &Connection) -> Result<()> {
-    let exists: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master
-         WHERE type='table' AND name='mod_approvals')",
+    let has_bucket: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('mod_approvals')
+         WHERE name='bucket')",
         [],
         |row| row.get(0),
     )?;
-    if !exists {
+    if !has_bucket {
         connection.execute_batch(
             "CREATE TEMP VIEW mod_approvals AS
-             SELECT '' AS game_path, '' AS mod_id, 0 AS native_injector,
-                    '[]' AS executables
+             SELECT '' AS game_path, '' AS bucket, '' AS mod_id,
+                    0 AS native_injector, '[]' AS executables
              WHERE 0;",
         )?;
     }
