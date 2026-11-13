@@ -9,6 +9,9 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").ok().as_deref() != Some("windows") {
+        return;
+    }
     #[cfg(windows)]
     {
         tauri_build::try_build(
