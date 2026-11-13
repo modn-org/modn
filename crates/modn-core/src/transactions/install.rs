@@ -437,10 +437,7 @@ impl Store {
             crate::history::metadata_for(
                 context,
                 &id,
-                catalog.as_ref().map(|catalog| &catalog.release.reference),
-                catalog
-                    .as_ref()
-                    .and_then(|catalog| catalog.release.version.as_deref()),
+                catalog.as_ref().map(|catalog| catalog.release),
                 archive_blake3.as_deref(),
             )
         });
@@ -461,6 +458,7 @@ impl Store {
             archive_blake3: metadata
                 .as_ref()
                 .and_then(|metadata| metadata.archive_blake3.clone()),
+            declarations: release.map(super::catalog::ReleaseDeclarations::of),
             files: files
                 .into_iter()
                 .map(|f| OwnedFile {

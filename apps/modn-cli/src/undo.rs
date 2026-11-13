@@ -1,5 +1,6 @@
 use crate::commands::UndoArgs;
 use crate::download;
+use crate::install_consent;
 use crate::modules::content_root_appdata;
 use crate::progress::Progress;
 use crate::selection::selected_installation;
@@ -8,15 +9,89 @@ use anyhow::{bail, Context, Result};
 use modn_core::archive::inspect;
 use modn_core::buckets::PackageSource;
 use modn_core::error::{coded, ErrorCode};
-use modn_core::history::{HistoryContext, HistoryKind, HistoryOperation, HistoryPackage};
+use modn_core::history::{
+    HistoryContext, HistoryKind, HistoryOperation, HistoryPackage, HistoryRelease,
+};
 use modn_core::planning::{
     preview_install_zip_with_permissions, preview_update_with_appdata,
     preview_update_with_permissions,
 };
-use modn_core::transactions::{CatalogRelease, ManagedPackage};
+use modn_core::transactions::{
+    CatalogReference, CatalogRelease, ManagedPackage, NativeInjectorPolicy, ReleaseDeclarations,
+};
 use modn_core::undo::{conflict, inverse, UndoRestore};
 use std::collections::BTreeSet;
 use std::path::Path;
+
+/// The recorded release declarations of `package`.
+fn release_declarations(
+    package: &HistoryPackage,
+) -> Result<(&HistoryRelease, &ReleaseDeclarations)> {
+    let release = package.release_before.as_ref().ok_or_else(|| {
+        coded(
+            ErrorCode::UndoFailed,
+            format!(
+                "{} has no recorded release to restore; install the release again",
+                package.mod_id
+            ),
+        )
+    })?;
+    let declarations = release.declarations.as_ref().ok_or_else(|| {
+        coded(
+            ErrorCode::UndoFailed,
+            format!(
+                "{} was recorded before release declarations were stored; install the release again",
+                package.mod_id
+            ),
+        )
+    })?;
+    Ok((release, declarations))
+}
+
+/// Rebuild the catalog release that `package` recorded.
+fn recorded_release(
+    package: &HistoryPackage,
+    release: &HistoryRelease,
+    declarations: &ReleaseDeclarations,
+) -> Result<CatalogRelease> {
+    let reference = release.catalog.clone().ok_or_else(|| {
+        coded(
+            ErrorCode::UndoFailed,
+            format!(
+                "{} has no recorded catalog identity; install the release again",
+                package.mod_id
+            ),
+        )
+    })?;
+    let mut rebuilt = CatalogRelease::new(reference, declarations.dependencies.clone())
+        .with_conflicts(declarations.conflicts.clone())
+        .with_native_injector(declarations.native_injector);
+    if let Some(version) = &release.version {
+        rebuilt = rebuilt.with_version(version.clone());
+    }
+    Ok(rebuilt)
+}
+
+/// The stored approval and explicit flags for one restored release.
+fn approval(
+    store: &modn_core::state::Store,
+    installation: &Path,
+    reference: Option<&CatalogReference>,
+    args: &UndoArgs,
+) -> Result<(Vec<String>, bool)> {
+    let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
+    let stored = match reference {
+        Some(reference) => install_consent::stored_approval(Some(store), installation, reference)?,
+        None => None,
+    };
+    let approved = stored
+        .as_ref()
+        .map_or_else(|| flags.clone(), |stored| stored.union(&flags));
+    Ok((
+        approved.executables.into_iter().collect(),
+        approved.native_injector,
+    ))
+}
 
 /// The packages an undo must install again, with their recorded files.
 fn restores(
@@ -29,10 +104,24 @@ fn restores(
     let cache = download::cache_for(state_path)?;
     let mut restores = Vec::new();
     for package in &target.packages {
-        let release = package
-            .release_before
+        let (release, declarations) = release_declarations(package)?;
+        let rebuilt = match target.kind {
+            HistoryKind::Update => Some(recorded_release(package, release, declarations)?),
+            HistoryKind::Uninstall if release.catalog.is_some() => {
+                Some(recorded_release(package, release, declarations)?)
+            }
+            _ => None,
+        };
+        let reference = rebuilt.as_ref().map(|rebuilt| &rebuilt.reference);
+        let (approved, native_allowed) = approval(store, &target.installation, reference, args)?;
+        let policy = if rebuilt
             .as_ref()
-            .with_context(|| format!("{} has no recorded release to restore", package.mod_id))?;
+            .is_some_and(|rebuilt| rebuilt.native_injector && native_allowed)
+        {
+            NativeInjectorPolicy::Allow
+        } else {
+            NativeInjectorPolicy::Refuse
+        };
         let source = release.source.as_ref().with_context(|| {
             format!(
                 "{} was installed before releases were recorded; install it again",
@@ -92,7 +181,7 @@ fn restores(
                         &target.game_id,
                         &target.installation,
                         &archive,
-                        &args.allow_executable,
+                        &approved,
                         &replaced,
                         appdata,
                     )?,
@@ -100,7 +189,7 @@ fn restores(
                         &target.game_id,
                         &target.installation,
                         &archive,
-                        &args.allow_executable,
+                        &approved,
                         &replaced,
                     )?,
                 }
@@ -110,7 +199,7 @@ fn restores(
                     &target.game_id,
                     &target.installation,
                     &archive,
-                    &args.allow_executable,
+                    &approved,
                     &[],
                     &appdata,
                 )?,
@@ -118,7 +207,7 @@ fn restores(
                     &target.game_id,
                     &target.installation,
                     &archive,
-                    &args.allow_executable,
+                    &approved,
                 )?,
             },
             HistoryKind::Install => bail!("an install is undone by removing its packages"),
@@ -142,7 +231,9 @@ fn restores(
                 ),
             ));
         }
-        restores.push(UndoRestore::new(archive, plan, expected));
+        restores.push(UndoRestore::new(
+            archive, plan, expected, rebuilt, approved, policy,
+        ));
     }
     Ok(restores)
 }
@@ -308,38 +399,29 @@ pub(super) fn run(
         HistoryKind::Update => {
             let mut restores = restores(&store, state_path, &target, args, progress)?;
             for (package, restore) in target.packages.iter().zip(restores.drain(..)) {
-                let release = package
+                let release = restore
+                    .release
+                    .as_ref()
+                    .context("history record has no catalog release to restore")?;
+                let current = current_package(&store, &target, package)?;
+                let source = package
                     .release_before
                     .as_ref()
-                    .context("history record has no release to restore")?;
-                let current = current_package(&store, &target, package)?;
-                let reference = current.catalog.clone().context(
-                    "the installed package has no catalog identity; reinstall it with `modn install --file`",
-                )?;
-                let source = release
-                    .source
-                    .as_ref()
+                    .and_then(|release| release.source.as_ref())
                     .context("history record has no release source")?;
-                let mut catalog_release = CatalogRelease::new(reference.clone(), Vec::new());
-                catalog_release =
-                    catalog_release.with_version(release.version.clone().unwrap_or_default());
                 store.set_history_context(
                     HistoryContext::new(target.game_id.clone(), target.installation.clone())
                         .with_undo_of(target.id.clone())
-                        .with_source(&reference, source.clone()),
+                        .with_source(&release.reference, source.clone()),
                 );
                 installed.push(store.update_catalog_release_checked(
                     &target.installation,
                     &current.id,
                     &restore.archive,
                     &restore.plan,
-                    &catalog_release,
-                    if args.allow_native_injector {
-                        modn_core::transactions::NativeInjectorPolicy::Allow
-                    } else {
-                        modn_core::transactions::NativeInjectorPolicy::Refuse
-                    },
-                    &args.allow_executable,
+                    release,
+                    restore.policy,
+                    &restore.approved_executables,
                     &restore.expected,
                 )?);
             }

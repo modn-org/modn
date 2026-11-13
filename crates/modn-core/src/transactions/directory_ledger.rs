@@ -51,6 +51,9 @@ impl Store {
                 archive_blake3: metadata
                     .as_ref()
                     .and_then(|metadata| metadata.archive_blake3.clone()),
+                declarations: metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.declarations.clone()),
             })
         }).collect()
     }

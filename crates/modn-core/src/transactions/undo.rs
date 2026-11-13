@@ -5,18 +5,14 @@
 //! inverse runs through the normal transactional paths and writes one new
 //! history record whose `undoes` field names the target.
 
+use super::catalog::{CatalogInstall, CatalogRelease};
 use super::{lock_store, ManagedPackage, NativeInjectorPolicy};
-use crate::archive::{ArchiveFormat, Inspection};
 use crate::error::{coded, ErrorCode};
-use crate::history::{HistoryFile, HistoryKind, HistoryOperation, HistoryRelease};
+use crate::history::{HistoryFile, HistoryKind, HistoryOperation, ReleaseMetadata};
 use crate::planning::InstallPlan;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
-use rusqlite::Transaction;
-use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
-use std::fs::File;
-use std::io::{self, Read};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// What undoing an operation of `kind` does.
@@ -105,16 +101,32 @@ pub struct UndoRestore {
     pub plan: InstallPlan,
     /// Recorded files that the restored release must reproduce.
     pub expected: Vec<HistoryFile>,
+    /// Catalog release rebuilt from the history record, when it has one.
+    pub release: Option<CatalogRelease>,
+    /// Tool executable destinations the user approved for this restore.
+    pub approved_executables: Vec<String>,
+    /// Whether a recorded native injector may be restored.
+    pub policy: NativeInjectorPolicy,
 }
 
 impl UndoRestore {
     /// Restore `archive` with `plan`, reproducing `expected` files.
     #[must_use]
-    pub fn new(archive: PathBuf, plan: InstallPlan, expected: Vec<HistoryFile>) -> Self {
+    pub fn new(
+        archive: PathBuf,
+        plan: InstallPlan,
+        expected: Vec<HistoryFile>,
+        release: Option<CatalogRelease>,
+        approved_executables: Vec<String>,
+        policy: NativeInjectorPolicy,
+    ) -> Self {
         Self {
             archive,
             plan,
             expected,
+            release,
+            approved_executables,
+            policy,
         }
     }
 }
@@ -202,18 +214,27 @@ impl Store {
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
         let game = self.transaction_root(game)?;
+        for restore in restores {
+            if let Some(release) = &restore.release {
+                release.ensure_native_injector_allowed(restore.policy)?;
+            }
+        }
         self.control.checkpoint()?;
         let stack_id = self.begin_stack(&game)?;
         let mut installed = Vec::new();
         for restore in restores {
+            let catalog = restore.release.as_ref().map(|release| CatalogInstall {
+                release,
+                replacing: None,
+            });
             match self.install_locked(
                 &game,
                 &restore.archive,
                 &restore.plan,
                 None,
-                &[],
-                None,
-                NativeInjectorPolicy::Refuse,
+                &restore.approved_executables,
+                catalog,
+                restore.policy,
                 Some(&stack_id),
             ) {
                 Ok(package) => installed.push(package),
@@ -271,7 +292,7 @@ impl Store {
         if expected.is_empty() {
             return Ok(());
         }
-        let actual = selected_digests(archive, plan, &self.state_root)?;
+        let actual = super::undo_digests::selected_digests(archive, plan, &self.state_root)?;
         if actual != expected {
             return Err(coded(
                 ErrorCode::UndoFailed,
@@ -295,7 +316,15 @@ impl Store {
                 .release_before
                 .clone()
                 .context("history record has no release to restore")?;
-            record_release(&tx, &package.id, &recorded.mod_id, &release)?;
+            let metadata = ReleaseMetadata {
+                mod_id: recorded.mod_id.clone(),
+                version: release.version.clone(),
+                source: release.source.clone(),
+                archive_blake3: release.archive_blake3.clone(),
+                catalog: release.catalog.clone(),
+                declarations: release.declarations.clone(),
+            };
+            crate::history::record_metadata(&tx, &package.id, &metadata)?;
             let mut files: Vec<HistoryFile> = package
                 .files
                 .iter()
@@ -336,32 +365,6 @@ impl Store {
     }
 }
 
-fn record_release(
-    tx: &Transaction<'_>,
-    package_id: &str,
-    mod_id: &str,
-    release: &HistoryRelease,
-) -> Result<()> {
-    let source = release
-        .source
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()?;
-    tx.execute(
-        "INSERT OR REPLACE INTO managed_package_releases
-             (package_id, mod_id, version, source, archive_blake3)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![
-            package_id,
-            mod_id,
-            release.version,
-            source,
-            release.archive_blake3
-        ],
-    )?;
-    Ok(())
-}
-
 fn expected_digests(files: &[HistoryFile]) -> BTreeMap<(String, String), String> {
     files
         .iter()
@@ -387,80 +390,4 @@ fn restored_digests(package: &ManagedPackage) -> BTreeMap<(String, String), Stri
             )
         })
         .collect()
-}
-
-/// SHA-256 of every archive member that `plan` selects, keyed by root and
-/// destination.
-fn selected_digests(
-    archive: &Path,
-    plan: &InstallPlan,
-    staging_root: &Path,
-) -> Result<BTreeMap<(String, String), String>> {
-    let inspection = crate::archive::inspect(archive)?;
-    match inspection.format {
-        ArchiveFormat::Zip => zip_digests(archive, &inspection, plan),
-        ArchiveFormat::SevenZ => sevenz_digests(archive, &inspection, plan, staging_root),
-        _ => bail!("archive format cannot be installed"),
-    }
-}
-
-fn zip_digests(
-    archive: &Path,
-    inspection: &Inspection,
-    plan: &InstallPlan,
-) -> Result<BTreeMap<(String, String), String>> {
-    let original: HashMap<&str, &str> = inspection
-        .files
-        .iter()
-        .map(|file| {
-            (
-                file.entry.as_str(),
-                file.original_entry.as_deref().unwrap_or(&file.entry),
-            )
-        })
-        .collect();
-    let mut zip = zip::ZipArchive::new(File::open(archive)?)?;
-    let mut digests = BTreeMap::new();
-    for operation in &plan.operations {
-        let name = original
-            .get(operation.source.as_str())
-            .copied()
-            .context("source is not present in inspected ZIP")?;
-        let mut input = zip.by_name(name)?;
-        if input.is_dir() {
-            bail!("archive metadata changed for {}", operation.source);
-        }
-        let mut hasher = Sha256::new();
-        let copied = io::copy(&mut input.by_ref().take(operation.bytes + 1), &mut hasher)?;
-        if copied != operation.bytes {
-            bail!("archive extraction size mismatch for {}", operation.source);
-        }
-        digests.insert(
-            (operation.root.clone(), operation.destination.clone()),
-            format!("{:x}", hasher.finalize()),
-        );
-    }
-    Ok(digests)
-}
-
-fn sevenz_digests(
-    archive: &Path,
-    inspection: &Inspection,
-    plan: &InstallPlan,
-    staging_root: &Path,
-) -> Result<BTreeMap<(String, String), String>> {
-    let staging = tempfile::Builder::new()
-        .prefix("undo-check-")
-        .tempdir_in(staging_root)?;
-    let control = crate::progress::OperationControl::default();
-    let files = super::staging::stage_7z(archive, inspection, plan, staging.path(), &control)?;
-    Ok(files
-        .into_iter()
-        .map(|file| {
-            (
-                (file.root.label().to_owned(), file.destination),
-                file.sha256,
-            )
-        })
-        .collect())
 }

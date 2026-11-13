@@ -177,9 +177,12 @@ flag. A release that adds native code or an executable path is refused with
 matching flag or confirms the executable paths interactively. A committed
 operation then stores or widens the approval. A cancelled, refused, dry-run or
 rolled-back operation stores nothing. Uninstall keeps the approval. A release
-that drops a capability does not shrink it. Only the CLI backend writes
-approvals; the MCP and desktop surfaces inherit the stored decision. There is
-no approval revoke command.
+that drops a capability does not shrink it. An undo restore reads the stored
+approval and the explicit flags but writes no approval. An explicit
+`--allow-executable` path for an undeclared archive member authorizes that
+operation and is not stored. Only the CLI backend writes approvals; the MCP and
+desktop surfaces inherit the stored decision. There is no approval revoke
+command.
 
 ### Ownership claim
 
@@ -204,10 +207,11 @@ Pending transactions block conflicting managed writes until resolved.
 
 A durable record of one committed install, update or uninstall. It names the
 game installation and per package the mod ID, package IDs and release sides
-before and after, each release's source descriptor and archive SHA-256 and
-BLAKE3 digests, and every owned file the operation created, replaced or
-removed with its content digest before and after. A record written by an undo
-also names the operation it reversed. History is evidence for undo, not an
+before and after, each release's qualified catalog identity and declared
+dependencies, conflicts and native-injector flag when recorded, source
+descriptor, archive SHA-256 and BLAKE3 digests, and every owned file the
+operation created, replaced or removed with its content digest before and
+after. A record written by an undo also names the operation it reversed. History is evidence for undo, not an
 ownership claim: it never grants authority over a file. The record is committed
 in the same SQLite transaction as the ownership change it describes, so
 rollback, cancellation and recovery leave no disagreeing record.
@@ -235,7 +239,7 @@ fixture exercises game-agnostic support.
 | Directory ownership | `state.sqlite / managed_directories(game_path, root, path_key, ...)` |
 | Created folder | `state.sqlite / created_directories(game_path, root, path_key, ...)` |
 | Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
-| Package release metadata | `state.sqlite / managed_package_releases(package_id, mod_id, version, source, archive_blake3)` |
+| Package release metadata | `state.sqlite / managed_package_releases(package_id, mod_id, version, source, archive_blake3, catalog, declarations)` |
 | Operation history | `state.sqlite / history_operations, history_packages, history_files` |
 | Official game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
 | Retained module release | `<data-directory>/game-modules/<game-id>/versions/<version>/`, with a verified `registration.json` receipt |
