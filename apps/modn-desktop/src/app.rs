@@ -18,13 +18,25 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new(backend))
         .invoke_handler(tauri::generate_handler![
-            commands::list_games,
-            commands::list_installations,
-            commands::list_packages,
-            commands::catalog,
-            commands::pick_archive,
-            commands::install_archive,
-            commands::uninstall,
+            commands::games::list_games,
+            commands::games::list_installations,
+            commands::library::list_packages,
+            commands::library::catalog,
+            commands::library::pick_archive,
+            commands::operations::install_archive,
+            commands::operations::uninstall,
+            commands::operations::install_mod,
+            commands::library::plan_install,
+            commands::operations::update,
+            commands::history::history,
+            commands::history::undo,
+            commands::games::detect_games,
+            commands::games::activate_game,
+            commands::games::add_game,
+            commands::games::remove_game,
+            commands::games::play,
+            commands::library::diagnostics,
+            commands::operations::cancel_run,
         ])
         .setup(move |app| {
             if let Some(message) = startup_error.as_deref() {

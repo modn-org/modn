@@ -1,15 +1,68 @@
-use crate::app::error::{CommandError, plan_blocked};
+//! The webview's only entry points into the backend.
+//!
+//! Every command validates the webview's selection, builds one fixed argument
+//! vector with [`args`] and runs the configured CLI off the UI thread. Write
+//! commands stream CLI progress events to the main window and hold a cancel
+//! token until they finish.
+
+pub(crate) mod games;
+pub(crate) mod history;
+pub(crate) mod library;
+pub(crate) mod operations;
+
+mod args;
+#[cfg(test)]
+mod tests;
+
+use crate::app::error::CommandError;
 use crate::app::state::{AppState, Busy};
-use crate::backend::{Backend, Game, reviewable};
+use crate::backend::{CancelToken, Game, ProgressEvent};
 use serde_json::Value;
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
-use tauri_plugin_dialog::DialogExt;
+use tauri::Emitter;
 
-/// Runs one backend operation off the UI thread while holding the busy guard
-/// that vetoes a window close.
-async fn run_blocking<T>(
+/// The name of every command registered in `generate_handler!`.
+///
+/// The capability file, the build manifest and `ui/js/api.js` must list the
+/// same names; the unit tests in this module check all four lists.
+#[cfg(test)]
+pub(crate) const COMMANDS: &[&str] = &[
+    "list_games",
+    "list_installations",
+    "list_packages",
+    "catalog",
+    "pick_archive",
+    "install_archive",
+    "uninstall",
+    "install_mod",
+    "plan_install",
+    "update",
+    "history",
+    "undo",
+    "detect_games",
+    "activate_game",
+    "add_game",
+    "remove_game",
+    "play",
+    "diagnostics",
+    "cancel_run",
+];
+
+/// The progress event name the webview subscribes to.
+const PROGRESS_EVENT: &str = "modn://progress";
+
+pub(super) fn installation(game_id: String, path: String) -> Game {
+    Game {
+        game_id,
+        path: PathBuf::from(path),
+    }
+}
+
+/// Runs one backend call off the UI thread while holding the busy guard that
+/// vetoes a window close.
+pub(super) async fn run_blocking<T>(
     busy: &Arc<Busy>,
     job: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
 ) -> Result<T, CommandError>
@@ -23,209 +76,42 @@ where
     }
 }
 
-fn installation(game_id: String, path: String) -> Game {
-    Game {
-        game_id,
-        path: PathBuf::from(path),
-    }
-}
-
-#[tauri::command]
-pub(crate) async fn list_games(state: tauri::State<'_, AppState>) -> Result<Value, CommandError> {
-    let backend = state.backend()?;
-    let busy = Arc::clone(&state.busy);
-    run_blocking(&busy, move || Ok(serde_json::to_value(backend.games()?)?)).await
-}
-
-#[tauri::command]
-pub(crate) async fn list_installations(
-    state: tauri::State<'_, AppState>,
-    game_id: String,
-) -> Result<Value, CommandError> {
-    let backend = state.backend()?;
-    let busy = Arc::clone(&state.busy);
-    run_blocking(&busy, move || {
-        let games: Vec<Game> = backend
-            .games()?
-            .into_iter()
-            .filter(|game| game.game_id == game_id)
-            .collect();
-        Ok(serde_json::to_value(games)?)
-    })
-    .await
-}
-
-#[tauri::command]
-pub(crate) async fn list_packages(
-    state: tauri::State<'_, AppState>,
-    game_id: String,
-    path: String,
-) -> Result<Value, CommandError> {
-    let backend = state.backend()?;
-    let busy = Arc::clone(&state.busy);
-    let game = installation(game_id, path);
-    run_blocking(&busy, move || backend.read(&game, "list")).await
-}
-
-#[tauri::command]
-pub(crate) async fn catalog(
-    state: tauri::State<'_, AppState>,
-    game_id: String,
-    path: String,
-    query: Option<String>,
-) -> Result<Value, CommandError> {
-    let backend = state.backend()?;
-    let busy = Arc::clone(&state.busy);
-    let _ = path;
-    let mut args: Vec<OsString> = vec!["--game".into(), game_id.into(), "search".into()];
-    if let Some(query) = query.map(|value| value.trim().to_string())
-        && !query.is_empty()
-    {
-        args.push(query.into());
-    }
-    run_blocking(&busy, move || backend.call(&args)).await
-}
-
-#[tauri::command]
-pub(crate) async fn install_archive(
-    state: tauri::State<'_, AppState>,
-    game_id: String,
-    path: String,
-    archive: String,
-    allow_native_injector: bool,
-    allow_executable: bool,
+/// Runs one write command with `--progress json`, forwards every event to the
+/// main window and removes the cancel token when the run ends.
+pub(super) async fn run_write(
+    app: &tauri::AppHandle,
+    state: &AppState,
     run_id: String,
+    args: Vec<OsString>,
 ) -> Result<Value, CommandError> {
     let backend = state.backend()?;
-    let busy = Arc::clone(&state.busy);
-    let game = installation(game_id, path);
-    let archive = PathBuf::from(archive);
-    let _ = run_id;
-    run_blocking(&busy, move || {
-        install_one_click(
-            &backend,
-            &game,
-            &archive,
-            allow_native_injector,
-            allow_executable,
-        )
+    let run = state.runs.start(&run_id);
+    let cancel: CancelToken = run.token();
+    let app = app.clone();
+    let event_run_id = run_id.clone();
+    let _guard = state.busy.begin();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut on_event = |event: ProgressEvent| {
+            emit_progress(&app, &event_run_id, &event);
+        };
+        backend.call_with_progress(&args, &cancel, &mut on_event)
     })
-    .await
+    .await;
+    drop(run);
+    match result {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(CommandError::from(error)),
+        Err(_) => Err(CommandError::backend_failed()),
+    }
 }
 
-/// One click: run the dry run internally, refuse a blocked plan, recheck the
-/// archive and plan, then write. No review or confirmation screen exists.
-fn install_one_click(
-    backend: &Backend,
-    game: &Game,
-    archive: &Path,
-    allow_native_injector: bool,
-    allow_executable: bool,
-) -> anyhow::Result<Value> {
-    if !allow_native_injector && !allow_executable {
-        let review = backend.review(game, archive)?;
-        // The review keeps the originally chosen path for evidence; the
-        // installation itself uses the canonical archive path.
-        let _chosen_source = review.source.as_path();
-        if !reviewable(&review.plan) {
-            return Err(plan_blocked());
-        }
-        return backend.install(&review);
+/// Sends one CLI progress event to the webview unchanged.
+fn emit_progress(app: &tauri::AppHandle, run_id: &str, event: &ProgressEvent) {
+    if let Err(error) = app.emit(PROGRESS_EVENT, progress_payload(run_id, event)) {
+        eprintln!("Modn could not deliver a progress event: {error}");
     }
-    let plan = backend.call(&archive_args(
-        game,
-        archive,
-        &["--dry-run"],
-        allow_native_injector,
-    ))?;
-    if !reviewable(&plan) {
-        return Err(plan_blocked());
-    }
-    let mut args = archive_args(game, archive, &["--yes"], allow_native_injector);
-    if allow_executable {
-        for executable in declared_executables(&plan) {
-            args.push("--allow-executable".into());
-            args.push(executable.into());
-        }
-    }
-    backend.call(&args)
 }
 
-/// Reads executable paths that the dry run reports as uncovered. The UI never
-/// supplies these paths; they come from the CLI plan.
-fn declared_executables(plan: &Value) -> Vec<String> {
-    let mut paths = Vec::new();
-    let uncovered = plan
-        .get("approval")
-        .and_then(|approval| approval.get("uncovered"))
-        .and_then(|uncovered| uncovered.get("executables"));
-    for values in [uncovered, plan.get("unapproved_declared_executables")] {
-        if let Some(items) = values.and_then(Value::as_array) {
-            for item in items {
-                if let Some(path) = item.as_str()
-                    && !path.is_empty()
-                {
-                    paths.push(path.to_string());
-                }
-            }
-        }
-    }
-    paths.sort();
-    paths.dedup();
-    paths
-}
-
-fn archive_args(
-    game: &Game,
-    archive: &Path,
-    consent: &[&str],
-    allow_native_injector: bool,
-) -> Vec<OsString> {
-    let mut args: Vec<OsString> = vec![
-        "--game".into(),
-        game.game_id.clone().into(),
-        "install".into(),
-        archive.as_os_str().into(),
-    ];
-    args.extend(consent.iter().map(OsString::from));
-    args.extend(["--path".into(), game.path.clone().into_os_string()]);
-    if allow_native_injector {
-        args.push("--allow-native-injector".into());
-    }
-    args
-}
-
-#[tauri::command]
-pub(crate) async fn uninstall(
-    state: tauri::State<'_, AppState>,
-    game_id: String,
-    path: String,
-    package_id: String,
-    run_id: String,
-) -> Result<Value, CommandError> {
-    let backend = state.backend()?;
-    let busy = Arc::clone(&state.busy);
-    let game = installation(game_id, path);
-    let _ = run_id;
-    run_blocking(&busy, move || backend.uninstall(&game, &package_id)).await
-}
-
-/// Shows the native archive picker. The dialog callback fires on the main
-/// thread; this command waits on a worker so the webview stays responsive.
-#[tauri::command]
-pub(crate) async fn pick_archive(app: tauri::AppHandle) -> Result<Option<String>, CommandError> {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    app.dialog()
-        .file()
-        .set_title("Choose a local ZIP or 7z archive")
-        .add_filter("Mod archives", &["zip", "7z"])
-        .pick_file(move |file| {
-            let _ = sender.send(file);
-        });
-    let picked = tauri::async_runtime::spawn_blocking(move || receiver.recv().ok().flatten())
-        .await
-        .map_err(|_| CommandError::backend_failed())?;
-    Ok(picked
-        .and_then(|file| file.into_path().ok())
-        .map(|path| path.to_string_lossy().into_owned()))
+fn progress_payload(run_id: &str, event: &ProgressEvent) -> Value {
+    serde_json::json!({"runId": run_id, "event": event})
 }
