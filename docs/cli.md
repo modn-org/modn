@@ -341,9 +341,13 @@ package needs, an unfinished transaction (`PENDING_TRANSACTION`) or an
 ownership `CONFLICT` blocks the undo. A multi-package undo commits every
 package or none.
 
-`--dry-run` verifies the archives and prints the inverse without writing.
-`--yes` is required to change game files. `--json` prints one object.
-`--progress json` reports phases and accepts `cancel` before the commit point.
+`--dry-run` runs the same preflight checks as the real undo: source and
+archive digest, stored or explicit approvals, the native-injector policy, the
+recorded roots and destinations, and the selected archive member digests. It
+verifies the archives and prints the inverse without writing. `--yes` is
+required to change game files. `--json` prints one object.
+`--progress json` reports phases and accepts `cancel` before the commit point;
+a cancellation also stops the archive reads that the checks perform.
 The default error code is `UNDO_FAILED`.
 
 ## Native-injector and executable approval
