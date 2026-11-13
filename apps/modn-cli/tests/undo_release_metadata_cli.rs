@@ -85,6 +85,20 @@ fn https(url: &str) -> Value {
     json!({"kind": "https", "url": url})
 }
 
+fn declare_conflicts(fixture: &Fixture, bucket: &str, game: &str, id: &str, conflicts: &[&str]) {
+    let path = fixture
+        .temp
+        .path()
+        .join(bucket)
+        .join("games")
+        .join(game)
+        .join(format!("{id}.json"));
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(&path).expect("manifest")).expect("manifest JSON");
+    manifest["conflicts"] = json!(conflicts);
+    fs::write(&path, serde_json::to_vec(&manifest).expect("JSON")).expect("manifest");
+}
+
 fn cache(fixture: &Fixture, game: &str, id: &str, version: &str, url: &str, archive: &Path) {
     let root = fixture.state.join("cache");
     fs::create_dir_all(&root).expect("cache");
@@ -232,6 +246,11 @@ fn undo_of_an_update_restores_the_recorded_dependency_link() {
         "top-v2",
         &[("Demo/package/plugins/top.plugin", "two")],
     );
+    let (rival, rival_hash) = archive(
+        &fixture,
+        "rival",
+        &[("Demo/package/plugins/rival.plugin", "rival")],
+    );
     let base_url = "https://example.invalid/base-1.0.zip";
     let top_url = "https://example.invalid/top-1.0.zip";
     write_manifest(
@@ -258,6 +277,19 @@ fn undo_of_an_update_restores_the_recorded_dependency_link() {
         false,
         https(top_url),
     );
+    declare_conflicts(&fixture, "deps", "test-game", "top", &["rival"]);
+    write_manifest(
+        &fixture,
+        "deps",
+        "test-game",
+        "rival",
+        "1.0",
+        &rival_hash,
+        &[],
+        &[],
+        false,
+        json!({"kind": "manual", "filename": "rival.zip"}),
+    );
     fixture.register();
 
     let installed_base = install(&fixture, "base", &base, &[]);
@@ -281,6 +313,7 @@ fn undo_of_an_update_restores_the_recorded_dependency_link() {
         false,
         https("https://example.invalid/top-2.0.zip"),
     );
+    declare_conflicts(&fixture, "deps", "test-game", "top", &["rival"]);
     let updated = run(&fixture, &["--json", "update", "top", "--yes"], &[&top_v2]);
     assert!(updated.status.success(), "{}", error(&updated));
     cache(&fixture, "test-game", "top", "1.0", top_url, &top_v1);
@@ -297,7 +330,18 @@ fn undo_of_an_update_restores_the_recorded_dependency_link() {
         "the framework must be needed again"
     );
     assert_eq!(error_code(&refused), "PACKAGE_NEEDED");
-    assert!(refused.status.code().is_some());
+
+    let conflict = install(&fixture, "rival", &rival, &[]);
+    assert!(
+        !conflict.status.success(),
+        "the restored conflict blocks it"
+    );
+    assert!(
+        error(&conflict).contains("conflict"),
+        "{}",
+        error(&conflict)
+    );
+    assert!(!fixture.game.join("addons/rival.plugin").exists());
 }
 
 #[test]

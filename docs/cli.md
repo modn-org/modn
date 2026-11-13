@@ -316,16 +316,29 @@ names that newer operation; undo it first. A package whose recorded source is
 must place its archive with `modn install --file`. `git` and `nexus` releases
 are restored only from the archive cache. When the archive is no longer cached,
 the error is `UNDO_FAILED`; reinstall the release from the catalog. A Nexus
-download needs a new nxm link. An update undo needs the
-installed package's catalog identity. An update undo also checks every restored
-file against the record: the archive member that the current module selects for
-a destination must have the recorded `digest_before` SHA-256, or the error is
-`UNDO_FAILED` with no change. A planned file whose root differs from the record
-is refused the same way. Restored files are written below their recorded root,
-including a module-declared appdata content root. Normal refusals stay: a pinned
-package (`PACKAGE_PINNED`), a package another installed package needs, an
-unfinished transaction (`PENDING_TRANSACTION`) or an ownership `CONFLICT` blocks
-the undo. A multi-package undo commits every package or none.
+download needs a new nxm link. Undo of an update or an uninstall rebuilds the
+release from the record's qualified catalog identity and its declared
+dependencies, conflicts and native-injector flag. The restored package keeps
+the catalog name for `modn update`, blocks uninstalling a package it requires,
+and follows the same native-injector policy as an install: the stored approval
+or `--allow-native-injector` is required, else the undo refuses with
+`NATIVE_INJECTOR_NOT_ALLOWED` before a game write. Executable restores use the
+stored approval for `(game path, mod ID)` plus every explicit
+`--allow-executable` path; an undeclared explicit path authorizes the restore
+but is not stored as an approval.
+
+Undo also checks every restored file against the record: the archive member
+that the current module selects for a destination must have the recorded
+`digest_before` SHA-256, or the error is `UNDO_FAILED` with no change. A
+planned file whose root differs from the record is refused the same way.
+Restored files are written below their recorded root, including a
+module-declared appdata content root. A history record written before the
+catalog declarations were stored cannot restore an update or an uninstall: the
+error is `UNDO_FAILED` and asks you to install the release again. Normal
+refusals stay: a pinned package (`PACKAGE_PINNED`), a package another installed
+package needs, an unfinished transaction (`PENDING_TRANSACTION`) or an
+ownership `CONFLICT` blocks the undo. A multi-package undo commits every
+package or none.
 
 `--dry-run` verifies the archives and prints the inverse without writing.
 `--yes` is required to change game files. `--json` prints one object.
@@ -360,10 +373,15 @@ modn update example --allow-native-injector --yes
 
 A successful install or update widens the stored approval. A cancelled,
 refused, dry-run or rolled-back operation stores nothing. An interactive prompt
-can approve new executable paths. `install --dry-run --json` reports
-`approval.required`, `approval.covered_by_stored_approval`, the stored approval
-and the uncovered capabilities. There is no command to revoke an approval;
-`modn uninstall` does not remove it.
+can approve new executable paths. `modn undo` also reads the stored approval
+and accepts the same flags for a restored release; it stores nothing after the
+restore. An explicit `--allow-executable` path may authorize an archive member
+that the manifest does not declare. It is passed to planning and execution but
+is not saved in the stored approval, which keeps only declared capabilities.
+`install --dry-run --json` reports `approval.required`,
+`approval.covered_by_stored_approval`, the stored approval and the uncovered
+capabilities. There is no command to revoke an approval; `modn uninstall` does
+not remove it.
 
 ## Nexus Mods credentials and downloads
 
