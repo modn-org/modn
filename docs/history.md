@@ -96,7 +96,9 @@ restores the recorded release. An undo writes a normal record for the change it
 makes and sets `undoes` to the target's ID. It never edits or deletes the target
 record.
 
-The undo refuses before any change in these cases:
+The undo refuses before any change to game files, manager state, ownership or
+history in these cases. A cache miss can still download an archive into the
+archive cache before a later check refuses:
 
 - A later operation on the same installation touched one of the target's
   packages or files. The error names that newer operation; undo it first. A

@@ -310,7 +310,8 @@ recorded kind: an install is removed, an update installs the earlier release
 again, and an uninstall installs the recorded release again. The command
 writes one new history record whose `undoes` field names the target.
 
-Undo refuses before any change when a later operation on the same installation
+Undo refuses before any change to game files, manager state, ownership or
+history when a later operation on the same installation
 touched one of the target's packages or files. The error is `UNDO_CONFLICT` and
 names that newer operation; undo it first. A package whose recorded source is
 `manual` cannot be fetched again: the error is `UNDO_SOURCE_MANUAL`, and you
