@@ -50,6 +50,10 @@
  * @property {string} code
  * @property {string} message
  *
+ * @typedef {Object} Approval
+ * @property {boolean} required
+ * @property {{native_injector: boolean, executables: string[]}} uncovered
+ *
  * @typedef {Object} InstallPlan
  * @property {string} archive_sha256
  * @property {string} game_installation
@@ -58,6 +62,7 @@
  * @property {PlanOperation[]} operations
  * @property {PlanBlocker[]} blockers
  * @property {string[]} skipped_generated_files
+ * @property {Approval} [approval]
  *
  * @typedef {Object} ProgressEvent
  * @property {'resolve'|'download'|'extract'|'stage'|'commit'|'result'} phase
@@ -114,7 +119,7 @@ export async function pickArchive() {
 /**
  * One-click install of a local archive. Runs the dry run and rechecks internally.
  * @param {{gameId: string, path: string, archive: string,
- *   allowNativeInjector: boolean, allowExecutable: boolean, runId: string}} args
+ *   allowNativeInjector: boolean, allowExecutables: string[], runId: string}} args
  * @returns {Promise<ManagedPackage>}
  */
 export async function installArchive({
@@ -122,7 +127,7 @@ export async function installArchive({
   path,
   archive,
   allowNativeInjector,
-  allowExecutable,
+  allowExecutables = [],
   runId,
 }) {
   return invoke('install_archive', {
@@ -130,7 +135,7 @@ export async function installArchive({
     path,
     archive,
     allowNativeInjector,
-    allowExecutable,
+    allowExecutables,
     runId,
   });
 }
@@ -145,13 +150,27 @@ export async function uninstall({ gameId, path, packageId, runId }) {
 }
 
 /**
- * Catalog install by mod id. Implemented by a later task.
+ * Catalog install by mod id.
  * @param {{gameId: string, path: string, modId: string,
- *   allowNativeInjector: boolean, allowExecutable: boolean, runId: string}} args
+ *   allowNativeInjector: boolean, allowExecutables: string[], runId: string}} args
  * @returns {Promise<{package: string, installed: ManagedPackage}>}
  */
-export async function installMod(args) {
-  return invoke('install_mod', args);
+export async function installMod({
+  gameId,
+  path,
+  modId,
+  allowNativeInjector,
+  allowExecutables = [],
+  runId,
+}) {
+  return invoke('install_mod', {
+    gameId,
+    path,
+    modId,
+    allowNativeInjector,
+    allowExecutables,
+    runId,
+  });
 }
 
 /**
@@ -165,12 +184,27 @@ export async function planInstall({ gameId, path, modId }) {
 }
 
 /**
- * Update one owned package. Implemented by a later task.
- * @param {{gameId: string, path: string, packageId: string, runId: string}} args
+ * Update one owned package.
+ * @param {{gameId: string, path: string, packageId: string,
+ *   allowNativeInjector: boolean, allowExecutables: string[], runId: string}} args
  * @returns {Promise<Object>} update report with `plan`, `files` and `blockers`.
  */
-export async function update({ gameId, path, packageId, runId }) {
-  return invoke('update', { gameId, path, packageId, runId });
+export async function update({
+  gameId,
+  path,
+  packageId,
+  allowNativeInjector,
+  allowExecutables = [],
+  runId,
+}) {
+  return invoke('update', {
+    gameId,
+    path,
+    packageId,
+    allowNativeInjector,
+    allowExecutables,
+    runId,
+  });
 }
 
 /**

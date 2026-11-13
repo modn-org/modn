@@ -22,6 +22,16 @@ impl CommandError {
     pub(crate) fn backend_failed() -> Self {
         Self::new("BACKEND_FAILED")
     }
+
+    /// Rejects an executable path before any CLI process starts.
+    pub(crate) fn invalid_executable() -> Self {
+        Self {
+            code: "INVALID_EXECUTABLE".to_string(),
+            message:
+                "Executable approval paths must be game-relative, non-empty, and must not start with '-'."
+                    .to_string(),
+        }
+    }
 }
 
 impl From<anyhow::Error> for CommandError {
