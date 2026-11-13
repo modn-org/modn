@@ -3,10 +3,6 @@
 #[cfg(windows)]
 mod app;
 #[cfg(windows)]
-#[expect(
-    dead_code,
-    reason = "The progress-aware write path supersedes the one-shot install and uninstall helpers; the backend contract test still exercises them"
-)]
 mod backend;
 
 #[cfg(windows)]

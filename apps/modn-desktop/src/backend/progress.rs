@@ -5,11 +5,6 @@
 //! caller in order, and writes `cancel` on stdin when the caller asks it to.
 //! Stdout keeps its normal single JSON result.
 
-#![allow(
-    dead_code,
-    reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
-)]
-
 use super::error::BackendError;
 use super::{Backend, OUTPUT_LIMIT};
 use serde::Serialize;
