@@ -165,7 +165,9 @@ not replace the ownership evidence.
 ### Mod approval
 
 A **ModApproval** records the capabilities of one catalog mod that the user
-approved for one game installation. Its identity is `(game_path, mod_id)`:
+approved for one game installation. Its identity is
+`(game_path, bucket, mod_id)`: two buckets may publish a mod with the same ID,
+and an approval for one publisher must not cover the other.
 
 - `native_injector` records that native code is approved.
 - `executables` is the set of normalized game-relative executable payload
@@ -231,7 +233,7 @@ fixture exercises game-agnostic support.
 | --- | --- |
 | Game installation | `state.sqlite / game_installations(game_id, path, source)` |
 | Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at, pinned)` |
-| Mod approval | `state.sqlite / mod_approvals(game_path, mod_id, native_injector, executables)` |
+| Mod approval | `state.sqlite / mod_approvals(game_path, bucket, mod_id, native_injector, executables)` |
 | Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
 | Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
 | Installation root | `state.sqlite / installation_roots(game_path, root, path, path_key)` |
@@ -300,12 +302,17 @@ Do not follow that advice for state that holds ownership; install a current buil
 ### Approvals (schema version 5)
 
 Manager schema version 5 adds the `mod_approvals` table. The table is keyed by
-`(game_path, mod_id)` and stores a native-injector flag and a JSON array of
-normalized executable payload paths. A writable open creates it in the same
+`(game_path, bucket, mod_id)` and stores a native-injector flag and a JSON array
+of normalized executable payload paths. A writable open creates it in the same
 transaction as the rest of the schema and leaves schema version 4 state
 readable. A read-only open of version 4 state sees an empty approval table and
-writes nothing. Approvals are independent of ownership, managed packages and
-pending transactions; uninstall and recovery do not change them.
+writes nothing. An unreleased schema-5 build keyed approvals by
+`(game_path, mod_id)` only. Such a row cannot name the bucket that published
+the mod, so a writable open rebuilds the table in the bucket-keyed shape,
+discards the old rows and keeps schema version 5; the user is asked again. A
+read-only open of that state writes nothing and sees an empty approval table.
+Approvals are independent of ownership, managed packages and pending
+transactions; uninstall and recovery do not change them.
 
 The existing bucket v1 contract validates current releases at
 `games/<game-id>/<package-id>.json` and other releases at
