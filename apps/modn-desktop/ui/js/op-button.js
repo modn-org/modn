@@ -1,0 +1,432 @@
+import { cancelRun, newRunId, onProgress } from './api.js';
+import { messageFor } from './messages.js';
+import { showToast } from './toast.js';
+
+/**
+ * Codes that describe a blocked plan. The button shows the short reason and
+ * stays disabled instead of opening a confirmation.
+ * @type {Set<string>}
+ */
+const BLOCKED_CODES = new Set([
+  'PLAN_BLOCKED',
+  'CONFLICT',
+  'PACKAGE_NEEDED',
+  'PACKAGE_PINNED',
+  'DEPENDENCY_MISSING',
+  'ALREADY_INSTALLED',
+  'ARCHIVE_INVALID',
+  'ARCHIVE_REQUIRED',
+  'DIGEST_MISMATCH',
+  'MOD_NOT_FOUND',
+  'AMBIGUOUS_TARGET',
+  'PENDING_TRANSACTION',
+]);
+
+const NO_APPROVAL = { native: false, executable: false };
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function codeOf(error) {
+  if (error && typeof error === 'object') {
+    const value = error.code ?? error.error;
+    return typeof value === 'string' ? value : '';
+  }
+  return typeof error === 'string' ? error : '';
+}
+
+/**
+ * Reads the approval flags a refusal names. The CLI stores an approval only
+ * after a committed write, so a declined ask never passes these.
+ * @param {unknown} error
+ * @param {string} code
+ * @returns {{native: boolean, executable: boolean}}
+ */
+function approvalsFrom(error, code) {
+  const uncovered =
+    error && typeof error === 'object' && error.uncovered && typeof error.uncovered === 'object'
+      ? error.uncovered
+      : {};
+  const executables = Array.isArray(uncovered.executables) ? uncovered.executables : [];
+  const native = Boolean(uncovered.native_injector) || code === 'NATIVE_INJECTOR_NOT_ALLOWED';
+  return { native, executable: executables.length > 0 };
+}
+
+/**
+ * Shows a toast whose action is labelled Undo and carries the verifier hook.
+ * @param {string} message
+ * @param {() => void} onUndo
+ */
+function showUndoToast(message, onUndo) {
+  showToast(message, { actionLabel: 'Undo', onAction: onUndo });
+  const host = document.getElementById('modn-toasts');
+  const action = host && host.lastElementChild
+    ? host.lastElementChild.querySelector('.modn-toast__action')
+    : null;
+  if (action) {
+    action.dataset.testid = 'toast-undo';
+  }
+}
+
+/**
+ * Renders the one-time native-code ask inside the given host.
+ * @param {HTMLElement} host
+ * @param {string} question
+ * @param {() => void} onAllow
+ * @param {() => void} onDecline
+ */
+function renderAsk(host, question, onAllow, onDecline) {
+  host.replaceChildren();
+  const ask = document.createElement('div');
+  ask.className = 'modn-ask';
+  ask.setAttribute('role', 'group');
+  ask.setAttribute('aria-label', 'Native code approval');
+  const text = document.createElement('p');
+  text.className = 'modn-ask__question';
+  text.textContent = question;
+  const actions = document.createElement('div');
+  actions.className = 'modn-ask__actions';
+  const allow = document.createElement('button');
+  allow.type = 'button';
+  allow.className = 'modn-button';
+  allow.textContent = 'Allow';
+  allow.dataset.testid = 'ask-allow';
+  const decline = document.createElement('button');
+  decline.type = 'button';
+  decline.className = 'modn-button modn-button--quiet';
+  decline.textContent = 'Decline';
+  decline.dataset.testid = 'ask-decline';
+  allow.addEventListener('click', () => {
+    host.replaceChildren();
+    onAllow();
+  });
+  decline.addEventListener('click', () => {
+    host.replaceChildren();
+    onDecline();
+  });
+  actions.append(allow, decline);
+  ask.append(text, actions);
+  host.append(ask);
+}
+
+/**
+ * Creates a one-click operation button with cancel, progress, Finishing...,
+ * blocked reasons and a remembered native-code ask. Mod details reuses it.
+ *
+ * @param {{
+ *   label: string,
+ *   action: string,
+ *   run: (args: {runId: string, params: Object, approvals: {native: boolean, executable: boolean},
+ *     operationId?: string}) => Promise<unknown>,
+ *   prepare?: () => Promise<Object|null>,
+ *   askHost?: HTMLElement|null,
+ *   newestOperation?: () => Promise<{id: string}|null>,
+ *   runUndo?: (args: {runId: string, operationId: string}) => Promise<unknown>,
+ *   onSettled?: () => void|Promise<void>,
+ *   onError?: (message: string) => void,
+ *   testId?: string,
+ *   ariaLabel?: string,
+ *   disabled?: boolean,
+ * }} options
+ * @returns {{
+ *   element: HTMLElement,
+ *   button: HTMLButtonElement,
+ *   start: (overrides?: Object) => Promise<void>,
+ *   setBlocked: (message: string) => void,
+ *   reset: () => void,
+ *   destroy: () => void,
+ * }}
+ */
+export function createOperationButton(options) {
+  const {
+    label,
+    action,
+    run,
+    prepare = null,
+    askHost = null,
+    newestOperation = null,
+    runUndo = null,
+    onSettled = null,
+    onError = null,
+    testId = 'op-button',
+    ariaLabel = label,
+    disabled = false,
+  } = options;
+
+  const wrapper = document.createElement('span');
+  wrapper.className = 'modn-op';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'modn-button modn-op__button';
+  button.dataset.testid = testId;
+  button.dataset.state = 'idle';
+  button.textContent = label;
+  button.setAttribute('aria-label', ariaLabel);
+  button.disabled = disabled;
+  const progress = document.createElement('span');
+  progress.className = 'modn-op__progress';
+  progress.hidden = true;
+  const bar = document.createElement('span');
+  bar.className = 'modn-op__bar';
+  progress.append(bar);
+  wrapper.append(button, progress);
+
+  let runId = null;
+  let unlisten = null;
+  let generation = 0;
+  let approvals = { ...NO_APPROVAL };
+  let lastParams = {};
+  let destroyed = false;
+
+  /** @param {number} percent */
+  function setProgress(percent) {
+    bar.style.setProperty('--op-progress', `${Math.min(100, Math.max(0, percent))}%`);
+  }
+
+  /** @param {string} text */
+  function setIdle(text = label) {
+    button.dataset.state = 'idle';
+    button.disabled = disabled;
+    button.textContent = text;
+    button.removeAttribute('title');
+    button.setAttribute('aria-label', ariaLabel);
+    progress.hidden = true;
+    setProgress(0);
+  }
+
+  /** @param {number} id @param {Object} event */
+  function handleEvent(id, event) {
+    if (destroyed || id !== runId) {
+      return;
+    }
+    const phase = event && typeof event.phase === 'string' ? event.phase : '';
+    if (phase === 'commit') {
+      button.dataset.state = 'finishing';
+      button.disabled = true;
+      button.textContent = 'Finishing...';
+      setProgress(100);
+      return;
+    }
+    const bytes = event && Number.isFinite(event.bytes) ? event.bytes : null;
+    const total = event && Number.isFinite(event.total) ? event.total : null;
+    if (phase === 'download' && bytes !== null && total !== null && total > 0) {
+      const percent = Math.round((bytes / total) * 100);
+      setProgress(percent);
+      button.textContent = `Cancel · ${percent} %`;
+      return;
+    }
+    if (phase) {
+      button.textContent = `Cancel · ${phase}`;
+    }
+  }
+
+  async function requestCancel() {
+    if (!runId) {
+      return;
+    }
+    const id = runId;
+    button.disabled = true;
+    button.textContent = 'Cancelling…';
+    try {
+      await cancelRun({ runId: id });
+    } catch {
+      if (id === runId) {
+        button.disabled = false;
+        button.textContent = 'Cancel';
+      }
+    }
+  }
+
+  async function undoLatest() {
+    if (!newestOperation || !runUndo || runId) {
+      return;
+    }
+    let newest = null;
+    try {
+      newest = await newestOperation();
+    } catch (error) {
+      showToast(messageFor(error));
+      return;
+    }
+    if (!newest || typeof newest.id !== 'string') {
+      return;
+    }
+    await start({
+      run: runUndo,
+      label: 'Undo',
+      action: 'Undo',
+      operationId: newest.id,
+      params: {},
+      approvals: { ...NO_APPROVAL },
+    });
+  }
+
+  /**
+   * @param {Object} [overrides]
+   */
+  async function start(overrides = {}) {
+    if (runId || destroyed) {
+      return;
+    }
+    const active = {
+      run: overrides.run || run,
+      idleLabel: overrides.label || label,
+      actionLabel: overrides.action || action,
+      operationId: overrides.operationId,
+    };
+    let params = overrides.params;
+    if (params === undefined) {
+      if (prepare) {
+        try {
+          params = await prepare();
+        } catch (error) {
+          showToast(messageFor(error));
+          return;
+        }
+        if (params === null || destroyed) {
+          return;
+        }
+      } else {
+        params = {};
+      }
+    }
+    if (destroyed) {
+      return;
+    }
+    lastParams = params;
+    approvals = overrides.approvals ? { ...overrides.approvals } : { ...NO_APPROVAL };
+    const id = newRunId();
+    const generationAtStart = ++generation;
+    runId = id;
+    button.dataset.state = 'running';
+    button.disabled = false;
+    button.textContent = 'Cancel';
+    progress.hidden = false;
+    setProgress(0);
+    button.setAttribute('aria-label', `Cancel ${active.idleLabel}`);
+    try {
+      unlisten = await onProgress(id, (event) => handleEvent(id, event));
+      await active.run({
+        runId: id,
+        params,
+        approvals: { ...approvals },
+        operationId: active.operationId,
+      });
+      if (generationAtStart !== generation || destroyed) {
+        return;
+      }
+      setIdle(active.idleLabel);
+      showUndoToast(`${active.actionLabel} done`, () => {
+        void undoLatest();
+      });
+      if (onSettled) {
+        await onSettled();
+      }
+    } catch (error) {
+      if (generationAtStart !== generation || destroyed) {
+        return;
+      }
+      const code = codeOf(error);
+      if (code === 'CANCELLED') {
+        setIdle(active.idleLabel);
+        showToast('Cancelled. Nothing changed.');
+        if (onSettled) {
+          await onSettled();
+        }
+      } else if (code === 'APPROVAL_REQUIRED' || code === 'NATIVE_INJECTOR_NOT_ALLOWED') {
+        approvals = approvalsFrom(error, code);
+        setIdle(active.idleLabel);
+        if (askHost) {
+          renderAsk(
+            askHost,
+            'This mod runs native code. Allow it?',
+            () => {
+              void start({
+                run: active.run,
+                label: active.idleLabel,
+                action: active.actionLabel,
+                operationId: active.operationId,
+                params: lastParams,
+                approvals,
+              });
+            },
+            () => setIdle(active.idleLabel),
+          );
+        } else {
+          showToast(messageFor(error));
+        }
+      } else if (BLOCKED_CODES.has(code)) {
+        const reason = messageFor(code);
+        button.dataset.state = 'blocked';
+        button.disabled = true;
+        button.textContent = reason;
+        button.title = reason;
+        button.setAttribute('aria-label', reason);
+        progress.hidden = true;
+        setProgress(0);
+      } else {
+        setIdle(active.idleLabel);
+        showToast(messageFor(error));
+        if (onError) {
+          onError(messageFor(error));
+        }
+      }
+    } finally {
+      if (runId === id) {
+        runId = null;
+      }
+      if (unlisten) {
+        const off = unlisten;
+        unlisten = null;
+        try {
+          off();
+        } catch {
+          // The event listener is already gone.
+        }
+      }
+    }
+  }
+
+  button.addEventListener('click', () => {
+    if (runId) {
+      void requestCancel();
+    } else {
+      void start();
+    }
+  });
+
+  return {
+    element: wrapper,
+    button,
+    start,
+    /** @param {string} reason */
+    setBlocked(reason) {
+      button.dataset.state = 'blocked';
+      button.disabled = true;
+      button.textContent = reason;
+      button.title = reason;
+      button.setAttribute('aria-label', reason);
+      progress.hidden = true;
+    },
+    reset() {
+      setIdle();
+    },
+    destroy() {
+      destroyed = true;
+      runId = null;
+      if (unlisten) {
+        try {
+          unlisten();
+        } catch {
+          // The event listener is already gone.
+        }
+        unlisten = null;
+      }
+      if (askHost) {
+        askHost.replaceChildren();
+      }
+      wrapper.remove();
+    },
+  };
+}
