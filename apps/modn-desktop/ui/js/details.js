@@ -1,4 +1,4 @@
-import { catalog, diagnostics, installMod, listPackages, uninstall, update } from './api.js';
+import { catalog, diagnostics, installMod, listPackages, planInstall, uninstall, update } from './api.js';
 import { messageFor } from './messages.js';
 import { createOperationButton } from './op-button.js';
 import { showToast } from './toast.js';
@@ -205,6 +205,12 @@ export async function render(root, ctx) {
       label: choice.label,
       action: choice.action,
       ariaLabel: choice.ariaLabel,
+      plan: () =>
+        planInstall({
+          gameId: ctx.gameId,
+          path: ctx.path,
+          modId: ctx.modId,
+        }),
       run: choice.run,
       onSettled: reload,
       onError: showError,

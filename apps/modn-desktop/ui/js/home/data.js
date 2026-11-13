@@ -156,17 +156,17 @@ export async function loadHome() {
 }
 
 /**
- * Game ids the Add menu offers, from current cards or from the fallback pair.
+ * Game ids the Add menu offers: every supported game and every game that
+ * already has a card, without duplicates.
  * @param {Array<{gameId: string}>} entries
  * @returns {string[]}
  */
 export function supportedGameIds(entries) {
-  const ids = new Set();
+  const ids = new Set(FALLBACK_GAME_IDS);
   for (const entry of Array.isArray(entries) ? entries : []) {
-    ids.add(entry.gameId);
-  }
-  if (ids.size === 0) {
-    return [...FALLBACK_GAME_IDS];
+    if (entry && typeof entry.gameId === 'string' && entry.gameId) {
+      ids.add(entry.gameId);
+    }
   }
   return [...ids].sort();
 }
