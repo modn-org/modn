@@ -204,12 +204,11 @@ impl ApprovalCheck {
         Err(ApprovalRefusal::new(self.reference.clone(), self.uncovered.clone()).into_error())
     }
 
+    /// Every executable path that the stored approval or an explicit flag
+    /// authorizes, including an undeclared path from `--allow-executable`.
+    /// The stored approval keeps only declared capabilities.
     pub(super) fn approved_executables(&self) -> Vec<String> {
-        self.needed
-            .covered(&self.approved)
-            .executables
-            .into_iter()
-            .collect()
+        self.approved.executables.iter().cloned().collect()
     }
 
     pub(super) fn as_json(&self) -> serde_json::Value {

@@ -35,6 +35,9 @@ pub struct ManagedPackage {
     /// Archive BLAKE3 digest as `blake3:<hex>`, when recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archive_blake3: Option<String>,
+    /// Declared catalog data recorded with this package.
+    #[serde(skip)]
+    pub declarations: Option<super::catalog::ReleaseDeclarations>,
 }
 
 /// Manifest record for a file owned by a managed package.
@@ -331,8 +334,7 @@ impl Store {
             crate::history::metadata_for(
                 context,
                 id,
-                catalog.map(|catalog| &catalog.release.reference),
-                catalog.and_then(|catalog| catalog.release.version.as_deref()),
+                catalog.map(|catalog| catalog.release),
                 archive_blake3,
             )
         });

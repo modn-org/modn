@@ -7,7 +7,7 @@
 
 use crate::buckets::PackageSource;
 use crate::state::Store;
-use crate::transactions::CatalogReference;
+use crate::transactions::{CatalogReference, ReleaseDeclarations};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -16,9 +16,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 mod persist;
+mod release;
 pub(crate) use persist::{
-    insert, install_operation, metadata_for, package_metadata, package_snapshot, read,
-    record_metadata, stack_operation, uninstall_operation, uninstall_operation_many,
+    insert, install_operation, package_snapshot, read, stack_operation, uninstall_operation,
+    uninstall_operation_many,
+};
+pub(crate) use release::{
+    ensure_schema as ensure_release_schema, metadata_for, package_metadata, record_metadata,
 };
 
 /// What a committed operation did.
@@ -140,6 +144,14 @@ pub struct HistoryRelease {
     /// Release version, when the source states one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// Qualified catalog identity, when the release came from a bucket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<CatalogReference>,
+    /// Declared dependencies, conflicts and native-injector status.
+    ///
+    /// `None` in a record written before this data was stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declarations: Option<ReleaseDeclarations>,
     /// Descriptor that can download the archive again.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<PackageSource>,
@@ -217,6 +229,8 @@ pub(crate) struct ReleaseMetadata {
     pub version: Option<String>,
     pub source: Option<PackageSource>,
     pub archive_blake3: Option<String>,
+    pub catalog: Option<CatalogReference>,
+    pub declarations: Option<ReleaseDeclarations>,
 }
 
 /// One file digest for a new or removed release.

@@ -176,7 +176,9 @@ impl Store {
                 mod_id TEXT NOT NULL,
                 version TEXT,
                 source TEXT,
-                archive_blake3 TEXT
+                archive_blake3 TEXT,
+                catalog TEXT,
+                declarations TEXT
             );
             CREATE TABLE IF NOT EXISTS history_operations (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,6 +227,7 @@ impl Store {
         migrate_ownership_keys(&tx)?;
         crate::approval::ensure_schema(&tx)?;
         ensure_history_undoes(&tx)?;
+        crate::history::ensure_release_schema(&tx)?;
         tx.commit()?;
         Ok(Self {
             connection,

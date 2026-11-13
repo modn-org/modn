@@ -1,99 +1,11 @@
+use super::release::package_metadata;
 use super::{
     FileSpec, HistoryContext, HistoryFile, HistoryKind, HistoryOperation, HistoryPackage,
     HistoryRelease, ReleaseMetadata,
 };
-use crate::transactions::CatalogReference;
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, Transaction};
 use std::collections::BTreeMap;
-
-type PackageReleaseRow = (String, Option<String>, Option<String>, Option<String>);
-
-/// Release metadata for one side of an operation.
-pub(crate) fn metadata_for(
-    context: &HistoryContext,
-    package_id: &str,
-    reference: Option<&CatalogReference>,
-    version: Option<&str>,
-    archive_blake3: Option<&str>,
-) -> ReleaseMetadata {
-    let standalone = if reference.is_none() {
-        context.standalone.as_ref()
-    } else {
-        None
-    };
-    ReleaseMetadata {
-        mod_id: reference
-            .map(|reference| reference.mod_id.clone())
-            .or_else(|| standalone.map(|package| package.mod_id.clone()))
-            .unwrap_or_else(|| package_id.to_owned()),
-        version: version
-            .map(str::to_owned)
-            .or_else(|| standalone.and_then(|package| package.version.clone())),
-        source: reference
-            .and_then(|reference| context.sources.get(&reference.to_string()).cloned())
-            .or_else(|| standalone.map(|package| package.source.clone())),
-        archive_blake3: archive_blake3.map(str::to_owned),
-    }
-}
-
-/// Persist the release metadata that a later update or uninstall records.
-pub(crate) fn record_metadata(
-    tx: &Transaction<'_>,
-    package_id: &str,
-    metadata: &ReleaseMetadata,
-) -> Result<()> {
-    let source = metadata
-        .source
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()?;
-    tx.execute(
-        "INSERT OR REPLACE INTO managed_package_releases
-             (package_id, mod_id, version, source, archive_blake3)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            package_id,
-            metadata.mod_id,
-            metadata.version,
-            source,
-            metadata.archive_blake3
-        ],
-    )?;
-    Ok(())
-}
-
-/// Read the release metadata of `package_id`, when recorded.
-pub(crate) fn package_metadata(
-    connection: &Connection,
-    package_id: &str,
-) -> Result<Option<ReleaseMetadata>> {
-    if !has_table(connection, "managed_package_releases")? {
-        return Ok(None);
-    }
-    let row: Option<PackageReleaseRow> = connection
-        .query_row(
-            "SELECT mod_id, version, source, archive_blake3
-             FROM managed_package_releases WHERE package_id=?1",
-            [package_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()?;
-    row.map(
-        |(mod_id, version, source, archive_blake3)| -> Result<ReleaseMetadata> {
-            Ok(ReleaseMetadata {
-                mod_id,
-                version,
-                source: source
-                    .map(|text| serde_json::from_str(&text))
-                    .transpose()
-                    .context("invalid recorded source descriptor")?,
-                archive_blake3,
-            })
-        },
-    )
-    .transpose()
-}
 
 /// Snapshot an installed package before its ownership rows are removed.
 pub(crate) fn package_snapshot(
@@ -120,14 +32,16 @@ pub(crate) fn package_snapshot(
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let (mod_id, version, source, archive_blake3) = metadata.map_or_else(
-        || (package_id.to_owned(), None, None, None),
+    let (mod_id, version, source, archive_blake3, catalog, declarations) = metadata.map_or_else(
+        || (package_id.to_owned(), None, None, None, None, None),
         |metadata| {
             (
                 metadata.mod_id,
                 metadata.version,
                 metadata.source,
                 metadata.archive_blake3,
+                metadata.catalog,
+                metadata.declarations,
             )
         },
     );
@@ -137,6 +51,8 @@ pub(crate) fn package_snapshot(
         package_id_after: None,
         release_before: Some(HistoryRelease {
             version,
+            catalog,
+            declarations,
             source,
             archive_sha256: Some(archive_sha256),
             archive_blake3,
@@ -193,6 +109,8 @@ pub(crate) fn install_operation(
             release_before: previous.and_then(|package| package.release_before),
             release_after: Some(HistoryRelease {
                 version: metadata.version,
+                catalog: metadata.catalog,
+                declarations: metadata.declarations,
                 source: metadata.source,
                 archive_sha256: Some(archive_sha256.to_owned()),
                 archive_blake3: metadata.archive_blake3,
@@ -256,6 +174,8 @@ pub(crate) fn stack_operation(
                 release_before: None,
                 release_after: Some(HistoryRelease {
                     version: package.version.clone(),
+                    catalog: package.catalog.clone(),
+                    declarations: package.declarations.clone(),
                     source: package.source.clone(),
                     archive_sha256: Some(package.archive_sha256.clone()),
                     archive_blake3: package.archive_blake3.clone(),

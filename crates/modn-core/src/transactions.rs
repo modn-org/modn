@@ -33,6 +33,7 @@ mod stack;
 mod staging;
 #[cfg(test)]
 mod tests;
+mod undo_digests;
 mod uninstall;
 mod uninstall_plan;
 #[cfg(test)]
@@ -45,7 +46,7 @@ mod validation;
 pub use adoption::AdoptionApproval;
 pub use catalog::{
     CatalogConflict, CatalogDependency, CatalogReference, CatalogRelease, DependencyState,
-    RecordedDependency,
+    RecordedDependency, ReleaseDeclarations,
 };
 pub use cleanup::CleanupApproval;
 pub(crate) use journal::lock_store;
