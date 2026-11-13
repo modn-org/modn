@@ -1,10 +1,5 @@
 //! The error type of [`Backend::call_with_progress`](super::Backend::call_with_progress).
 
-#![allow(
-    dead_code,
-    reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
-)]
-
 use std::io;
 use std::process::ExitStatus;
 use std::time::Duration;

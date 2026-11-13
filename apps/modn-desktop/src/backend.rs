@@ -3,15 +3,7 @@ mod error;
 #[path = "backend/progress.rs"]
 mod progress;
 
-#[allow(
-    unused_imports,
-    reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
-)]
 pub(crate) use error::{BackendError, BackendErrorKind};
-#[allow(
-    unused_imports,
-    reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
-)]
 pub(crate) use progress::{CancelToken, ProgressEvent};
 
 use anyhow::{Context, Result, bail};
@@ -54,9 +46,22 @@ pub(crate) struct Game {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Review {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test's install helper reads this; the desktop commits through call_with_progress"
+        )
+    )]
     pub game: Game,
     pub archive: PathBuf,
-    pub source: PathBuf,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test's install helper reads this; the desktop commits through call_with_progress"
+        )
+    )]
     pub digest: Vec<u8>,
     pub plan: Value,
 }
@@ -113,9 +118,12 @@ impl Backend {
     /// reports the commit phase; after it the call waits for the CLI to finish
     /// or roll back.
     #[must_use]
-    #[allow(
-        dead_code,
-        reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test sets a timeout; the desktop uses the default"
+        )
     )]
     pub fn with_inactivity_timeout(mut self, timeout: Duration) -> Self {
         self.inactivity_timeout = Some(timeout);
@@ -140,10 +148,6 @@ impl Backend {
     /// cancelled before the commit point, output is invalid or exceeds its
     /// bound, the process cannot start, or inactivity expires before the
     /// commit point.
-    #[allow(
-        dead_code,
-        reason = "The desktop UI wires this API in a parallel change; the contract tests exercise it"
-    )]
     pub fn call_with_progress(
         &self,
         args: &[OsString],
@@ -237,6 +241,13 @@ impl Backend {
         Ok(vec!["--game".into(), game.game_id.clone().into()])
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test lists owned packages through this helper; the desktop reads library state through call"
+        )
+    )]
     pub fn read(&self, game: &Game, action: &str) -> Result<Value> {
         if !["list", "doctor"].contains(&action) {
             bail!("Unsupported read action");
@@ -281,12 +292,18 @@ impl Backend {
         Ok(Review {
             game: game.clone(),
             archive,
-            source: source.to_path_buf(),
             digest,
             plan,
         })
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test uses the one-shot install helper; the desktop commits through call_with_progress"
+        )
+    )]
     pub fn install(&self, review: &Review) -> Result<Value> {
         if !reviewable(&review.plan) {
             bail!("Plan is blocked. Resolve blockers and review again");
@@ -309,6 +326,13 @@ impl Backend {
         self.call(&args)
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test uses the one-shot uninstall helper; the desktop commits through call_with_progress"
+        )
+    )]
     pub fn uninstall(&self, game: &Game, id: &str) -> Result<Value> {
         let packages = self.read(game, "list")?;
         if !packages
@@ -371,6 +395,49 @@ pub(crate) fn reviewable(plan: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_backend() -> Backend {
+        Backend {
+            binary: PathBuf::from(r"C:\modn-test\missing-backend.exe"),
+            state: PathBuf::from(r"C:\modn-test\state"),
+            data: None,
+            modules: None,
+            evidence: None,
+            inactivity_timeout: None,
+        }
+    }
+
+    fn test_game() -> Game {
+        Game {
+            game_id: "fixture".into(),
+            path: PathBuf::from(r"C:\modn-test\game"),
+        }
+    }
+
+    #[test]
+    fn install_refuses_a_blocked_plan_before_reading_the_archive() {
+        let review = Review {
+            game: test_game(),
+            archive: PathBuf::from(r"C:\modn-test\missing.zip"),
+            digest: Vec::new(),
+            plan: serde_json::json!({"status": "blocked"}),
+        };
+        assert!(test_backend().install(&review).is_err());
+    }
+
+    #[test]
+    fn games_and_uninstall_fail_closed_when_the_backend_is_missing() {
+        let backend = test_backend();
+        assert!(backend.games().is_err());
+        assert!(backend.uninstall(&test_game(), "package").is_err());
+    }
+
+    #[test]
+    fn inactivity_timeout_is_recorded() {
+        let backend = test_backend().with_inactivity_timeout(Duration::from_millis(5));
+        assert_eq!(backend.inactivity_timeout, Some(Duration::from_millis(5)));
+    }
+
     #[test]
     fn only_complete_operations_in_unblocked_metadata_plans_enable_install() {
         let mut plan = serde_json::json!({"status":"reviewable", "metadata_only":true, "blockers":[], "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}]});
