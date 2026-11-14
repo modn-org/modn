@@ -13,7 +13,7 @@ use super::store::{bounded_json, BucketStore, Registration};
 use super::trust::ModuleTrustState;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
 use crate::{archive, bucket_digest};
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
@@ -294,11 +294,11 @@ impl BucketStore {
             &label,
             previous.as_ref().map(|revision| &revision.signer),
         )
-        .with_context(|| format!("catalog source {} failed", served_by.label()))?;
+        .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         validate_tree(&catalog, &catalog, trust)
-            .with_context(|| format!("catalog source {} failed", served_by.label()))?;
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         let mirrors = read_mirrors(&catalog)
-            .with_context(|| format!("catalog source {} failed", served_by.label()))?;
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         check_mirror_kinds(name, &served_by, &mirrors)?;
         let relocation = read_relocation(&catalog, &served_by)?;
         let moved_to = relocation.filter(|primary_host| primary_host != &primary);

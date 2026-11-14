@@ -382,11 +382,13 @@ impl BucketStore {
         };
         let served_by = CatalogHost::from(&served_source);
         let signer = verify_revision(&catalog, name, &served_source.reference, previous.as_ref())
-            .with_context(|| format!("catalog source {} failed", served_by.label()))?;
+            .map_err(|error| {
+            anyhow!("catalog source {} failed: {error:#}", served_by.label())
+        })?;
         validate_tree(&catalog, &catalog, trust)
-            .with_context(|| format!("catalog source {} failed", served_by.label()))?;
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         let mirrors = read_mirrors(&catalog)
-            .with_context(|| format!("catalog source {} failed", served_by.label()))?;
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         check_mirror_kinds(name, &served_by, &mirrors)?;
         let relocation = read_relocation(&catalog, &served_by)?;
         let moved_to = relocation.filter(|primary_host| primary_host != &primary);

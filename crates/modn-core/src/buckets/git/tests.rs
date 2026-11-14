@@ -240,13 +240,17 @@ fn unsigned_first_sync_is_refused_without_a_registration() {
     commit(remote.directory.path(), "unsigned");
     let state = tempfile::tempdir().unwrap();
     let store = BucketStore::new(state.path());
+    let remote_source = source(&remote);
+    let label = crate::buckets::CatalogHost::from(&remote_source).label();
     let error = store
-        .sync_git_with_signer("community", Some(source(&remote)))
+        .sync_git_with_signer("community", Some(remote_source))
         .unwrap_err()
         .to_string();
     assert_eq!(
         error,
-        "Git catalog community at fixture is unsigned; Modn refuses unsigned catalogs."
+        format!(
+            "catalog source {label} failed: Git catalog community at fixture is unsigned; Modn refuses unsigned catalogs."
+        )
     );
     assert!(!registration(state.path()).exists());
     assert!(store.git_revision("community").unwrap().is_none());
