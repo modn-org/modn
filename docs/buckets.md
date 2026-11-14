@@ -143,8 +143,9 @@ Store, Autoloot, Clean Voiceovers, Custom Quickslots, Cyberarms Patch,
 Cyberpunk 2077 HD Reworked Project - Balanced, Disclosed Hidden Gems, Drone
 Companions, Hide Read Shards, Limited HUD, Native Settings UI, Native Settings
 UI Side Menu Add-on, Ping, Preem Scanner, Preem Scopes, Virtual Atelier
-Delivery, Virtual Car Dealer and Weather Probability Rebalance. Each SHA-256 was checked
-against the original distribution. GitHub-hosted packages record their release URL as an `https`
+Delivery, Virtual Car Dealer and Weather Probability Rebalance. Each upstream
+SHA-256 was checked against the original distribution; a v2 record keeps it as
+`upstream_sha256` provenance. GitHub-hosted packages record their release URL as an `https`
 source. Manifests can also pin a Nexus Mods file with the `nexus` source kind.
 A manifest with a `nexus` source names the game domain, mod ID, file ID and file name.
 The current `main` snapshot still lists its Nexus packages as `manual` sources naming the original file.
@@ -198,7 +199,7 @@ happens before any download or game write. See
 
 Bucket registration, listing, searching and manifest inspection are
 **metadata-only** and never modify game files. A catalog entry can be
-installed from a supplied, SHA-256-verified ZIP/7z with an explicit approval;
+installed from a supplied, BLAKE3-verified ZIP/7z with an explicit approval;
 standalone local archives use the same managed transaction engine. A checksum
 proves the bytes match a catalog record, not publisher trust.
 

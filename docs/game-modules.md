@@ -57,9 +57,9 @@ local root = roots[1]
 if root then
     local metadata = mods_host.fs.metadata(root.id, "game.marker")
     -- metadata: { kind = "file" | "directory", bytes = integer }
-    local digest = mods_host.hash.sha256(root.id, "game.marker") -- hex string
+    local digest = mods_host.hash.blake3(root.id, "game.marker") -- hex string
     local archive = mods_host.archive.inspect(root.id, "mods/package.zip")
-    -- { format, sha256, total_uncompressed_bytes, metadata_only = true,
+    -- { format, blake3, total_uncompressed_bytes, metadata_only = true,
     --   files = { { entry, bytes }, ... } }
 end
 return { game_id = "my-game", api_version = mods_host.api_version }
@@ -119,7 +119,7 @@ Registration copies the manifest and Lua entrypoint into a separate registry. It
 
 ### Module releases
 
-A module release identity has two parts: the required `version` in `module.json`, and the SHA-256 digest of the `module.json` bytes followed by the entrypoint bytes. Modn stores each release under `<data>/game-modules/<game-id>/versions/<version>/`. It keeps every retained release and imports a receipt with the identity, digest and source.
+A module release identity has two parts: the required `version` in `module.json`, and the BLAKE3 digest of the `module.json` bytes followed by the entrypoint bytes. Modn stores each release under `<data>/game-modules/<game-id>/versions/<version>/`. It keeps every retained release and imports a receipt with the identity, digest and source.
 
 The `current` file names the one active release. An update stages the new release in private storage and validates it there. It switches the `current` pointer only after the source bucket publishes. A failed update keeps the previous active release, and a failed registry commit removes every release directory it moved and restores every `current` pointer before returning the error. `module update` reports `imported`, `unchanged`, `not_newer` or `pinned`.
 
