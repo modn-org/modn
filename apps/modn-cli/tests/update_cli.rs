@@ -289,7 +289,9 @@ fn dry_run_shows_both_releases_the_changed_files_and_the_dependents() {
         Some(&catalog.v2),
     ));
     assert_eq!(report["installed"]["version"], "1.0");
+    assert_eq!(report["installed"]["archive_blake3"], catalog.v1_hash);
     assert_eq!(report["target"]["version"], "2.0");
+    assert_eq!(report["target"]["archive_blake3"], catalog.v2_hash);
     assert_eq!(report["up_to_date"], false);
     assert_eq!(report["files"]["added"], json!(["addons/added.plugin"]));
     assert_eq!(report["files"]["replaced"], json!(["addons/base.plugin"]));
