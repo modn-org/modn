@@ -74,7 +74,7 @@ A Git source stores a packed `git-<commit>-blake3-<digest>.zip` entry and writes
 A cancelled or refused operation before a download leaves every cache file unchanged.
 A download that completes and verifies publishes its entry file and digest index record first,
 so a refusal or cancellation after that download keeps the verified entry.
-Only a failed or mismatched download leaves no entry.
+A download that fails, mismatches its digest, or is cancelled before it completes leaves no entry.
 A preflight changes the cache only when it downloads: `install --dry-run --download`, `update --dry-run --download`, and an undo that misses the cache.
 The index is never authority: only re-verified bytes are returned.
 Index writes use a temporary file in the cache root and an atomic rename.
