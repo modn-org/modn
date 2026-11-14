@@ -323,11 +323,9 @@ fn an_earlier_schema_database_is_refused_without_being_read_or_changed() {
     );
     assert_eq!(directory_listing(temp.path()), before_listing);
     assert!(
-        !before_listing
-            .iter()
-            .any(|name| name == "state.sqlite-wal"
-                || name == "state.sqlite-journal"
-                || name.contains("backup")),
+        !before_listing.iter().any(|name| name == "state.sqlite-wal"
+            || name == "state.sqlite-journal"
+            || name.contains("backup")),
         "{before_listing:?}"
     );
 }

@@ -315,7 +315,6 @@ pub(crate) fn ensure_schema(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-
 fn normalize(path: &str) -> String {
     path.replace('\\', "/").trim_start_matches('/').to_owned()
 }

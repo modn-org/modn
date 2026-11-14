@@ -291,8 +291,8 @@ ID, kind, game, packages and time. `--game <game-id>` keeps one game.
 
 Each record holds the operation ID and kind, game ID, installation root, UTC
 time, and for every package the mod ID, package IDs before and after, release
-versions and source descriptors, archive SHA-256 and BLAKE3 digests, and the
-owned files with content digests before and after. A record is written in the
+versions and source descriptors, the archive BLAKE3 pin, and the owned files
+with content digests before and after. A record is written in the
 same SQLite transaction as the ownership change. A cancelled, refused,
 dry-run or rolled-back operation writes none. See
 [operation history](history.md) for the JSON shape and storage tables.
