@@ -16,12 +16,11 @@ mod backend;
     reason = "The game-command tests include the command error, busy guard and blocking runner, not every command-layer item"
 )]
 #[cfg(windows)]
+// The path names an existing directory, so rustfmt on Linux can resolve it.
+#[path = "../src/app"]
 mod app {
-    #[path = "../../src/app/blocking.rs"]
     pub(crate) mod blocking;
-    #[path = "../../src/app/error.rs"]
     pub(crate) mod error;
-    #[path = "../../src/app/state.rs"]
     pub(crate) mod state;
 }
 
