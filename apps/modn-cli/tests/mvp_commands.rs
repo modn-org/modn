@@ -1,3 +1,5 @@
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
@@ -92,7 +94,7 @@ fn git_sync_reports_revision_and_preserves_catalog_on_invalid_update() {
         &repo,
     );
     let git = |args: &[&str]| {
-        let out = Command::new("git")
+        let out = git_command::git_command()
             .arg("-C")
             .arg(&repo)
             .args(args)

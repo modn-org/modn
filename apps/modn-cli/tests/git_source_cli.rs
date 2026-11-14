@@ -462,3 +462,42 @@ fn git_source_missing_commit_fails_with_code_and_no_writes() {
     assert_eq!(fs::read(&state_db).expect("state bytes"), state_before);
     assert!(cache_archives(&fixture).is_empty());
 }
+
+#[test]
+fn git_source_update_accepts_a_supplied_zip() {
+    let fixture = Fixture::new();
+    let repository = repository(fixture.temp.path());
+    add_bucket(&fixture, fixture.temp.path(), &repository.commit);
+    fixture.register();
+    let game = fixture.game.to_str().expect("game path");
+    let install = ["install", "test-game/git-package", "--path", game, "--yes"];
+    let installed = run(&fixture, &repository.base, &install);
+    assert!(installed.status.success(), "{}", error(&installed));
+    write_bucket(fixture.temp.path(), &repository.later);
+    let update = ["update", "git-package", "--path", game];
+    let plan = [
+        "update",
+        "git-package",
+        "--path",
+        game,
+        "--dry-run",
+        "--download",
+    ];
+    let prepared = run(&fixture, &repository.base, &plan);
+    assert!(prepared.status.success(), "{}", error(&prepared));
+    let archive = cache_archives(&fixture)
+        .into_iter()
+        .find(|path| path.to_string_lossy().contains(&repository.later))
+        .expect("the prepared update caches the later archive");
+    let file = archive.to_str().expect("archive path");
+    let updated = run(
+        &fixture,
+        &repository.base,
+        &[&update[..], &["--yes", "--file", file]].concat(),
+    );
+    assert!(updated.status.success(), "{}", error(&updated));
+    assert_eq!(
+        fs::read(installed_plugin(&fixture)).expect("updated plugin"),
+        b"later-release"
+    );
+}

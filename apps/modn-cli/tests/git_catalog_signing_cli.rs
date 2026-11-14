@@ -1,8 +1,10 @@
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use tempfile::TempDir;
 
 const SIGNED_KEY: &str = "2A7E5A370638B878";
@@ -34,7 +36,7 @@ fn run_plain(state: &Path, args: &[&str]) -> Output {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .current_dir(directory)
         .args(arguments)
         .output()

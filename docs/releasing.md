@@ -889,9 +889,25 @@ Stop if an artifact is missing; do not use a local build.
 
 **Authorize this step.** The verifier builds disposable contract v2 fixtures and a fake game in a temporary directory.
 
+Prerequisites: a checkout of this repository at the release tag, Python 3, and a Rust toolchain with `cargo`.
+The verifier runs `cargo run --quiet --locked -p modn-core --example sign_catalog` to sign its disposable main bucket, so `cargo` must be on `PATH`.
+Build both binaries at that checkout with the local smoke-test commands near the top of this page.
+Those commands set `$env:RUSTFLAGS = '-C target-feature=+crt-static'`, run `cargo build --release --locked -p modn-cli`, and build the smoke copy with `--features modn-core/test-main-key --target-dir target/smoke`.
+The verifier reads the released binary through `--binary` and the smoke build through `--bucket-binary`.
+Their defaults are `target/release/modn.exe` and `target/smoke/release/modn.exe`.
+The verifier fails its static C runtime check when the release binary imports a dynamic Visual C++ runtime.
+
 The Milestone 1 gate targets contract v1 and cannot pass against a contract v2 release. Do not run it.
 Run the portable verifier against the released `modn.exe` instead.
-Run `python .agents/skills/verify-modn/scripts/portable_mvp.py --help` for its arguments, pass the released binaries, and expect exit 0 and no failed check.
+Run `python .agents/skills/verify-modn/scripts/portable_mvp.py --help` for its arguments, and expect exit 0 and no failed check.
+Then run the verifier with the two binaries:
+
+```powershell
+python .agents/skills/verify-modn/scripts/portable_mvp.py `
+  --binary target/release/modn.exe `
+  --bucket-binary target/smoke/release/modn.exe
+```
+
 See [Milestone 1 exit gate](#milestone-1-exit-gate) for the closed v1 evidence.
 Count the `ok:` lines and record the count.
 

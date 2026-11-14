@@ -2,8 +2,10 @@
     dead_code,
     reason = "shared fixture exposes helpers for different test crates"
 )]
-
 //! Signed Git catalog fixtures shared by the bucket module trust tests.
+
+#[path = "git_command.rs"]
+mod git_command;
 
 use minisign::KeyPair;
 use modn_core::buckets::{catalog_statement, GitCatalogSource};
@@ -11,10 +13,9 @@ use serde_json::json;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .args([
             "-c",
             "user.name=Fixture",

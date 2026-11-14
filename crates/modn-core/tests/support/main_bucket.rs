@@ -47,6 +47,15 @@ pub fn seeded<T>(action: impl FnOnce() -> T) -> T {
     modn_core::data_dir::with_data_directory(temp.path(), action)
 }
 
+/// Run an action with an isolated manager profile directory.
+///
+/// `trust_modules` stages game modules under the profile directory, so a test
+/// must select a temporary profile or it writes into the real Modn profile.
+pub fn isolated_profile<T>(action: impl FnOnce(&std::path::Path) -> T) -> T {
+    let profile = tempfile::tempdir().expect("fixture invariant");
+    modn_core::data_dir::with_profile_directory(profile.path(), || action(profile.path()))
+}
+
 /// Rewrite a checked-in v1 main copy as a contract v2 fixture.
 ///
 /// The real submodule stays v1 until a maintainer rehashes it. Test fixtures

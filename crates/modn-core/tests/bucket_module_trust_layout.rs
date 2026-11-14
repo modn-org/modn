@@ -104,11 +104,38 @@ fn trust_accepts_a_valid_games_layout() {
 
 #[test]
 fn trusted_catalogs_refuse_a_package_manifest_under_games() {
-    for (relative, contents) in [
-        ("games/test-game/extra.json", package()),
-        ("games/test-game/notes.txt", "notes".to_owned()),
-        ("games/loose.json", package()),
-    ] {
+    main_bucket::isolated_profile(|profile| {
+        for (relative, contents) in [
+            ("games/test-game/extra.json", package()),
+            ("games/test-game/notes.txt", "notes".to_owned()),
+            ("games/loose.json", package()),
+        ] {
+            let remote = signed_remote(|_| {});
+            let state = tempfile::tempdir().expect("state");
+            let store = BucketStore::new(state.path());
+            store
+                .sync_git_with_signer("community", Some(remote.source()))
+                .expect("first sync");
+            store
+                .trust_modules(
+                    "community",
+                    ModuleTrustAck::Acknowledged {
+                        expected_fingerprint: None,
+                    },
+                )
+                .expect("trust");
+            fs::create_dir_all(remote.path().join("games/test-game")).expect("games");
+            fs::write(remote.path().join(relative), contents).expect("extra entry");
+            remote.resign(relative);
+            let error = store.sync_git("community", None).expect_err(relative);
+            let error = format!("{error:#}");
+            assert!(error.contains("games/<game-id>"), "{relative}: {error}");
+            assert_eq!(
+                store.module_trust("community").expect("trust"),
+                ModuleTrustState::Trusted
+            );
+        }
+
         let remote = signed_remote(|_| {});
         let state = tempfile::tempdir().expect("state");
         let store = BucketStore::new(state.path());
@@ -123,42 +150,21 @@ fn trusted_catalogs_refuse_a_package_manifest_under_games() {
                 },
             )
             .expect("trust");
-        fs::create_dir_all(remote.path().join("games/test-game")).expect("games");
-        fs::write(remote.path().join(relative), contents).expect("extra entry");
-        remote.resign(relative);
-        let error = store.sync_git("community", None).expect_err(relative);
-        let error = format!("{error:#}");
-        assert!(error.contains("games/<game-id>"), "{relative}: {error}");
-        assert_eq!(
-            store.module_trust("community").expect("trust"),
-            ModuleTrustState::Trusted
+        fs::create_dir_all(remote.path().join("games/test-game/nested")).expect("nested");
+        fs::write(remote.path().join("games/test-game/nested/file.txt"), "x").expect("nested file");
+        remote.resign("nested");
+        let error = store
+            .sync_git("community", None)
+            .expect_err("nested directory");
+        assert!(
+            format!("{error:#}").contains("games/<game-id>"),
+            "{error:#}"
         );
-    }
-
-    let remote = signed_remote(|_| {});
-    let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
-    store
-        .sync_git_with_signer("community", Some(remote.source()))
-        .expect("first sync");
-    store
-        .trust_modules(
-            "community",
-            ModuleTrustAck::Acknowledged {
-                expected_fingerprint: None,
-            },
-        )
-        .expect("trust");
-    fs::create_dir_all(remote.path().join("games/test-game/nested")).expect("nested");
-    fs::write(remote.path().join("games/test-game/nested/file.txt"), "x").expect("nested file");
-    remote.resign("nested");
-    let error = store
-        .sync_git("community", None)
-        .expect_err("nested directory");
-    assert!(
-        format!("{error:#}").contains("games/<game-id>"),
-        "{error:#}"
-    );
+        assert!(
+            profile.join("game-modules/registry.lock").is_file(),
+            "trust_modules locks the isolated profile"
+        );
+    });
 }
 
 #[test]

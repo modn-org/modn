@@ -1,3 +1,5 @@
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
@@ -12,10 +14,9 @@ use serde_json::json;
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
-use std::process::Command;
 
 fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .args([
             "-c",
             "user.name=Fixture",
