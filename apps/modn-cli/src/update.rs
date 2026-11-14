@@ -11,7 +11,7 @@ use crate::update_report::{self, DependentCheck, FileChanges, Preview};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::approval::{ApprovalRefusal, Capabilities, Uncovered};
-use modn_core::archive::inspect;
+use modn_core::archive::{inspect, ArchiveFormat};
 use modn_core::buckets::{BucketPackage, BucketStore, PackageManifest, PackageSource};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
@@ -86,6 +86,18 @@ fn choose_release(
         })
 }
 
+/// The archive format a supplied update archive must have.
+///
+/// A `git` package record carries no archive record, because its commit is the
+/// pin. Acquisition packs that commit as a ZIP, so a supplied archive for a Git
+/// source is checked as a ZIP.
+fn supplied_format(target: &BucketPackage) -> Option<ArchiveFormat> {
+    expected_format(target.package.archive_format.as_ref()).or_else(|| {
+        matches!(target.package.primary_source(), PackageSource::Git { .. })
+            .then_some(ArchiveFormat::Zip)
+    })
+}
+
 fn supplied_archive(
     file: &Path,
     target: &BucketPackage,
@@ -109,7 +121,7 @@ fn supplied_archive(
             target.package.version
         );
     }
-    if Some(inspected.format) != expected_format(target.package.archive_format.as_ref()) {
+    if Some(inspected.format) != supplied_format(target) {
         bail!("{reference}: archive format does not match catalog manifest");
     }
     Ok(file.to_path_buf())

@@ -183,8 +183,8 @@ sources (issue #118) ships.
 A record lists either archive sources or `git` sources, never both. Modn refuses
 a mixed record, because one archive pin cannot cover a packed Git archive.
 An archive record declares `blake3`, 64 lowercase hex characters that pin the
-archive. A `manual`, `https` or `nexus` record also declares `archive_format`
-(`zip` or `7z`).
+archive. Every archive source kind (`manual`, `https`, `github-release`,
+`nexus`) also declares `archive_format` (`zip` or `7z`).
 A `git` record declares no `blake3`, because its commit is the pin.
 Its `archive_format` is optional and must be `zip` when present.
 `redistributable` defaults to `false`. `upstream_sha256` is provenance only.
