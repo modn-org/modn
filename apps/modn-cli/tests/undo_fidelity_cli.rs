@@ -246,7 +246,7 @@ fn undo_refuses_a_policy_that_moves_a_recorded_file_to_another_root() {
     manifest(&fixture, "example", "1.0", &digest, https(url));
     write_module(
         &fixture,
-        1,
+        3,
         "Demo/package/plugins/example.plugin",
         "game",
         false,
@@ -267,7 +267,7 @@ fn undo_refuses_a_policy_that_moves_a_recorded_file_to_another_root() {
     fs::create_dir_all(&appdata).expect("appdata");
     write_module(
         &fixture,
-        2,
+        3,
         "Demo/package/plugins/example.plugin",
         "content",
         true,
@@ -315,7 +315,7 @@ fn undo_update_refuses_a_changed_member_selection_before_commit() {
     let v2_url = "https://example.invalid/example-2.0.zip";
     fixture.bucket("deps", "test-game", "example", &v1_hash, &[]);
     manifest(&fixture, "example", "1.0", &v1_hash, https(v1_url));
-    write_module(&fixture, 1, "v1/example.plugin", "game", false);
+    write_module(&fixture, 3, "v1/example.plugin", "game", false);
     fixture.register();
     let installed = install(&fixture, "example", &v1);
     assert!(installed.status.success(), "{}", error(&installed));
@@ -331,7 +331,7 @@ fn undo_update_refuses_a_changed_member_selection_before_commit() {
     assert_eq!(operations[0]["kind"], "update");
     let target = id_of(&operations[0]);
 
-    write_module(&fixture, 1, "v1-alt/example.plugin", "game", false);
+    write_module(&fixture, 3, "v1-alt/example.plugin", "game", false);
     let before_history = history(&fixture);
     let before_packages = json_of(&fixture.run(&["--json", "list"]));
     let refused = fixture.run(&["--json", "undo", &target, "--yes"]);

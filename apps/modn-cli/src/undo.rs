@@ -437,16 +437,18 @@ pub(super) fn run(
         _ => bail!("unknown history kind"),
     }
     let effect = inverse(target.kind);
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "undo": target.id,
-                "kind": effect.as_str(),
-                "removed": removed,
-                "installed": installed.iter().map(|package| package.id.clone()).collect::<Vec<_>>(),
-            }))?
-        );
+        let mut result = serde_json::json!({
+            "undo": target.id,
+            "kind": effect.as_str(),
+            "removed": removed,
+            "installed": installed.iter().map(|package| package.id.clone()).collect::<Vec<_>>(),
+        });
+        if let Some(operation_id) = operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id);
+        }
+        println!("{}", serde_json::to_string_pretty(&result)?);
     } else if removed.is_empty() {
         println!(
             "Undid {} by installing {} package(s).",

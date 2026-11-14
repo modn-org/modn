@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-install-archive"
+description = "Enables the install_archive command without any pre-configured scope."
+commands.allow = ["install_archive"]
+
+[[permission]]
+identifier = "deny-install-archive"
+description = "Denies the install_archive command without any pre-configured scope."
+commands.deny = ["install_archive"]

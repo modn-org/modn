@@ -99,16 +99,25 @@ impl PackageManifest {
         {
             bail!("invalid package version");
         }
-        let git_only = self
+        let git_sources = self
             .sources
             .iter()
-            .all(|source| matches!(source, PackageSource::Git { .. }));
-        if git_only {
+            .filter(|source| matches!(source, PackageSource::Git { .. }))
+            .count();
+        if git_sources > 0 && git_sources < self.sources.len() {
+            bail!(
+                "bucket package sources must not mix git sources with archive sources; one blake3 pin cannot cover a packed Git archive"
+            );
+        }
+        if git_sources == self.sources.len() {
             if self.blake3.is_some() {
                 bail!("git source packages must not declare blake3; the commit is the pin");
             }
         } else {
             self.required_blake3()?;
+            if self.archive_format.is_none() {
+                bail!("archive_format is required for non-git sources");
+            }
         }
         for source in &self.sources {
             match source {

@@ -221,3 +221,20 @@ fn snapshot_keeps_selection_and_historical_versions_after_bucket_edits() {
         assert!(store.snapshot(Some("test-game")).is_err());
     });
 }
+
+#[test]
+fn a_package_entry_that_is_not_a_regular_file_is_refused_by_name() {
+    main_bucket::seeded(|| {
+        let temp = tempfile::tempdir().expect("temp");
+        let root = bucket(temp.path(), "local");
+        fs::create_dir(root.join("mods/test-game/foo.json")).expect("directory entry");
+        let state = temp.path().join("state");
+        let error = BucketStore::new(&state)
+            .add("local", &root)
+            .expect_err("special package entry");
+        let message = format!("{error:#}");
+        assert!(message.contains("regular file"), "{message}");
+        assert!(message.contains("foo.json"), "{message}");
+        assert!(!state.join("buckets/registrations/local.json").exists());
+    });
+}

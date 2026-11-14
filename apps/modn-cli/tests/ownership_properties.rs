@@ -145,11 +145,10 @@ impl World {
         }
         let modules = temp.path().join("modules");
         let module = modules.join("cyberpunk-2077");
-        fs::create_dir_all(&module)?;
         let bundled =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
-        fs::copy(bundled.join("module.json"), module.join("module.json"))?;
-        let code = fs::read_to_string(bundled.join("module.lua"))?.replace("\r\n", "\n");
+        main_bucket::copy_main_module(&bundled, &module);
+        let code = fs::read_to_string(module.join("module.lua"))?.replace("\r\n", "\n");
         let policy = code
             .strip_suffix("return policy\n")
             .ok_or_else(|| TestCaseError::fail("bundled module does not end in `return policy`"))?;

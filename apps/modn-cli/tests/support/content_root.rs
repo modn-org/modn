@@ -26,7 +26,7 @@ const SCRIPT: &str = r#"
 local fs = mods_host.fs
 
 return {
-    game_id = "content-game", api_version = 2, version = "1.0.0",
+    game_id = "content-game", api_version=3, version = "1.0.0",
     marker = "ContentGame.exe", common_paths = {},
     validate = function()
         local ok, info = pcall(fs.metadata, 1, "ContentGame.exe")
@@ -93,25 +93,17 @@ impl Fixture {
         fs::write(
             module.join("module.json"),
             format!(
-                r#"{{"game_id":"{GAME_ID}","version":"1.0.0","api_version":2,"entrypoint":"module.lua","content_root":{{"base":"appdata","path":"{CONTENT_RELATIVE}"}}}}"#
+                r#"{{"game_id":"{GAME_ID}","version":"1.0.0","api_version":3,"entrypoint":"module.lua","content_root":{{"base":"appdata","path":"{CONTENT_RELATIVE}"}}}}"#
             ),
         )
         .expect("manifest");
         fs::write(module.join("module.lua"), SCRIPT).expect("script");
         let cyberpunk =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
-        let cyberpunk_target = modules.join("cyberpunk-2077");
-        fs::create_dir_all(&cyberpunk_target).expect("official module");
-        for file in ["module.json", "module.lua"] {
-            fs::copy(cyberpunk.join(file), cyberpunk_target.join(file)).expect("official source");
-        }
+        main_bucket::copy_main_module(&cyberpunk, &modules.join("cyberpunk-2077"));
         let balatro =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/balatro");
-        let balatro_target = modules.join("balatro");
-        fs::create_dir_all(&balatro_target).expect("balatro module");
-        for file in ["module.json", "module.lua"] {
-            fs::copy(balatro.join(file), balatro_target.join(file)).expect("balatro source");
-        }
+        main_bucket::copy_main_module(&balatro, &modules.join("balatro"));
         Self {
             temp,
             game,

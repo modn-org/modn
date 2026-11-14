@@ -2,13 +2,14 @@
     dead_code,
     reason = "shared fixture exposes helpers for different test crates"
 )]
+#[path = "git_command.rs"]
+mod git_command;
 use minisign::KeyPair;
 use modn_core::buckets::{catalog_statement, CatalogPublicKey};
 use serde_json::json;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// A signed Git catalog fixture that generates its signing key in process.
 pub struct ModuleCatalog {
@@ -59,7 +60,7 @@ impl ModuleCatalog {
             json!({
                 "game_id": game,
                 "version": version,
-                "api_version": 1,
+                "api_version":3,
                 "entrypoint": "module.lua",
             })
             .to_string(),
@@ -105,7 +106,7 @@ fn copy_tree(source: &Path, target: &Path) {
 }
 
 fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .args([
             "-c",
             "user.name=Fixture",
@@ -137,7 +138,7 @@ fn commit(root: &Path, message: &str) -> String {
 
 /// Minimal Lua policy that returns a valid module identity.
 pub fn identity_lua(game: &str) -> String {
-    format!("return {{game_id='{game}', api_version=1}}")
+    format!("return {{game_id='{game}', api_version=3}}")
 }
 
 /// Minimal Lua policy that validates a marker file and reports an empty scan.

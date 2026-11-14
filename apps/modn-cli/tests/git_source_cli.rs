@@ -1,115 +1,21 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/git_fixture.rs"]
+mod git_fixture;
+
+#[path = "support/git_source_helpers.rs"]
+mod helpers;
+
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
+use git_fixture::repository;
+use helpers::{add_bucket, cache_archives, installed_plugin, run};
 use serde_json::{json, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::path::Path;
 use support::{error, Fixture};
-
-struct Repository {
-    base: PathBuf,
-    commit: String,
-}
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
-        .current_dir(directory)
-        .args(arguments)
-        .output()
-        .expect("run git");
-    assert!(
-        output.status.success(),
-        "git {arguments:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout)
-        .expect("git output")
-        .trim()
-        .to_owned()
-}
-
-fn commit_all(directory: &Path, message: &str) {
-    git(directory, &["add", "."]);
-    git(
-        directory,
-        &[
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "commit",
-            "-m",
-            message,
-        ],
-    );
-}
-
-fn repository(root: &Path) -> Repository {
-    let work = root.join("git-source-work");
-    let plugin = work.join("Demo/package/plugins/git-source.plugin");
-    fs::create_dir_all(plugin.parent().expect("plugin parent")).expect("work tree");
-    fs::write(&plugin, b"pinned-release").expect("pinned payload");
-    git(&work, &["init", "--initial-branch=main"]);
-    commit_all(&work, "pinned");
-    let commit = git(&work, &["rev-parse", "HEAD"]);
-    fs::write(&plugin, b"later-release").expect("later payload");
-    commit_all(&work, "later");
-    let base = root.join("repos");
-    fs::create_dir_all(base.join("fixture")).expect("remote base");
-    git(
-        root,
-        &[
-            "clone",
-            "--bare",
-            "--no-local",
-            "--",
-            work.to_str().expect("work path"),
-            base.join("fixture/project.git")
-                .to_str()
-                .expect("bare path"),
-        ],
-    );
-    Repository { base, commit }
-}
-
-fn file_url(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
-    if path.starts_with('/') {
-        format!("file://{path}")
-    } else {
-        format!("file:///{path}")
-    }
-}
-
-fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
-    let bucket = root.join("git-fixture");
-    let game = bucket.join("mods/test-game");
-    fs::create_dir_all(&game).expect("bucket directory");
-    fs::write(
-        bucket.join("bucket.json"),
-        br#"{"schema_version":2,"name":"git-fixture","title":"Git fixture"}"#,
-    )
-    .expect("bucket metadata");
-    let manifest = json!({
-        "schema_version": 2,
-        "id": "git-package",
-        "game": "test-game",
-        "name": "Git Package",
-        "version": "1.0",
-        "sources": [{"kind": "git", "repository": "fixture/project", "commit": commit}],
-    });
-    fs::write(
-        game.join("git-package.json"),
-        serde_json::to_vec(&manifest).expect("manifest JSON"),
-    )
-    .expect("manifest");
-    let result = fixture.run_paths(&["bucket", "add", "git-fixture"], &[&bucket]);
-    assert!(result.status.success(), "{}", error(&result));
-}
 
 const NATIVE_DEPENDENCY_URL: &str =
     "https://github.com/fixture/lovely/releases/download/v1/native-injector.zip";
@@ -170,32 +76,6 @@ fn seed_dependency_cache(fixture: &Fixture, archive: &Path) {
     let url_hash = &blake3::hash(NATIVE_DEPENDENCY_URL.as_bytes()).to_hex()[..7];
     let entry = cache.join(format!("native-injector-game#lovely#1.0#{url_hash}.zip"));
     fs::copy(archive, entry).expect("seed dependency cache");
-}
-
-fn run(fixture: &Fixture, base: &Path, args: &[&str]) -> Output {
-    main_bucket::command(env!("CARGO_BIN_EXE_modn"))
-        .arg("--state-dir")
-        .arg(&fixture.state)
-        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
-        .env("MODN_TEST_GIT_REMOTE_BASE", file_url(base))
-        .args(args)
-        .output()
-        .expect("run CLI")
-}
-
-fn installed_plugin(fixture: &Fixture) -> PathBuf {
-    fixture.game.join("addons/git-source.plugin")
-}
-
-fn cache_archives(fixture: &Fixture) -> Vec<PathBuf> {
-    let cache = fixture.state.join("cache");
-    match fs::read_dir(cache) {
-        Ok(entries) => entries
-            .map(|entry| entry.expect("cache entry").path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "zip"))
-            .collect(),
-        Err(_) => Vec::new(),
-    }
 }
 
 #[test]

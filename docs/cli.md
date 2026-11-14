@@ -340,6 +340,15 @@ same SQLite transaction as the ownership change. A cancelled, refused,
 dry-run or rolled-back operation writes none. See
 [operation history](history.md) for the JSON shape and storage tables.
 
+Each successful `install`, `update`, `uninstall` and `undo` under `--json`
+adds a top-level `operation_id` field to its result. It names the history
+record that the write committed, so a caller can undo exactly that operation.
+The committing write reports the ID, so a concurrent write on the same game
+cannot change it. A write that commits several records, such as a
+multi-package uninstall or a multi-package update undo, reports the newest
+record, which a plain `modn undo` reverses first. The field is absent only
+when the write commits no record.
+
 ## Undo
 
 `modn undo [<operation-id>] --yes` reverses one committed operation from
@@ -537,7 +546,7 @@ otherwise the command's default code is used. No command reports a generic
 
 ## Additional commands
 
-- `modn scan --path <game>` and `modn doctor --path <game>` read the game root and an API 2 module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
+- `modn scan --path <game>` and `modn doctor --path <game>` read the game root and a module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
 - `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key, and later syncs refuse a key change. See [sources.md](sources.md).
 - `modn bucket sync <name> --source <url>.zip` registers a signed ZIP catalog. Modn verifies it in staging before publication, and `--revision` is refused. The source must be `https://`, or an absolute local ZIP path for offline testing. See [buckets.md](buckets.md#community-catalog-sources).
 - `modn bucket sync` and `modn update` try the registered primary and then the mirrors that the latest verified revision lists. A signed `relocation.json` moves the registered primary. See [buckets.md](buckets.md#mirrors-and-relocation).

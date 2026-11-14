@@ -43,11 +43,14 @@ fn validate_games(root: &Path, canonical: &Path, trust: ModuleTrustState) -> Res
         let game = game?;
         let game_id = game.file_name().to_string_lossy().into_owned();
         if !valid_id(&game_id) {
-            bail!("invalid game directory name");
+            bail!(
+                "invalid game directory name under games/: {}",
+                game.path().display()
+            );
         }
         if !game.file_type()?.is_dir() {
             bail!(
-                "games/ may hold only game module directories: {}",
+                "catalog game modules are only supported under games/<game-id>/: {}",
                 game.path().display()
             );
         }
@@ -57,12 +60,18 @@ fn validate_games(root: &Path, canonical: &Path, trust: ModuleTrustState) -> Res
             let entry = entry?;
             let kind = entry.file_type()?;
             if !kind.is_file() {
-                bail!("games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}");
+                bail!(
+                    "games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}: {}",
+                    entry.path().display()
+                );
             }
             match entry.file_name().to_str() {
                 Some(MODULE_SCRIPT) => has_script = true,
                 Some(MODULE_MANIFEST) => {}
-                _ => bail!("games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}"),
+                _ => bail!(
+                    "games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}: {}",
+                    entry.path().display()
+                ),
             }
         }
         if trust == ModuleTrustState::Main {
@@ -77,6 +86,15 @@ fn validate_games(root: &Path, canonical: &Path, trust: ModuleTrustState) -> Res
         }
     }
     Ok(())
+}
+
+/// Validate the `games/` layout a bucket must have before it becomes a module source.
+///
+/// `trust-modules` calls this before it records trust. A catalog that later
+/// package reads and bucket updates would refuse is therefore never trusted.
+pub(crate) fn validate_module_source_games(root: &Path) -> Result<()> {
+    let canonical = root.canonicalize()?;
+    validate_games(root, &canonical, ModuleTrustState::Trusted)
 }
 
 /// Read `mods/<game-id>/<mod-id>.json` and `mods/<game-id>/<mod-id>@<version>.json`.
@@ -104,10 +122,15 @@ fn read_releases(root: &Path, canonical: &Path) -> Result<Releases> {
         real_directory(&game.path(), canonical)?;
         for entry in fs::read_dir(game.path())? {
             let path = entry?.path();
-            if !fs::symlink_metadata(&path)?.file_type().is_file()
-                || path.extension().is_none_or(|e| e != "json")
-            {
+            let kind = fs::symlink_metadata(&path)?.file_type();
+            if kind.is_symlink() || path.extension().is_none_or(|e| e != "json") {
                 bail!("unexpected bucket package entry");
+            }
+            if !kind.is_file() {
+                bail!(
+                    "bucket package entry must be a regular file: {}",
+                    path.display()
+                );
             }
             let stem = path
                 .file_stem()

@@ -1,25 +1,59 @@
-pub fn seeded<T>(action: impl FnOnce() -> T) -> T {
-    fn copy(source: &std::path::Path, target: &std::path::Path) {
-        std::fs::create_dir_all(target).expect("fixture invariant");
-        for entry in std::fs::read_dir(source).expect("fixture invariant") {
-            let entry = entry.expect("fixture invariant");
-            if entry.file_name() == ".git" {
-                continue;
-            }
-            let target = target.join(entry.file_name());
-            if entry.file_type().expect("fixture invariant").is_dir() {
-                copy(&entry.path(), &target);
-            } else {
-                std::fs::copy(entry.path(), target).expect("fixture invariant");
-            }
+#![allow(
+    dead_code,
+    reason = "shared fixture exposes helpers for different test crates"
+)]
+
+pub fn copy_tree(source: &std::path::Path, target: &std::path::Path) {
+    std::fs::create_dir_all(target).expect("fixture invariant");
+    for entry in std::fs::read_dir(source).expect("fixture invariant") {
+        let entry = entry.expect("fixture invariant");
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let target = target.join(entry.file_name());
+        if entry.file_type().expect("fixture invariant").is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).expect("fixture invariant");
         }
     }
+}
+
+/// Copy a real game module from the checked-in `buckets/main` submodule and
+/// declare host API 3 in its manifest.
+///
+/// The submodule stays on contract v1 and its manifests declare host API 1 or
+/// 2. Only `api_version` changes; every other field and file is copied as is.
+pub fn copy_main_module(source: &std::path::Path, target: &std::path::Path) {
+    copy_tree(source, target);
+    let manifest_path = target.join("module.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).expect("fixture invariant"))
+            .expect("fixture invariant");
+    manifest["api_version"] = serde_json::json!(3);
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_vec(&manifest).expect("fixture invariant"),
+    )
+    .expect("fixture invariant");
+}
+
+pub fn seeded<T>(action: impl FnOnce() -> T) -> T {
     let temp = tempfile::tempdir().expect("fixture invariant");
     let target = temp.path().join("buckets/main");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main");
-    copy(&root, &target);
+    copy_tree(&root, &target);
     to_contract_v2(&target);
     modn_core::data_dir::with_data_directory(temp.path(), action)
+}
+
+/// Run an action with an isolated manager profile directory.
+///
+/// `trust_modules` stages game modules under the profile directory, so a test
+/// must select a temporary profile or it writes into the real Modn profile.
+pub fn isolated_profile<T>(action: impl FnOnce(&std::path::Path) -> T) -> T {
+    let profile = tempfile::tempdir().expect("fixture invariant");
+    modn_core::data_dir::with_profile_directory(profile.path(), || action(profile.path()))
 }
 
 /// Rewrite a checked-in v1 main copy as a contract v2 fixture.
@@ -43,9 +77,16 @@ pub fn to_contract_v2(root: &std::path::Path) {
         for entry in std::fs::read_dir(game.path()).expect("game entries") {
             let entry = entry.expect("game entry");
             let path = entry.path();
-            if path.file_name().is_some_and(|name| name == "module.json")
-                || path.extension().is_none_or(|extension| extension != "json")
-            {
+            if path.file_name().is_some_and(|name| name == "module.json") {
+                let mut manifest: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(&path).expect("module manifest"))
+                        .expect("module manifest");
+                manifest["api_version"] = serde_json::json!(3);
+                std::fs::write(&path, serde_json::to_vec(&manifest).expect("JSON"))
+                    .expect("module manifest");
+                continue;
+            }
+            if path.extension().is_none_or(|extension| extension != "json") {
                 continue;
             }
             let mut record: serde_json::Value =

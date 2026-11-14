@@ -190,18 +190,24 @@ registered. Modules retained from that bucket are refused at use. Run
 `trust-modules` again to restore trust.
 
 `bucket sync` imports the modules of a trusted bucket. It reports each release
-as `imported`, `unchanged`, `not_newer` or `pinned`. An untrusted bucket's
-`games/` folder is ignored at sync: Modn neither reads nor validates it, and it
-reports no ignored modules. The modules are refused when a module is used. A
+as `imported`, `unchanged`, `not_newer` or `pinned`. A sync of an untrusted
+catalog reports the modules it will not import. It reads game directory names
+and checks for `module.json` or `module.lua`, and it parses and executes
+nothing. Each matching game is reported as ignored with the reason
+`untrusted_source`. Modn refuses those modules when a module is used. A
 catalog module for a game that `main` provides is ignored with the reason
 `official_priority`.
 
 Only `main` and the signed catalogs that the user trusts for modules may
 contain `games/<game-id>/module.json` and `module.lua`. Those folders may hold
-nothing else. A package manifest or any other entry under `games/` is refused.
-A local folder bucket cannot contain game modules, and `modules/` directories
-are unsupported in every bucket. A mod whose ID is `module` is a normal package
-at `mods/<game-id>/module.json`. See
+nothing else. In those sources, a package manifest or any other entry under
+`games/` is refused at sync.
+Every other bucket never validates, parses or executes content under `games/`,
+so content there cannot supply a usable module. A local folder bucket has no
+sync, so Modn reads nothing from `games/` there for modules. A local folder
+bucket cannot supply game modules, and `modules/` directories are unsupported
+in every bucket. A mod whose ID is `module` is a normal package at
+`mods/<game-id>/module.json`. See
 [game modules](game-modules.md#trusted-module-sources).
 
 ## Catalog contents
@@ -237,13 +243,21 @@ modn bucket remove community
 
 A local bucket contains `bucket.json` (schema_version: 2, name, title)
 and `mods/<game-id>/<package-id>.json` files. Each package record
-has schema_version: 2, id, game, name, version, archive_format (`zip`/`7z`),
-blake3, sources (`manual` with filename, `https` with URL, `github-release`,
-`git` with repository and commit, or `nexus` with game_domain, mod_id, file_id
-and file_name), optional redistributable, upstream_sha256, dependencies
-(same-game IDs), dependency_versions, conflicts, executables, native_injector
-and homepage. `blake3` is 64 lowercase hex characters and pins the archive.
-`sources` is an ordered, non-empty list; Modn tries its entries in order.
+has schema_version: 2, id, game, name, version, sources (`manual` with filename,
+`https` with URL, `github-release`, `git` with repository and commit, or `nexus`
+with game_domain, mod_id, file_id and file_name), optional redistributable,
+upstream_sha256, dependencies (same-game IDs), dependency_versions, conflicts,
+executables, native_injector and homepage.
+`sources` is an ordered, non-empty list. Modn uses only the first entry; it
+reads the later entries but does not fall back to them until fallback across
+sources (issue #118) ships.
+A record lists either archive sources or `git` sources, never both. Modn refuses
+a mixed record, because one archive pin cannot cover a packed Git archive.
+An archive record declares `blake3`, 64 lowercase hex characters that pin the
+archive. Every archive source kind (`manual`, `https`, `github-release`,
+`nexus`) also declares `archive_format` (`zip` or `7z`).
+A `git` record declares no `blake3`, because its commit is the pin.
+Its `archive_format` is optional and must be `zip` when present.
 `redistributable` defaults to `false`. `upstream_sha256` is provenance only.
 A `nexus` source
 requires `archive_format` and accepts only `.zip` or `.7z` archives; Modn
@@ -254,9 +268,9 @@ requires the bucket to be republished for Modn contract v2. See
 Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. A local folder bucket needs no signature, because
 it holds your own files. `catalog.sig` and `catalog.pub` serve distributed
-catalogs. A local folder bucket cannot contain game modules, and `modules/`
+catalogs. A local folder bucket cannot supply game modules, and `modules/`
 directories are unsupported. Only `main` and a signed catalog the user
-trusts for modules may contain modules at `games/<game-id>/module.json` and
+trusts for modules may supply modules from `games/<game-id>/module.json` and
 `module.lua`. See
 [bucket contract v2](../buckets/README.md).
 

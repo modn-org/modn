@@ -1,6 +1,7 @@
 mod packages;
 mod registration;
 
+pub(crate) use self::packages::validate_module_source_games;
 use self::packages::{read_packages, Releases};
 use super::manifest::{valid_id, PackageManifest};
 use super::trust::ModuleTrustState;

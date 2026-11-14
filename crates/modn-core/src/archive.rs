@@ -189,6 +189,30 @@ fn verify_zip_central_records(path: &Path, start: u64) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+thread_local! {
+    static HASHED_FILES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_hashed_file_count() {
+    HASHED_FILES.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn hashed_file_count() -> usize {
+    HASHED_FILES.with(std::cell::Cell::get)
+}
+
+/// Stream one file through BLAKE3 and return the lowercase hex digest.
+pub(crate) fn hash_file(path: &Path) -> Result<String> {
+    let mut hasher = blake3::Hasher::new();
+    std::io::copy(&mut File::open(path)?, &mut hasher)?;
+    #[cfg(test)]
+    HASHED_FILES.with(|count| count.set(count.get() + 1));
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
 /// Inspect validated archive headers and hash the archive without extracting game files.
 pub fn inspect(path: &Path) -> Result<Inspection> {
     let metadata = path
@@ -209,9 +233,7 @@ pub fn inspect(path: &Path) -> Result<Inspection> {
         "7z" => ArchiveFormat::SevenZ,
         _ => bail!("unsupported archive format (expected .zip, .jar, or .7z)"),
     };
-    let mut hasher = blake3::Hasher::new();
-    std::io::copy(&mut File::open(path)?, &mut hasher)?;
-    let blake3 = hasher.finalize().to_hex().to_string();
+    let blake3 = hash_file(path)?;
 
     let mut files = Vec::new();
     let mut seen = HashSet::new();

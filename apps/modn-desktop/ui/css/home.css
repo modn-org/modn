@@ -1,0 +1,175 @@
+/* Home: registered games, detected games, and the actions that change them. */
+
+.modn-home__actions {
+  position: relative;
+  align-items: center;
+}
+
+.modn-home__grid {
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--modn-space-4xl) * 7), 1fr));
+  align-items: stretch;
+}
+
+.modn-home__empty {
+  grid-column: 1 / -1;
+  max-width: calc(var(--modn-space-4xl) * 12);
+}
+
+.modn-game-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-s);
+  height: 100%;
+  padding: var(--modn-space-m);
+  border: 1px solid var(--modn-color-border);
+  border-radius: var(--modn-radius-m);
+  background: var(--modn-color-surface-raised);
+  cursor: pointer;
+}
+
+.modn-game-card:focus-visible {
+  outline: var(--modn-space-2xs) solid var(--modn-color-primary);
+  outline-offset: var(--modn-space-2xs);
+}
+
+.modn-game-card__surface {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--modn-space-m);
+  min-width: 0;
+}
+
+.modn-game-card__media {
+  display: grid;
+  place-items: center;
+  height: calc(var(--modn-space-4xl) * 5);
+  border-radius: var(--modn-radius-s);
+  background: var(--modn-color-surface);
+}
+
+.modn-game-card__initials {
+  color: var(--modn-color-primary);
+  font-family: var(--modn-font-heading), Georgia, serif;
+  font-size: var(--modn-font-size-display);
+  line-height: var(--modn-font-line-display);
+}
+
+.modn-game-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-2xs);
+  min-width: 0;
+}
+
+.modn-game-card__title {
+  font-family: var(--modn-font-heading), Georgia, serif;
+  font-size: var(--modn-font-size-heading-m);
+  line-height: var(--modn-font-line-heading-m);
+}
+
+.modn-game-card__meta {
+  color: var(--modn-color-text-muted);
+  font-size: var(--modn-font-size-label-s);
+  line-height: var(--modn-font-line-label-s);
+}
+
+.modn-game-card__path {
+  overflow: hidden;
+  color: var(--modn-color-text-muted);
+  font-size: var(--modn-font-size-body-s);
+  line-height: var(--modn-font-line-body-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modn-game-card__badge {
+  align-self: flex-start;
+  padding: 0 var(--modn-space-s);
+  border: 1px solid var(--modn-color-border);
+  border-radius: var(--modn-radius-l);
+  color: var(--modn-color-text-muted);
+  font-size: var(--modn-font-size-label-s);
+  line-height: var(--modn-font-line-label-s);
+}
+
+.modn-game-card__hint {
+  font-size: var(--modn-font-size-label-s);
+  line-height: var(--modn-font-line-label-s);
+}
+
+.modn-game-card__error {
+  font-size: var(--modn-font-size-body-s);
+  line-height: var(--modn-font-line-body-s);
+}
+
+.modn-game-card__error[hidden] {
+  display: none;
+}
+
+.modn-game-card__remove {
+  align-self: flex-start;
+  margin-top: auto;
+}
+
+.modn-game-card[data-state="detected"] {
+  filter: grayscale(1);
+}
+
+.modn-game-card[data-state="detected"] .modn-game-card__surface {
+  opacity: var(--modn-opacity-disabled);
+}
+
+.modn-game-card[data-state="detected"]:hover .modn-game-card__surface,
+.modn-game-card[data-state="detected"]:focus-visible .modn-game-card__surface {
+  opacity: 1;
+}
+
+.modn-game-card[data-busy="true"] {
+  cursor: progress;
+}
+
+.modn-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: calc(var(--modn-space-4xl) * 5);
+  margin-top: var(--modn-space-xs);
+  padding: var(--modn-space-xs);
+  border: 1px solid var(--modn-color-border);
+  border-radius: var(--modn-radius-m);
+  background: var(--modn-color-surface);
+  box-shadow: 0 var(--modn-space-xs) var(--modn-space-l) var(--modn-color-border);
+}
+
+.modn-menu[hidden] {
+  display: none;
+}
+
+.modn-menu__item {
+  display: flex;
+  align-items: center;
+  min-height: var(--modn-space-3xl);
+  padding: var(--modn-space-xs) var(--modn-space-s);
+  border: 0;
+  border-radius: var(--modn-radius-s);
+  background: transparent;
+  color: var(--modn-color-text);
+  font: inherit;
+  font-size: var(--modn-font-size-label-m);
+  line-height: var(--modn-font-line-label-m);
+  text-align: left;
+  cursor: pointer;
+}
+
+.modn-menu__item:hover {
+  background: var(--modn-color-surface-raised);
+}
+
+.modn-menu__item:focus-visible {
+  outline: var(--modn-space-2xs) solid var(--modn-color-primary);
+  outline-offset: var(--modn-space-2xs);
+}

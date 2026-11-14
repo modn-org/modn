@@ -1,3 +1,5 @@
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use serde_json::Value;
@@ -83,7 +85,7 @@ fn replace_catalog(repo: &Path, name: &str) {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .current_dir(directory)
         .args(arguments)
         .output()

@@ -86,7 +86,7 @@ a missing or mismatched override fails without falling back.
 ### Game module release
 
 A **GameModuleRelease** is one version of a trusted third-party module. Its
-identity is the required `version` plus the SHA-256 digest of `module.json` and
+identity is the required `version` plus the BLAKE3 digest of `module.json` and
 its entrypoint. The registry keeps every retained release and one active release:
 
 ```text
@@ -115,11 +115,17 @@ registered again.
 | `version` | Exact mod release version. |
 | `name` | User-facing name. |
 | `archive_format` | ZIP or 7z, where supported. |
-| `sha256` | SHA-256 of the original distribution archive. |
-| `sources` | Download addresses, pinned provider selectors or manual acquisition instructions. |
+| `blake3` | BLAKE3 pin of the original distribution archive. |
+| `sources` | Ordered artifact sources: HTTPS URLs, pinned GitHub release assets, pinned Nexus Mods files, Git commits or manual archives. Modn uses only the first entry until fallback ships. |
+| `redistributable` | True when the author allows redistribution of the archive; defaults to false. |
+| `upstream_sha256` | Original upstream SHA-256, when known. Provenance only; Modn never verifies it. |
 | `dependencies` | Documented required/optional/conflicting relations. |
 | `native_injector` | True when the release loads native code into the game process; the caller must opt in. |
 | `compatibility` | Verified known game/framework requirements, if any. |
+
+Contract v2 records live at `mods/<game-id>/<mod-id>.json` and
+`mods/<game-id>/<mod-id>@<version>.json`. `games/<game-id>/` holds only
+first-party game modules.
 
 An eventual fully qualified identity may be
 `<bucket>/<game>/<mod>@<version>`. **This is a proposed identity**, not a
@@ -211,7 +217,7 @@ A durable record of one committed install, update or uninstall. It names the
 game installation and per package the mod ID, package IDs and release sides
 before and after, each release's qualified catalog identity and declared
 dependencies, conflicts and native-injector flag when recorded, source
-descriptor, archive SHA-256 and BLAKE3 digests, and every owned file the
+descriptor, the archive BLAKE3 pin, and every owned file the
 operation created, replaced or removed with its content digest before and
 after. A record written by an undo also names the operation it reversed. History is evidence for undo, not an
 ownership claim: it never grants authority over a file. The record is committed
@@ -232,15 +238,17 @@ fixture exercises game-agnostic support.
 | Domain concept | Current data |
 | --- | --- |
 | Game installation | `state.sqlite / game_installations(game_id, path, source)` |
-| Managed package | `state.sqlite / managed_packages(id, game_path, archive_sha256, created_at, pinned)` |
+| Managed package | `state.sqlite / managed_packages(id, game_path, archive_blake3, created_at, pinned)` |
 | Mod approval | `state.sqlite / mod_approvals(game_path, bucket, mod_id, native_injector, executables)` |
 | Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
 | Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
 | Installation root | `state.sqlite / installation_roots(game_path, root, path, path_key)` |
-| File ownership | `state.sqlite / managed_files(game_path, root, path_key, ...)` |
+| File ownership | `state.sqlite / managed_files(game_path, root, path_key, relative_path, package_id, blake3, bytes)` |
 | Directory ownership | `state.sqlite / managed_directories(game_path, root, path_key, ...)` |
 | Created folder | `state.sqlite / created_directories(game_path, root, path_key, ...)` |
-| Pending transaction | `state.sqlite / pending_transactions, pending_files, pending_directories` |
+| Pending transaction | `state.sqlite / pending_transactions(id, action, status, game_path, package_id, archive_blake3), pending_files(transaction_id, ord, root, relative_path, blake3, bytes), pending_directories` |
+| Package conflict evidence | `state.sqlite / package_conflicts(package_id, bucket, game_id, mod_id, archive_blake3)` |
+| Package requirement evidence | `state.sqlite / package_requirements(package_id, bucket, game_id, mod_id, archive_blake3, requirement)` |
 | Package release metadata | `state.sqlite / managed_package_releases(package_id, mod_id, version, source, archive_blake3, catalog, declarations)` |
 | Operation history | `state.sqlite / history_operations, history_packages, history_files` |
 | Official game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
@@ -250,19 +258,19 @@ fixture exercises game-agnostic support.
 | Development override | In-memory per-invocation `--module-src` / `--src` |
 | Bucket packages | Local `main` copy, registered local directories and explicitly synced Git snapshots |
 
-Manager schema version 2 stores each pin as `pinned INTEGER NOT NULL DEFAULT 0`.
-Migration preserves existing packages and leaves them unpinned.
+The manager schema stores each pin as `pinned INTEGER NOT NULL DEFAULT 0`.
+A fresh package starts unpinned.
 A pin belongs to one managed package and disappears when that package is uninstalled.
 Pin changes hold the manager transaction lock and change no ownership or game files.
 
-### Installation roots (schema version 4)
+### Installation roots
 
-Manager schema version 4 records the roots of each installation.
-Schema version 3 introduced the root model with the `game` root.
-Version 4 adds the `content` root and records the root label on pending journal rows.
+Manager state records the roots of each installation.
+The root model uses the `game` root and, for a module that declares `content_root`, the `content` root.
+Pending journal rows record the root label.
 An installation is identified by its canonical `game_path`.
 A root is identified by its label within that installation and by its canonical `path`.
-The labels are `game` and, for an API 2 module that declares `content_root`, `content`.
+The labels are `game` and, for a module that declares `content_root`, `content`.
 The game root's path is the installation path.
 The content root is resolved from the declared appdata base and recorded when an installation first writes content there.
 
@@ -281,43 +289,36 @@ The content root is resolved from the declared appdata base and recorded when an
 - An installation without a recorded root has committed no ownership.
   It resolves its game root as before, from the canonical game path.
 
-A writable open migrates version 1, 2 or 3 state in the same transaction that opens it.
-The migration assigns every owned path to the `game` root, records one game root per installation, and adds root labels to pending rows.
-If any step fails, for example because two recorded installations fold to one root,
-SQLite rolls the transaction back and the old state stays unchanged and readable.
-A second open of migrated state changes nothing.
-A read-only open of version 1 or 2 state presents the same rows through temporary views and writes nothing.
+A writable open creates the current schema in one transaction.
+An existing state database from an earlier schema version is refused at read-write and read-only open, and Modn does not change its contents.
+There are no legacy views and no migration path.
 
-Operation history and the package release metadata are additive tables in the
-same schema version 4. A writable open creates them when missing, so a state
-database from an earlier build opens unchanged. Packages recorded before these
-tables existed have no release metadata; their uninstall history names the
-archive SHA-256 without a version or source. See [history.md](history.md).
+Operation history and the package release metadata are tables in the current
+schema version 7. A package without recorded release metadata has no version or
+source in its uninstall history; the history names only the archive BLAKE3 pin.
+See [history.md](history.md).
 
-Older Modn builds accept only schema versions 1 and 2.
-They refuse version 3, 4 or 5 state with `unsupported manager state schema; start with a fresh state directory`.
-They do not misread it, but that message suggests a fresh state directory.
-Do not follow that advice for state that holds ownership; install a current build instead.
+This build refuses a state database written by an earlier schema version.
+The message names the file, the found and required versions, and says that Modn
+did not read or change the database. Move the file aside to start a new state;
+the files Modn installed stay on disk but are no longer tracked.
 
-### Approvals (schema version 5)
+### Approvals
 
-Manager schema version 5 adds the `mod_approvals` table. The table is keyed by
-`(game_path, bucket, mod_id)` and stores a native-injector flag and a JSON array
-of normalized executable payload paths. A writable open creates it in the same
-transaction as the rest of the schema and leaves schema version 4 state
-readable. A read-only open of version 4 state sees an empty approval table and
-writes nothing. An unreleased schema-5 build keyed approvals by
-`(game_path, mod_id)` only. Such a row cannot name the bucket that published
-the mod, so a writable open rebuilds the table in the bucket-keyed shape,
-discards the old rows and keeps schema version 5; the user is asked again. A
-read-only open of that state writes nothing and sees an empty approval table.
+The `mod_approvals` table is keyed by `(game_path, bucket, mod_id)` and stores a
+native-injector flag and a JSON array of normalized executable payload paths.
+A writable open creates it in the same transaction as the rest of the schema.
+State from an earlier schema version is refused before this table is read.
 Approvals are independent of ownership, managed packages and pending
 transactions; uninstall and recovery do not change them.
 
-The existing bucket v1 contract validates current releases at
-`games/<game-id>/<package-id>.json` and other releases at
-`games/<game-id>/<package-id>@<version>.json`. `main` and trusted signed Git
-catalogs may publish game modules. A mod update is a pending uninstall journal and a pending
+### Bucket package layout
+
+The bucket contract v2 validates current releases at
+`mods/<game-id>/<mod-id>.json` and other releases at
+`mods/<game-id>/<mod-id>@<version>.json`. `main` and trusted signed Git
+catalogs may publish game modules at `games/<game-id>/module.json` and
+`module.lua`. A mod update is a pending uninstall journal and a pending
 install journal; one commit retires the old managed package and moves its
 dependency links to the new one. Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
 
@@ -362,9 +363,10 @@ register the module again. Removal leaves game files and ownership intact.
 The local MCP companion fixes its CLI backend, manager state, and approved filesystem roots at startup.
 Server `--allow-writes` and per-request `approved: true` authorize ordinary installation or uninstall.
 It exposes neither adoption nor forced cleanup.
-The GPUI Kit 0.9.0 desktop belongs to the root workspace, with Windows-only GPUI dependencies.
-It reviews local ZIP and 7z archives and confirms ordinary installation or strict uninstall through the CLI.
-Neither surface derives ownership from scan results or grants executable approval.
+The Tauri 2 desktop belongs to the root workspace, with Windows-only Tauri dependencies.
+It runs ordinary installation, update, strict uninstall and undo through the CLI in one click.
+It passes a native-injector or executable approval only after the user allows that mod.
+Neither surface derives ownership from scan results, and the MCP companion grants no executable approval.
 See [MCP scopes](mcp.md) and [desktop configuration](desktop.md).
 
 

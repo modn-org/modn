@@ -4,6 +4,8 @@ mod main_bucket;
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/tree.rs"]
 #[allow(dead_code)]
 mod tree;
@@ -13,7 +15,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use support::{error, Fixture};
 
 const REFERENCE: &str = "git-fixture/test-game/git-package";
@@ -24,7 +26,7 @@ struct Repository {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .current_dir(directory)
         .args(arguments)
         .output()

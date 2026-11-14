@@ -353,7 +353,25 @@ fn uninstall_takes_catalog_names_and_removes_related_packages_on_request() {
     assert!(cascade.status.success(), "{}", error(&cascade));
     let report: Value = serde_json::from_slice(&cascade.stdout).expect("JSON");
     assert_eq!(report["uninstalled"], json!("middle"));
-    assert_eq!(report["packages"].as_array().expect("packages").len(), 2);
+    let removed: Vec<&str> = report["packages"]
+        .as_array()
+        .expect("packages")
+        .iter()
+        .map(|package| package.as_str().expect("package ID"))
+        .collect();
+    assert_eq!(removed.len(), 2);
+    let operation_id = report["operation_id"]
+        .as_str()
+        .expect("a multi-package uninstall names the newest record it committed");
+    let operations: Value =
+        serde_json::from_slice(&fixture.run(&["--json", "history"]).stdout).expect("history JSON");
+    let operations = operations.as_array().expect("history array");
+    assert_eq!(operations[0]["id"], operation_id);
+    assert_eq!(operations[0]["kind"], "uninstall");
+    assert_eq!(
+        operations[0]["packages"][0]["package_id_before"],
+        removed[1]
+    );
     assert!(!fixture.game.join("addons/top.plugin").exists());
     assert!(!fixture.game.join("addons/middle.plugin").exists());
     assert!(fixture.game.join("addons/base.plugin").is_file());

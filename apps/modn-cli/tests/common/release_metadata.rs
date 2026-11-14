@@ -184,7 +184,7 @@ local fs = mods_host.fs
 
 local policy = {
     game_id = "test-game",
-    api_version = 1,
+    api_version=3,
     marker = "bin/TestGame.exe",
     common_paths = {},
 }

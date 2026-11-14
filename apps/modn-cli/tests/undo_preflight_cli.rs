@@ -248,7 +248,7 @@ fn refused_assignment(fixture: &Fixture) -> (PathBuf, PathBuf) {
         false,
         https(v1_url),
     );
-    write_module(fixture, 1, "v1/example.plugin", "game", false);
+    write_module(fixture, 3, "v1/example.plugin", "game", false);
     fixture.register();
     let installed = run(fixture, &["--json", "install", "example", "--yes"], &[&v1]);
     assert!(installed.status.success(), "{}", error(&installed));
@@ -353,7 +353,7 @@ fn dry_run_update_undo_refuses_a_changed_member_selection() {
     let updated = run(&fixture, &["--json", "update", "example", "--yes"], &[&v2]);
     assert!(updated.status.success(), "{}", error(&updated));
     let target = id_of(&history(&fixture)[0]);
-    write_module(&fixture, 1, "v1-alt/example.plugin", "game", false);
+    write_module(&fixture, 3, "v1-alt/example.plugin", "game", false);
 
     let before_tree = tree::snapshot(&fixture.game);
     let before_history = history(&fixture);
@@ -377,7 +377,7 @@ fn uninstall_undo_checks_restored_bytes_before_any_change() {
     assert!(removed.status.success(), "{}", error(&removed));
     let target = id_of(&history(&fixture)[0]);
     assert_eq!(history(&fixture)[0]["kind"], "uninstall");
-    write_module(&fixture, 1, "v1-alt/example.plugin", "game", false);
+    write_module(&fixture, 3, "v1-alt/example.plugin", "game", false);
 
     let before_tree = tree::snapshot(&fixture.game);
     let before_history = history(&fixture);

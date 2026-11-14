@@ -21,11 +21,19 @@ the catalog statement, and `catalog.pub` holds the signer public key. A local
 folder bucket needs no signature. See
 [Signing a catalog](../docs/buckets.md#signing-a-catalog).
 Each package manifest declares `schema_version` (integer 2), `id`, `game`,
-`name`, `version`, `archive_format`, `blake3`, `sources`, and optional
-`redistributable`, `upstream_sha256`, `dependencies`, `homepage`, `executables`
-and `native_injector`. `blake3` is the archive pin: 64 lowercase hex characters.
-`sources` is an ordered, non-empty list of artifact sources. Modn tries the
-entries in order. `redistributable` is a boolean that defaults to `false` and
+`name`, `version` and `sources`, and optional `redistributable`,
+`upstream_sha256`, `dependencies`, `homepage`, `executables` and
+`native_injector`.
+`sources` is an ordered, non-empty list of artifact sources. Modn uses only the
+first entry today; fallback to the later entries (issue #118) is not shipped yet.
+A record lists either `git` sources or archive sources, never both. A mixed
+record is refused, because one archive pin cannot cover a packed Git archive.
+An archive record declares `blake3`, the archive pin of 64 lowercase hex
+characters. A `manual`, `https`, `github-release` or `nexus` archive record also declares
+`archive_format` (`zip` or `7z`).
+A `git` record declares no `blake3`, because its pinned commit is the integrity
+pin. Its `archive_format` is optional and must be `zip` when present.
+`redistributable` is a boolean that defaults to `false` and
 states that the author allows anyone to redistribute the archive.
 `upstream_sha256`, when known, is provenance only; Modn validates its shape,
 stores it and never verifies an archive against it.
@@ -68,14 +76,20 @@ snapshot publishes current releases only. See
 [`modn-org/main`](https://github.com/modn-org/main) for examples.
 
 Each `module.json` declares `api_version`, the host API version that its module
-needs. Modn refuses a bucket with a module whose `api_version` it does not
-support.
+needs. Bucket contract v2 uses host API version 3. Modn refuses a bucket with a
+module that declares an earlier version and tells the publisher to republish the
+module for contract v2.
 
 `main` and the signed Git catalogs that the user trusts for modules may contain
 `games/<game-id>/module.json` and `module.lua`. Those folders may hold nothing
-else. Modn refuses a package manifest or any other entry under `games/` in
-those buckets. Other buckets ignore `games/` at sync without reading it and
-refuse their modules when a module is used. A mod whose ID is `module` is a
+else. `modn bucket trust-modules` validates this layout before it records trust,
+so a catalog with an extra entry is refused and stays untrusted. Modn refuses a package manifest or any other entry under `games/` in
+those buckets. In every other bucket, sync reads the game folder names under
+`games/` and checks by file metadata whether a folder holds `module.json` or
+`module.lua`. It never parses, validates or runs module content. It reports only
+folders with a valid game ID that hold one of those files, each as ignored with the
+reason `untrusted_source`. An empty `games/<game-id>/` folder produces no entry.
+Modn refuses the module when it is used. A mod whose ID is `module` is a
 normal package at `mods/<game-id>/module.json`. Modn rejects a `modules/`
 directory in any bucket. Registered local buckets are read-only and
 revalidated before catalog lookup.

@@ -39,14 +39,14 @@ shipped behavior.
 - [`data-model.md`](data-model.md): entities, trust, selection and ownership
   boundaries, and their mapping to persistence.
 - [`game-modules.md`](game-modules.md): Lua game modules, module releases,
-  pin, update and rollback, trusted sources, `modn module check`, host API v1
-  and v2, and development overrides.
+  pin, update and rollback, trusted sources, `modn module check`, host API
+  version 3 only with older modules refused, and development overrides.
 - [`transactions.md`](transactions.md): transactional install, exclusive
   folders, created directories and recovery.
 - [`development.md`](development.md): build, test, `verify-modn` and the
   read-only Cyberpunk archive benchmark.
-- [`releasing.md`](releasing.md): the `Release` workflow, the release gates and
-  real-game validation.
+- [`releasing.md`](releasing.md): the `Release` workflow, the closed milestone
+  gates and real-game validation.
 
 ## Buckets and verification
 
@@ -70,4 +70,5 @@ When a page disagrees with the code, fix the page in the same change.
 - [sources.md](sources.md): Git catalogs, verified cache reuse and GitHub release and Nexus Mods sources.
 - [lifecycle.md](lifecycle.md): REDmod content, explicit adoption and approved cleanup.
 - [mcp.md](mcp.md): scoped stdio companion, approval and limits.
-- [desktop.md](desktop.md): Windows GPUI application, setup, operation and limits.
+- [desktop.md](desktop.md): the Windows Tauri app, its screens, one-click
+  operations and limits.

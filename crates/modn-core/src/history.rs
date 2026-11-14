@@ -11,9 +11,7 @@ use crate::transactions::{CatalogReference, ReleaseDeclarations};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 mod persist;
 mod release;
@@ -237,14 +235,6 @@ pub(crate) struct FileSpec {
     pub digest: String,
 }
 
-/// Compute the `blake3:<hex>` digest of `path`.
-pub(crate) fn digest_blake3(path: &Path) -> Result<String> {
-    let mut file = File::open(path)?;
-    let mut hasher = blake3::Hasher::new();
-    io::copy(&mut file, &mut hasher)?;
-    Ok(format!("blake3:{}", hasher.finalize().to_hex()))
-}
-
 impl Store {
     /// Record later managed installs, updates and uninstalls in history.
     pub fn set_history_context(&mut self, context: HistoryContext) {
@@ -256,5 +246,16 @@ impl Store {
     /// `game_id` limits the result to one registered game.
     pub fn history(&self, game_id: Option<&str>) -> Result<Vec<HistoryOperation>> {
         read(&self.connection, game_id)
+    }
+
+    /// The history record that the most recent write committed, if any.
+    ///
+    /// The committing transaction records the ID, so a concurrent write on
+    /// another [`Store`] cannot change what this write reports. A write that
+    /// commits no record reports none. A write that commits several records
+    /// reports the newest one, which `modn undo` without an ID reverses first.
+    #[must_use]
+    pub fn committed_operation_id(&self) -> Option<&str> {
+        self.committed_operation.as_deref()
     }
 }

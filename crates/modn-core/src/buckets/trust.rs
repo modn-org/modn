@@ -3,7 +3,7 @@
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
-use super::store::Registration;
+use super::store::{validate_module_source_games, Registration};
 use super::BucketStore;
 use crate::game_modules::ImportReport;
 use anyhow::{bail, Context, Result};
@@ -139,6 +139,11 @@ impl BucketStore {
         verify_catalog_directory(&registration.path, &key).with_context(|| {
             format!(
                 "cannot trust modules from bucket {name}; the published catalog does not verify"
+            )
+        })?;
+        validate_module_source_games(&registration.path).with_context(|| {
+            format!(
+                "cannot trust modules from bucket {name}; the catalog does not follow the trusted games/<game-id>/ layout"
             )
         })?;
         let staged = crate::game_modules::stage_catalog_modules_at(

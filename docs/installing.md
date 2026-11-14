@@ -2,11 +2,12 @@
 
 ## Catalog and standalone installs
 
-Catalog installation needs each archive with the exact format and BLAKE3 pin
-from its manifest. Modn downloads an `https`, `github-release` or `nexus`
-source itself, or fetches a `git` source. A `manual` source is never
-downloaded: supply it with `--file`, and without it Modn names the file to
-get. Standalone
+Catalog installation needs every source with its exact pin from the manifest.
+An archive source pins BLAKE3 and names its `archive_format`. A `git` source
+pins a commit instead, and Modn fetches it and packs the archive itself.
+Modn downloads an `https`, `github-release` or `nexus` source itself. A
+`manual` source is never downloaded: supply it with `--file`, and without it
+Modn names the file to get. Standalone
 `modn install <archive.zip|archive.7z>` needs no catalog entry and uses
 the existing Lua planner and Rust ownership transaction. `--dry-run` previews
 without game writes. A catalog install in an interactive terminal shows what

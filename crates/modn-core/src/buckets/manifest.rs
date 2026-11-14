@@ -25,7 +25,8 @@ pub struct PackageManifest {
     /// source except `git`, whose commit is the pin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blake3: Option<String>,
-    /// Ordered artifact sources tried in turn for this release.
+    /// Ordered artifact sources for this release. Modn uses only the first
+    /// source until fallback across sources (issue #118) ships.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<PackageSource>,
     /// True when the author allows redistribution of the archive.
@@ -289,6 +290,36 @@ mod tests {
     }
 
     #[test]
+    fn a_record_cannot_mix_git_sources_with_archive_sources() {
+        use serde_json::json;
+        let commit = "a".repeat(40);
+        let digest = "0".repeat(64);
+        let git_source = json!({"kind": "git", "repository": "owner/project", "commit": commit});
+        let https = json!({"kind": "https", "url": "https://example.invalid/top.zip"});
+        for sources in [
+            json!([git_source.clone(), https.clone()]),
+            json!([https, git_source]),
+        ] {
+            let error = format!(
+                "{:#}",
+                parse_git(json!({
+                    "blake3": digest,
+                    "archive_format": "zip",
+                    "sources": sources
+                }))
+                .and_then(|parsed| parsed.validate("test-game", "top"))
+                .unwrap_err()
+            );
+            assert!(
+                error.contains("must not mix git sources with archive sources"),
+                "{error}"
+            );
+        }
+        git(json!({})).expect("a git-only record stays valid");
+        manifest(json!({})).expect("an archive-only record stays valid");
+    }
+
+    #[test]
     fn non_git_sources_still_require_blake3() {
         use serde_json::json;
         for source in [
@@ -303,6 +334,32 @@ mod tests {
             );
             assert!(error.contains("blake3 is required"), "{error}");
         }
+    }
+
+    #[test]
+    fn non_git_sources_require_archive_format() {
+        use serde_json::json;
+        let sources = [
+            json!({"kind": "manual", "filename": "top.zip"}),
+            json!({"kind": "https", "url": "https://example.invalid/top.zip"}),
+            json!({"kind": "github-release", "repository": "owner/project",
+                "tag": "v1", "asset": "top.zip"}),
+            json!({"kind": "nexus", "game_domain": "cyberpunk2077",
+                "mod_id": 6945, "file_id": 123456, "file_name": "top.zip"}),
+        ];
+        for source in sources {
+            let error = format!(
+                "{:#}",
+                manifest(json!({"archive_format": null, "sources": [source.clone()]})).unwrap_err()
+            );
+            assert!(
+                error.contains("archive_format is required"),
+                "{source}: {error}"
+            );
+            manifest(json!({"sources": [source]})).expect("format present");
+        }
+        git(json!({"archive_format": null})).expect("a git-only record needs no archive_format");
+        git(json!({"archive_format": "zip"})).expect("zip stays allowed");
     }
 
     #[test]

@@ -122,7 +122,7 @@ def verify(driver):
 
     driver.run("doctor-help", ["--help"])
     info = driver.json("module-check", ["module", "check", FIXTURE, "--allow-root", game])
-    require(info["game_id"] == "test-game" and info["api_version"] == 1,
+    require(info["game_id"] == "test-game" and info["api_version"] == 3,
             "module identity is not test-game")
     driver.json("inspect-test-archive", ["inspect", test_zip])
     driver.json("no-default-game", ["install", test_zip, "--dry-run", "--path", game],

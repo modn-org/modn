@@ -26,7 +26,7 @@ fn manifest(api: u32, content_root: &str) -> String {
 
 const SCRIPT: &str = r#"
 return {
-    game_id = "content-game", api_version = 2, version = "1.0.0",
+    game_id = "content-game", api_version=3, version = "1.0.0",
     marker = "ContentGame.exe", common_paths = {},
     validate = function() return true end,
     steam_name = function() return "Content Game" end,
@@ -67,7 +67,7 @@ fn setup() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
     let module = module(
         temp.path(),
         &manifest(
-            2,
+            3,
             r#","content_root":{"base":"appdata","path":"Fixture/Mods"}"#,
         ),
         SCRIPT,
@@ -79,8 +79,8 @@ fn setup() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
 fn valid_manifest_loads_and_invalid_forms_are_rejected() {
     let (temp, _game, _appdata, module_dir) = setup();
     assert_eq!(
-        check_module(&module_dir).expect("API 2 module").api_version,
-        2
+        check_module(&module_dir).expect("API 3 module").api_version,
+        3
     );
     for (name, body) in [
         (
@@ -93,27 +93,27 @@ fn valid_manifest_loads_and_invalid_forms_are_rejected() {
         (
             "base",
             manifest(
-                2,
+                3,
                 r#","content_root":{"base":"localappdata","path":"Fixture/Mods"}"#,
             ),
         ),
         (
             "absolute",
             manifest(
-                2,
+                3,
                 r#","content_root":{"base":"appdata","path":"C:/Fixture"}"#,
             ),
         ),
         (
             "parent",
             manifest(
-                2,
+                3,
                 r#","content_root":{"base":"appdata","path":"Fixture/../Mods"}"#,
             ),
         ),
         (
             "reserved",
-            manifest(2, r#","content_root":{"base":"appdata","path":"CON/Mods"}"#),
+            manifest(3, r#","content_root":{"base":"appdata","path":"CON/Mods"}"#),
         ),
     ] {
         let directory = module(temp.path(), &body, SCRIPT);
@@ -224,7 +224,7 @@ fn linked_content_roots_are_rejected() {
     let directory = module(
         temp.path(),
         &manifest(
-            2,
+            3,
             r#","content_root":{"base":"appdata","path":"Fixture/Mods"}"#,
         ),
         SCRIPT,

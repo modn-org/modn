@@ -408,7 +408,7 @@ fn install_mod(
     })?;
     store.set_control(progress.control().clone());
     store.set_history_context(
-        HistoryContext::new(game_id, installation.clone()).with_source(
+        HistoryContext::new(game_id.clone(), installation.clone()).with_source(
             &reference_of(&selected),
             selected.package.primary_source().clone(),
         ),
@@ -421,6 +421,7 @@ fn install_mod(
         policy,
         &approved,
     )?;
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     install_consent::record(&mut store, &installation, &reference_key, &needed)?;
     if json {
         let downloads: Vec<_> = download_attempts
@@ -434,12 +435,13 @@ fn install_mod(
                 })
             })
             .collect();
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "package": reference, "installed": package, "downloads": downloads,
-            }))?
-        );
+        let mut result = serde_json::json!({
+            "package": reference, "installed": package, "downloads": downloads,
+        });
+        if let Some(operation_id) = operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id);
+        }
+        println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         println!(
             "Installed {reference} ({} owned files)",
