@@ -23,9 +23,11 @@ pub(crate) async fn undo(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     operation_id: String,
+    allow_native_injector: bool,
+    allow_executables: Vec<String>,
     run_id: String,
 ) -> Result<Value, CommandError> {
-    let run = state.runs.start(&run_id);
-    let commit = args::undo(&operation_id);
+    let run = state.runs.start(&run_id)?;
+    let commit = args::undo(&operation_id, allow_native_injector, &allow_executables)?;
     run_write(&app, &state, run, commit).await
 }
