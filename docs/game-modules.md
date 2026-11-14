@@ -159,9 +159,14 @@ signed Git catalogs the user trusts for modules supply game modules.
 
 `bucket trust-modules` prints the pinned signer key ID and refuses without `--yes`. Use `--fingerprint <KEY_ID>` to require an exact signer. Trust covers the whole bucket, so one acknowledgement covers every game in it. A signer key change ends trust. See [buckets.md](buckets.md#module-sources-and-trust).
 
-A catalog sync imports modules only from trusted buckets. It ignores the `games/`
-folder of an untrusted bucket at sync: Modn neither reads nor validates it, and
-it reports no ignored modules. Modn refuses those modules when a module is used.
+A catalog sync imports modules only from trusted buckets. For an untrusted
+catalog, sync reads game directory names and checks for `module.json` or
+`module.lua` presence. It never parses, validates or executes module content.
+It reports each such game as ignored with the reason `untrusted_source`, and
+Modn refuses the module when it is used.
+The default output prints `Ignored game module <game-id>: the bucket is not a
+trusted module source.` JSON output lists the same entry under
+`modules.ignored` as `{"game_id": "<game-id>", "reason": "untrusted_source"}`.
 It also ignores a catalog module for a game that `main` provides, because
 official modules take priority. `modn doctor` reports that case as
 `MODULE_HIDDEN_BY_OFFICIAL`.
