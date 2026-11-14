@@ -13,9 +13,24 @@ fn handler_body<'a>(source: &'a str, name: &str) -> &'a str {
     let start = source
         .find(&marker)
         .unwrap_or_else(|| panic!("{name} is a command handler"));
-    let rest = &source[start + marker.len()..];
-    let end = rest.find("\n#[tauri::command]").unwrap_or(rest.len());
-    &rest[..end]
+    let open = source[start..]
+        .find('{')
+        .map(|offset| start + offset)
+        .unwrap_or_else(|| panic!("{name} has a body"));
+    let mut depth = 0usize;
+    for (offset, character) in source[open..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &source[open..open + offset + 1];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("{name} body ends");
 }
 
 #[test]
@@ -30,7 +45,7 @@ fn install_archive_rechecks_the_plan_and_digest_before_the_write() {
         .expect("install_archive must write through run_write");
     assert!(recheck < write, "the recheck must run before the write");
     assert_eq!(
-        body.matches("run_review(").count(),
+        body.matches("= run_review(").count(),
         2,
         "the review must run again before the write"
     );
@@ -44,9 +59,19 @@ fn install_archive_offers_an_executable_approval() {
         body.contains("executable_approval("),
         "an executable blocker must become an approval ask"
     );
+    let approval = body
+        .find("CommandError::approval_required(false, candidates)")
+        .expect("the ask must carry the exact executable paths");
+    let blocked = body
+        .find("plan_blocked()")
+        .expect("a permanent blocker must stay blocked");
     assert!(
-        body.contains("CommandError::approval_required(false, candidates)"),
-        "the ask must carry the exact executable paths"
+        body.contains("vetted"),
+        "the ask must follow a dry run with the candidate approvals"
+    );
+    assert!(
+        approval < blocked,
+        "only a vetted, reviewable plan may ask for approval"
     );
 }
 
@@ -54,11 +79,9 @@ fn install_archive_offers_an_executable_approval() {
 fn undo_passes_the_approvals_to_the_cli() {
     let source = read("src/app/commands/history.rs");
     let body = handler_body(&source, "undo");
-    assert!(body.contains("allow_native_injector"));
-    assert!(body.contains("allow_executables"));
     assert!(
-        body.contains("args::undo("),
-        "undo must validate through args::undo"
+        body.contains("args::undo(&operation_id, allow_native_injector, &allow_executables)?"),
+        "undo must validate the approvals through args::undo"
     );
 }
 

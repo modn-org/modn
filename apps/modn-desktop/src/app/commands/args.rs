@@ -197,7 +197,7 @@ pub(super) fn undo(
     allow_native_injector: bool,
     executables: &[String],
 ) -> Result<Vec<OsString>, CommandError> {
-    let mut args: Vec<OsString> = vec!["undo".into(), operation_id.into(), "--yes".into()];
+    let args: Vec<OsString> = vec!["undo".into(), operation_id.into(), "--yes".into()];
     let args = with_native_injector(args, allow_native_injector);
     with_executables(args, executables)
 }

@@ -41,16 +41,6 @@ impl CommandError {
         error
     }
 
-    /// Refuses a native-injector write with no executable payloads.
-    pub(crate) fn native_injector_required() -> Self {
-        let mut error = Self::new("NATIVE_INJECTOR_NOT_ALLOWED");
-        error.approval = Some(ApprovalRequest {
-            native_injector: true,
-            executables: Vec::new(),
-        });
-        error
-    }
-
     /// Refuses a write whose archive changed after the review.
     pub(crate) fn digest_mismatch() -> Self {
         Self {
@@ -193,10 +183,12 @@ fn classify(error: &anyhow::Error) -> String {
 /// Reads the CLI error envelope that `Backend::call` embeds in its refusal
 /// message. Only the stable code is kept; the message text is discarded.
 fn error_code_from_json(text: &str) -> Option<String> {
-    first_error_envelope(text)
-        .and_then(|object| object.get("error"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
+    first_error_envelope(text).and_then(|object| {
+        object
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
 }
 
 fn first_error_envelope(text: &str) -> Option<serde_json::Map<String, Value>> {
@@ -279,6 +271,7 @@ mod tests {
         assert_eq!(mapped.code, "APPROVAL_REQUIRED");
         let approval = mapped
             .approval
+            .as_ref()
             .expect("an approval refusal names its capabilities");
         assert!(!approval.native_injector);
         assert_eq!(approval.executables, ["tools/helper.exe"]);
