@@ -299,16 +299,38 @@ fn restore(
 
 /// Modules an untrusted catalog offers but cannot import.
 ///
-/// Only directory names are read. The module manifests and scripts are never
-/// parsed or executed for an untrusted source.
+/// The `games/` folder is reported, never validated, parsed or executed for an
+/// untrusted source. Only directory names and the presence of a module file
+/// are read.
 pub(crate) fn ignored_catalog_modules(catalog: &Path) -> Result<Vec<IgnoredModule>> {
-    Ok(module_directories(catalog)?
-        .into_iter()
-        .map(|(game_id, _)| IgnoredModule {
-            game_id,
-            reason: ModuleIgnoreReason::UntrustedSource,
-        })
-        .collect())
+    let games = catalog.join("games");
+    match fs::symlink_metadata(&games) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Ok(Vec::new())
+        }
+        Ok(_) => {}
+    }
+    let mut ignored = Vec::new();
+    for entry in fs::read_dir(&games)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let game = entry.file_name().to_string_lossy().into_owned();
+        if loader::valid_game_id(&game)
+            && (fs::symlink_metadata(entry.path().join("module.json")).is_ok()
+                || fs::symlink_metadata(entry.path().join("module.lua")).is_ok())
+        {
+            ignored.push(IgnoredModule {
+                game_id: game,
+                reason: ModuleIgnoreReason::UntrustedSource,
+            });
+        }
+    }
+    ignored.sort_by(|left, right| left.game_id.cmp(&right.game_id));
+    Ok(ignored)
 }
 
 fn module_directories(catalog: &Path) -> Result<Vec<(String, PathBuf)>> {

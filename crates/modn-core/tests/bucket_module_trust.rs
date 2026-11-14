@@ -552,8 +552,13 @@ fn untrusted_catalogs_ignore_games_and_stay_untrusted() {
         let store = BucketStore::new(state.path());
         let synced = store
             .sync_git_with_signer("community", Some(remote.source()))
-            .expect("untrusted games folder is ignored");
-        assert!(synced.modules.ignored.is_empty());
+            .expect("untrusted games folder is not executed");
+        assert_eq!(synced.modules.ignored.len(), 1);
+        assert_eq!(synced.modules.ignored[0].game_id, "test-game");
+        assert_eq!(
+            synced.modules.ignored[0].reason,
+            modn_core::buckets::ModuleIgnoreReason::UntrustedSource
+        );
         assert_eq!(
             store.module_trust("community").expect("trust"),
             ModuleTrustState::Untrusted

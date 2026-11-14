@@ -7,6 +7,7 @@
 use crate::main_bucket;
 use crate::support::{error, Fixture};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
