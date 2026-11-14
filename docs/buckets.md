@@ -172,7 +172,9 @@ blake3, sources (`manual` with filename, `https` with URL, `github-release`,
 and file_name), optional redistributable, upstream_sha256, dependencies
 (same-game IDs), dependency_versions, conflicts, executables, native_injector
 and homepage. `blake3` is 64 lowercase hex characters and pins the archive.
-`sources` is an ordered, non-empty list; Modn tries its entries in order.
+`sources` is an ordered, non-empty list. Modn uses only the first entry; it
+reads the later entries but does not fall back to them until fallback across
+sources (issue #118) ships.
 `redistributable` defaults to `false`. `upstream_sha256` is provenance only.
 A `nexus` source
 requires `archive_format` and accepts only `.zip` or `.7z` archives; Modn

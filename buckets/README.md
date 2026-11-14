@@ -24,8 +24,8 @@ Each package manifest declares `schema_version` (integer 2), `id`, `game`,
 `name`, `version`, `archive_format`, `blake3`, `sources`, and optional
 `redistributable`, `upstream_sha256`, `dependencies`, `homepage`, `executables`
 and `native_injector`. `blake3` is the archive pin: 64 lowercase hex characters.
-`sources` is an ordered, non-empty list of artifact sources. Modn tries the
-entries in order. `redistributable` is a boolean that defaults to `false` and
+`sources` is an ordered, non-empty list of artifact sources. Modn uses only the
+first entry today; fallback to the later entries (issue #118) is not shipped yet. `redistributable` is a boolean that defaults to `false` and
 states that the author allows anyone to redistribute the archive.
 `upstream_sha256`, when known, is provenance only; Modn validates its shape,
 stores it and never verifies an archive against it.
