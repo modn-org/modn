@@ -177,6 +177,64 @@ test('one Allow approves the native injector and every planned executable', asyn
   });
 });
 
+test('approval retries keep every grant an earlier refusal asked for', async () => {
+  installWindow();
+  const calls = [];
+  const { button, askHost } = makeButton({
+    run: async ({ approvals }) => {
+      calls.push(approvals);
+      if (calls.length === 1) {
+        throw {
+          code: 'APPROVAL_REQUIRED',
+          approval: {
+            nativeInjector: true,
+            executables: ['C:/tools/one.exe'],
+            complete: true,
+          },
+        };
+      }
+      if (calls.length === 2) {
+        throw {
+          code: 'APPROVAL_REQUIRED',
+          approval: {
+            nativeInjector: false,
+            executables: ['C:/tools/two.exe'],
+            complete: true,
+          },
+        };
+      }
+      return { operationId: 'op-5' };
+    },
+  });
+  await button.start();
+  findByTestId(askHost, 'ask-allow').click();
+  await flush();
+  assert.equal(calls.length, 2);
+  findByTestId(askHost, 'ask-allow').click();
+  await flush();
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[1], {
+    native: true,
+    executables: ['C:/tools/one.exe'],
+  });
+  assert.deepEqual(
+    calls[2],
+    {
+      native: true,
+      executables: ['C:/tools/one.exe', 'C:/tools/two.exe'],
+    },
+    'a retry must resend every grant made during this operation',
+  );
+  button.button.click();
+  await flush();
+  assert.equal(calls.length, 4);
+  assert.deepEqual(
+    calls[3],
+    { native: false, executables: [] },
+    'a new operation must start with no grants',
+  );
+});
+
 test('the ask lists each executable and the native permission separately', async () => {
   installWindow();
   const { button, askHost } = makeButton({

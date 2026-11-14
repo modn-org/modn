@@ -23,6 +23,20 @@ const BLOCKED_CODES = new Set([
 
 const NO_APPROVAL = { native: false, executables: [] };
 
+/**
+ * Unions the grants collected for one operation. A retry carries every
+ * executable an earlier refusal named, and the native injector stays granted.
+ * @param {{native: boolean, executables: string[]}} previous
+ * @param {{native: boolean, executables: string[]}} next
+ * @returns {{native: boolean, executables: string[]}}
+ */
+function mergeApprovals(previous, next) {
+  return {
+    native: previous.native === true || next.native === true,
+    executables: [...new Set([...previous.executables, ...next.executables])],
+  };
+}
+
 /** @param {unknown} error @returns {string} */
 function codeOf(error) {
   if (error && typeof error === 'object') {
@@ -322,16 +336,22 @@ export function createOperationButton(options) {
           await onSettled();
         }
       } else if (code === 'APPROVAL_REQUIRED' || code === 'NATIVE_INJECTOR_NOT_ALLOWED') {
-        approvals = await approvalsFrom(error, code, askHost && !active.operationId ? plan : null);
+        approvals = mergeApprovals(
+          approvals,
+          await approvalsFrom(error, code, askHost && !active.operationId ? plan : null),
+        );
         if (generationAtStart !== generation || destroyed) {
           return;
         }
         setIdle(active.idleLabel);
         if (askHost) {
-          const uncovered = { ...approvals };
+          const granted = {
+            native: approvals.native,
+            executables: [...approvals.executables],
+          };
           renderAsk(
             askHost,
-            uncovered,
+            granted,
             () => {
               void start({
                 run: active.run,
@@ -339,7 +359,7 @@ export function createOperationButton(options) {
                 action: active.actionLabel,
                 operationId: active.operationId,
                 params: lastParams,
-                approvals: uncovered,
+                approvals: granted,
               });
             },
             () => {
