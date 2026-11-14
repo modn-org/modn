@@ -1,5 +1,6 @@
 import { installMod, planInstall, undo, uninstall, update } from '../api.js';
 import { createOperationButton } from '../op-button.js';
+import { showToast } from '../toast.js';
 import { element, detailsHref, initials } from './dom.js';
 
 /**
@@ -55,6 +56,29 @@ function operationEntry(operations, key, build) {
 function operationSubject(model) {
   const installed = model.installedPackage;
   return installed ? `package-${installed.id}` : `${model.bucket}:${model.modId}`;
+}
+
+/**
+ * Returns the running entries of one subject that the tile does not offer
+ * itself, so a package-only row keeps a control whose catalog entry a search
+ * dropped.
+ * @param {Map<string, {button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} operations
+ * @param {string} subject
+ * @param {Array<{button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} offered
+ * @returns {Array<{button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>}
+ */
+function runningEntries(operations, subject, offered) {
+  const entries = [];
+  for (const [key, entry] of operations) {
+    if (!key.endsWith(`:${subject}`) || offered.includes(entry)) {
+      continue;
+    }
+    const state = entry.button.button.dataset.state;
+    if (state === 'running' || state === 'finishing') {
+      entries.push(entry);
+    }
+  }
+  return entries;
 }
 
 /**
@@ -195,6 +219,7 @@ export function createTile(model, ctx, { onChanged, operations, undoHost = null 
       ),
     );
   }
+  buttons.push(...runningEntries(operations, subject, buttons));
   for (const entry of buttons) {
     actions.append(entry.button.element);
     body.append(entry.askHost);
@@ -243,7 +268,10 @@ export function createUndoLauncher({ host, runUndo, onSettled }) {
         }
       },
       onError: () => row.remove(),
-      onBlocked: () => row.remove(),
+      onBlocked: (reason) => {
+        showToast(reason);
+        row.remove();
+      },
       onDeclined: () => row.remove(),
     });
     row.append(runner.element, askHost);

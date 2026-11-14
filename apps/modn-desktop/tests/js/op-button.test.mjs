@@ -177,7 +177,7 @@ test('one Allow approves the native injector and every planned executable', asyn
   });
 });
 
-test('approval retries keep every grant an earlier refusal asked for', async () => {
+test('a second refusal asks only for the new grant and keeps the union on retry', async () => {
   installWindow();
   const calls = [];
   const { button, askHost } = makeButton({
@@ -210,6 +210,17 @@ test('approval retries keep every grant an earlier refusal asked for', async () 
   findByTestId(askHost, 'ask-allow').click();
   await flush();
   assert.equal(calls.length, 2);
+  assert.deepEqual(
+    findAllByClass(askHost, 'modn-ask__path').map((path) => path.textContent),
+    ['C:/tools/two.exe'],
+    'the second ask names only the executable it adds',
+  );
+  assert.equal(
+    findAllByClass(askHost, 'modn-ask__question')
+      .some((line) => line.textContent.includes('native injector')),
+    false,
+    'the second ask omits the native permission already granted',
+  );
   findByTestId(askHost, 'ask-allow').click();
   await flush();
   assert.equal(calls.length, 3);
