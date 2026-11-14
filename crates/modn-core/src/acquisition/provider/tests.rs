@@ -1,7 +1,6 @@
 use super::GithubReleaseAsset;
 use crate::acquisition::{ArchiveCache, CacheKey, CacheUse};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::io::Cursor;
 
 fn selector() -> GithubReleaseAsset {
@@ -31,7 +30,7 @@ fn resolves_pinned_asset_and_acquisition_checks_actual_bytes() {
         .unwrap();
     let root = tempfile::tempdir().unwrap();
     let cache = ArchiveCache::new(root.path().to_owned());
-    let digest = format!("{:x}", Sha256::digest(b"pinned bytes"));
+    let digest = blake3::hash(b"pinned bytes").to_hex().to_string();
     let key = CacheKey::new("game", "mod", "1", &url, &digest);
     assert!(cache
         .acquire(&key, CacheUse::Reuse, |_| Ok(Cursor::new(b"wrong bytes")))

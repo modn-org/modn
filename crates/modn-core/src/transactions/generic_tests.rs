@@ -29,7 +29,7 @@ pub(super) fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
 pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
     let checked = inspect(archive).unwrap();
     InstallPlan {
-        archive_sha256: checked.sha256,
+        archive_sha256: checked.blake3,
         game_installation: game.canonicalize().unwrap(),
         status: crate::planning::PlanStatus::Reviewable,
         metadata_only: true,
@@ -425,7 +425,7 @@ fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
     make_zip(&archive, &[("engine/tools/scc.exe", b"forged")]);
     let source = inspect(&archive).unwrap();
     let proposal = InstallPlan {
-        archive_sha256: source.sha256,
+        archive_sha256: source.blake3,
         game_installation: game.canonicalize().unwrap(),
         status: crate::planning::PlanStatus::Reviewable,
         metadata_only: true,

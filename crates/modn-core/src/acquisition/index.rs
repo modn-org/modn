@@ -3,10 +3,10 @@
 //! The index maps an [`ArchivePin`] to the cache entry file name that holds
 //! those bytes. It is an optimisation only: a hit is always re-verified
 //! against the file before it is returned, and a missing, unreadable or
-//! unknown-version index is rebuilt from a scan. Modn is pre-alpha, so an
+//! unknown-format index is rebuilt from a scan. Modn is pre-alpha, so an
 //! index in an unrecognised format is corrupt by definition and is never
-//! migrated.
-use super::parse_entry_name;
+//! migrated. That includes an index that still names `sha256` pins.
+use super::entry_name::parse_entry_name;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,66 +20,32 @@ pub(super) const INDEX_NAME: &str = ".digest-index.json";
 
 const INDEX_VERSION: u32 = 1;
 
-/// The digest that pins cached archive bytes.
+/// The BLAKE3 digest that pins cached archive bytes.
 ///
-/// A pin is one hash algorithm plus its lowercase hex digest. The cache index
-/// is keyed by this type, so changing the algorithm is a local change. Issue
-/// #117 switches pins to BLAKE3 with no index migration: the old index parses
-/// as an unknown algorithm and is rebuilt from a scan.
+/// A pin is the `blake3:` tag plus 64 lowercase hex characters. The cache
+/// index is keyed by this type. An index written for SHA-256 pins holds
+/// `sha256:` keys, which decode to nothing, so the whole index is rebuilt
+/// from a scan and its entries are re-verified before use.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ArchivePin {
-    algorithm: PinAlgorithm,
     hex: String,
 }
 
-/// Hash algorithms an [`ArchivePin`] can name. SHA-256 is the only one today.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum PinAlgorithm {
-    Sha256,
-}
-
 impl ArchivePin {
-    /// Parse a lowercase SHA-256 pin, or `None` when the digest is malformed.
-    pub(super) fn sha256(digest: &str) -> Option<Self> {
-        (digest.len() == PinAlgorithm::Sha256.hex_len() && is_lower_hex(digest)).then(|| Self {
-            algorithm: PinAlgorithm::Sha256,
+    /// Parse a lowercase BLAKE3 pin, or `None` when the digest is malformed.
+    pub(super) fn blake3(digest: &str) -> Option<Self> {
+        (digest.len() == 64 && is_lower_hex(digest)).then(|| Self {
             hex: digest.to_owned(),
         })
     }
 
-    /// The persisted `algorithm:hex` form.
+    /// The persisted `blake3:hex` form.
     fn encode(&self) -> String {
-        format!("{}:{}", self.algorithm.tag(), self.hex)
+        format!("blake3:{}", self.hex)
     }
 
     fn decode(value: &str) -> Option<Self> {
-        let (tag, hex) = value.split_once(':')?;
-        let algorithm = PinAlgorithm::from_tag(tag)?;
-        (hex.len() == algorithm.hex_len() && is_lower_hex(hex)).then(|| Self {
-            algorithm,
-            hex: hex.to_owned(),
-        })
-    }
-}
-
-impl PinAlgorithm {
-    fn tag(self) -> &'static str {
-        match self {
-            Self::Sha256 => "sha256",
-        }
-    }
-
-    fn from_tag(tag: &str) -> Option<Self> {
-        match tag {
-            "sha256" => Some(Self::Sha256),
-            _ => None,
-        }
-    }
-
-    fn hex_len(self) -> usize {
-        match self {
-            Self::Sha256 => 64,
-        }
+        value.strip_prefix("blake3:").and_then(Self::blake3)
     }
 }
 

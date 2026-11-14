@@ -154,11 +154,11 @@ fn restores(
             sha256,
             progress,
         )?;
-        if inspect(&archive)?.sha256 != sha256 {
+        if inspect(&archive)?.blake3 != sha256 {
             return Err(coded(
                 ErrorCode::DigestMismatch,
                 format!(
-                    "{}: restored archive does not match the recorded SHA-256",
+                    "{}: restored archive does not match the recorded BLAKE3",
                     package.mod_id
                 ),
             ));

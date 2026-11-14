@@ -39,7 +39,7 @@ impl Lab {
             .map(|need| {
                 CatalogDependency::new(
                     reference(need),
-                    inspect(&self.archives[*need]).unwrap().sha256,
+                    inspect(&self.archives[*need]).unwrap().blake3,
                 )
             })
             .collect();

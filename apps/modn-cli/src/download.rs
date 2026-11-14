@@ -1,3 +1,4 @@
+mod http;
 #[path = "nexus_download.rs"]
 pub(super) mod nexus_download;
 
@@ -8,17 +9,16 @@ use crate::nexus_auth;
 use crate::nxm::NxmLink;
 use crate::progress::Progress;
 use anyhow::{bail, Context, Result};
+pub(crate) use http::fetch;
+use http::{fetch_measured, fetch_metadata};
 use modn_core::acquisition::{
     ArchiveCache, CacheKey, CacheUse, GitCacheKey, GithubReleaseAsset, NexusFile,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::collections::BTreeMap;
+#[cfg(test)]
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-const READ_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[cfg(test)]
 thread_local! {
@@ -150,7 +150,7 @@ pub(super) fn acquire_source(
     mod_id: &str,
     version: &str,
     source: &PackageSource,
-    sha256: &str,
+    blake3: &str,
     progress: &Progress,
 ) -> Result<PathBuf> {
     let url = match source {
@@ -161,7 +161,7 @@ pub(super) fn acquire_source(
             asset,
         } => {
             let url = format!("https://github.com/{repository}/releases/download/{tag}/{asset}");
-            let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+            let key = CacheKey::new(game_id, mod_id, version, &url, blake3);
             if let Some(path) = cache.cached(&key)? {
                 return Ok(path);
             }
@@ -174,7 +174,7 @@ pub(super) fn acquire_source(
         PackageSource::Git { commit, .. } => {
             let key = GitCacheKey::new(game_id, mod_id, version, commit);
             return match cache.git_cached(&key)? {
-                Some((path, cached)) if cached == sha256 => Ok(path),
+                Some((path, cached)) if cached == blake3 => Ok(path),
                 _ => Err(cache_miss(
                     "this git release cannot be fetched again; reinstall it from the catalog",
                 )),
@@ -187,7 +187,7 @@ pub(super) fn acquire_source(
             file_name,
         } => {
             let url = NexusFile::new(game_domain, *nexus_mod_id, *file_id, file_name)?.cache_url();
-            let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+            let key = CacheKey::new(game_id, mod_id, version, &url, blake3);
             return match cache.cached(&key)? {
                 Some(path) => Ok(path),
                 None => Err(cache_miss(
@@ -203,7 +203,7 @@ pub(super) fn acquire_source(
         }
         _ => bail!("unknown release source"),
     };
-    let key = CacheKey::new(game_id, mod_id, version, &url, sha256);
+    let key = CacheKey::new(game_id, mod_id, version, &url, blake3);
     let acquired = cache.acquire_with_control(
         &key,
         CacheUse::Reuse,
@@ -234,7 +234,7 @@ pub(super) fn add_cached<'a>(
         }
         if let Some(archive) = git_source::cached(cache, release)? {
             archives.insert(reference.clone(), archive.path);
-            digests.insert(reference, archive.sha256);
+            digests.insert(reference, archive.blake3);
             continue;
         }
         if let Some(path) = source_url(release)?
@@ -276,7 +276,7 @@ pub(super) fn download(
             }
             let archive = git_source::acquire(cache, release, cache_use, progress)?;
             archives.insert(reference.clone(), archive.path);
-            digests.insert(reference, archive.sha256);
+            digests.insert(reference, archive.blake3);
             continue;
         }
         if let PackageSource::Nexus {
@@ -344,55 +344,6 @@ pub(super) fn download(
         archives.insert(reference, acquired.path);
     }
     Ok(())
-}
-
-fn fetch_metadata(url: &str) -> Result<Box<dyn Read>> {
-    #[cfg(test)]
-    if let Some(response) = fixture_response(url) {
-        return response;
-    }
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .https_only(true)
-        .max_redirects(0)
-        .timeout_connect(Some(CONNECT_TIMEOUT))
-        .timeout_per_read(Some(READ_INACTIVITY_TIMEOUT))
-        .user_agent(concat!("modn/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into();
-    let response = agent
-        .get(url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .call()?;
-    if response.status() != 200 {
-        bail!("GitHub metadata request returned {}", response.status());
-    }
-    Ok(Box::new(response.into_body().into_reader()))
-}
-
-pub(super) fn fetch(url: &str) -> Result<Box<dyn Read>> {
-    Ok(fetch_measured(url)?.0)
-}
-
-fn fetch_measured(url: &str) -> Result<(Box<dyn Read>, Option<u64>)> {
-    #[cfg(test)]
-    if let Some(response) = fixture_response(url) {
-        return Ok((response?, None));
-    }
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .https_only(true)
-        .timeout_connect(Some(CONNECT_TIMEOUT))
-        .timeout_per_read(Some(READ_INACTIVITY_TIMEOUT))
-        .user_agent(concat!("modn/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into();
-    let response = agent.get(url).call()?;
-    let total = response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse().ok());
-    Ok((Box::new(response.into_body().into_reader()), total))
 }
 
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {

@@ -127,11 +127,11 @@ fn match_archives(
         let matches: Vec<&BucketPackage> = dependencies
             .iter()
             .chain([selected])
-            .filter(|release| release.package.pin() == Some(inspected.sha256.as_str()))
+            .filter(|release| release.package.pin() == Some(inspected.blake3.as_str()))
             .collect();
         if matches.is_empty() {
             bail!(
-                "{}: archive SHA-256 does not match catalog manifest of {reference} or its dependencies",
+                "{}: archive BLAKE3 does not match catalog manifest of {reference} or its dependencies",
                 file.display()
             );
         }

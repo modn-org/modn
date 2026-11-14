@@ -77,7 +77,7 @@ impl Store {
             bail!("manager state must be separate from the game directory");
         }
         let inspection = inspect(archive)?;
-        if inspection.sha256 != reviewed_sha256 {
+        if inspection.blake3 != reviewed_sha256 {
             bail!("archive changed since adoption preview");
         }
         let proposal = match appdata {
@@ -94,7 +94,7 @@ impl Store {
         };
         validate_plan(&inspection, &roots, &proposal, &[], ExistingTargets::Adopt)?;
         validate_ownership(self, &game, &proposal, None)?;
-        let conflicts = self.conflicting_packages(&game, None, &inspection.sha256)?;
+        let conflicts = self.conflicting_packages(&game, None, &inspection.blake3)?;
         if !conflicts.is_empty() {
             bail!("adoption conflicts with installed {}", conflicts.join(", "));
         }
@@ -145,7 +145,7 @@ impl Store {
             files
         };
         super::content::validate_staged_content(&proposal, staging.path())?;
-        if inspect(archive)?.sha256 != reviewed_sha256 {
+        if inspect(archive)?.blake3 != reviewed_sha256 {
             bail!("archive changed during adoption verification");
         }
         for file in &files {

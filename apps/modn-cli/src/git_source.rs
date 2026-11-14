@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 pub(super) struct GitArchive {
     pub(super) path: PathBuf,
-    pub(super) sha256: String,
+    pub(super) blake3: String,
 }
 
 fn source(release: &BucketPackage) -> Option<GitSource> {
@@ -40,12 +40,12 @@ pub(super) fn cached(cache: &ArchiveCache, release: &BucketPackage) -> Result<Op
     let key = key(release, &source);
     Ok(cache
         .git_cached(&key)?
-        .map(|(path, sha256)| GitArchive { path, sha256 }))
+        .map(|(path, blake3)| GitArchive { path, blake3 }))
 }
 
 /// Names of the cache entries a fetch of `key` may replace.
 ///
-/// A Git entry name ends with `git-<commit>-<sha256>.zip`, so a probe path with
+/// A Git entry name ends with `git-<commit>-blake3-<digest>.zip`, so a probe path with
 /// a placeholder digest yields the prefix shared by entries of this release.
 fn entry_names(cache: &ArchiveCache, key: &GitCacheKey<'_>) -> Result<Vec<String>> {
     let placeholder = "0".repeat(64);
@@ -106,7 +106,7 @@ pub(super) fn acquire(
     let acquired = source.acquire(cache, &key, cache_use)?;
     let archive = GitArchive {
         path: acquired.path,
-        sha256: acquired.sha256,
+        blake3: acquired.blake3,
     };
     if let Err(cancelled) = control.checkpoint() {
         if acquired.origin == Origin::Download {
