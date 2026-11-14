@@ -47,15 +47,24 @@ function uncoveredIn(value) {
 }
 
 /**
- * Reads the items a refusal names, or falls back to the read-only install
- * plan. The CLI stores an approval only after a committed write.
- * @param {unknown} error
+ * Reads the capabilities a refusal leaves uncovered. A domain error names them
+ * directly in `err.approval`; a read-only install plan names them under
+ * `approval.uncovered`. The CLI stores an approval only after a committed
+ * write.
+ * @param {unknown} err
  * @param {string} code
  * @param {(() => Promise<Object|null>)|null} plan
  * @returns {Promise<{native: boolean, executables: string[]}>}
  */
-async function approvalsFrom(error, code, plan) {
-  let uncovered = uncoveredIn(error);
+async function approvalsFrom(err, code, plan) {
+  let uncovered = uncoveredIn(err);
+  const refusal = err && typeof err === 'object' ? err.approval : null;
+  if (!uncovered && refusal && typeof refusal === 'object') {
+    uncovered = {
+      native_injector: refusal.nativeInjector === true,
+      executables: Array.isArray(refusal.executables) ? refusal.executables : [],
+    };
+  }
   if (!uncovered && plan) {
     try {
       uncovered = uncoveredIn(await plan());
@@ -133,7 +142,8 @@ function renderAsk(host, question, onAllow, onDecline) {
  *   plan?: () => Promise<Object|null>,
  *   askHost?: HTMLElement|null,
  *   newestOperation?: (match: Object) => Promise<{id: string}|null>,
- *   runUndo?: (args: {runId: string, operationId: string}) => Promise<unknown>,
+ *   runUndo?: (args: {runId: string, operationId: string,
+ *     approvals: {native: boolean, executables: string[]}}) => Promise<unknown>,
  *   onSettled?: () => void|Promise<void>,
  *   onError?: (message: string) => void,
  *   testId?: string,
@@ -365,12 +375,13 @@ export function createOperationButton(options) {
           await onSettled();
         }
       } else if (code === 'APPROVAL_REQUIRED' || code === 'NATIVE_INJECTOR_NOT_ALLOWED') {
-        approvals = await approvalsFrom(error, code, askHost ? plan : null);
+        approvals = await approvalsFrom(error, code, askHost && !active.operationId ? plan : null);
         if (generationAtStart !== generation || destroyed) {
           return;
         }
         setIdle(active.idleLabel);
         if (askHost) {
+          const uncovered = { ...approvals };
           renderAsk(
             askHost,
             'This mod runs native code. Allow it?',
@@ -381,7 +392,7 @@ export function createOperationButton(options) {
                 action: active.actionLabel,
                 operationId: active.operationId,
                 params: lastParams,
-                approvals,
+                approvals: uncovered,
               });
             },
             () => setIdle(active.idleLabel),

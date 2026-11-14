@@ -16,7 +16,13 @@ export function undoHooks(gameId) {
       const entries = await history({ gameId });
       return Array.isArray(entries) && entries.length > 0 ? entries[0] : null;
     },
-    runUndo: ({ runId, operationId }) => undo({ operationId, runId }),
+    runUndo: ({ runId, operationId, approvals }) =>
+      undo({
+        operationId,
+        runId,
+        allowNativeInjector: approvals.native,
+        allowExecutables: approvals.executables,
+      }),
   };
 }
 
@@ -58,17 +64,25 @@ export function createHistorySection(ctx, { reload }) {
     if (when) {
       text.append(element('p', 'modn-muted', when));
     }
+    const askHost = element('div', 'modn-history__ask');
     const action = createOperationButton({
       ...hooks,
       label: 'Undo',
       action: 'Undo',
       testId: 'history-undo',
       ariaLabel: `Undo ${label}`,
-      run: ({ runId }) => undo({ operationId: entry.id, runId }),
+      askHost,
+      run: ({ runId, approvals }) =>
+        undo({
+          operationId: entry.id,
+          runId,
+          allowNativeInjector: approvals.native,
+          allowExecutables: approvals.executables,
+        }),
       onSettled: reload,
       onError: showError,
     });
-    row.append(text, action.element);
+    row.append(text, action.element, askHost);
     return row;
   }
 
