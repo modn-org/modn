@@ -22,6 +22,8 @@ pub struct Store {
     pub(crate) state_root: PathBuf,
     pub(crate) control: OperationControl,
     pub(crate) history: Option<crate::history::HistoryContext>,
+    /// The record that the last completed write committed, if any.
+    pub(crate) committed_operation: Option<String>,
 }
 
 impl Store {
@@ -237,6 +239,7 @@ impl Store {
                 .canonicalize()?,
             control: OperationControl::default(),
             history: None,
+            committed_operation: None,
         })
     }
 
@@ -261,6 +264,7 @@ impl Store {
                 .canonicalize()?,
             control: OperationControl::default(),
             history: None,
+            committed_operation: None,
         })
     }
 
