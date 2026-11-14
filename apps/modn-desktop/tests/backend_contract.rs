@@ -63,6 +63,17 @@ impl Fixture {
             "Refusal must not invoke a write"
         );
     }
+    fn registration_args(&self, scenario: &str) -> Vec<OsString> {
+        vec![
+            "game".into(),
+            "add".into(),
+            self.game.game_id.clone().into(),
+            "--path".into(),
+            self.game.path.clone().into_os_string(),
+            "--fixture-scenario".into(),
+            scenario.into(),
+        ]
+    }
     fn progress_args(&self, scenario: &str) -> Vec<OsString> {
         let archive = self.backend.state.join(format!("{scenario}.zip"));
         fs::write(&archive, b"fixture source").expect("fixture archive bytes");
@@ -386,4 +397,84 @@ fn progress_activity_resets_the_inactivity_timer() {
         .expect("each event must reset the inactivity timer");
     assert_eq!(result["id"], "owned-package");
     assert!(f.backend.state.join("write.json").is_file());
+}
+
+#[test]
+fn game_registration_uses_the_inactivity_timeout() {
+    let f = Fixture::new();
+    let args = f.registration_args("silent");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_millis(250));
+    let start = Instant::now();
+    let error = backend
+        .call_with_inactivity_timeout(&args)
+        .expect_err("a silent registration must stop");
+    assert_eq!(error.kind(), BackendErrorKind::Timeout);
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "the configured inactivity timeout must replace the fixed deadline"
+    );
+    let recorded: Vec<String> = serde_json::from_slice(
+        &fs::read(f.backend.state.join("last-args.json")).expect("recorded args"),
+    )
+    .expect("argv JSON");
+    assert!(
+        !recorded.iter().any(|arg| arg == "--progress"),
+        "game registration does not report progress events"
+    );
+}
+
+#[test]
+fn game_registration_survives_while_output_stays_active() {
+    let f = Fixture::new();
+    let args = f.registration_args("heartbeat");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_millis(300));
+    let result = backend
+        .call_with_inactivity_timeout(&args)
+        .expect("each output line must reset the inactivity timer");
+    assert_eq!(result["game_id"], "fixture");
+}
+
+#[test]
+fn game_registration_is_not_killed_after_stdout_reports_the_result() {
+    let f = Fixture::new();
+    let args = f.registration_args("committed-stall");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_millis(200));
+    let result = backend
+        .call_with_inactivity_timeout(&args)
+        .expect("a result on stdout means the write committed");
+    assert_eq!(result["game_id"], "fixture");
+    assert!(f.backend.state.join("committed").is_file());
+    assert!(
+        f.backend.state.join("survived-after-result").is_file(),
+        "the backend process must never be killed after printing its result"
+    );
+}
+
+#[test]
+fn game_launch_returns_before_the_started_game_exits() {
+    let f = Fixture::new();
+    let args = f.registration_args("game-launch");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_secs(5));
+    let start = Instant::now();
+    let result = backend
+        .call_with_inactivity_timeout(&args)
+        .expect("launch result");
+    let elapsed = start.elapsed();
+    assert_eq!(result["game_id"], "fixture");
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "the desktop must not wait for the started game: {elapsed:?}"
+    );
 }

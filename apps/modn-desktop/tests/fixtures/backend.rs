@@ -36,6 +36,13 @@ use std::thread;
 use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--fixture-grandchild")
+    {
+        thread::sleep(Duration::from_secs(4));
+        return Ok(());
+    }
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     anyhow::ensure!(
         args.first().is_some_and(|arg| arg == "--json"),
@@ -85,6 +92,9 @@ fn main() -> anyhow::Result<()> {
     }
     if args.iter().any(|arg| arg == "--progress") {
         return progress(&args, &state);
+    }
+    if let Some(scenario) = fixture_scenario(&args) {
+        return registration_scenario(scenario, &state);
     }
     match mode.as_str() {
         "overflow" => {
@@ -197,6 +207,46 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
     println!("{}", json!({"id":"owned-package"}));
+    Ok(())
+}
+
+fn fixture_scenario(args: &[OsString]) -> Option<&'static str> {
+    let position = args.iter().position(|arg| arg == "--fixture-scenario")?;
+    match args.get(position + 1)?.to_str()? {
+        "heartbeat" => Some("heartbeat"),
+        "silent" => Some("silent"),
+        "committed-stall" => Some("committed-stall"),
+        "game-launch" => Some("game-launch"),
+        _ => None,
+    }
+}
+
+fn registration_scenario(scenario: &str, state: &Path) -> anyhow::Result<()> {
+    match scenario {
+        "heartbeat" => {
+            for _ in 0..10 {
+                eprintln!("fixture heartbeat");
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+        "silent" => thread::sleep(Duration::from_millis(1500)),
+        "committed-stall" => {
+            println!("{}", json!({"game_id": "fixture"}));
+            io::stdout().flush()?;
+            fs::write(state.join("committed"), b"yes")?;
+            thread::sleep(Duration::from_millis(1200));
+            fs::write(state.join("survived-after-result"), b"yes")?;
+            return Ok(());
+        }
+        "game-launch" => {
+            let executable = std::env::current_exe()?;
+            std::process::Command::new(executable)
+                .arg("--fixture-grandchild")
+                .spawn()?;
+        }
+        _ => {}
+    }
+    println!("{}", json!({"game_id": "fixture"}));
     Ok(())
 }
 

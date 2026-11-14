@@ -36,11 +36,12 @@ its own.
 Rust shows every native dialog. The folder picker and archive picker return a
 path to Rust, and the webview never supplies or edits the chosen folder.
 
-`src/backend/progress.rs` holds the only process-spawn helper. `Backend::call`
-and `Backend::call_with_progress` both use it. The helper runs the configured
-`modn.exe` with a fixed prefix, `--json --state-dir <directory>`, and the
-arguments that `src/app/commands/args.rs` builds. It clears the inherited
-environment, then forwards only these values when they are set:
+`src/backend/progress.rs` holds the only process-spawn helper. `Backend::call`,
+`Backend::call_with_inactivity_timeout` and `Backend::call_with_progress` all
+use it. The helper runs the configured `modn.exe` with a fixed prefix,
+`--json --state-dir <directory>`, and the arguments that
+`src/app/commands/args.rs` builds. It clears the inherited environment, then
+forwards only these values when they are set:
 
 - `SystemRoot`;
 - `TEMP` and `TMP`, only as absolute Windows paths;
@@ -173,15 +174,16 @@ run shows `Cancelled. Nothing changed.`
 After the CLI reports the `commit` event, the button becomes **Finishing...**
 and cannot be cancelled. The app then waits for the CLI to finish or roll back.
 
-A write call has an inactivity timeout of 120 seconds before the commit. Any
-output resets the timer. On expiry the app sends `cancel`, waits 15 seconds,
-then kills the process. After the commit event no inactivity kill applies. A
-call that times out returns `BACKEND_TIMEOUT`.
+Every write call uses the inactivity timeout, including game registration and
+play. The default is 120 seconds and any output resets the timer. For a call
+with progress events, expiry sends `cancel`, waits 15 seconds, then kills the
+process; after the `commit` event no inactivity kill applies. A call without
+progress events never kills the process after its result starts on stdout.
+`modn play` returns when the CLI exits, so a started game cannot hold the call
+open. A call that times out returns `BACKEND_TIMEOUT`.
 
 Read-only calls keep their 60-second deadline and a 1 MiB bound per output
-stream. The game registration calls (activate, add and remove a game) also use
-this deadline; they write manager state only. A call that exceeds either bound
-is killed and reported.
+stream. A call that exceeds either bound is killed and reported.
 
 The archive check accepts a regular ZIP or 7z file up to 4 GiB. The app hashes
 the archive and runs the dry run. It checks that plan and the digest again
@@ -222,12 +224,10 @@ tests. They cover argument vectors, refusals, bounded output, the environment
 allowlist, progress order, cancel before and after the commit, and the
 inactivity timeout.
 
-The [desktop verifier skill](../.agents/skills/verify-modn-desktop/SKILL.md)
-checks the running window on Windows. Run it from the repository root:
-
-```powershell
-uv run --no-project python .agents/skills/verify-modn-desktop/scripts/verify.py --build
-```
+The Tauri desktop verifier is not shipped yet; it is a follow-up. The
+checked-in [desktop verifier skill](../.agents/skills/verify-modn-desktop/SKILL.md)
+still drives the earlier GPUI app, requires `--backend`, and has no `--build`
+option. Do not use it to check this Tauri window.
 
 ## Limits
 

@@ -45,7 +45,10 @@ pub(crate) async fn list_installations(
 pub(crate) async fn detect_games(state: tauri::State<'_, AppState>) -> Result<Value, CommandError> {
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
-    run_blocking(&busy, move || backend.call(&args::detect_games())).await
+    run_blocking(&busy, move || {
+        Ok(backend.call_with_inactivity_timeout(&args::detect_games())?)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -57,7 +60,10 @@ pub(crate) async fn activate_game(
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let args = args::game_add(&game_id, Path::new(&path));
-    run_blocking(&busy, move || backend.call(&args)).await
+    run_blocking(&busy, move || {
+        Ok(backend.call_with_inactivity_timeout(&args)?)
+    })
+    .await
 }
 
 /// Shows the native folder picker from Rust, then registers the chosen folder.
@@ -74,7 +80,10 @@ pub(crate) async fn add_game(
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let args = args::game_add(&game_id, &folder);
-    let game = run_blocking(&busy, move || backend.call(&args)).await?;
+    let game = run_blocking(&busy, move || {
+        Ok(backend.call_with_inactivity_timeout(&args)?)
+    })
+    .await?;
     Ok(Some(game))
 }
 
@@ -92,7 +101,10 @@ pub(crate) async fn remove_game(
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let args = args::game_remove(&game_id, Path::new(&path));
-    let removed = run_blocking(&busy, move || backend.call(&args)).await?;
+    let removed = run_blocking(&busy, move || {
+        Ok(backend.call_with_inactivity_timeout(&args)?)
+    })
+    .await?;
     Ok(Some(removed))
 }
 
@@ -105,7 +117,10 @@ pub(crate) async fn play(
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let args = args::play(&game_id, Path::new(&path));
-    run_blocking(&busy, move || backend.call(&args)).await
+    run_blocking(&busy, move || {
+        Ok(backend.call_with_inactivity_timeout(&args)?)
+    })
+    .await
 }
 
 async fn pick_folder(app: &tauri::AppHandle) -> Result<Option<PathBuf>, CommandError> {

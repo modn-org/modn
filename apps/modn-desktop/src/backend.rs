@@ -1,5 +1,7 @@
 #[path = "backend/error.rs"]
 mod error;
+#[path = "backend/inactivity.rs"]
+mod inactivity;
 #[path = "backend/progress.rs"]
 mod progress;
 
@@ -31,10 +33,10 @@ pub(crate) struct Backend {
     pub data: Option<PathBuf>,
     pub modules: Option<PathBuf>,
     pub evidence: Option<PathBuf>,
-    /// Inactivity timeout for [`Backend::call_with_progress`].
+    /// Inactivity timeout for the write and long-running call paths.
     ///
     /// `None` uses 120 seconds. The timeout applies only before the CLI reports
-    /// the commit phase.
+    /// its commit phase or starts its result on stdout.
     pub inactivity_timeout: Option<Duration>,
 }
 
@@ -112,11 +114,11 @@ impl Backend {
         Ok(result)
     }
 
-    /// Sets the inactivity timeout for [`Backend::call_with_progress`].
+    /// Sets the inactivity timeout for the write and long-running call paths.
     ///
     /// The default is 120 seconds. The timeout applies only before the CLI
-    /// reports the commit phase; after it the call waits for the CLI to finish
-    /// or roll back.
+    /// reports the commit phase or starts its result on stdout; after that the
+    /// call waits for the CLI to finish or roll back.
     #[must_use]
     #[cfg_attr(
         not(test),
@@ -163,6 +165,24 @@ impl Backend {
         on_event: &mut dyn FnMut(ProgressEvent),
     ) -> Result<Value, BackendError> {
         progress::call(self, args, cancel, on_event)
+    }
+
+    /// Runs a command that does not report progress with the inactivity
+    /// timeout.
+    ///
+    /// `--progress json` is not appended. Any output resets the timer. The
+    /// call ends when the CLI process exits, so a started game that inherited
+    /// the CLI's pipes cannot hold the caller open. Once stdout carries output,
+    /// the call never kills the process: the write has committed and its
+    /// result is recoverable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BackendError`] when the CLI refuses, output is invalid or
+    /// exceeds its bound before stdout starts, the process cannot start, or
+    /// inactivity expires before stdout starts.
+    pub fn call_with_inactivity_timeout(&self, args: &[OsString]) -> Result<Value, BackendError> {
+        inactivity::call(self, args)
     }
 
     pub fn call(&self, args: &[OsString]) -> Result<Value> {
