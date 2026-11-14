@@ -74,7 +74,7 @@ fn an_earlier_schema_database_is_refused_without_being_read_or_changed() {
     let before_hash = blake3::hash(&before_bytes).to_hex().to_string();
     let before_listing = directory_listing(temp.path());
 
-    let required = super::roots::SCHEMA_VERSION;
+    let required = crate::state::roots::SCHEMA_VERSION;
     let expected = format!(
         "state database {} has schema version 5, but this Modn build needs schema version {required}",
         db.display()
