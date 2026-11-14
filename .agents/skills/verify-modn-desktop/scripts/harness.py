@@ -113,12 +113,23 @@ class App:
         if self.process is None or self.process.poll() is not None:
             return self.process.returncode if self.process else None
         # Closing must never answer a destructive confirmation: only OK and
-        # Cancel are safe here, and Yes/No dialogs are left for the journey.
+        # Cancel are answers here, and a Yes/No dialog is left for the journey.
         for dialog in self.session.extra_windows():
+            answered = False
             for answer in ("OK", "Cancel"):
                 if answer in uia.dialog_buttons(dialog):
                     try:
                         uia.answer_dialog(dialog, self.session, answer, timeout=2)
+                        answered = True
+                        break
+                    except Exception:
+                        continue
+            if answered:
+                continue
+            for control in uia._walk(dialog):
+                if control.Name == "Close":
+                    try:
+                        self.session.activate(control)
                         break
                     except Exception:
                         continue
