@@ -205,8 +205,12 @@ mod game_command_errors {
     }
 
     fn fixture_binary() -> Option<&'static str> {
-        // The `verification` feature builds the fixture binary. Without it the
-        // target still compiles, but there is no fixture to run.
+        // The `verification` feature builds the fixture binary. Without it,
+        // Cargo can still name a stale binary from an earlier build, so the
+        // feature itself decides whether a fixture exists.
+        if !cfg!(feature = "verification") {
+            return None;
+        }
         option_env!("CARGO_BIN_EXE_modn-desktop-test-backend")
     }
 
