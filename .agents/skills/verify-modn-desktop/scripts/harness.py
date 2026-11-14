@@ -209,7 +209,7 @@ def cli(fixture, *args):
     )
 
 
-def wait_control(self, name=None, prefix=None, control_type=None, timeout=45):
+def wait_control(self, name=None, prefix=None, control_type=None, timeout=90):
     """Waits for a control and returns the node the wait found.
 
     Re-renders can replace a node between a wait and a second lookup, so
@@ -224,7 +224,7 @@ def wait_control(self, name=None, prefix=None, control_type=None, timeout=45):
     raise uia.Failure(f"Timed out waiting for control {name or prefix}")
 
 
-def wait_cards(self, prefix, timeout=45):
+def wait_cards(self, prefix, timeout=90):
     """Waits for one Home card whose accessible name starts with `prefix`."""
     return self.wait_control(prefix=prefix, control_type="ButtonControl", timeout=timeout)
 

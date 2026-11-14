@@ -23,18 +23,11 @@ def journey_detection(runner):
     app = App(fx, BINARIES.cli).launch()
     runner.cleanup.append(app.kill)
     session = app.session
-    session.wait_for(
-        lambda s: s.find_all(prefix="Add Balatro at", control_type="ButtonControl"),
-        "detected Balatro card",
-    )
-    runner.check(snapshot(game) == before, "Detection changed the fixture game folder")
     card = session.wait_control(prefix="Add Balatro at", control_type="ButtonControl")
+    runner.check(snapshot(game) == before, "Detection changed the fixture game folder")
     session.activate(card)
-    session.wait_for(
-        lambda s: s.find_all(prefix="Open Balatro at", control_type="ButtonControl"),
-        "registered Balatro card",
-    )
-    runner.check(session.exists(prefix="Open Balatro at"), "Card did not become registered")
+    card = session.wait_control(prefix="Open Balatro at", control_type="ButtonControl")
+    runner.check(str(game) in card.Name, "Card did not become registered")
     listed = cli(fx, "game", "list")
     runner.check(listed.returncode == 0, f"CLI game list failed: {listed.stderr}")
     runner.check("balatro" in listed.stdout.lower(), "CLI does not list the registered game")
