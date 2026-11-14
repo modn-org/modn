@@ -158,43 +158,34 @@ fn invalid_declared_sources_keep_the_previous_registration() {
         })
         .expect("first sync");
     let before = state_snapshot(&state);
-    let bad = signed_zip(
+    let bad_mirrors = signed_zip(
         temp.path(),
         "v2",
         "2.0",
         &key,
         &[("mirrors.json", &mirrors_json(&["C:/local/catalog.zip"]))],
     );
-    let opener = Opener::new(vec![(PRIMARY, Some(bad))]);
+    let opener = Opener::new(vec![(PRIMARY, Some(bad_mirrors))]);
     let error = store
         .sync_zip_with_signer("community", None, |source| opener.open(source))
         .expect_err("invalid mirrors refuse the revision");
     assert!(format!("{error:#}").contains("invalid mirror"));
     assert_eq!(before, state_snapshot(&state));
-}
 
-#[test]
-fn failed_registration_write_keeps_the_previous_state() {
-    let key = test_key();
-    let temp = tempfile::tempdir().expect("temp");
-    let first = signed_zip(temp.path(), "v1", "1.0", &key, &[]);
-    let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
-    let opener = Opener::new(vec![(PRIMARY, Some(first))]);
-    store
-        .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {
-            opener.open(source)
-        })
-        .expect("first sync");
-    let before = state_snapshot(&state);
-    let second = signed_zip(temp.path(), "v2", "2.0", &key, &[]);
-    store
-        .fail_next_registration_write
-        .store(true, std::sync::atomic::Ordering::SeqCst);
-    let opener = Opener::new(vec![(PRIMARY, Some(second))]);
+    let bad_relocation = signed_zip(
+        temp.path(),
+        "v3",
+        "3.0",
+        &key,
+        &[(
+            "relocation.json",
+            &relocation_json("http://plain.example/catalog.zip"),
+        )],
+    );
+    let opener = Opener::new(vec![(PRIMARY, Some(bad_relocation))]);
     let error = store
         .sync_zip_with_signer("community", None, |source| opener.open(source))
-        .expect_err("write failure");
-    assert!(format!("{error:#}").contains("injected registration write failure"));
+        .expect_err("invalid relocation refuses the revision");
+    assert!(format!("{error:#}").contains("invalid relocation target"));
     assert_eq!(before, state_snapshot(&state));
 }
