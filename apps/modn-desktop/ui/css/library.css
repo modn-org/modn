@@ -229,6 +229,22 @@
   line-height: var(--modn-font-line-body-s);
 }
 
+.modn-ask__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-2xs);
+  margin: 0;
+  padding-left: var(--modn-space-l);
+  list-style: disc;
+}
+
+.modn-ask__path {
+  color: var(--modn-color-text);
+  font-size: var(--modn-font-size-body-s);
+  line-height: var(--modn-font-line-body-s);
+  overflow-wrap: anywhere;
+}
+
 .modn-ask__actions {
   display: flex;
   flex-wrap: wrap;

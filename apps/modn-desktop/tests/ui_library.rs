@@ -86,7 +86,8 @@ fn op_button_handles_progress_cancel_and_approval() {
         "onProgress(id",
         "newRunId(",
         "toast-undo",
-        "This mod runs native code. Allow it?",
+        "renderAsk(",
+        "approvalsFrom(",
     ] {
         assert!(op.contains(fragment), "op-button.js must handle {fragment}");
     }
@@ -97,16 +98,13 @@ fn op_button_handles_progress_cancel_and_approval() {
         );
     }
     assert!(
-        op.contains("requestCancel") && op.contains("await cancelRun"),
-        "the running button must cancel its run"
+        op.contains("from './library/approvals.js'") && op.contains("from './library/ask.js'"),
+        "op-button.js must read approvals and build the ask in its helper modules"
     );
+    let approvals = read("ui/js/library/approvals.js");
     assert!(
-        op.contains("showUndoToast") && op.contains("undoLatest"),
-        "a finished operation must offer Undo"
-    );
-    assert!(
-        op.contains("uncovered.executables"),
-        "op-button.js must read uncovered.executables from a refusal or plan"
+        approvals.contains("native_injector") && approvals.contains("executables"),
+        "the approval helper must read the native injector and executable paths"
     );
     let sources = js(&ui_sources());
     assert!(
@@ -133,29 +131,26 @@ fn op_button_handles_progress_cancel_and_approval() {
 fn op_button_binds_undo_to_the_operation_it_committed() {
     let op = read("ui/js/op-button.js");
     assert!(
-        op.contains("await operationIdOf(result, newestOperation)"),
-        "op-button.js must resolve this operation's history entry before the toast"
+        op.contains("const committedId = operationIdOf(result)"),
+        "op-button.js must bind the toast to the result's own operation ID"
+    );
+    assert!(
+        !op.contains("newestOperation"),
+        "the toast must not guess an operation from history"
     );
     let binding = read("ui/js/library/undo-target.js");
-    for fragment in [
-        "function operationTarget(",
-        "operation_id",
-        "operationId",
-        "package_id_after",
-        "package_id_before",
-        "mod_id",
-        "await newest(target)",
-        "operationMatches(entry, target)",
-    ] {
-        assert!(
-            binding.contains(fragment),
-            "undo-target.js must bind Undo to its own operation via {fragment}"
-        );
-    }
+    assert!(
+        binding.contains("result.operationId"),
+        "undo-target.js must read the top-level operationId"
+    );
+    assert!(
+        !binding.contains("package_id_before") && !binding.contains("newest("),
+        "undo-target.js must not fall back to a history lookup"
+    );
     let start = op.find("async function start(").expect("start function");
     let body = &op[start..];
     let resolve = body
-        .find("await operationIdOf(result")
+        .find("operationIdOf(result)")
         .expect("the finished run resolves its committed operation");
     let undo_toast = body
         .find("showUndoToast(`${active.actionLabel} done`")
@@ -171,35 +166,24 @@ fn op_button_binds_undo_to_the_operation_it_committed() {
         op.contains("async function undoLatest(operationId)"),
         "Undo must take the bound operation ID instead of reading the newest history entry"
     );
-    let tile = read("ui/js/library/tile.js");
-    for fragment in ["async newestOperation(match)", "operationMatches("] {
-        assert!(
-            tile.contains(fragment),
-            "tile.js must find the history entry that matches the operation"
-        );
-    }
 }
 
 #[test]
 fn undo_paths_send_the_approvals_the_ask_collected() {
-    let op = read("ui/js/op-button.js");
+    let approvals = read("ui/js/library/approvals.js");
     assert!(
-        op.contains("err.approval"),
-        "op-button.js must read the approval a refusal names"
+        approvals.contains("err.approval"),
+        "the approval helper must read the approval a refusal names"
     );
     assert!(
-        op.contains("refusal.nativeInjector") && op.contains("refusal.executables"),
+        approvals.contains("refusal.nativeInjector") && approvals.contains("refusal.executables"),
         "a refusal's approval names the native injector and executables directly"
     );
-    let refusal = op.find("err.approval").expect("refusal approval");
-    let fallback = op[refusal..]
-        .find("await plan()")
-        .map(|offset| refusal + offset)
-        .expect("the plan fallback");
     assert!(
-        refusal < fallback,
-        "a refusal's approval must win over the plan callback"
+        approvals.contains("if (plan)") && approvals.contains("await plan()"),
+        "the plan fills in every capability an incomplete refusal leaves out"
     );
+    let op = read("ui/js/op-button.js");
     assert!(
         op.contains("askHost && !active.operationId ? plan : null"),
         "Undo must use only the refusal's approval, never the install plan"
@@ -303,13 +287,17 @@ fn op_button_stops_a_destroyed_run_before_the_write() {
 }
 
 #[test]
-fn truncated_after_commit_is_a_completed_operation() {
+fn after_commit_failures_are_completed_operations() {
     let messages = read("ui/js/messages.js");
-    assert!(
-        messages
-            .contains("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT: 'Done. Refresh to see the result.'"),
-        "a truncated result after the commit point must tell the user to refresh"
-    );
+    for code in [
+        "BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT",
+        "BACKEND_STREAM_FAILED_AFTER_COMMIT",
+    ] {
+        assert!(
+            messages.contains(&format!("{code}: 'Done. Refresh to see the result.'")),
+            "{code} must tell the user to refresh"
+        );
+    }
     let op = read("ui/js/op-button.js");
     let branch = op
         .find("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT")
@@ -319,6 +307,10 @@ fn truncated_after_commit_is_a_completed_operation() {
         .find("} else if (BLOCKED_CODES.has(code))")
         .expect("the blocked branch follows");
     let block = &rest[..end];
+    assert!(
+        block.contains("BACKEND_STREAM_FAILED_AFTER_COMMIT"),
+        "both after-commit codes must share the completed branch"
+    );
     for fragment in [
         "setIdle(active.idleLabel)",
         "showToast(messageFor(code))",
@@ -326,7 +318,7 @@ fn truncated_after_commit_is_a_completed_operation() {
     ] {
         assert!(
             block.contains(fragment),
-            "a truncated-after-commit result must {fragment} like a completed operation"
+            "an after-commit failure must {fragment} like a completed operation"
         );
     }
 }
@@ -406,39 +398,46 @@ fn library_css_uses_tokens_and_fills_the_grid() {
 fn catalog_less_installed_packages_stay_in_the_grid() {
     let data = read("ui/js/library/data.js");
     assert!(
-        data.contains("const matched = new Set()"),
-        "mergeLibrary must remember which packages a catalog entry matched"
+        data.contains("const installed = new Map()"),
+        "mergeLibrary must group installed packages by mod ID"
     );
     assert!(
-        data.contains("for (const [modId, pkg] of installed)"),
-        "mergeLibrary must append every installed package the catalog does not list"
+        data.contains("installed.set(modId, [pkg])"),
+        "a second package of the same mod ID must join the first"
     );
     assert!(
-        data.contains("if (matched.has(modId))"),
-        "only packages without a catalog entry may become extra tiles"
+        data.contains("for (const [modId, list] of installed)"),
+        "mergeLibrary must append every package the catalog rows did not bind"
+    );
+    assert!(
+        data.contains("if (!matched.has(pkg))"),
+        "only packages without a catalog row may become extra tiles"
     );
     let start = data
-        .find("for (const [modId, pkg] of installed)")
+        .find("for (const [modId, list] of installed)")
         .expect("unmatched package loop");
     let rest = &data[start..];
     let end = rest.find("for (const pkg of manual)").expect("manual loop");
     let block = &rest[..end];
     assert!(
-        block.contains("key: `package-${pkg.id}`"),
-        "an unmatched package must get its own stable tile key"
+        block.contains("packageModel(pkg, modId)"),
+        "an unmatched package keeps its package and bucket"
     );
-    assert!(
-        block.contains("bucket: catalog ? catalog.bucket : ''"),
-        "an unmatched catalog package keeps its bucket"
-    );
-    assert!(
-        block.contains("installedPackage: pkg"),
-        "the Installed filter and tile actions read installedPackage"
-    );
-    assert!(
-        block.contains("hasUpdate: false"),
-        "an unmatched package must not offer Update"
-    );
+    let builder = data
+        .find("function packageModel(")
+        .expect("the package row builder");
+    let model = &data[builder..];
+    for fragment in [
+        "key: `package-${pkg.id}`",
+        "bucket: catalog ? catalog.bucket : ''",
+        "installedPackage: pkg",
+        "hasUpdate: false",
+    ] {
+        assert!(
+            model.contains(fragment),
+            "a package row must set {fragment}"
+        );
+    }
 }
 
 #[test]
