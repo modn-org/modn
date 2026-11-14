@@ -18,6 +18,10 @@
 //!   stalls for 30 seconds before exiting 2 without a write.
 //! - `oversized-after-commit`: commits, records the write, writes 2 MiB on
 //!   stdout, records that it survived that write, then exits 0.
+//! - `overflow-failure-after-commit`: commits, records the write, writes 2 MiB
+//!   on stdout, writes an `INSTALL_FAILED` envelope and exits 1.
+//! - `approval-both`: refuses with a `NATIVE_INJECTOR_NOT_ALLOWED` envelope
+//!   whose uncovered set names both the native injector and two executables.
 //! - `slow`: emits each phase 250 ms apart, checks for `cancel` before the
 //!   commit, then records the write and succeeds.
 //! - `refuse`: emits plain stderr text and a `PLAN_BLOCKED` envelope, then
@@ -169,6 +173,18 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
         emit(json!({"error":"PLAN_BLOCKED","message":"fixture secret refusal text"}));
         std::process::exit(1);
     }
+    if scenario == "approval-both" {
+        emit(json!({
+            "error":"NATIVE_INJECTOR_NOT_ALLOWED",
+            "package":"main/fixture/mod",
+            "uncovered":{
+                "native_injector":true,
+                "executables":["tools/native-helper.exe","engine/tools/inject.exe"]
+            },
+            "flags":["--allow-native-injector","--allow-executable"]
+        }));
+        std::process::exit(1);
+    }
     if scenario == "hang-before-commit" {
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !cancel.load(Ordering::SeqCst) {
@@ -202,6 +218,13 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
         }
     }
     record_write(args, state)?;
+    if scenario == "overflow-failure-after-commit" {
+        let filler = vec![b'x'; 2 * 1024 * 1024];
+        io::stdout().write_all(&filler)?;
+        io::stdout().flush()?;
+        emit(json!({"error":"INSTALL_FAILED","message":"fixture commit failed"}));
+        std::process::exit(1);
+    }
     emit(json!({"phase":"result","outcome":"succeeded"}));
     if scenario == "oversized-after-commit" {
         let filler = vec![b'x'; 2 * 1024 * 1024];
@@ -269,6 +292,8 @@ fn scenario(args: &[OsString]) -> &'static str {
         "hang-after-commit",
         "stall-after-cancel",
         "oversized-after-commit",
+        "overflow-failure-after-commit",
+        "approval-both",
         "refuse",
         "slow",
     ] {

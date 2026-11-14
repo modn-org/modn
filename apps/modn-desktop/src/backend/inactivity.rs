@@ -150,7 +150,7 @@ pub(super) fn call(backend: &Backend, args: &[OsString]) -> Result<Value, Backen
         return Err(BackendError::output());
     }
     if !status.success() {
-        return Err(BackendError::refused(status, error_code));
+        return Err(BackendError::refused(status, error_code, None));
     }
     let stdout = String::from_utf8_lossy(&stdout_bytes);
     serde_json::from_str(&stdout).map_err(|_| BackendError::invalid_json())

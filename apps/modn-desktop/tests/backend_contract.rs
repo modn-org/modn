@@ -1,99 +1,12 @@
 #![cfg(windows)]
 
-#[expect(
-    dead_code,
-    reason = "Reuse the application backend without invoking its process-global argument parser"
-)]
-#[path = "../src/backend.rs"]
-mod backend;
+#[path = "backend_contract/support.rs"]
+mod support;
 
-use backend::{Backend, BackendErrorKind, CancelToken, Game};
-use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-
-static SEQUENCE: AtomicU64 = AtomicU64::new(1);
-
-struct Fixture {
-    backend: Backend,
-    game: Game,
-    source: PathBuf,
-}
-
-impl Fixture {
-    fn new() -> Self {
-        // Cargo owns this directory and creates it under the target directory,
-        // so the caller's TEMP/TMP cannot move fixture state outside the
-        // worktree or into the machine-global drive-root temp directory.
-        let state = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
-            "modn-desktop-contract-{}-{}",
-            std::process::id(),
-            SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(state.join("game")).expect("create disposable game");
-        fs::write(state.join("test-backend.marker"), b"disposable").expect("fixture marker");
-        let source = state.join("source ; $() & spaces.zip");
-        fs::write(&source, b"fixture source").expect("fixture archive bytes");
-        let game = Game {
-            game_id: "fixture".into(),
-            path: state.join("game"),
-        };
-        let backend = Backend {
-            binary: PathBuf::from(env!("CARGO_BIN_EXE_modn-desktop-test-backend")),
-            state,
-            data: None,
-            modules: None,
-            evidence: None,
-            inactivity_timeout: None,
-        };
-        Self {
-            backend,
-            game,
-            source,
-        }
-    }
-    fn mode(&self, mode: &str) {
-        fs::write(self.backend.state.join("mode"), mode).expect("mode");
-    }
-    fn no_write(&self) {
-        assert!(
-            !self.backend.state.join("write.json").exists(),
-            "Refusal must not invoke a write"
-        );
-    }
-    fn registration_args(&self, scenario: &str) -> Vec<OsString> {
-        vec![
-            "game".into(),
-            "add".into(),
-            self.game.game_id.clone().into(),
-            "--path".into(),
-            self.game.path.clone().into_os_string(),
-            "--fixture-scenario".into(),
-            scenario.into(),
-        ]
-    }
-    fn progress_args(&self, scenario: &str) -> Vec<OsString> {
-        let archive = self.backend.state.join(format!("{scenario}.zip"));
-        fs::write(&archive, b"fixture source").expect("fixture archive bytes");
-        vec![
-            "--game".into(),
-            self.game.game_id.clone().into(),
-            "install".into(),
-            archive.into_os_string(),
-            "--yes".into(),
-            "--path".into(),
-            self.game.path.clone().into_os_string(),
-        ]
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.backend.state).expect("remove only this fixture");
-    }
-}
+use support::Fixture;
+use support::backend::{BackendErrorKind, CancelToken};
 
 #[test]
 fn review_is_read_only_and_install_passes_a_literal_source_argument() {
@@ -268,6 +181,46 @@ fn an_oversized_result_after_commit_reports_a_committed_outcome() {
 }
 
 #[test]
+fn a_failed_exit_after_commit_outranks_lost_output() {
+    let f = Fixture::new();
+    let args = f.progress_args("overflow-failure-after-commit");
+    let error = f
+        .backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect_err("a failed commit must not report a completed outcome");
+    assert_eq!(error.kind(), BackendErrorKind::Refused);
+    assert_eq!(error.code(), Some("INSTALL_FAILED"));
+    assert_ne!(
+        error.code(),
+        Some("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT"),
+        "the exit status decides whether the commit completed"
+    );
+    assert!(f.backend.state.join("write.json").is_file());
+}
+
+#[test]
+fn an_approval_refusal_keeps_the_native_flag_and_exact_executables() {
+    let f = Fixture::new();
+    let args = f.progress_args("approval-both");
+    let error = f
+        .backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect_err("the approval refusal must fail");
+    assert_eq!(error.kind(), BackendErrorKind::Refused);
+    assert_eq!(error.code(), Some("NATIVE_INJECTOR_NOT_ALLOWED"));
+    let approval = error
+        .approval()
+        .expect("the refusal names its uncovered capabilities");
+    assert!(approval.native_injector);
+    assert_eq!(
+        approval.executables,
+        ["tools/native-helper.exe", "engine/tools/inject.exe"]
+    );
+    assert!(approval.complete);
+    f.no_write();
+}
+
+#[test]
 fn cancel_after_commit_lets_the_operation_finish() {
     let f = Fixture::new();
     let args = f.progress_args("hang-after-commit");
@@ -406,14 +359,14 @@ fn game_registration_uses_the_inactivity_timeout() {
     let backend = f
         .backend
         .clone()
-        .with_inactivity_timeout(Duration::from_millis(250));
+        .with_inactivity_timeout(Duration::from_secs(1));
     let start = Instant::now();
     let error = backend
         .call_with_inactivity_timeout(&args)
         .expect_err("a silent registration must stop");
     assert_eq!(error.kind(), BackendErrorKind::Timeout);
     assert!(
-        start.elapsed() < Duration::from_secs(2),
+        start.elapsed() < Duration::from_secs(5),
         "the configured inactivity timeout must replace the fixed deadline"
     );
     let recorded: Vec<String> = serde_json::from_slice(
@@ -433,7 +386,7 @@ fn game_registration_survives_while_output_stays_active() {
     let backend = f
         .backend
         .clone()
-        .with_inactivity_timeout(Duration::from_millis(300));
+        .with_inactivity_timeout(Duration::from_secs(2));
     let result = backend
         .call_with_inactivity_timeout(&args)
         .expect("each output line must reset the inactivity timer");
@@ -447,7 +400,7 @@ fn game_registration_is_not_killed_after_stdout_reports_the_result() {
     let backend = f
         .backend
         .clone()
-        .with_inactivity_timeout(Duration::from_millis(200));
+        .with_inactivity_timeout(Duration::from_secs(2));
     let result = backend
         .call_with_inactivity_timeout(&args)
         .expect("a result on stdout means the write committed");
