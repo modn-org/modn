@@ -299,8 +299,10 @@ impl BucketStore {
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         let mirrors = read_mirrors(&catalog)
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
-        check_mirror_kinds(name, &served_by, &mirrors)?;
-        let relocation = read_relocation(&catalog, &served_by)?;
+        check_mirror_kinds(name, &served_by, &mirrors)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let relocation = read_relocation(&catalog, &served_by)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         let moved_to = relocation.filter(|primary_host| primary_host != &primary);
         let published_source = match &moved_to {
             Some(host) => host
