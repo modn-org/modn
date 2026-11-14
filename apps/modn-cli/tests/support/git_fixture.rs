@@ -7,7 +7,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+#[path = "git_command.rs"]
+mod git_command;
 
 pub struct Repository {
     pub base: PathBuf,
@@ -16,7 +18,7 @@ pub struct Repository {
 }
 
 pub fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .current_dir(directory)
         .args(arguments)
         .output()

@@ -1,5 +1,7 @@
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
+#[path = "support/git_command.rs"]
+mod git_command;
 
 use std::fs;
 use std::path::Path;
@@ -92,7 +94,7 @@ fn git_sync_reports_revision_and_preserves_catalog_on_invalid_update() {
         &repo,
     );
     let git = |args: &[&str]| {
-        let out = Command::new("git")
+        let out = git_command::git_command()
             .arg("-C")
             .arg(&repo)
             .args(args)

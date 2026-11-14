@@ -1,5 +1,7 @@
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
+#[path = "support/git_command.rs"]
+mod git_command;
 
 use minisign::KeyPair;
 use modn_core::buckets::{
@@ -12,10 +14,9 @@ use serde_json::json;
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
-use std::process::Command;
 
 fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .args([
             "-c",
             "user.name=Fixture",
