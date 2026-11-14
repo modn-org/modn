@@ -37,6 +37,7 @@ JOURNEYS = [
     (8, "no-cli-output", "journeys_core:journey_no_cli_output"),
     (9, "play", "journeys_core:journey_play"),
     (10, "remove", "journeys_remove:journey_remove"),
+    (11, "catalog", "journeys_catalog:journey_catalog"),
 ]
 
 
