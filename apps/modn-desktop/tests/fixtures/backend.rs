@@ -36,7 +36,10 @@
 //! Without `--progress json`, `heartbeat`, `silent`, `committed-stall`,
 //! `game-launch`, `refuse`, `overflow-failure` and `overflow-stall-failure`
 //! select registration behaviour. `refuse` writes the `PLAN_BLOCKED` envelope
-//! on stderr and exits 1 without a write. `overflow-failure` writes 2 MiB on
+//! on stderr and exits 1 without a write. `game-launch` starts a game process
+//! that records `game-started`, runs until the test writes `game-release`
+//! (30 seconds at most) and then records `game-exited`.
+//! `overflow-failure` writes 2 MiB on
 //! stdout, then an `INSTALL_FAILED` envelope, and exits 1.
 //! `overflow-stall-failure` also waits 1.5 seconds, records
 //! `survived-after-output` after that wait, and then fails the same way.
@@ -58,8 +61,10 @@ fn main() -> anyhow::Result<()> {
         .nth(1)
         .is_some_and(|arg| arg == "--fixture-grandchild")
     {
-        thread::sleep(Duration::from_secs(4));
-        return Ok(());
+        let state = std::env::args_os()
+            .nth(2)
+            .expect("fixture game state argument");
+        return fixture_game(Path::new(&state));
     }
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     anyhow::ensure!(
@@ -273,6 +278,21 @@ fn fixture_scenario(args: &[OsString]) -> Option<&'static str> {
     }
 }
 
+/// The started game of the `game-launch` scenario. It blocks until the test
+/// releases it, so a test can prove the desktop returned while it still ran.
+/// The 30-second limit makes a regression fail instead of hang.
+fn fixture_game(state: &Path) -> anyhow::Result<()> {
+    fs::write(state.join("game-started"), b"yes")?;
+    for _ in 0..1500 {
+        if state.join("game-release").is_file() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    fs::write(state.join("game-exited"), b"yes")?;
+    Ok(())
+}
+
 fn registration_scenario(scenario: &str, state: &Path) -> anyhow::Result<()> {
     match scenario {
         "heartbeat" => {
@@ -294,6 +314,7 @@ fn registration_scenario(scenario: &str, state: &Path) -> anyhow::Result<()> {
             let executable = std::env::current_exe()?;
             std::process::Command::new(executable)
                 .arg("--fixture-grandchild")
+                .arg(state)
                 .spawn()?;
         }
         "refuse" => {

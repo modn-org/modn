@@ -2,6 +2,8 @@
 
 #[path = "backend_contract/digest.rs"]
 mod digest;
+#[path = "backend_contract/launch.rs"]
+mod launch;
 #[path = "backend_contract/support.rs"]
 mod support;
 
@@ -462,24 +464,4 @@ fn registration_is_not_killed_after_stdout_starts_before_a_failure() {
     );
     assert_eq!(error.kind(), BackendErrorKind::Refused);
     assert_eq!(error.code(), Some("INSTALL_FAILED"));
-}
-
-#[test]
-fn game_launch_returns_before_the_started_game_exits() {
-    let f = Fixture::new();
-    let args = f.registration_args("game-launch");
-    let backend = f
-        .backend
-        .clone()
-        .with_inactivity_timeout(Duration::from_secs(5));
-    let start = Instant::now();
-    let result = backend
-        .call_with_inactivity_timeout(&args)
-        .expect("launch result");
-    let elapsed = start.elapsed();
-    assert_eq!(result["game_id"], "fixture");
-    assert!(
-        elapsed < Duration::from_secs(3),
-        "the desktop must not wait for the started game: {elapsed:?}"
-    );
 }
