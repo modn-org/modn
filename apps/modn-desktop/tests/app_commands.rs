@@ -91,6 +91,17 @@ fn install_archive_offers_an_executable_approval() {
         body.contains("vetted"),
         "the ask must follow a dry run with the candidate approvals"
     );
+    let vetted = body
+        .find("let plan = archive_dry_run(")
+        .expect("the ask must re-run the dry run with the vetted candidates");
+    let rechecked = body[vetted..]
+        .find("if reviewable(&plan)")
+        .map(|offset| vetted + offset)
+        .expect("the approved plan must be rechecked before the ask");
+    assert!(
+        rechecked < approval,
+        "only a reviewable vetted plan may ask for approval"
+    );
     assert!(
         approval < blocked,
         "only a vetted, reviewable plan may ask for approval"

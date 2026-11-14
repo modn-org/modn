@@ -297,6 +297,13 @@ same SQLite transaction as the ownership change. A cancelled, refused,
 dry-run or rolled-back operation writes none. See
 [operation history](history.md) for the JSON shape and storage tables.
 
+Each successful `install`, `update`, `uninstall` and `undo` under `--json`
+adds a top-level `operation_id` field to its result. It names the history
+record that the write committed, so a caller can undo exactly that operation.
+A write that commits several records, such as a multi-package uninstall or a
+multi-package update undo, omits the field instead of guessing one; read
+`modn history` for those records.
+
 ## Undo
 
 `modn undo [<operation-id>] --yes` reverses one committed operation from

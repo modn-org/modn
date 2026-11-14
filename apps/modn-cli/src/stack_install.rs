@@ -231,6 +231,7 @@ pub(super) fn run(
         game: Some(stack.game_id.clone()),
         root: Some(stack.installation.clone()),
     })?;
+    let known = crate::operation_id::KnownOperations::read(&store, &stack.game_id)?;
     store.set_control(progress.control().clone());
     store.set_history_context(history);
     let mut installed_capabilities: BTreeMap<String, Capabilities> = checks
@@ -293,18 +294,23 @@ pub(super) fn run(
         .zip(&installed)
         .map(|(member, package)| (member.release.reference.to_string(), package))
         .collect();
+    let operation_id = known.committed(&store, &stack.game_id)?;
     if json {
         let packages: Vec<_> = report
             .iter()
             .map(|(reference, package)| serde_json::json!({"package": reference, "installed": package}))
             .collect();
+        let mut result = serde_json::json!({
+            "package": reference_of(stack.selected).to_string(),
+            "stack": packages,
+        });
+        if let Some(operation_id) = operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id);
+        }
         println!(
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "package": reference_of(stack.selected).to_string(),
-                "stack": packages,
-            }))
-            .context("cannot serialize installation report")?
+            serde_json::to_string_pretty(&result)
+                .context("cannot serialize installation report")?
         );
     } else {
         for (reference, package) in &report {

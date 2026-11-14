@@ -95,10 +95,30 @@ pub(super) async fn run_write(
     .await;
     drop(run);
     match result {
-        Ok(Ok(value)) => Ok(value),
+        Ok(Ok(value)) => Ok(with_operation_id(value)),
         Ok(Err(error)) => Err(CommandError::from(error)),
         Err(_) => Err(CommandError::backend_failed()),
     }
+}
+
+/// Adds the committed history operation ID to a write result for the webview.
+///
+/// The CLI names the operation its write committed. The desktop must not look
+/// the operation up in history afterwards: a later operation on the same
+/// package would then receive this toast's Undo.
+fn with_operation_id(value: Value) -> Value {
+    let mut object = match value {
+        Value::Object(object) => object,
+        other => return other,
+    };
+    let operation_id = object
+        .get("operation_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    if let Some(operation_id) = operation_id {
+        object.insert("operationId".to_owned(), Value::String(operation_id));
+    }
+    Value::Object(object)
 }
 
 /// Sends one CLI progress event to the webview unchanged.
