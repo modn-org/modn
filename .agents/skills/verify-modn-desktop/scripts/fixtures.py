@@ -13,6 +13,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from bucket_fixture import write_main_bucket
+
 REPO = Path(__file__).resolve().parents[4]
 HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
@@ -125,12 +127,9 @@ class Fixture:
         return env
 
     def main_bucket(self):
-        """Copies the repository's official bucket into the disposable data directory."""
+        """Writes the fixture's own bucket contract v2 `main` catalog."""
         target = self.data / "modn" / "buckets" / "main"
-        source = REPO / "buckets" / "main"
-        require(source.is_dir(), f"Missing bucket source {source}")
-        shutil.copytree(source, target)
-        return target
+        return write_main_bucket(target)
 
     def steam_library(self, app_id, folder, marker, source=MARKER_SOURCE):
         """Writes a fake Steam root that lists one installed game."""
