@@ -9,9 +9,9 @@ pub(crate) use error::{BackendError, BackendErrorKind};
 pub(crate) use progress::{CancelToken, ProgressEvent};
 
 use anyhow::{Context, Result, bail};
+use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
@@ -391,7 +391,7 @@ fn digest(path: &Path) -> Result<Vec<u8>> {
         bail!("Choose a regular archive file no larger than 4 GiB");
     }
     let mut total = 0_u64;
-    let mut hash = Sha256::new();
+    let mut hash = Hasher::new();
     let mut buffer = [0; 64 * 1024];
     loop {
         let count = file.read(&mut buffer)?;
@@ -404,7 +404,7 @@ fn digest(path: &Path) -> Result<Vec<u8>> {
         }
         hash.update(&buffer[..count]);
     }
-    Ok(hash.finalize().to_vec())
+    Ok(hash.finalize().as_bytes().to_vec())
 }
 
 pub(crate) fn reviewable(plan: &Value) -> bool {
