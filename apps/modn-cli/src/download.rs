@@ -12,13 +12,13 @@ use crate::progress::Progress;
 use anyhow::{bail, Context, Result};
 pub(crate) use http::fetch;
 use http::{fetch_measured, fetch_metadata, HttpTransport};
+use modn_core::acquisition::SourceTransport;
 use modn_core::acquisition::{
-    ArchiveCache, CacheKey, CacheUse, GitCacheKey, GithubReleaseAsset, NexusFile, SourceAttempt,
-    SourcePolicy,
+    ArchiveCache, CacheKey, CacheUse, FetchError, GitCacheKey, GithubReleaseAsset, NexusFile,
+    SourceAttempt, SourcePolicy,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::collections::BTreeMap;
-#[cfg(test)]
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -42,6 +42,25 @@ fn fixture_response(url: &str) -> Option<Result<Box<dyn Read>>> {
     })
 }
 
+fn retryable(error: &FetchError) -> bool {
+    match error {
+        FetchError::Timeout | FetchError::Network(_) => true,
+        FetchError::Http(status) => (500..600).contains(status),
+        _ => false,
+    }
+}
+/// Fetch one catalog ZIP with the shared HTTPS client and source retry policy.
+pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {
+    let policy = SourcePolicy::default();
+    let mut attempt = 0;
+    loop {
+        match HttpTransport.open(url, &policy) {
+            Ok(body) => return Ok(body.reader),
+            Err(error) if attempt < policy.retries() && retryable(&error) => attempt += 1,
+            Err(error) => bail!("catalog download failed: {error}"),
+        }
+    }
+}
 pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
     let root = match std::env::var_os("MODN_CACHE") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),

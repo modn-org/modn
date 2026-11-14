@@ -2,11 +2,14 @@ use crate::commands::BucketCommand;
 use crate::state_access::{validate_state_path, ManagerState};
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{
-    local_bucket_module_refusal, BucketStore, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason,
-    ModuleTrustAck, ModuleTrustState,
+    local_bucket_module_refusal, BucketStore, CatalogModuleReport, GitCatalogSource,
+    GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck, ModuleTrustState, ZipCatalogSource,
+    ZipCatalogSync,
 };
 use modn_core::state::Store;
 use serde_json::Value;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 
 /// Refuse a registry write when the state directory sits inside a game installation.
@@ -50,23 +53,89 @@ pub(super) fn sync_catalog(
     json_output: bool,
 ) -> Result<GitCatalogSync> {
     let synced = store.sync_git_with_signer(name, source)?;
-    if synced.pinned {
-        let line = format!(
-            "Pinned signer key {} for bucket {name}; compare this fingerprint with the catalog author.",
-            synced.revision.signer.key_id
-        );
-        if json_output {
-            eprintln!("{line}");
-        } else {
-            println!("{line}");
-        }
-    }
+    report_pin(
+        name,
+        &synced.revision.signer.key_id,
+        synced.pinned,
+        json_output,
+    );
     Ok(synced)
 }
-
-fn print_sync_modules(name: &str, synced: &GitCatalogSync) {
-    println!("Synced bucket {name} at commit {}.", synced.revision.commit);
-    for report in &synced.modules.imported {
+/// Fetch, verify and publish one ZIP catalog, reporting a newly pinned signer.
+pub(super) fn sync_zip_catalog(
+    store: &BucketStore,
+    name: &str,
+    source: Option<ZipCatalogSource>,
+    json_output: bool,
+) -> Result<ZipCatalogSync> {
+    let synced = store.sync_zip_with_signer(name, source, open_zip_source)?;
+    report_pin(
+        name,
+        &synced.revision.signer.key_id,
+        synced.pinned,
+        json_output,
+    );
+    Ok(synced)
+}
+fn open_zip_source(source: &ZipCatalogSource) -> Result<Box<dyn Read>> {
+    if source.url.starts_with("https://") {
+        return crate::download::fetch_catalog(&source.url);
+    }
+    Ok(Box::new(File::open(&source.url)?))
+}
+fn report_pin(name: &str, key_id: &str, pinned: bool, json_output: bool) {
+    if !pinned {
+        return;
+    }
+    let line = format!(
+        "Pinned signer key {key_id} for bucket {name}; compare this fingerprint with the catalog author."
+    );
+    if json_output {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
+}
+enum CatalogKind {
+    Git(Option<GitCatalogSource>),
+    Zip(Option<ZipCatalogSource>),
+}
+fn classify_source(
+    store: &BucketStore,
+    name: &str,
+    source: Option<&str>,
+    revision: Option<&str>,
+) -> Result<CatalogKind> {
+    match (source, revision) {
+        (Some(text), _) if ZipCatalogSource::selects(text) => {
+            if revision.is_some() {
+                bail!(
+                    "`--revision` cannot be used with a ZIP catalog source; a ZIP source has no Git revision"
+                );
+            }
+            Ok(CatalogKind::Zip(Some(ZipCatalogSource::new(
+                text.to_owned(),
+            ))))
+        }
+        (Some(text), Some(revision)) => Ok(CatalogKind::Git(Some(GitCatalogSource::new(
+            text.to_owned(),
+            revision.to_owned(),
+        )))),
+        (Some(_), None) => {
+            bail!("a Git catalog source needs `--revision`; a ZIP catalog source ends in .zip")
+        }
+        (None, Some(_)) => bail!("`--revision` needs `--source`"),
+        (None, None) => {
+            if store.zip_revision(name)?.is_some() {
+                Ok(CatalogKind::Zip(None))
+            } else {
+                Ok(CatalogKind::Git(None))
+            }
+        }
+    }
+}
+fn print_sync_modules(modules: &CatalogModuleReport) {
+    for report in &modules.imported {
         println!(
             "Game module {} v{}: {}",
             report.game_id,
@@ -77,7 +146,7 @@ fn print_sync_modules(name: &str, synced: &GitCatalogSync) {
                 .unwrap_or_else(|| "unchanged".to_owned())
         );
     }
-    for ignored in &synced.modules.ignored {
+    for ignored in &modules.ignored {
         let reason = match ignored.reason {
             ModuleIgnoreReason::UntrustedSource => "the bucket is not a trusted module source",
             ModuleIgnoreReason::OfficialPriority => "the official main bucket provides this game",
@@ -85,7 +154,17 @@ fn print_sync_modules(name: &str, synced: &GitCatalogSync) {
         println!("Ignored game module {}: {reason}.", ignored.game_id);
     }
 }
-
+fn print_git_sync(name: &str, synced: &GitCatalogSync) {
+    println!("Synced bucket {name} at commit {}.", synced.revision.commit);
+    print_sync_modules(&synced.modules);
+}
+fn print_zip_sync(name: &str, synced: &ZipCatalogSync) {
+    println!(
+        "Synced bucket {name} from {} at {}.",
+        synced.revision.source.url, synced.revision.digest
+    );
+    print_sync_modules(&synced.modules);
+}
 /// The pinned signer key ID that a trust acknowledgement must name.
 fn module_signer(store: &BucketStore, bucket: &str) -> Result<String> {
     if bucket == "main" {
@@ -97,9 +176,8 @@ fn module_signer(store: &BucketStore, bucket: &str) -> Result<String> {
         }
         ModuleTrustState::Main => bail!("the official main bucket is always a module source"),
         ModuleTrustState::Trusted | ModuleTrustState::Untrusted => Ok(store
-            .git_revision(bucket)?
+            .catalog_signer(bucket)?
             .context("the bucket has no pinned signer")?
-            .signer
             .key_id),
         _ => bail!("unsupported module trust state for bucket {bucket}"),
     }
@@ -203,16 +281,22 @@ pub(super) fn run(
             name,
             source,
             revision,
-        } => {
-            let source = source
-                .zip(revision)
-                .map(|(remote, reference)| GitCatalogSource::new(remote, reference));
-            let synced = sync_catalog(&store, &name, source, json_output)?;
-            if !json_output {
-                print_sync_modules(&name, &synced);
+        } => match classify_source(&store, &name, source.as_deref(), revision.as_deref())? {
+            CatalogKind::Git(source) => {
+                let synced = sync_catalog(&store, &name, source, json_output)?;
+                if !json_output {
+                    print_git_sync(&name, &synced);
+                }
+                serde_json::to_value(&synced)?
             }
-            serde_json::to_value(&synced)?
-        }
+            CatalogKind::Zip(source) => {
+                let synced = sync_zip_catalog(&store, &name, source, json_output)?;
+                if !json_output {
+                    print_zip_sync(&name, &synced);
+                }
+                serde_json::to_value(&synced)?
+            }
+        },
         BucketCommand::TrustModules {
             bucket,
             yes,

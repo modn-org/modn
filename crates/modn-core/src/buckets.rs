@@ -8,6 +8,7 @@ mod store;
 mod trust;
 mod update;
 mod version;
+mod zip_source;
 
 pub use crate::bucket_digest::CatalogDigest;
 pub use crate::game_modules::{CatalogModuleReport, IgnoredModule, ModuleIgnoreReason};
@@ -25,3 +26,4 @@ pub use trust::{
     TrustModulesOutcome, TrustedModuleSource,
 };
 pub use version::VersionReq;
+pub use zip_source::{ZipCatalogRevision, ZipCatalogSource, ZipCatalogSync};
