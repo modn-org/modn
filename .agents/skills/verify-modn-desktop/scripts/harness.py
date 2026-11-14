@@ -112,9 +112,22 @@ class App:
     def close(self, timeout=45):
         if self.process is None or self.process.poll() is not None:
             return self.process.returncode if self.process else None
+        # Closing must never answer a destructive confirmation: only OK and
+        # Cancel are answers here, and a Yes/No dialog is left for the journey.
         for dialog in self.session.extra_windows():
+            answered = False
+            for answer in ("OK", "Cancel"):
+                if answer in uia.dialog_buttons(dialog):
+                    try:
+                        uia.answer_dialog(dialog, self.session, answer, timeout=2)
+                        answered = True
+                        break
+                    except Exception:
+                        continue
+            if answered:
+                continue
             for control in uia._walk(dialog):
-                if control.Name in ("OK", "Close", "Cancel"):
+                if control.Name == "Close":
                     try:
                         self.session.activate(control)
                         break
@@ -196,15 +209,27 @@ def cli(fixture, *args):
     )
 
 
-def wait_cards(self, prefix, timeout=45):
+def wait_control(self, name=None, prefix=None, control_type=None, timeout=90):
+    """Waits for a control and returns the node the wait found.
+
+    Re-renders can replace a node between a wait and a second lookup, so
+    callers activate the returned node instead of searching again.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        matches = self.find_all(name=name, prefix=prefix, control_type=control_type)
+        if matches:
+            return matches[0]
+        time.sleep(0.2)
+    raise uia.Failure(f"Timed out waiting for control {name or prefix}")
+
+
+def wait_cards(self, prefix, timeout=90):
     """Waits for one Home card whose accessible name starts with `prefix`."""
-    self.wait_for(
-        lambda s: s.find_all(prefix=prefix, control_type="ButtonControl"),
-        f"home card {prefix}", timeout,
-    )
-    return self.find_all(prefix=prefix, control_type="ButtonControl")[0]
+    return self.wait_control(prefix=prefix, control_type="ButtonControl", timeout=timeout)
 
 
+uia.Session.wait_control = wait_control
 uia.Session.wait_cards = wait_cards
 
 
