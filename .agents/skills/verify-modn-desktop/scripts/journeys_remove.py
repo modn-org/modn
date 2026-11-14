@@ -121,6 +121,7 @@ def journey_remove(runner):
     session.wait_for(
         lambda s: [control for control in _remove_controls(s) if control.IsEnabled],
         f"enabled {REMOVE_TEXT} control after No",
+        timeout=60,
     )
     _check_registered(runner, session, game, cli(fx, "game", "list"))
     runner.check(snapshot(game) == before, "No changed the fixture game folder")
