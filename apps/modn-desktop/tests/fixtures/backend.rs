@@ -4,6 +4,9 @@
 //! `invalid-json`, `timeout`, `slow`, `blocked`, `registration-changed`,
 //! `source-changed` and `inventory-failure`.
 //!
+//! A dry run for a local archive returns the archive's SHA-256 as
+//! `archive_sha256`, which the desktop rechecks before the write.
+//!
 //! When the arguments contain `--progress json` it also speaks the CLI's
 //! progress protocol: one JSON event per line on stderr and `cancel` lines on
 //! stdin. A scenario name in the arguments after the fixed prefix selects the
@@ -39,9 +42,10 @@
 //! `survived-after-output` after that wait, and then fails the same way.
 
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -135,9 +139,13 @@ fn main() -> anyhow::Result<()> {
             json!([game])
         }
     } else if tail.iter().any(|s| s == "--dry-run") {
-        json!({"status":"reviewable", "metadata_only":true,
+        let mut plan = json!({"status":"reviewable", "metadata_only":true,
             "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}],
-            "blockers":if mode == "blocked" {json!([{"message":"blocked"}])} else {json!([])}})
+            "blockers":if mode == "blocked" {json!([{"message":"blocked"}])} else {json!([])}});
+        if let Some(archive) = dry_run_archive(&args) {
+            plan["archive_sha256"] = json!(sha256_hex(archive)?);
+        }
+        plan
     } else if tail.iter().any(|s| s == "inspect") {
         json!({"metadata_only":true})
     } else if tail.iter().any(|s| s == "list") {
@@ -244,7 +252,10 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
         io::stdout().flush()?;
         return Ok(());
     }
-    println!("{}", json!({"id":"owned-package"}));
+    println!(
+        "{}",
+        json!({"id":"owned-package", "operation_id":"fixture-operation"})
+    );
     Ok(())
 }
 
@@ -323,6 +334,35 @@ fn exit_with_output_failure() -> ! {
         json!({"error":"INSTALL_FAILED","message":"fixture output failure"})
     );
     std::process::exit(1);
+}
+
+/// The local archive a dry-run names, when its positional is a ZIP or 7z file.
+///
+/// A catalog plan names a mod id instead, so it carries no digest.
+fn dry_run_archive(args: &[OsString]) -> Option<&Path> {
+    let dry_run = args.iter().position(|arg| arg == "--dry-run")?;
+    let archive = Path::new(args.get(dry_run.checked_sub(1)?)?);
+    let extension = archive.extension()?.to_str()?;
+    (archive.is_file()
+        && ["zip", "7z"]
+            .iter()
+            .any(|known| extension.eq_ignore_ascii_case(known)))
+    .then_some(archive)
+}
+
+/// The lowercase hex SHA-256 the CLI writes as `archive_sha256`.
+fn sha256_hex(path: &Path) -> anyhow::Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", hash.finalize()))
 }
 
 fn scenario(args: &[OsString]) -> &'static str {

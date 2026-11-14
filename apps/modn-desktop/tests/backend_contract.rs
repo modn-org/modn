@@ -1,5 +1,7 @@
 #![cfg(windows)]
 
+#[path = "backend_contract/digest.rs"]
+mod digest;
 #[path = "backend_contract/support.rs"]
 mod support;
 

@@ -148,11 +148,25 @@ def journey_blocked(runner):
     )
     blocked = [c for c in session.find_all(control_type="ButtonControl") if c.Name and "blocked" in c.Name.lower()]
     runner.check(len(blocked) == 1, "Blocked reason is not shown once")
+    runner.check(
+        blocked[0].Name == "Modn blocked this operation. Open details for the reason.",
+        f"Unexpected blocked reason: {blocked[0].Name!r}",
+    )
     runner.check(not blocked[0].IsEnabled, "Blocked button is still enabled")
-    runner.check(not session.extra_windows(), "A dialog opened for a blocked plan")
+    extra = [
+        (w.Name, w.ClassName, w.ControlTypeName, w.AutomationId, str(w.BoundingRectangle))
+        for w in session.extra_windows()
+        if w.Name.strip()
+    ]
+    runner.check(not extra, f"A dialog opened for a blocked plan: {extra}")
     tree = session.snapshot("blocked")
-    runner.check("fixture secret refusal text" not in tree, "CLI message leaked into the UI")
-    runner.check("fixture stderr noise" not in tree, "CLI stderr leaked into the UI")
+    for text in [
+        "fixture secret refusal text",
+        "fixture stderr noise",
+        "fixture refusal",
+        "invalid fixture response",
+    ]:
+        runner.check(text not in tree, f"Backend text leaked into the UI: {text}")
     app.close()
 
 
