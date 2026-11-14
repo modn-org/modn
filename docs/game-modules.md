@@ -152,6 +152,10 @@ modn bucket trust-modules <bucket>
 modn bucket untrust-modules <bucket>
 ```
 
+A local folder bucket cannot supply game modules. An attempt to trust one is
+refused with an error that names the bucket and states that only `main` and the
+signed Git catalogs the user trusts for modules supply game modules.
+
 `bucket trust-modules` prints the pinned signer key ID and refuses without `--yes`. Use `--fingerprint <KEY_ID>` to require an exact signer. Trust covers the whole bucket, so one acknowledgement covers every game in it. A signer key change ends trust. See [buckets.md](buckets.md#module-sources-and-trust).
 
 A catalog sync imports modules only from trusted buckets. It ignores the `games/`

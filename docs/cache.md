@@ -32,6 +32,9 @@ supplied, then asks once for the whole stack.
 Cache lookup can reuse verified payloads across package or source aliases with the same pinned BLAKE3 digest.
 Every hit verifies bytes again before use. Reuse creates no alias file and never deduplicates mutable game files.
 The cache index maps a `blake3:<hex>` pin to one entry name.
-An index that still holds `sha256:` entries is unknown, so Modn ignores it and rebuilds the index from the cache files.
-The rebuild hashes each cache file with BLAKE3 and re-verifies it before use.
+A lookup that finds a missing or unknown index scans the cache files in memory and writes nothing.
+Only storing a downloaded entry writes the index.
+The scan hashes each cache file with BLAKE3 and re-verifies it before use.
+An index that still holds `sha256:` entries is unknown, so Modn ignores it without rewriting it.
+A preflight, a cancelled operation and a refused operation therefore change no cache file.
 See [sources.md](sources.md) for removal behavior and provider acquisition.

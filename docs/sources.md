@@ -64,18 +64,19 @@ The cache root holds a digest index in `.digest-index.json`.
 The index maps a `blake3:<hex>` archive pin to one cache entry file name.
 Two package or source aliases can return the same verified payload path.
 Every hit verifies the actual file bytes against the requested pinned digest.
-A stale index entry, whose file is missing or changed, is never returned and is dropped on the next scan.
+A stale index entry, whose file is missing or changed, is never returned and is replaced only when a download writes the index.
 A corrupt entry is never a hit. A subsequent download can supply verified bytes.
 Refresh still fetches explicitly and verifies the pinned digest.
 A missing, unreadable, or unknown-format index triggers a scan.
-The scan finds the verified entry and rebuilds the index.
+The scan finds the verified entry in memory and writes nothing.
+Only storing a downloaded entry writes the index, so a preflight or a cancelled or refused operation leaves every cache file unchanged.
 The index is never authority: only re-verified bytes are returned.
 A successful download adds its entry to the index.
 Index writes use a temporary file in the cache root and an atomic rename.
 A crash therefore leaves the previous index or none.
 Modn is pre-alpha, so an index in an unknown format is corrupt and is never migrated.
-An index that still holds `sha256:` entries is unknown, so Modn ignores it and rebuilds it from the cache files.
-The scan re-verifies every rebuilt entry before the index is trusted again.
+An index that still holds `sha256:` entries is unknown, so Modn ignores it and does not rewrite it during a lookup.
+The scan re-verifies every entry before it is used.
 
 The existing package and URL filename layout remains compatible.
 It creates no alias file when it reuses another package's payload.

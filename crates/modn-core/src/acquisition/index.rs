@@ -3,9 +3,11 @@
 //! The index maps an [`ArchivePin`] to the cache entry file name that holds
 //! those bytes. It is an optimisation only: a hit is always re-verified
 //! against the file before it is returned, and a missing, unreadable or
-//! unknown-format index is rebuilt from a scan. Modn is pre-alpha, so an
-//! index in an unrecognised format is corrupt by definition and is never
-//! migrated. That includes an index that still names `sha256` pins.
+//! unknown-format index is replaced by a scan that is kept in memory. A lookup
+//! never writes the index; only storing a downloaded entry persists it. Modn
+//! is pre-alpha, so an index in an unrecognised format is corrupt by
+//! definition and is never migrated. That includes an index that still names
+//! `sha256` pins.
 use super::entry_name::parse_entry_name;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -24,8 +26,8 @@ const INDEX_VERSION: u32 = 1;
 ///
 /// A pin is the `blake3:` tag plus 64 lowercase hex characters. The cache
 /// index is keyed by this type. An index written for SHA-256 pins holds
-/// `sha256:` keys, which decode to nothing, so the whole index is rebuilt
-/// from a scan and its entries are re-verified before use.
+/// `sha256:` keys, which decode to nothing, so Modn ignores the index and
+/// scans the cache in memory. Every scanned entry is re-verified before use.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ArchivePin {
     hex: String,
@@ -50,7 +52,7 @@ impl ArchivePin {
 }
 
 /// Persisted index content. `deny_unknown_fields` and the version check make
-/// any future format fail to parse, which triggers a scan and rebuild.
+/// any future format fail to parse, which triggers a read-only scan.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct IndexFile {
@@ -80,11 +82,6 @@ impl ArchiveIndex {
         Some(Self { entries })
     }
 
-    /// Whether the index records no entry.
-    pub(super) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     /// Cache entry file name recorded for `pin`, if any.
     pub(super) fn file_name(&self, pin: &ArchivePin) -> Option<&str> {
         self.entries.get(pin).map(String::as_str)
@@ -93,12 +90,6 @@ impl ArchiveIndex {
     /// Record `name` for `pin`, replacing any earlier name.
     pub(super) fn insert(&mut self, pin: ArchivePin, name: String) {
         self.entries.insert(pin, name);
-    }
-
-    /// Record `name` for `pin` only when the pin has no entry yet, so a scan
-    /// keeps the first entry in listing order as the recorded hit.
-    pub(super) fn insert_first(&mut self, pin: ArchivePin, name: String) {
-        self.entries.entry(pin).or_insert(name);
     }
 
     /// Write the index atomically: a temporary file in the cache root, then a
@@ -127,9 +118,9 @@ impl ArchiveIndex {
 
     /// Record one newly stored entry, keeping entries the current index holds.
     ///
-    /// A missing or corrupt index becomes an index with this entry only; the
-    /// next lookup that needs another pin rebuilds the rest from a scan. Index
-    /// write failures are ignored because the index is never authority.
+    /// A missing or corrupt index becomes an index with this entry only; a
+    /// later lookup that needs another pin scans the cache for it in memory.
+    /// Index write failures are ignored because the index is never authority.
     pub(super) fn record(root: &Path, pin: ArchivePin, name: String) {
         let mut index = Self::read(root).unwrap_or_default();
         index.insert(pin, name);

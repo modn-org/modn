@@ -425,8 +425,8 @@ fn provider_preview_is_offline_and_aliases_reuse_verified_bytes() {
     let entries = archive_entry_count(&fixture);
     assert_eq!(entries, 1, "digest alias reuse adds no second entry");
     assert!(
-        cache_dir(&fixture).join(".digest-index.json").is_file(),
-        "the digest index is written beside the archive entry"
+        !cache_dir(&fixture).join(".digest-index.json").exists(),
+        "reusing a verified entry by scan writes no index"
     );
     assert!(modn(&fixture, &["uninstall", "provider", "--yes"])
         .status

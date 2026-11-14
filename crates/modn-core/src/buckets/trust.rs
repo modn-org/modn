@@ -11,6 +11,17 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Refusal text for a local folder bucket used as a module source.
+///
+/// Only the official `main` bucket and signed Git catalogs the user trusts for
+/// modules supply game modules.
+#[must_use]
+pub fn local_bucket_module_refusal(name: &str) -> String {
+    format!(
+        "local folder bucket {name} cannot supply game modules; only the official main bucket and signed Git catalogs the user trusts for modules supply game modules"
+    )
+}
+
 /// Stored acknowledgement that one bucket may supply executable game modules.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -98,7 +109,7 @@ impl BucketStore {
         )?;
         let registration = self.registration(name)?;
         let Some(revision) = registration.revision(name)? else {
-            bail!("local folder buckets cannot be module sources: {name}");
+            bail!("{}", local_bucket_module_refusal(name));
         };
         let key_id = revision.signer.key_id;
         match ack {
@@ -171,7 +182,7 @@ impl BucketStore {
         )?;
         let registration = self.registration(name)?;
         if registration.git.is_none() {
-            bail!("local folder buckets cannot be module sources: {name}");
+            bail!("{}", local_bucket_module_refusal(name));
         }
         if registration.module_trust.is_none() {
             return Ok(());

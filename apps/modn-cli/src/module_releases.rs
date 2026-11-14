@@ -1,6 +1,6 @@
 use crate::commands::ModuleCommand;
 use anyhow::{bail, Context, Result};
-use modn_core::buckets::{BucketStore, ModuleTrustState};
+use modn_core::buckets::{local_bucket_module_refusal, BucketStore, ModuleTrustState};
 use modn_core::game_modules::{ModuleRegistry, ModuleSource, ReleaseOutcome};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -76,7 +76,7 @@ fn update(
             "game module {game} comes from bucket {bucket}, which is not a trusted module source; run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game}` to remove the module"
         ),
         ModuleTrustState::Local => {
-            bail!("local folder buckets cannot be module sources: {bucket}")
+            bail!("{}", local_bucket_module_refusal(&bucket))
         }
         _ => bail!("unsupported module trust state for bucket {bucket}"),
     }

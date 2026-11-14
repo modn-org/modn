@@ -35,6 +35,16 @@ fn record(root: &Path, pin: &ArchivePin, name: &str) {
     index.write(root).unwrap();
 }
 
+/// Every file name in `root`, so a lookup that writes any file is visible.
+fn file_names(root: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
 /// An entry whose name sorts before `zzz-game`, so a scan finds it first.
 fn first_entry(cache: &ArchiveCache, digest: &str) -> PathBuf {
     store(
@@ -82,42 +92,45 @@ fn lookup_uses_the_index_and_matches_the_scan_result() {
     );
 
     fs::remove_file(index_path(cache.root())).unwrap();
+    let before = file_names(cache.root());
     assert_eq!(
         cache.cached(&alias_key(&digest)).unwrap(),
         Some(first.clone()),
         "a scan returns the first verified entry in listing order"
     );
-    let rebuilt = ArchiveIndex::read(cache.root()).expect("scan rebuilds the index");
-    let first_name = name_of(&first);
-    assert_eq!(rebuilt.file_name(&pin), Some(first_name.as_str()));
+    assert_eq!(
+        file_names(cache.root()),
+        before,
+        "a lookup must not write the index it scanned"
+    );
 }
 
 #[test]
-fn a_missing_index_falls_back_to_a_scan_and_is_rebuilt() {
+fn a_missing_index_falls_back_to_a_scan_and_is_not_written() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let digest = pin(BYTES);
     let entry = first_entry(&cache, &digest);
-    let pin = ArchivePin::blake3(&digest).unwrap();
-    assert!(ArchiveIndex::read(cache.root()).is_some());
     fs::remove_file(index_path(cache.root())).unwrap();
 
+    let before = file_names(cache.root());
     assert_eq!(
         cache.cached(&alias_key(&digest)).unwrap(),
         Some(entry.clone())
     );
-    let rebuilt = ArchiveIndex::read(cache.root()).expect("missing index is rebuilt");
-    let entry_name = name_of(&entry);
-    assert_eq!(rebuilt.file_name(&pin), Some(entry_name.as_str()));
+    assert_eq!(
+        file_names(cache.root()),
+        before,
+        "a missing index stays missing after a read-only lookup"
+    );
 }
 
 #[test]
-fn a_corrupt_index_falls_back_to_a_scan_and_is_rebuilt() {
+fn a_corrupt_index_falls_back_to_a_scan_without_being_rewritten() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let digest = pin(BYTES);
     let entry = first_entry(&cache, &digest);
-    let pin = ArchivePin::blake3(&digest).unwrap();
     let corrupt: [&[u8]; 4] = [
         b"garbage bytes",
         br#"{"version":1,"entries":{"sha256:"#,
@@ -127,20 +140,24 @@ fn a_corrupt_index_falls_back_to_a_scan_and_is_rebuilt() {
 
     for payload in corrupt {
         fs::write(index_path(cache.root()), payload).unwrap();
+        let before = file_names(cache.root());
         assert_eq!(
             cache.cached(&alias_key(&digest)).unwrap(),
             Some(entry.clone()),
             "corrupt index {:?} must not hide the entry",
             String::from_utf8_lossy(payload)
         );
-        let rebuilt = ArchiveIndex::read(cache.root()).expect("corrupt index is rebuilt");
-        let entry_name = name_of(&entry);
-        assert_eq!(rebuilt.file_name(&pin), Some(entry_name.as_str()));
+        assert_eq!(
+            fs::read(index_path(cache.root())).unwrap(),
+            payload,
+            "a read-only lookup must not rewrite a corrupt index"
+        );
+        assert_eq!(file_names(cache.root()), before);
     }
 }
 
 #[test]
-fn stale_index_entries_are_dropped_and_never_returned() {
+fn stale_index_entries_are_never_returned_or_rewritten() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let digest = pin(BYTES);
@@ -154,13 +171,18 @@ fn stale_index_entries_are_dropped_and_never_returned() {
         cache.cached(&alias_key(&digest)).unwrap(),
         Some(first.clone())
     );
-    let rebuilt = ArchiveIndex::read(cache.root()).unwrap();
-    let first_name = name_of(&first);
-    assert_eq!(rebuilt.file_name(&pin), Some(first_name.as_str()));
+    let unchanged = ArchiveIndex::read(cache.root()).unwrap();
+    assert_eq!(
+        unchanged.file_name(&pin),
+        Some(name_of(&second).as_str()),
+        "a stale record stays until a writing path replaces the index"
+    );
 
     fs::write(&second, b"tampered").unwrap();
     record(cache.root(), &pin, &name_of(&second));
     assert_eq!(cache.cached(&alias_key(&digest)).unwrap(), Some(first));
+    let unchanged = ArchiveIndex::read(cache.root()).unwrap();
+    assert_eq!(unchanged.file_name(&pin), Some(name_of(&second).as_str()));
 }
 
 #[test]
@@ -173,8 +195,12 @@ fn a_tampered_indexed_entry_is_never_returned() {
     fs::write(&entry, b"tampered").unwrap();
 
     assert_eq!(cache.cached(&alias_key(&digest)).unwrap(), None);
-    let rebuilt = ArchiveIndex::read(cache.root()).unwrap();
-    assert_eq!(rebuilt.file_name(&pin), None, "the stale pin is dropped");
+    let unchanged = ArchiveIndex::read(cache.root()).unwrap();
+    assert_eq!(
+        unchanged.file_name(&pin),
+        Some(name_of(&entry).as_str()),
+        "the stale pin is not returned and is not rewritten by a lookup"
+    );
 }
 
 #[test]
@@ -213,30 +239,64 @@ fn acquire_records_the_stored_entry_in_the_index() {
 }
 
 #[test]
-fn a_legacy_sha256_index_is_ignored_and_rebuilt() {
+fn a_legacy_sha256_index_is_ignored_without_being_rewritten() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let digest = pin(BYTES);
     let entry = first_entry(&cache, &digest);
     let name = name_of(&entry);
     let legacy = format!(r#"{{"version":1,"entries":{{"sha256:{digest}":"{name}"}}}}"#);
-    fs::write(index_path(cache.root()), legacy).unwrap();
+    fs::write(index_path(cache.root()), &legacy).unwrap();
 
     assert_eq!(
         cache.cached(&alias_key(&digest)).unwrap(),
         Some(entry.clone()),
         "a legacy index must not hide a verified entry"
     );
-    let rebuilt = ArchiveIndex::read(cache.root()).expect("legacy index is rebuilt");
-    let pin = ArchivePin::blake3(&digest).unwrap();
-    let entry_name = name_of(&entry);
-    assert_eq!(rebuilt.file_name(&pin), Some(entry_name.as_str()));
-    let text = fs::read_to_string(index_path(cache.root())).unwrap();
-    assert!(!text.contains("sha256:"), "{text}");
+    assert_eq!(
+        fs::read_to_string(index_path(cache.root())).unwrap(),
+        legacy,
+        "a read-only lookup must not migrate a legacy index"
+    );
 }
 
 #[test]
-fn a_hostile_index_entry_is_never_used() {
+fn a_read_only_index_load_writes_nothing_for_a_missing_or_legacy_index() {
+    let dir = tempdir().unwrap();
+    let cache = ArchiveCache::new(dir.path().join("cache"));
+    let digest = pin(BYTES);
+    let entry = first_entry(&cache, &digest);
+    let name = name_of(&entry);
+
+    fs::remove_file(index_path(cache.root())).unwrap();
+    let before = file_names(cache.root());
+    assert_eq!(
+        cache.cached(&alias_key(&digest)).unwrap(),
+        Some(entry.clone())
+    );
+    assert_eq!(
+        file_names(cache.root()),
+        before,
+        "a missing index must stay missing"
+    );
+
+    let legacy = format!(r#"{{"version":1,"entries":{{"sha256:{digest}":"{name}"}}}}"#);
+    fs::write(index_path(cache.root()), &legacy).unwrap();
+    let before = file_names(cache.root());
+    assert_eq!(
+        cache.cached(&alias_key(&digest)).unwrap(),
+        Some(entry.clone())
+    );
+    assert_eq!(
+        fs::read_to_string(index_path(cache.root())).unwrap(),
+        legacy,
+        "a legacy index must not be rewritten"
+    );
+    assert_eq!(file_names(cache.root()), before);
+}
+
+#[test]
+fn a_hostile_index_entry_is_never_used_or_rewritten() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let digest = pin(BYTES);
@@ -254,9 +314,12 @@ fn a_hostile_index_entry_is_never_used() {
         Some(entry.clone()),
         "indexed bytes must be re-verified before use"
     );
-    let rebuilt = ArchiveIndex::read(cache.root()).unwrap();
+    let unchanged = ArchiveIndex::read(cache.root()).unwrap();
     let pin = ArchivePin::blake3(&digest).unwrap();
-    let entry_name = name_of(&entry);
-    assert_eq!(rebuilt.file_name(&pin), Some(entry_name.as_str()));
+    assert_eq!(
+        unchanged.file_name(&pin),
+        Some(name_of(&hostile).as_str()),
+        "a lookup leaves the hostile record for a writing path to replace"
+    );
     assert_eq!(fs::read(&hostile).unwrap(), b"other bytes");
 }
