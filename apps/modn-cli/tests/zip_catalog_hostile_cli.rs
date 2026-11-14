@@ -92,7 +92,14 @@ fn hostile_zip_entries_are_refused() {
             zip_with_entries(zip, &[(entry, b"x")])
         });
         assert_refused_without_state(&fixture, &output, expected);
-        assert!(!fixture.temp.path().join("escape").exists());
+        assert!(
+            !fixture
+                .bucket_entries()
+                .iter()
+                .any(|name| name.contains("escape")),
+            "entry escaped staging: {:?}",
+            fixture.bucket_entries()
+        );
     }
     let output = hostile(&fixture, "duplicate", |zip| {
         raw_zip(zip, &[("bucket.json", b"{}"), ("bucket.json", b"{}")])

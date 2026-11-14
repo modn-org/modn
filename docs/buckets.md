@@ -45,6 +45,8 @@ Every later sync verifies with the pinned key only and refuses a different
 signer. `--revision` is refused with a ZIP source.
 A failed download, an invalid signature or invalid contents keep the previous
 registration and catalog files byte for byte and remove staging.
+`modn bucket list --json` reports `source_kind` as `git` or `zip` for a
+registered catalog. It keeps the existing keys.
 
 ### Main catalog signature
 

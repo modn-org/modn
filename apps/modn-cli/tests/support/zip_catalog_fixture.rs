@@ -79,6 +79,9 @@ impl Fixture {
     pub fn registration(&self) -> PathBuf {
         self.state.join("buckets/registrations/community.json")
     }
+    pub fn bucket_entries(&self) -> Vec<String> {
+        listing(&self.state.join("buckets"))
+    }
     pub fn catalog(&self) -> PathBuf {
         let bytes = fs::read(self.registration()).expect("registration file");
         let value: Value = serde_json::from_slice(&bytes).expect("registration JSON");
