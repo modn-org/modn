@@ -364,22 +364,74 @@ def dialog_buttons(dialog):
     return [role for role in (_answer_role(c) for c in _walk(dialog)) if role]
 
 
-def answer_dialog(dialog, session, name, timeout=10):
+def _dialog_window(dialog, session):
+    """The HWND of the live dialog, refreshed after a stale UIA node."""
+    try:
+        handle = dialog.NativeWindowHandle
+    except Exception:
+        handle = 0
+    if handle and _win32().IsWindow(handle):
+        return handle
+    for window in titled_windows(session):
+        try:
+            candidate = window.NativeWindowHandle
+        except Exception:
+            continue
+        if candidate and _win32().IsWindow(candidate):
+            return candidate
+    return 0
+
+
+def _dialog_button(dialog, session, name):
+    """The live answer button of the dialog, rebuilt from its window handle.
+
+    A UI Automation proxy can disconnect while its dialog is still open, so
+    every attempt starts from a fresh element instead of reusing a node.
+    """
+    handle = _dialog_window(dialog, session)
+    if not handle:
+        return None, 0
+    try:
+        window = auto.ControlFromHandle(handle)
+    except Exception:
+        return None, handle
+    for control in _walk(window):
+        if _answer_role(control) == name:
+            return control, handle
+    return None, handle
+
+
+def answer_dialog(dialog, session, name, timeout=15):
     """Clicks the button that answers a native dialog with `name`.
 
-    `name` is one of `DIALOG_BUTTON_IDS`: OK, Cancel, Yes or No. The lookup
-    uses the Win32 control id first, so a localized label still answers the
-    intended button.
+    `name` is one of `DIALOG_BUTTON_IDS`: OK, Cancel, Yes or No. The answer
+    resolves by Win32 control id first, so a localized label still selects the
+    intended button. A click can be lost when a UI Automation proxy disconnects
+    while the dialog is open, so the answer counts only once the dialog window
+    is gone; an unanswered dialog is retried with a fresh element.
     """
     require(name in DIALOG_BUTTON_IDS, f"Unknown dialog answer {name!r}")
     deadline = time.monotonic() + timeout
+    last = "it did not open"
     while time.monotonic() < deadline:
-        for control in _walk(dialog):
-            if _answer_role(control) == name:
-                session.activate(control)
+        control, handle = _dialog_button(dialog, session, name)
+        if not handle:
+            return None
+        if control is None:
+            last = f"it has no {name} button"
+            time.sleep(0.1)
+            continue
+        try:
+            session.activate(control)
+        except Exception as error:  # noqa: BLE001 - a retry uses a fresh node
+            last = f"activation failed: {error}"
+        until = time.monotonic() + min(3.0, max(0.0, deadline - time.monotonic()))
+        while time.monotonic() < until:
+            if not _win32().IsWindow(handle):
                 return control
-        time.sleep(0.1)
-    raise Failure(f"Dialog has no {name} button")
+            time.sleep(0.05)
+        last = f"it stayed open after {name}"
+    raise Failure(f"Cannot answer the dialog with {name}: {last}")
 
 
 def dismiss(dialog, session, name="OK"):

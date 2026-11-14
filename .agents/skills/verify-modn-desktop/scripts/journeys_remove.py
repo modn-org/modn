@@ -77,12 +77,11 @@ def _check_removal_dialog(runner, session, dialog):
 
 
 def _check_dialog_closed(runner, session):
-    session.wait_for(
-        lambda s: not uia.titled_windows(s),
-        "every removal dialog dismissed",
-        timeout=15,
-    )
-    runner.check(not uia.titled_windows(session), "A native dialog outlived its answer")
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and uia.titled_windows(session):
+        time.sleep(0.2)
+    windows = uia.titled_windows(session)
+    runner.check(not windows, f"Native dialog outlived its answer: {[w.Name for w in windows]}")
 
 
 def _check_registered(runner, session, game, listed):
