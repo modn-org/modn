@@ -348,7 +348,11 @@ def journey_lifecycle(runner):
     # 7. Details still reports a reviewable plan without CLI output.
     _expand_details(session)
     session.wait_text("No approval needed.", timeout=60)
-    runner.check(True, "Details plan expanded and reported no approval")
+    runner.check(
+        session.exists(name="No approval needed."),
+        "Details plan did not report that no approval is needed",
+    )
+    runner.check(bool(session.find_all(name="File plan")), "Details plan lists no file operations")
     runner.check(
         not _leaks(session.snapshot("lifecycle-7-details")),
         "Details view shows CLI output",
