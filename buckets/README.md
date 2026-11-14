@@ -29,7 +29,7 @@ first entry today; fallback to the later entries (issue #118) is not shipped yet
 A record lists either `git` sources or archive sources, never both. A mixed
 record is refused, because one archive pin cannot cover a packed Git archive.
 An archive record declares `blake3`, the archive pin of 64 lowercase hex
-characters. A `manual`, `https` or `nexus` archive record also declares
+characters. A `manual`, `https`, `github-release` or `nexus` archive record also declares
 `archive_format` (`zip` or `7z`).
 A `git` record declares no `blake3`, because its pinned commit is the integrity
 pin. Its `archive_format` is optional and must be `zip` when present.
