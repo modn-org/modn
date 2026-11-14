@@ -50,6 +50,60 @@ the release publishes no copy of it.
 `-PublicKey` names the key that signed the ZIP, and the script then requires
 `main-bucket.zip.minisig` beside it.
 
+## Rehash main for contract v2
+
+`main` lives in the separate `modn-org/main` repository.
+A contract v1 checkout keeps manifests in `games/<game-id>/` and pins each archive with SHA-256.
+The maintainer script converts that checkout into a contract v2 tree.
+It downloads every archive, verifies it against its current SHA-256 pin, writes its BLAKE3 pin with `modn catalog hash`, and keeps the old source as the `sources` list.
+It writes nothing when any archive does not match or any record is invalid.
+
+Preconditions:
+
+- A clean `modn-org/main` checkout at the commit to rehash. Work on a copy outside the submodule; the script never changes its input.
+- A Modn binary with `modn catalog hash` (#121). Pass it with `--modn`, or put `modn` on `PATH`.
+- Every archive that a `manual` or `nexus` record names, with the record's exact file name, in one directory.
+  The script downloads `https` and `github-release` archives. It refuses an `http` URL and any `modn-org` host, so `sources` lists only origins that the author publishes.
+
+Run the conversion:
+
+```powershell
+python .github/scripts/rehash_main.py C:\path\to\main-v1 `
+  --out C:\path\to\main-v2 --archive-dir C:\path\to\archives `
+  --modn C:\path\to\modn.exe
+```
+
+`--out` must be missing or empty. The script stages the whole tree beside it and renames the finished tree into place.
+On a mismatch it prints every failing package with its reason, its expected SHA-256 and its actual SHA-256, and exits nonzero.
+`--out` keeps no files from the failed run, and no staging directory remains.
+
+To verify every SHA-256 pin without writing a tree, add `--check` and omit `--out`:
+
+```powershell
+python .github/scripts/rehash_main.py C:\path\to\main-v1 `
+  --archive-dir C:\path\to\archives --check
+```
+
+Review the diff before you commit:
+
+- `bucket.json` has `schema_version: 2`.
+- Records are under `mods/<game-id>/`. An archive record has `blake3`, `upstream_sha256` and one `sources` entry, which is the old `source` object. It has `redistributable: false`, because a v1 record carries no author consent.
+- A git-only record keeps its commit pin. It has no `blake3` and no added `archive_format`.
+- `games/<game-id>/` holds only `module.json` and `module.lua`, copied unchanged.
+- `PROVENANCE.md` has the "Rehash to contract v2" section with every old SHA-256 and new BLAKE3.
+
+Commit the tree to `modn-org/main`, then sign and verify it at the repository root:
+
+```sh
+modn catalog sign . --key ../main-keys/main.key
+modn catalog verify . --key catalog.pub
+```
+
+Then run the bucket release checks in [Before any live step](#before-any-live-step).
+The release must be a contract v2 bucket, include `main-bucket.zip.minisig`, and pass the `identical` or `ahead` comparison with the Modn pin.
+The script does not sign, tag, upload or publish anything.
+Publishing the restructured `main` release together with the Modn release is a maintainer action that this script does not perform.
+
 ## Milestone 1 exit gate
 
 Both milestone gate scripts target contract v1 and stay unchanged as closed-milestone evidence; do not run them against a v2 bucket.
