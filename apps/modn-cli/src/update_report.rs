@@ -212,6 +212,7 @@ pub(super) struct Preview<'a> {
     pub(super) old: &'a ManagedPackage,
     pub(super) installed_version: Option<&'a str>,
     pub(super) target: &'a BucketPackage,
+    pub(super) up_to_date: bool,
     pub(super) files: Option<FileChanges>,
     pub(super) plan: Option<&'a InstallPlan>,
     pub(super) archive_needed: Option<String>,
@@ -221,10 +222,6 @@ pub(super) struct Preview<'a> {
 }
 
 impl Preview<'_> {
-    pub(super) fn up_to_date(&self) -> bool {
-        self.target.package.pin() == Some(self.old.archive_blake3.as_str())
-    }
-
     pub(super) fn print(&self, json: bool) -> Result<()> {
         if json {
             println!("{}", serde_json::to_string_pretty(&self.as_json())?);
@@ -235,7 +232,7 @@ impl Preview<'_> {
             "{}: installed {from} ({}), target {}",
             self.reference, self.old.id, self.target.package.version
         );
-        if self.up_to_date() {
+        if self.up_to_date {
             println!("Already installed; nothing to update.");
             return Ok(());
         }
@@ -286,7 +283,7 @@ impl Preview<'_> {
                 "archive_blake3": self.target.package.pin(),
                 "source": self.target.package.primary_source().clone(),
             },
-            "up_to_date": self.up_to_date(),
+            "up_to_date": self.up_to_date,
             "files": self.files.as_ref().map(FileChanges::as_json),
             "archive_needed": self.archive_needed,
             "dependents": self.dependents.iter().map(|check| json!({
