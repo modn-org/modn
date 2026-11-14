@@ -304,12 +304,12 @@ fn a_module_trusted_zip_catalog_refuses_a_manifest_under_games() {
     fs::create_dir_all(&game).expect("game module directory");
     fs::write(
         game.join("module.json"),
-        r#"{"game_id":"test-game","version":"1.0","api_version":1,"entrypoint":"module.lua"}"#,
+        r#"{"game_id":"test-game","version":"1.0","api_version":3,"entrypoint":"module.lua"}"#,
     )
     .expect("module manifest");
     fs::write(
         game.join("module.lua"),
-        "return {game_id='test-game', api_version=1}",
+        "return {game_id='test-game', api_version=3}",
     )
     .expect("module script");
     sign_with(&keys, &directory);
