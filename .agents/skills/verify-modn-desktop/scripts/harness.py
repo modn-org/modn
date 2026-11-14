@@ -232,6 +232,94 @@ def wait_cards(self, prefix, timeout=90):
 uia.Session.wait_control = wait_control
 uia.Session.wait_cards = wait_cards
 
+TDM_CLICK_BUTTON = 0x0400 + 102
+
+
+def _dialog_window(dialog, session):
+    """The HWND of the live dialog, refreshed after a stale UIA node."""
+    try:
+        handle = dialog.NativeWindowHandle
+    except Exception:
+        handle = 0
+    if handle and uia._win32().IsWindow(handle):
+        return handle
+    for window in uia.titled_windows(session):
+        try:
+            candidate = window.NativeWindowHandle
+        except Exception:
+            continue
+        if candidate and uia._win32().IsWindow(candidate):
+            return candidate
+    return 0
+
+
+def _dialog_button(dialog, session, name):
+    """The live answer button, rebuilt from the dialog window handle.
+
+    A UI Automation proxy can disconnect while its dialog is still open, so
+    every attempt starts from a fresh element instead of reusing a node.
+    """
+    handle = _dialog_window(dialog, session)
+    if not handle:
+        return None, 0
+    try:
+        window = uia.auto.ControlFromHandle(handle)
+    except Exception:
+        return None, handle
+    for control in uia._walk(window):
+        if uia._answer_role(control) == name:
+            return control, handle
+    return None, handle
+
+
+def answer_dialog(dialog, session, name, timeout=15):
+    """Answers a native dialog with `name`: OK, Cancel, Yes or No.
+
+    The button resolves by Win32 control id, so a localized label still
+    selects the intended answer. The confirmation is a TaskDialog, whose UI
+    Automation Invoke can be dropped while the dialog stays open, so the answer
+    first posts the documented TaskDialog button message and only falls back to
+    Invoke. The answer counts only once the dialog window is gone; an
+    unanswered dialog is retried with a fresh element.
+    """
+    uia.require(name in uia.DIALOG_BUTTON_IDS, f"Unknown dialog answer {name!r}")
+    control_id = int(uia.DIALOG_BUTTON_IDS[name])
+    deadline = time.monotonic() + timeout
+    last = "it did not open"
+    while time.monotonic() < deadline:
+        control, handle = _dialog_button(dialog, session, name)
+        if not handle:
+            return None
+        if control is None:
+            last = f"it has no {name} button"
+            time.sleep(0.1)
+            continue
+        uia._win32().PostMessageW(handle, TDM_CLICK_BUTTON, control_id, 0)
+        until = time.monotonic() + min(3.0, deadline - time.monotonic())
+        while time.monotonic() < until:
+            if not uia._win32().IsWindow(handle):
+                return control
+            time.sleep(0.05)
+        try:
+            session.activate(control)
+        except Exception as error:  # noqa: BLE001 - a retry uses a fresh node
+            last = f"activation failed: {error}"
+        until = time.monotonic() + min(3.0, deadline - time.monotonic())
+        while time.monotonic() < until:
+            if not uia._win32().IsWindow(handle):
+                return control
+            time.sleep(0.05)
+        last = f"it stayed open after {name}"
+    raise uia.Failure(f"Cannot answer the dialog with {name}: {last}")
+
+
+def dismiss(dialog, session, name="OK"):
+    return answer_dialog(dialog, session, name)
+
+
+uia.answer_dialog = answer_dialog
+uia.dismiss = dismiss
+
 
 def click_until(session, name, needles, attempts=2, timeout=20):
     """Clicks a control until one of `needles` appears, because a re-render can

@@ -364,28 +364,6 @@ def dialog_buttons(dialog):
     return [role for role in (_answer_role(c) for c in _walk(dialog)) if role]
 
 
-def answer_dialog(dialog, session, name, timeout=10):
-    """Clicks the button that answers a native dialog with `name`.
-
-    `name` is one of `DIALOG_BUTTON_IDS`: OK, Cancel, Yes or No. The lookup
-    uses the Win32 control id first, so a localized label still answers the
-    intended button.
-    """
-    require(name in DIALOG_BUTTON_IDS, f"Unknown dialog answer {name!r}")
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        for control in _walk(dialog):
-            if _answer_role(control) == name:
-                session.activate(control)
-                return control
-        time.sleep(0.1)
-    raise Failure(f"Dialog has no {name} button")
-
-
-def dismiss(dialog, session, name="OK"):
-    return answer_dialog(dialog, session, name)
-
-
 def clipboard_text(timeout=10):
     """Reads the Unicode text clipboard without changing it."""
     user32 = ctypes.windll.user32
