@@ -71,7 +71,7 @@ pub(super) fn validate_plan(
     {
         bail!("blocked or invalid installation proposal cannot be executed");
     }
-    if proposal.archive_sha256 != inspection.blake3 {
+    if proposal.archive_blake3 != inspection.blake3 {
         bail!("archive changed since the proposed installation was reviewed");
     }
     if validate_transaction_root(&proposal.game_installation)? != roots.game {

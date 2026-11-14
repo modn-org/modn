@@ -78,7 +78,7 @@ fn adoption_requires_both_approvals_and_commits_exact_file_claims() {
     assert_eq!(preview["status"], "verification_required");
     assert_eq!(preview["target_contents_verified"], false);
     assert_eq!(
-        preview["plan"]["archive_sha256"],
+        preview["plan"]["archive_blake3"],
         blake3::hash(&fs::read(&zip).unwrap()).to_hex().to_string()
     );
     assert_eq!(preview["plan"]["operations"].as_array().unwrap().len(), 2);
@@ -105,7 +105,7 @@ fn adoption_requires_both_approvals_and_commits_exact_file_claims() {
     write(&game, files[1].0, files[1].1);
     let package = ok(&state, &game, &["adopt", path, "--acknowledge", "--yes"]);
     assert_eq!(
-        package["archive_sha256"],
+        package["archive_blake3"],
         blake3::hash(&fs::read(&zip).unwrap()).to_hex().to_string()
     );
     assert_eq!(package["files"].as_array().unwrap().len(), 2);

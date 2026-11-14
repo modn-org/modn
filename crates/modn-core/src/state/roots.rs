@@ -1,11 +1,10 @@
 use crate::transactions::{ownership_key, validate_transaction_root};
 use anyhow::{bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// The manager state schema version this build writes.
-pub(crate) const SCHEMA_VERSION: i64 = 4;
+pub(crate) const SCHEMA_VERSION: i64 = 6;
 
 /// Identity of one root within its installation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,131 +28,6 @@ impl RootKind {
             _ => None,
         }
     }
-}
-
-const OWNERSHIP_TABLES: [(&str, &str, &str); 3] = [
-    (
-        "managed_files",
-        "package_id TEXT NOT NULL REFERENCES managed_packages(id),
-         sha256 TEXT NOT NULL, bytes INTEGER NOT NULL",
-        "package_id, sha256, bytes",
-    ),
-    (
-        "managed_directories",
-        "package_id TEXT NOT NULL REFERENCES managed_packages(id), identity TEXT",
-        "package_id, identity",
-    ),
-    ("created_directories", "identity TEXT", "identity"),
-];
-
-/// Rebuild schema v2 ownership tables with root-qualified keys and record
-/// every existing installation's game root. Runs inside the caller's
-/// transaction, so a failure leaves the v2 state untouched.
-pub(super) fn migrate_to_v3(connection: &Connection) -> Result<()> {
-    connection.execute_batch(
-        "CREATE TABLE IF NOT EXISTS installation_roots (
-            game_path TEXT NOT NULL,
-            root TEXT NOT NULL,
-            path TEXT NOT NULL,
-            path_key TEXT NOT NULL UNIQUE,
-            PRIMARY KEY(game_path, root)
-        );",
-    )?;
-    for (table, column, definition) in [
-        ("pending_files", "root", "TEXT NOT NULL DEFAULT 'game'"),
-        (
-            "pending_directories",
-            "root",
-            "TEXT NOT NULL DEFAULT 'game'",
-        ),
-        (
-            "pending_created_directories",
-            "root",
-            "TEXT NOT NULL DEFAULT 'game'",
-        ),
-        ("pending_created_directories", "base_path", "TEXT"),
-    ] {
-        let has_column: bool = connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",
-            [table, column],
-            |row| row.get(0),
-        )?;
-        if !has_column {
-            connection.execute_batch(&format!(
-                "ALTER TABLE {table} ADD COLUMN {column} {definition};"
-            ))?;
-        }
-    }
-    for (table, columns, copied) in OWNERSHIP_TABLES {
-        let has_root: bool = connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name='root')",
-            [table],
-            |row| row.get(0),
-        )?;
-        if has_root {
-            continue;
-        }
-        connection.execute_batch(&format!(
-            "CREATE TABLE {table}_v3 (
-                game_path TEXT NOT NULL,
-                root TEXT NOT NULL DEFAULT 'game',
-                path_key TEXT NOT NULL,
-                relative_path TEXT NOT NULL,
-                {columns},
-                PRIMARY KEY(game_path, root, path_key)
-            );
-            INSERT INTO {table}_v3(game_path, root, path_key, relative_path, {copied})
-                SELECT game_path, 'game', path_key, relative_path, {copied} FROM {table};
-            DROP TABLE {table};
-            ALTER TABLE {table}_v3 RENAME TO {table};"
-        ))?;
-    }
-    let mut installations = BTreeSet::new();
-    for query in [
-        "SELECT path FROM game_installations",
-        "SELECT game_path FROM managed_packages",
-        "SELECT game_path FROM managed_files",
-        "SELECT game_path FROM managed_directories",
-        "SELECT game_path FROM created_directories",
-    ] {
-        let mut statement = connection.prepare(query)?;
-        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-        for row in rows {
-            installations.insert(row?);
-        }
-    }
-    for installation in installations {
-        let path = Path::new(&installation);
-        record_root(connection, path, RootKind::Game, path)?;
-    }
-    connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-    Ok(())
-}
-
-/// Present schema v1 and v2 state through v3 names on a read-only connection.
-///
-/// Temporary views shadow the stored tables for this connection only and
-/// leave the database file unchanged.
-pub(super) fn attach_legacy_views(connection: &Connection) -> Result<()> {
-    connection.execute_batch(
-        "CREATE TEMP VIEW managed_files AS
-            SELECT game_path, 'game' AS root, path_key, relative_path, package_id, sha256, bytes
-            FROM main.managed_files;
-         CREATE TEMP VIEW managed_directories AS
-            SELECT game_path, 'game' AS root, path_key, relative_path, package_id, identity
-            FROM main.managed_directories;
-         CREATE TEMP VIEW created_directories AS
-            SELECT game_path, 'game' AS root, path_key, relative_path, identity
-            FROM main.created_directories;
-         CREATE TEMP VIEW installation_roots AS
-            SELECT game_path, 'game' AS root, game_path AS path, NULL AS path_key FROM (
-                SELECT path AS game_path FROM main.game_installations
-                UNION SELECT game_path FROM main.managed_packages
-                UNION SELECT game_path FROM main.managed_files
-                UNION SELECT game_path FROM main.managed_directories
-                UNION SELECT game_path FROM main.created_directories);",
-    )?;
-    Ok(())
 }
 
 /// Record `path` as the `kind` root of `installation`.

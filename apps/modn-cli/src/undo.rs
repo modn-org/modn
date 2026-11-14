@@ -141,7 +141,7 @@ fn restores(
             ));
         }
         let sha256 = release
-            .archive_sha256
+            .archive_blake3
             .as_deref()
             .with_context(|| format!("{} has no recorded archive digest", package.mod_id))?;
         let version = release.version.as_deref().unwrap_or("0");

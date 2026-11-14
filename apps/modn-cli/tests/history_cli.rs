@@ -79,10 +79,7 @@ fn install_update_and_uninstall_each_record_one_operation() {
     assert_eq!(install["game_id"], "test-game");
     assert_eq!(install["packages"][0]["mod_id"], "example");
     assert_eq!(release(install, "release_after")["version"], "1.0");
-    assert!(release(install, "release_after")["archive_blake3"]
-        .as_str()
-        .expect("blake3")
-        .starts_with("blake3:"));
+    assert_eq!(release(install, "release_after")["archive_blake3"], v1_hash);
     assert_eq!(
         install["packages"][0]["files"][0]["digest_before"],
         Value::Null

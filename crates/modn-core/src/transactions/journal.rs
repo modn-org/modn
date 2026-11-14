@@ -16,7 +16,7 @@ pub struct ManagedPackage {
     pub id: String,
     pub pinned: bool,
     pub game_installation: PathBuf,
-    pub archive_sha256: String,
+    pub archive_blake3: String,
     /// Exact owned files installed through the recorded source ZIP.
     pub files: Vec<OwnedFile>,
     /// Exclusive game-relative directory roots, owned in their entirety.
@@ -32,9 +32,6 @@ pub struct ManagedPackage {
     /// Release source descriptor, when recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<crate::buckets::PackageSource>,
-    /// Archive BLAKE3 digest as `blake3:<hex>`, when recorded.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub archive_blake3: Option<String>,
     /// Declared catalog data recorded with this package.
     #[serde(skip)]
     pub declarations: Option<super::catalog::ReleaseDeclarations>,
@@ -194,7 +191,7 @@ impl Store {
     ) -> Result<()> {
         let tx = self.connection.transaction()?;
         tx.execute(
-            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
+            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_blake3)
             VALUES (?1,?2,'pending',?3,?4,?5)",
             params![
                 id,
@@ -246,7 +243,7 @@ impl Store {
         self.ensure_pending_only(allowed)?;
         let tx = self.connection.transaction()?;
         tx.execute(
-            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
+            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_blake3)
              VALUES (?1,'install','staging',?2,?1,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
@@ -374,7 +371,7 @@ impl Store {
             record_root(&tx, game, RootKind::Content, content)?;
         }
         tx.execute(
-            "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES (?1,?2,?3)",
+            "INSERT INTO managed_packages(id,game_path,archive_blake3) VALUES (?1,?2,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
         if let Some(metadata) = &metadata {

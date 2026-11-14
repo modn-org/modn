@@ -155,10 +155,7 @@ pub struct HistoryRelease {
     /// Descriptor that can download the archive again.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<PackageSource>,
-    /// Archive SHA-256, the current cache key.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub archive_sha256: Option<String>,
-    /// Archive BLAKE3 digest as `blake3:<hex>`.
+    /// Archive BLAKE3 pin (hex), when recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archive_blake3: Option<String>,
 }

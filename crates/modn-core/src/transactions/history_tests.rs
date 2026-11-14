@@ -40,7 +40,6 @@ fn sha256(bytes: &[u8]) -> String {
 fn install_and_uninstall_record_releases_sources_and_digests() {
     let mut fixture = Fixture::new();
     let archive = fixture.archive("mod");
-    let archive_bytes = fs::read(&archive).expect("archive bytes");
     let expected = inspect(&archive).expect("inspect").blake3;
     fixture
         .store
@@ -74,11 +73,7 @@ fn install_and_uninstall_record_releases_sources_and_digests() {
         after.source,
         Some(PackageSource::Manual { ref filename }) if filename == "mod.zip"
     ));
-    assert_eq!(after.archive_sha256.as_deref(), Some(expected.as_str()));
-    assert_eq!(
-        after.archive_blake3.as_deref(),
-        Some(format!("blake3:{}", blake3::hash(&archive_bytes).to_hex()).as_str())
-    );
+    assert_eq!(after.archive_blake3.as_deref(), Some(expected.as_str()));
     assert_eq!(recorded.files.len(), 1);
     assert!(recorded.files[0].digest_before.is_none());
     assert!(recorded.files[0].digest_after.is_some());

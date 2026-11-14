@@ -29,7 +29,7 @@ pub(super) fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
 pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
     let checked = inspect(archive).unwrap();
     InstallPlan {
-        archive_sha256: checked.blake3,
+        archive_blake3: checked.blake3,
         game_installation: game.canonicalize().unwrap(),
         status: crate::planning::PlanStatus::Reviewable,
         metadata_only: true,
@@ -138,7 +138,7 @@ fn independently_rejects_forged_plans_without_writes_or_journals() {
                 code: "BLOCK".into(),
                 message: "blocked".into(),
             }),
-            2 => proposal.archive_sha256 = "stale".into(),
+            2 => proposal.archive_blake3 = "stale".into(),
             3 => proposal.game_installation = dir.path().to_path_buf(),
             4 => proposal.operations[0].source = "missing/file.bin".into(),
             5 => proposal.operations[0].bytes += 1,
@@ -425,7 +425,7 @@ fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
     make_zip(&archive, &[("engine/tools/scc.exe", b"forged")]);
     let source = inspect(&archive).unwrap();
     let proposal = InstallPlan {
-        archive_sha256: source.blake3,
+        archive_blake3: source.blake3,
         game_installation: game.canonicalize().unwrap(),
         status: crate::planning::PlanStatus::Reviewable,
         metadata_only: true,

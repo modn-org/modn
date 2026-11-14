@@ -95,7 +95,7 @@ fn roundtrip(files: &[(&str, &[u8])], kind: &str, wrapper: &str) {
         0
     );
     assert_eq!(
-        owned["archive_sha256"]
+        owned["archive_blake3"]
             .as_str()
             .expect("ZIP provenance")
             .len(),

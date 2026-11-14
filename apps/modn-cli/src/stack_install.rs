@@ -256,7 +256,7 @@ pub(super) fn run(
                     &member.approved_executables,
                 )?,
             };
-            if digests.get(&reference).map(String::as_str) != Some(plan.archive_sha256.as_str()) {
+            if digests.get(&reference).map(String::as_str) != Some(plan.archive_blake3.as_str()) {
                 bail!("{reference}: source changed after catalog verification");
             }
             if plan.status != PlanStatus::Reviewable {

@@ -22,7 +22,7 @@ fn release_metadata_keeps_declarations_for_a_later_uninstall() {
     let release = CatalogRelease::new(
         reference("mod"),
         vec![
-            CatalogDependency::new(reference("base"), base.archive_sha256.clone())
+            CatalogDependency::new(reference("base"), base.archive_blake3.clone())
                 .with_requirement(Some(">=1.0".into())),
         ],
     )

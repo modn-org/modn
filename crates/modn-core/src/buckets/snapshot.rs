@@ -109,8 +109,6 @@ impl BucketSnapshot {
                 })?;
                 Ok(CatalogDependency::new(
                     dependency.reference(),
-                    // The dependency pin is BLAKE3 hex in the `archive_sha256`
-                    // field until the state schema renames it (task a3).
                     dependency.package.blake3.clone().unwrap_or_default(),
                 )
                 .with_requirement(selected.package.dependency_versions.get(id).cloned()))
@@ -127,8 +125,7 @@ impl BucketSnapshot {
                         selected.package.game.clone(),
                         id.clone(),
                     ),
-                    // The v2 BLAKE3 pin has no state-database column yet.
-                    None,
+                    published(id).and_then(|release| release.package.blake3.clone()),
                 )
             })
             .collect();

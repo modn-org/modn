@@ -445,7 +445,7 @@ impl Store {
             id,
             pinned: false,
             game_installation: game,
-            archive_sha256: inspection.blake3,
+            archive_blake3: inspection.blake3,
             directories,
             catalog: catalog.as_ref().map(|c| c.release.reference.clone()),
             mod_id: metadata.as_ref().map(|metadata| metadata.mod_id.clone()),
@@ -455,9 +455,6 @@ impl Store {
             source: metadata
                 .as_ref()
                 .and_then(|metadata| metadata.source.clone()),
-            archive_blake3: metadata
-                .as_ref()
-                .and_then(|metadata| metadata.archive_blake3.clone()),
             declarations: release.map(super::catalog::ReleaseDeclarations::of),
             files: files
                 .into_iter()

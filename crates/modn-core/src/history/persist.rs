@@ -12,8 +12,8 @@ pub(crate) fn package_snapshot(
     connection: &Connection,
     package_id: &str,
 ) -> Result<HistoryPackage> {
-    let archive_sha256: String = connection.query_row(
-        "SELECT archive_sha256 FROM managed_packages WHERE id=?1",
+    let archive_blake3: String = connection.query_row(
+        "SELECT archive_blake3 FROM managed_packages WHERE id=?1",
         [package_id],
         |row| row.get(0),
     )?;
@@ -32,14 +32,13 @@ pub(crate) fn package_snapshot(
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let (mod_id, version, source, archive_blake3, catalog, declarations) = metadata.map_or_else(
-        || (package_id.to_owned(), None, None, None, None, None),
+    let (mod_id, version, source, catalog, declarations) = metadata.map_or_else(
+        || (package_id.to_owned(), None, None, None, None),
         |metadata| {
             (
                 metadata.mod_id,
                 metadata.version,
                 metadata.source,
-                metadata.archive_blake3,
                 metadata.catalog,
                 metadata.declarations,
             )
@@ -54,8 +53,7 @@ pub(crate) fn package_snapshot(
             catalog,
             declarations,
             source,
-            archive_sha256: Some(archive_sha256),
-            archive_blake3,
+            archive_blake3: Some(archive_blake3),
         }),
         release_after: None,
         files,
@@ -68,7 +66,7 @@ pub(crate) fn install_operation(
     operation_id: &str,
     package_id: &str,
     metadata: ReleaseMetadata,
-    archive_sha256: &str,
+    archive_blake3: &str,
     files: &[FileSpec],
     previous: Option<HistoryPackage>,
 ) -> HistoryOperation {
@@ -112,8 +110,7 @@ pub(crate) fn install_operation(
                 catalog: metadata.catalog,
                 declarations: metadata.declarations,
                 source: metadata.source,
-                archive_sha256: Some(archive_sha256.to_owned()),
-                archive_blake3: metadata.archive_blake3,
+                archive_blake3: Some(archive_blake3.to_owned()),
             }),
             files: merged.into_values().collect(),
         }],
@@ -177,8 +174,7 @@ pub(crate) fn stack_operation(
                     catalog: package.catalog.clone(),
                     declarations: package.declarations.clone(),
                     source: package.source.clone(),
-                    archive_sha256: Some(package.archive_sha256.clone()),
-                    archive_blake3: package.archive_blake3.clone(),
+                    archive_blake3: Some(package.archive_blake3.clone()),
                 }),
                 files,
             }
