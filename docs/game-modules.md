@@ -154,7 +154,18 @@ modn bucket untrust-modules <bucket>
 
 `bucket trust-modules` prints the pinned signer key ID and refuses without `--yes`. Use `--fingerprint <KEY_ID>` to require an exact signer. Trust covers the whole bucket, so one acknowledgement covers every game in it. A signer key change ends trust. See [buckets.md](buckets.md#module-sources-and-trust).
 
-A catalog sync imports modules only from trusted buckets. It reports and ignores modules from untrusted buckets. It also ignores a catalog module for a game that `main` provides, because official modules take priority. `modn doctor` reports that case as `MODULE_HIDDEN_BY_OFFICIAL`.
+A catalog sync imports modules only from trusted buckets. It ignores the `games/`
+folder of an untrusted bucket at sync: Modn neither reads nor validates it, and
+it reports no ignored modules. Modn refuses those modules when a module is used.
+It also ignores a catalog module for a game that `main` provides, because
+official modules take priority. `modn doctor` reports that case as
+`MODULE_HIDDEN_BY_OFFICIAL`.
+
+`main` and the signed Git catalogs the user trusts for modules may hold modules
+only at `games/<game-id>/module.json` and `module.lua`. Those folders may hold
+nothing else. A package manifest or any other entry under `games/` is refused at
+sync. Package manifests live in `mods/<game-id>/`, so a mod whose ID is `module`
+is a normal package. See [buckets.md](buckets.md#module-sources-and-trust).
 
 Modn refuses a module whose bucket is no longer trusted. The refusal names the bucket and the recovery command. Run `modn bucket trust-modules <bucket>` to trust the bucket again, or `modn module remove <game-id>` to remove the module. `modn doctor` reports the same condition as `MODULE_SOURCE_UNTRUSTED`.
 

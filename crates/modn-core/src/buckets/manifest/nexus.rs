@@ -11,7 +11,7 @@ pub(super) fn validate(
     file_name: &str,
 ) -> Result<()> {
     crate::acquisition::NexusFile::new(game_domain, mod_id, file_id, file_name)?;
-    manifest.required_sha256()?;
+    manifest.required_blake3()?;
     let format = manifest
         .archive_format
         .as_ref()
@@ -41,9 +41,9 @@ mod tests {
 
     fn parse(source: Value, extra: Value) -> anyhow::Result<PackageManifest> {
         let mut value = json!({
-            "schema_version": 1, "id": "top", "game": "test-game", "name": "Top",
-            "version": "1.0", "archive_format": "zip", "sha256": "0".repeat(64),
-            "source": source
+            "schema_version": 2, "id": "top", "game": "test-game", "name": "Top",
+            "version": "1.0", "archive_format": "zip", "blake3": "0".repeat(64),
+            "sources": [source]
         });
         if let (Some(value), Value::Object(extra)) = (value.as_object_mut(), extra) {
             value.extend(extra);
@@ -71,7 +71,7 @@ mod tests {
     fn a_valid_nexus_source_parses_and_validates() {
         let parsed = parse(nexus(json!({})), json!({})).expect("valid source");
         assert!(matches!(
-            parsed.source,
+            parsed.sources[0],
             PackageSource::Nexus {
                 ref game_domain,
                 mod_id: 6945,
@@ -141,13 +141,13 @@ mod tests {
     fn nexus_sources_require_a_digest_and_archive_format() {
         let digest = format!(
             "{:#}",
-            validate(nexus(json!({})), json!({"sha256": null})).unwrap_err()
+            validate(nexus(json!({})), json!({"blake3": null})).unwrap_err()
         );
-        assert!(digest.contains("sha256 is required"), "{digest}");
+        assert!(digest.contains("blake3 is required"), "{digest}");
         for value in ["0", &"A".repeat(64), &"0".repeat(63)] {
             let error = format!(
                 "{:#}",
-                validate(nexus(json!({})), json!({"sha256": value})).unwrap_err()
+                validate(nexus(json!({})), json!({"blake3": value})).unwrap_err()
             );
             assert!(error.contains("64 lowercase hex"), "{value}: {error}");
         }

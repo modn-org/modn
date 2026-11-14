@@ -11,7 +11,6 @@
 
 use crate::main_bucket;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -182,17 +181,17 @@ impl Fixture {
             zip.write_all(bytes).expect("payload");
         }
         zip.finish().expect("finish archive");
-        let digest = Sha256::digest(fs::read(&path).expect("archive bytes"));
-        (path, format!("{digest:x}"))
+        let digest = blake3::hash(&fs::read(&path).expect("archive bytes"));
+        (path, digest.to_hex().to_string())
     }
 
     pub fn bucket(&mut self) {
         let root = self.temp.path().join("fixture-bucket");
-        fs::create_dir_all(root.join(format!("games/{GAME_ID}"))).expect("bucket dirs");
+        fs::create_dir_all(root.join("mods").join(GAME_ID)).expect("bucket dirs");
         fs::write(
             root.join("bucket.json"),
             serde_json::to_vec(&json!({
-                "schema_version": 1, "name": "fixture-bucket", "title": "Content root fixture"
+                "schema_version": 2, "name": "fixture-bucket", "title": "Content root fixture"
             }))
             .expect("JSON"),
         )
@@ -208,16 +207,16 @@ impl Fixture {
 
     pub fn release(&self, file: &str, version: &str, hash: &str) {
         fs::write(
-            self.bucket_root.join("games").join(GAME_ID).join(file),
+            self.bucket_root.join("mods").join(GAME_ID).join(file),
             serde_json::to_vec(&json!({
-                "schema_version": 1, "id": "fixture", "game": GAME_ID,
+                "schema_version": 2, "id": "fixture", "game": GAME_ID,
                 "name": "Fixture", "version": version, "archive_format": "zip",
-                "sha256": hash,
-                "source": {"kind": "manual", "filename": format!("fixture-{version}.zip")}
+                "blake3": hash,
+                "sources": [{"kind": "manual", "filename": format!("fixture-{version}.zip")}]
             }))
             .expect("JSON"),
         )
-        .expect("release manifest");
+        .expect("release record");
     }
 }
 

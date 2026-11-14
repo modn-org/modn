@@ -16,7 +16,7 @@ pub(super) struct GitArchive {
 }
 
 fn source(release: &BucketPackage) -> Option<GitSource> {
-    match &release.package.source {
+    match release.package.primary_source() {
         PackageSource::Git { repository, commit } => {
             Some(GitSource::new(repository.clone(), commit.clone()))
         }

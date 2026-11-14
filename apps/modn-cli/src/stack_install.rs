@@ -70,8 +70,7 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
     if stack
         .selected
         .package
-        .sha256
-        .as_deref()
+        .pin()
         .is_some_and(|digest| by_digest.contains_key(digest))
     {
         bail!(
@@ -93,7 +92,7 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
                 "  dependency not installed: {} {}; {}",
                 reference_of(release),
                 release.package.version,
-                dependency_plan::acquisition(&release.package.source)
+                dependency_plan::acquisition(release.package.primary_source())
             )
         })
         .collect();
@@ -122,7 +121,10 @@ pub(super) fn run(
     let releases = releases(&stack)?;
     let mut history = HistoryContext::new(stack.game_id.clone(), stack.installation.clone());
     for release in &releases {
-        history = history.with_source(&reference_of(release), release.package.source.clone());
+        history = history.with_source(
+            &reference_of(release),
+            release.package.primary_source().clone(),
+        );
     }
     download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes && !progress.enabled();

@@ -52,7 +52,7 @@ fn supplied_archive(file: &Path, target: &BucketPackage) -> Result<PathBuf> {
     }
     let inspected = inspect(file)?;
     let reference = reference_of(target);
-    if target.package.sha256.as_deref() != Some(inspected.sha256.as_str()) {
+    if target.package.pin() != Some(inspected.sha256.as_str()) {
         bail!(
             "{}: archive SHA-256 does not match {reference} {}",
             file.display(),
@@ -118,7 +118,7 @@ fn plan_update(
             }
             None => preview_update_with_permissions(game_id, game, archive, approved, replaced)?,
         };
-        if Some(plan.archive_sha256.as_str()) != target.package.sha256.as_deref() {
+        if Some(plan.archive_sha256.as_str()) != target.package.pin() {
             bail!(
                 "{}: source changed after catalog verification",
                 reference_of(target)
@@ -193,7 +193,7 @@ pub(super) fn run(
         .iter()
         .map(|r| {
             (
-                r.package.sha256.clone().unwrap_or_default(),
+                r.package.pin().map(str::to_owned).unwrap_or_default(),
                 r.package.version.clone(),
             )
         })
@@ -243,7 +243,7 @@ pub(super) fn run(
         &dependents,
         &current.package.id,
     ));
-    let up_to_date = target.package.sha256.as_deref() == Some(old.archive_sha256.as_str());
+    let up_to_date = target.package.pin() == Some(old.archive_sha256.as_str());
     if target.package.native_injector && !native_covered && !up_to_date && !args.dry_run {
         return Err(
             ApprovalRefusal::new(reference.clone(), Uncovered::native_injector()).into_error(),
@@ -268,7 +268,7 @@ pub(super) fn run(
     let fetch = !up_to_date && !archives.contains_key(&label) && (args.download || !args.dry_run);
     if fetch && blockers.is_empty() {
         if !download::downloadable(&target) {
-            let source = acquisition(&target.package.source);
+            let source = acquisition(target.package.primary_source());
             bail!("{label}: {source}, then use modn update {label} --file <archive>");
         }
         state.validate_download(cache.root(), &protected)?;
@@ -276,7 +276,7 @@ pub(super) fn run(
             let download = format!(
                 "{label} {}; {}",
                 target.package.version,
-                acquisition(&target.package.source)
+                acquisition(target.package.primary_source())
             );
             if !install_consent::confirm_download(
                 &[download],
@@ -327,7 +327,7 @@ pub(super) fn run(
             .map(|candidate| FileChanges::new(&old, &candidate.plan)),
         plan: candidate.as_ref().map(|candidate| &candidate.plan),
         archive_needed: (archive.is_none() && !up_to_date)
-            .then(|| acquisition(&target.package.source)),
+            .then(|| acquisition(target.package.primary_source())),
         dependents: &dependents,
         blockers: &blockers,
         unapproved_declared_executables: candidate
@@ -376,7 +376,7 @@ pub(super) fn run(
     store.set_control(progress.control().clone());
     store.set_history_context(
         HistoryContext::new(game_id, game.clone())
-            .with_source(&reference, target.package.source.clone()),
+            .with_source(&reference, target.package.primary_source().clone()),
     );
     let package = store.update_catalog_release(
         &game,

@@ -71,6 +71,7 @@ fn copy_tree(source: &Path, target: &Path) {
 fn fixture_tree() -> tempfile::TempDir {
     let tree = tempfile::tempdir().expect("fixture tree directory");
     copy_tree(&repository(), tree.path());
+    main_bucket::to_contract_v2(tree.path());
     tree
 }
 
@@ -328,6 +329,30 @@ fn embedded_signer_key_refuses_a_release_signed_by_another_key() {
         .expect("run fixture command");
     failure(&output, "does not match public key 0E250AD52A3BA2AA");
     assert!(!data.path().join("modn/buckets/main").exists());
+}
+
+#[test]
+fn contract_v1_main_bucket_is_refused_and_nothing_is_published() {
+    let data = tempfile::tempdir().unwrap();
+    let zip = data.path().join("main.zip");
+    let tree = fixture_tree();
+    fs::write(
+        tree.path().join("bucket.json"),
+        r#"{"schema_version":1,"name":"main","title":"Modn main bucket"}"#,
+    )
+    .unwrap();
+    pack(tree.path(), &zip, None);
+    main_bucket::write_signature(tree.path(), &zip);
+    let output = run(data.path(), zip.to_str().unwrap(), &["bucket", "update"]);
+    failure(&output, "schema_version 1");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("bucket contract v2"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!data.path().join("modn/buckets/main").exists());
+    assert!(!data.path().join("modn/buckets/.main-staging").exists());
+    assert!(!data.path().join("modn/buckets/.main-aside").exists());
 }
 
 #[test]
