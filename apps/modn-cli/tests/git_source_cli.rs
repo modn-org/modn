@@ -1,95 +1,18 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/git_fixture.rs"]
+mod git_fixture;
+
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
+use git_fixture::{file_url, repository};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use support::{error, Fixture};
-
-struct Repository {
-    base: PathBuf,
-    commit: String,
-    later: String,
-}
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
-        .current_dir(directory)
-        .args(arguments)
-        .output()
-        .expect("run git");
-    assert!(
-        output.status.success(),
-        "git {arguments:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout)
-        .expect("git output")
-        .trim()
-        .to_owned()
-}
-
-fn commit_all(directory: &Path, message: &str) {
-    git(directory, &["add", "."]);
-    git(
-        directory,
-        &[
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "commit",
-            "-m",
-            message,
-        ],
-    );
-}
-
-fn repository(root: &Path) -> Repository {
-    let work = root.join("git-source-work");
-    let plugin = work.join("Demo/package/plugins/git-source.plugin");
-    fs::create_dir_all(plugin.parent().expect("plugin parent")).expect("work tree");
-    fs::write(&plugin, b"pinned-release").expect("pinned payload");
-    git(&work, &["init", "--initial-branch=main"]);
-    commit_all(&work, "pinned");
-    let commit = git(&work, &["rev-parse", "HEAD"]);
-    fs::write(&plugin, b"later-release").expect("later payload");
-    commit_all(&work, "later");
-    let later = git(&work, &["rev-parse", "HEAD"]);
-    let base = root.join("repos");
-    fs::create_dir_all(base.join("fixture")).expect("remote base");
-    git(
-        root,
-        &[
-            "clone",
-            "--bare",
-            "--no-local",
-            "--",
-            work.to_str().expect("work path"),
-            base.join("fixture/project.git")
-                .to_str()
-                .expect("bare path"),
-        ],
-    );
-    Repository {
-        base,
-        commit,
-        later,
-    }
-}
-
-fn file_url(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
-    if path.starts_with('/') {
-        format!("file://{path}")
-    } else {
-        format!("file:///{path}")
-    }
-}
 
 fn write_bucket(root: &Path, commit: &str) {
     let bucket = root.join("git-fixture");
