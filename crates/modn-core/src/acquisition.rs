@@ -20,6 +20,7 @@ mod git;
 mod index;
 mod nexus;
 mod provider;
+mod sources;
 use digest::{copy_blake3, file_blake3, file_has_blake3};
 use entry_name::{component, extension, parse_entry_name};
 pub use git::{GitAcquired, GitCacheKey, GitSource};
@@ -28,6 +29,11 @@ pub use nexus::{
     NexusApiKey, NexusDownloadGrant, NexusDownloadUrl, NexusFile, NexusGameDomain, NexusRequest,
 };
 pub use provider::GithubReleaseAsset;
+pub use sources::{
+    FetchError, SourceAttempt, SourceBody, SourceCandidate, SourceFailure, SourcePolicy,
+    SourceTarget, SourceTransport, SourcesAcquired, SourcesError, CONNECT_TIMEOUT,
+    READ_INACTIVITY_TIMEOUT, RETRIES_PER_SOURCE,
+};
 
 /// Largest archive Modn downloads; a longer response is refused.
 pub const MAX_DOWNLOAD_BYTES: u64 = 4 << 30;

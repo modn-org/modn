@@ -155,6 +155,32 @@ pub(super) fn acquisition(source: &PackageSource) -> String {
     }
 }
 
+/// One ordered source, as the plan names it.
+pub(super) fn source_label(source: &PackageSource) -> String {
+    match source {
+        PackageSource::Manual { filename } => format!("manual: {filename}"),
+        PackageSource::Nexus {
+            game_domain,
+            mod_id,
+            file_id,
+            file_name,
+        } => format!("Nexus Mods: {game_domain} mod {mod_id} file {file_id} ({file_name})"),
+        PackageSource::Https { url } => url.clone(),
+        PackageSource::GithubRelease {
+            repository,
+            tag,
+            asset,
+        } => format!("https://github.com/{repository}/releases/download/{tag}/{asset}"),
+        PackageSource::Git { repository, commit } => format!("git {repository} commit {commit}"),
+        _ => "unsupported source".to_owned(),
+    }
+}
+
+/// Every ordered source, in the order the acquisition loop tries them.
+pub(super) fn source_labels(sources: &[PackageSource]) -> Vec<String> {
+    sources.iter().map(source_label).collect()
+}
+
 pub(super) struct ArchivePreview<'a> {
     pub(super) plan: &'a InstallPlan,
     pub(super) unapproved_declared_executables: &'a [String],
@@ -176,6 +202,7 @@ pub(super) fn report(
                 "package": reference,
                 "version": selected.package.version,
                 "source": selected.package.primary_source().clone(),
+                "sources": source_labels(&selected.package.sources),
                 "plan": archive.as_ref().map(|preview| preview.plan),
                 "archive_needed": archive
                     .is_none()
@@ -205,6 +232,10 @@ pub(super) fn report(
             | PackageSource::Nexus { .. } => "when you install it",
             _ => "then add --file <archive>",
         };
+        println!("Sources, in order:");
+        for label in source_labels(&selected.package.sources) {
+            println!("  {label}");
+        }
         println!(
             "Dry run for {reference}: archive needed; {}, {next}",
             acquisition(selected.package.primary_source())

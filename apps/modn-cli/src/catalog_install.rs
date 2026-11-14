@@ -224,8 +224,9 @@ fn install_mod(
         .chain([&selected])
         .collect();
     download::validate_links(&args.nxm_links, &installing)?;
+    let mut download_attempts = Vec::new();
     if args.download {
-        download::download(
+        download_attempts.extend(download::download(
             &cache,
             cache_use,
             &installing,
@@ -234,7 +235,7 @@ fn install_mod(
             &args.nxm_links,
             json,
             progress,
-        )?;
+        )?);
         dependencies =
             dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
     }
@@ -296,7 +297,7 @@ fn install_mod(
                 bail!("{reference}: download cancelled");
             }
         }
-        download::download(
+        download_attempts.extend(download::download(
             &cache,
             cache_use,
             &[&selected],
@@ -305,7 +306,7 @@ fn install_mod(
             &args.nxm_links,
             json,
             progress,
-        )?;
+        )?);
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
         let needed = Capabilities::new(
@@ -422,10 +423,21 @@ fn install_mod(
     )?;
     install_consent::record(&mut store, &installation, &reference_key, &needed)?;
     if json {
+        let downloads: Vec<_> = download_attempts
+            .iter()
+            .map(|attempt| {
+                serde_json::json!({
+                    "source": attempt.source,
+                    "attempt": attempt.attempt,
+                    "outcome": if attempt.succeeded() { "ok" } else { "failed" },
+                    "reason": attempt.failure.as_ref().map(ToString::to_string),
+                })
+            })
+            .collect();
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "package": reference, "installed": package,
+                "package": reference, "installed": package, "downloads": downloads,
             }))?
         );
     } else {

@@ -1,60 +1,79 @@
 //! HTTP fetching for artifact sources.
 
-use anyhow::{bail, Result};
+use modn_core::acquisition::{FetchError, SourceBody, SourcePolicy, SourceTransport};
 use std::io::Read;
-use std::time::Duration;
-
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-const READ_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[cfg(test)]
 use super::fixture_response;
 
-pub(super) fn fetch_metadata(url: &str) -> Result<Box<dyn Read>> {
+fn agent(policy: &SourcePolicy, redirects: bool) -> ureq::Agent {
+    let mut builder = ureq::Agent::config_builder()
+        .https_only(true)
+        .timeout_connect(Some(policy.connect_timeout()))
+        .timeout_per_read(Some(policy.idle_timeout()))
+        .user_agent(concat!("modn/", env!("CARGO_PKG_VERSION")));
+    if !redirects {
+        builder = builder.max_redirects(0);
+    }
+    builder.build().into()
+}
+
+fn classify(error: ureq::Error) -> FetchError {
+    match error {
+        ureq::Error::StatusCode(status) => FetchError::Http(status),
+        ureq::Error::Timeout(_) => FetchError::Timeout,
+        other => FetchError::Network(other.to_string()),
+    }
+}
+
+pub(super) fn fetch_metadata(url: &str) -> anyhow::Result<Box<dyn Read>> {
     #[cfg(test)]
     if let Some(response) = fixture_response(url) {
         return response;
     }
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .https_only(true)
-        .max_redirects(0)
-        .timeout_connect(Some(CONNECT_TIMEOUT))
-        .timeout_per_read(Some(READ_INACTIVITY_TIMEOUT))
-        .user_agent(concat!("modn/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into();
-    let response = agent
+    let response = agent(&SourcePolicy::default(), false)
         .get(url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
         .call()?;
     if response.status() != 200 {
-        bail!("GitHub metadata request returned {}", response.status());
+        anyhow::bail!("GitHub metadata request returned {}", response.status());
     }
     Ok(Box::new(response.into_body().into_reader()))
 }
 
-pub(crate) fn fetch(url: &str) -> Result<Box<dyn Read>> {
+pub(crate) fn fetch(url: &str) -> anyhow::Result<Box<dyn Read>> {
     Ok(fetch_measured(url)?.0)
 }
 
-pub(super) fn fetch_measured(url: &str) -> Result<(Box<dyn Read>, Option<u64>)> {
-    #[cfg(test)]
-    if let Some(response) = fixture_response(url) {
-        return Ok((response?, None));
+pub(super) fn fetch_measured(url: &str) -> anyhow::Result<(Box<dyn Read>, Option<u64>)> {
+    let body = HttpTransport.open(url, &SourcePolicy::default())?;
+    Ok((body.reader, body.total))
+}
+
+/// The production transport: HTTPS only, no redirects, pinned timeouts.
+pub(super) struct HttpTransport;
+
+impl SourceTransport for HttpTransport {
+    fn open(&self, url: &str, policy: &SourcePolicy) -> Result<SourceBody, FetchError> {
+        #[cfg(test)]
+        if let Some(response) = fixture_response(url) {
+            return response
+                .map(|reader| SourceBody {
+                    reader,
+                    total: None,
+                })
+                .map_err(|error| FetchError::Network(format!("{error:#}")));
+        }
+        let response = agent(policy, true).get(url).call().map_err(classify)?;
+        let total = response
+            .headers()
+            .get("content-length")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse().ok());
+        Ok(SourceBody {
+            reader: Box::new(response.into_body().into_reader()),
+            total,
+        })
     }
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .https_only(true)
-        .timeout_connect(Some(CONNECT_TIMEOUT))
-        .timeout_per_read(Some(READ_INACTIVITY_TIMEOUT))
-        .user_agent(concat!("modn/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into();
-    let response = agent.get(url).call()?;
-    let total = response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse().ok());
-    Ok((Box::new(response.into_body().into_reader()), total))
 }
