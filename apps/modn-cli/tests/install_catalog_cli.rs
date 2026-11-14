@@ -222,6 +222,7 @@ fn local_archive_preview_without_game_registration_has_no_state_writes() {
     assert!(preview.status.success(), "{}", error(&preview));
     let data: Value = serde_json::from_slice(&preview.stdout).expect("JSON");
     assert_eq!(data["plan"]["status"], "reviewable");
+    assert_eq!(data["plan"]["archive_blake3"], hash);
     assert!(!fixture.state.join("state.sqlite").exists());
     assert!(!fixture.game.join("addons").exists());
 }
