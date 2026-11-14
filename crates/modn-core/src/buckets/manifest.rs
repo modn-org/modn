@@ -336,6 +336,32 @@ mod tests {
     }
 
     #[test]
+    fn non_git_sources_require_archive_format() {
+        use serde_json::json;
+        let sources = [
+            json!({"kind": "manual", "filename": "top.zip"}),
+            json!({"kind": "https", "url": "https://example.invalid/top.zip"}),
+            json!({"kind": "github-release", "repository": "owner/project",
+                "tag": "v1", "asset": "top.zip"}),
+            json!({"kind": "nexus", "game_domain": "cyberpunk2077",
+                "mod_id": 6945, "file_id": 123456, "file_name": "top.zip"}),
+        ];
+        for source in sources {
+            let error = format!(
+                "{:#}",
+                manifest(json!({"archive_format": null, "sources": [source.clone()]})).unwrap_err()
+            );
+            assert!(
+                error.contains("archive_format is required"),
+                "{source}: {error}"
+            );
+            manifest(json!({"sources": [source]})).expect("format present");
+        }
+        git(json!({"archive_format": null})).expect("a git-only record needs no archive_format");
+        git(json!({"archive_format": "zip"})).expect("zip stays allowed");
+    }
+
+    #[test]
     fn contract_v2_record_keeps_ordered_sources_and_optional_fields() {
         use serde_json::json;
         let parsed = parse(json!({

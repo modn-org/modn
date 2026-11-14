@@ -115,6 +115,9 @@ impl PackageManifest {
             }
         } else {
             self.required_blake3()?;
+            if self.archive_format.is_none() {
+                bail!("archive_format is required for non-git sources");
+            }
         }
         for source in &self.sources {
             match source {

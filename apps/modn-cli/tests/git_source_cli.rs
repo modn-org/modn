@@ -1,91 +1,20 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/git_fixture.rs"]
+mod git_fixture;
+
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
+use git_fixture::{file_url, repository};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use support::{error, Fixture};
 
-struct Repository {
-    base: PathBuf,
-    commit: String,
-}
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
-        .current_dir(directory)
-        .args(arguments)
-        .output()
-        .expect("run git");
-    assert!(
-        output.status.success(),
-        "git {arguments:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout)
-        .expect("git output")
-        .trim()
-        .to_owned()
-}
-
-fn commit_all(directory: &Path, message: &str) {
-    git(directory, &["add", "."]);
-    git(
-        directory,
-        &[
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "commit",
-            "-m",
-            message,
-        ],
-    );
-}
-
-fn repository(root: &Path) -> Repository {
-    let work = root.join("git-source-work");
-    let plugin = work.join("Demo/package/plugins/git-source.plugin");
-    fs::create_dir_all(plugin.parent().expect("plugin parent")).expect("work tree");
-    fs::write(&plugin, b"pinned-release").expect("pinned payload");
-    git(&work, &["init", "--initial-branch=main"]);
-    commit_all(&work, "pinned");
-    let commit = git(&work, &["rev-parse", "HEAD"]);
-    fs::write(&plugin, b"later-release").expect("later payload");
-    commit_all(&work, "later");
-    let base = root.join("repos");
-    fs::create_dir_all(base.join("fixture")).expect("remote base");
-    git(
-        root,
-        &[
-            "clone",
-            "--bare",
-            "--no-local",
-            "--",
-            work.to_str().expect("work path"),
-            base.join("fixture/project.git")
-                .to_str()
-                .expect("bare path"),
-        ],
-    );
-    Repository { base, commit }
-}
-
-fn file_url(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
-    if path.starts_with('/') {
-        format!("file://{path}")
-    } else {
-        format!("file:///{path}")
-    }
-}
-
-fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
+fn write_bucket(root: &Path, commit: &str) {
     let bucket = root.join("git-fixture");
     let game = bucket.join("mods/test-game");
     fs::create_dir_all(&game).expect("bucket directory");
@@ -107,6 +36,11 @@ fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
         serde_json::to_vec(&manifest).expect("manifest JSON"),
     )
     .expect("manifest");
+}
+
+fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
+    write_bucket(root, commit);
+    let bucket = root.join("git-fixture");
     let result = fixture.run_paths(&["bucket", "add", "git-fixture"], &[&bucket]);
     assert!(result.status.success(), "{}", error(&result));
 }
@@ -415,6 +349,86 @@ fn git_source_dry_run_without_download_reports_needed_download_without_git() {
     assert!(needed.contains(&repository.commit), "{needed}");
     assert!(!installed_plugin(&fixture).exists());
     assert!(cache_archives(&fixture).is_empty());
+}
+
+#[test]
+fn git_source_update_moves_between_commits_and_the_same_commit_is_current() {
+    let fixture = Fixture::new();
+    let repository = repository(fixture.temp.path());
+    add_bucket(&fixture, fixture.temp.path(), &repository.commit);
+    fixture.register();
+    let game = fixture.game.to_str().expect("game path");
+    let installed = run(
+        &fixture,
+        &repository.base,
+        &[
+            "--json",
+            "install",
+            "test-game/git-package",
+            "--path",
+            game,
+            "--yes",
+        ],
+    );
+    assert!(installed.status.success(), "{}", error(&installed));
+    assert_eq!(
+        fs::read(installed_plugin(&fixture)).expect("installed plugin"),
+        b"pinned-release"
+    );
+
+    write_bucket(fixture.temp.path(), &repository.later);
+    let planned = run(
+        &fixture,
+        &repository.base,
+        &[
+            "--json",
+            "update",
+            "git-package",
+            "--path",
+            game,
+            "--dry-run",
+            "--download",
+        ],
+    );
+    assert!(planned.status.success(), "{}", error(&planned));
+    let report: Value = serde_json::from_slice(&planned.stdout).expect("dry-run JSON");
+    assert_eq!(report["up_to_date"], false);
+    assert_eq!(
+        report["files"]["replaced"],
+        json!(["addons/git-source.plugin"])
+    );
+    assert_eq!(
+        fs::read(installed_plugin(&fixture)).expect("unchanged plugin"),
+        b"pinned-release"
+    );
+
+    let updated = run(
+        &fixture,
+        &repository.base,
+        &["--json", "update", "git-package", "--path", game, "--yes"],
+    );
+    assert!(updated.status.success(), "{}", error(&updated));
+    assert_eq!(
+        fs::read(installed_plugin(&fixture)).expect("updated plugin"),
+        b"later-release"
+    );
+
+    let current = run(
+        &fixture,
+        &repository.base,
+        &[
+            "--json",
+            "update",
+            "git-package",
+            "--path",
+            game,
+            "--dry-run",
+        ],
+    );
+    assert!(current.status.success(), "{}", error(&current));
+    let report: Value = serde_json::from_slice(&current.stdout).expect("current JSON");
+    assert_eq!(report["up_to_date"], true);
+    assert_eq!(report["archive_needed"], Value::Null);
 }
 
 #[test]
