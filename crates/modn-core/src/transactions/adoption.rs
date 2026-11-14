@@ -24,7 +24,7 @@ impl Store {
     ///
     /// The caller must supply the archive digest from its reviewed preview.
     /// The current game module selects files again under the manager lock.
-    /// Every target must match its selected archive member by size and SHA-256.
+    /// Every target must match its selected archive member by size and BLAKE3 digest.
     /// The atomic ownership commit records archive provenance and individual files.
     /// This API never claims a directory or unknown descendants.
     pub fn adopt_archive(
@@ -32,10 +32,10 @@ impl Store {
         game_id: &str,
         game: &Path,
         archive: &Path,
-        reviewed_sha256: &str,
+        reviewed_blake3: &str,
         approval: AdoptionApproval,
     ) -> Result<ManagedPackage> {
-        self.adopt_archive_inner(game_id, game, archive, reviewed_sha256, approval, None)
+        self.adopt_archive_inner(game_id, game, archive, reviewed_blake3, approval, None)
     }
 
     /// Adopt existing content-root files with an explicit appdata base.
@@ -44,7 +44,7 @@ impl Store {
         game_id: &str,
         game: &Path,
         archive: &Path,
-        reviewed_sha256: &str,
+        reviewed_blake3: &str,
         approval: AdoptionApproval,
         appdata: &Path,
     ) -> Result<ManagedPackage> {
@@ -52,7 +52,7 @@ impl Store {
             game_id,
             game,
             archive,
-            reviewed_sha256,
+            reviewed_blake3,
             approval,
             Some(appdata),
         )
@@ -63,7 +63,7 @@ impl Store {
         game_id: &str,
         game: &Path,
         archive: &Path,
-        reviewed_sha256: &str,
+        reviewed_blake3: &str,
         approval: AdoptionApproval,
         appdata: Option<&Path>,
     ) -> Result<ManagedPackage> {
@@ -77,7 +77,7 @@ impl Store {
             bail!("manager state must be separate from the game directory");
         }
         let inspection = inspect(archive)?;
-        if inspection.sha256 != reviewed_sha256 {
+        if inspection.blake3 != reviewed_blake3 {
             bail!("archive changed since adoption preview");
         }
         let proposal = match appdata {
@@ -94,7 +94,7 @@ impl Store {
         };
         validate_plan(&inspection, &roots, &proposal, &[], ExistingTargets::Adopt)?;
         validate_ownership(self, &game, &proposal, None)?;
-        let conflicts = self.conflicting_packages(&game, None, &inspection.sha256)?;
+        let conflicts = self.conflicting_packages(&game, None, &inspection.blake3)?;
         if !conflicts.is_empty() {
             bail!("adoption conflicts with installed {}", conflicts.join(", "));
         }
@@ -138,14 +138,14 @@ impl Store {
                     root: crate::state::RootKind::from_label(&operation.root)
                         .context("adoption operation has an unknown root")?,
                     destination: operation.destination.clone(),
-                    sha256: digest(&path)?,
+                    blake3: digest(&path)?,
                     bytes,
                 });
             }
             files
         };
         super::content::validate_staged_content(&proposal, staging.path())?;
-        if inspect(archive)?.sha256 != reviewed_sha256 {
+        if inspect(archive)?.blake3 != reviewed_blake3 {
             bail!("archive changed during adoption verification");
         }
         for file in &files {
@@ -154,7 +154,7 @@ impl Store {
             if !metadata.is_file()
                 || metadata.file_type().is_symlink()
                 || metadata.len() != file.bytes
-                || digest(&target)? != file.sha256
+                || digest(&target)? != file.blake3
             {
                 bail!(
                     "manual file does not match selected archive: {}",
@@ -171,7 +171,7 @@ impl Store {
         self.commit_install(
             &id,
             &game,
-            reviewed_sha256,
+            reviewed_blake3,
             &files,
             &[],
             roots.content.as_deref(),

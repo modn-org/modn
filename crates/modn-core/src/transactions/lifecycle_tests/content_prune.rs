@@ -7,7 +7,7 @@ use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
 const MODULE_LUA: &str = r#"return {
-    game_id="content-game", api_version=2, version="1.0.0",
+    game_id="content-game", api_version=3, version="1.0.0",
     marker="ContentGame.exe", common_paths={},
     validate=function() return true end,
     steam_name=function() return "Content Game" end,
@@ -50,7 +50,7 @@ impl Lab {
         fs::create_dir_all(&module).unwrap();
         fs::write(
             module.join("module.json"),
-            r#"{"game_id":"content-game","version":"1.0.0","api_version":2,"entrypoint":"module.lua","content_root":{"base":"appdata","path":"Fixture/Mods"}}"#,
+            r#"{"game_id":"content-game","version":"1.0.0","api_version":3,"entrypoint":"module.lua","content_root":{"base":"appdata","path":"Fixture/Mods"}}"#,
         )
         .unwrap();
         fs::write(module.join("module.lua"), MODULE_LUA).unwrap();

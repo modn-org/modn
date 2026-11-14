@@ -87,12 +87,12 @@ fn register_v1_then_import_v2_keeps_v1_bytes_and_switches_active() {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        let v1 = source(fixture.path(), "v1", "1.0.0", 1, &lua(1), None);
+        let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         let registered = registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         assert!(registered.active);
         let v1_bytes = snapshot(&game_directory(&data).join("versions").join("1.0.0"));
 
-        let v2 = source(fixture.path(), "v2", "2.0.0", 1, &lua(1), None);
+        let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         let report = registry.import_release(&v2, origin("community")).unwrap();
         assert_eq!(report.outcome, ReleaseOutcome::Imported);
         assert_eq!(report.version, "2.0.0");
@@ -123,9 +123,9 @@ fn same_version_with_changed_digest_is_refused_and_same_digest_is_unchanged() {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        let v1 = source(fixture.path(), "v1", "1.0.0", 1, &lua(1), None);
+        let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
-        let v2 = source(fixture.path(), "v2", "2.0.0", 1, &lua(1), None);
+        let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         registry.import_release(&v2, origin("community")).unwrap();
         let before = snapshot(&game_directory(&data));
 
@@ -133,8 +133,8 @@ fn same_version_with_changed_digest_is_refused_and_same_digest_is_unchanged() {
             fixture.path(),
             "v2-changed",
             "2.0.0",
-            1,
-            "return {game_id='fixture-game', api_version=1, changed=true}",
+            3,
+            "return {game_id='fixture-game', api_version=3, changed=true}",
             None,
         );
         let message = format!(
@@ -149,7 +149,7 @@ fn same_version_with_changed_digest_is_refused_and_same_digest_is_unchanged() {
         assert_eq!(snapshot(&game_directory(&data)), before);
         assert_eq!(active_version(&registry), "2.0.0");
 
-        let same = source(fixture.path(), "v2-same", "2.0.0", 1, &lua(1), None);
+        let same = source(fixture.path(), "v2-same", "2.0.0", 3, &lua(3), None);
         let report = registry.import_release(&same, origin("community")).unwrap();
         assert_eq!(report.outcome, ReleaseOutcome::Unchanged);
         assert_eq!(snapshot(&game_directory(&data)), before);
@@ -163,9 +163,9 @@ fn lower_release_is_retained_but_never_activated() {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        let v2 = source(fixture.path(), "v2", "2.0.0", 1, &lua(1), None);
+        let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         registry.register(&v2, ModuleTrust::Acknowledged).unwrap();
-        let v1 = source(fixture.path(), "v1", "1.0.0", 1, &lua(1), None);
+        let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         let report = registry.import_release(&v1, origin("community")).unwrap();
         assert_eq!(report.outcome, ReleaseOutcome::NotNewer);
         assert_eq!(active_version(&registry), "2.0.0");
@@ -182,16 +182,16 @@ fn pin_blocks_import_and_rollback_until_unpinned() {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        let v1 = source(fixture.path(), "v1", "1.0.0", 1, &lua(1), None);
+        let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
-        let v2 = source(fixture.path(), "v2", "2.0.0", 1, &lua(1), None);
+        let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         registry.import_release(&v2, origin("community")).unwrap();
         let pin = registry.pin(GAME).unwrap();
         assert_eq!(pin.version, "2.0.0");
         assert_eq!(pin.bucket.as_deref(), Some("community"));
         assert_eq!(registry.pin_status(GAME).unwrap(), Some(pin));
 
-        let v3 = source(fixture.path(), "v3", "3.0.0", 1, &lua(1), None);
+        let v3 = source(fixture.path(), "v3", "3.0.0", 3, &lua(3), None);
         let report = registry.import_release(&v3, origin("community")).unwrap();
         assert_eq!(report.outcome, ReleaseOutcome::Pinned);
         assert_eq!(report.version, "3.0.0");
@@ -213,10 +213,10 @@ fn rollback_switches_only_current_pointer_and_uses_next_older_release() {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        let v1 = source(fixture.path(), "v1", "1.0.0", 1, &lua(1), None);
+        let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         for (name, version) in [("v2", "2.0.0"), ("v3", "3.0.0")] {
-            let source = source(fixture.path(), name, version, 1, &lua(1), None);
+            let source = source(fixture.path(), name, version, 3, &lua(3), None);
             registry
                 .import_release(&source, origin("community"))
                 .unwrap();
@@ -261,13 +261,13 @@ fn failed_staging_validation_keeps_active_release_and_no_partial_version() {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        let v1 = source(fixture.path(), "v1", "1.0.0", 1, &lua(1), None);
+        let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         let v2 = source(
             fixture.path(),
             "v2",
             "2.0.0",
-            1,
+            3,
             "error('rejected release')",
             None,
         );
@@ -303,9 +303,9 @@ fn corrupt_current_and_digest_mismatch_fail_closed() {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        let v1 = source(fixture.path(), "v1", "1.0.0", 1, &lua(1), None);
+        let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
-        let v2 = source(fixture.path(), "v2", "2.0.0", 1, &lua(1), None);
+        let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         let game = game_directory(&data);
         fs::write(game.join("current"), "9.9.9").unwrap();
         assert!(registry.releases(GAME).is_err());
@@ -328,7 +328,7 @@ fn legacy_unversioned_layout_instructs_re_registration() {
     fs::create_dir_all(&legacy).unwrap();
     fs::write(
         legacy.join("module.json"),
-        r#"{"game_id":"legacy-game","version":"1","api_version":1,"entrypoint":"main.lua"}"#,
+        r#"{"game_id":"legacy-game","version":"1","api_version":3,"entrypoint":"main.lua"}"#,
     )
     .unwrap();
     fs::write(legacy.join("registration.json"), "{}").unwrap();
@@ -349,8 +349,8 @@ fn unsafe_version_strings_are_rejected() {
             fixture.path(),
             &format!("unsafe-{index}"),
             version,
-            1,
-            &lua(1),
+            3,
+            &lua(3),
             None,
         );
         let message = format!(
@@ -373,7 +373,7 @@ fn resolution_reads_the_active_release() {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
         let registry = ModuleRegistry::new(&data);
-        let v1 = source(fixture.path(), "v1", "1.0.0", 1, &lua(1), None);
+        let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         assert_eq!(
             modn_core::game_modules::content_root_spec(GAME).unwrap(),
@@ -383,8 +383,8 @@ fn resolution_reads_the_active_release() {
             fixture.path(),
             "v2",
             "2.0.0",
-            2,
-            &lua(2),
+            3,
+            &lua(3),
             Some("Fixture Game/Mods"),
         );
         registry

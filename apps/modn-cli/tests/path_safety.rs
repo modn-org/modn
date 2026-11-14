@@ -10,24 +10,15 @@ use zip::write::SimpleFileOptions;
 
 fn create_modules(root: &Path) -> PathBuf {
     let modules = root.join("modules");
-    let sources = [
-        ("test-game", "../../tests/fixtures/test-game"),
-        ("cyberpunk-2077", "../../buckets/main/games/cyberpunk-2077"),
-    ];
-    for (id, source) in sources {
-        let destination = modules.join(id);
-        fs::create_dir_all(&destination).expect("fixture setup or assertion");
-        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join(source);
-        let script = if id == "test-game" {
-            "main.lua"
-        } else {
-            "module.lua"
-        };
-        for name in ["module.json", script] {
-            fs::copy(source.join(name), destination.join(name))
-                .expect("fixture setup or assertion");
-        }
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
+    let destination = modules.join("test-game");
+    fs::create_dir_all(&destination).expect("fixture setup or assertion");
+    for name in ["module.json", "main.lua"] {
+        fs::copy(fixture.join(name), destination.join(name)).expect("fixture setup or assertion");
     }
+    let official =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
+    main_bucket::copy_main_module(&official, &modules.join("cyberpunk-2077"));
     modules
 }
 

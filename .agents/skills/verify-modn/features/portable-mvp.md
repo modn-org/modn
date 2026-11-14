@@ -13,17 +13,17 @@ python .agents/skills/verify-modn/scripts/portable_mvp.py --binary target/releas
 The driver requires Windows, Python 3.10+, Rust, Cargo and Git for the outside-repository check.
 It copies the executable outside the repository and removes Rust tools from the child PATH.
 It rejects dynamic Visual C++ runtime imports.
-It packs the current official bucket with the pinned bucket repository release packer.
-It removes the packer's checksum sidecar.
-It extracts the ZIP and signs the extracted contents with an ephemeral key through `cargo run -p modn-core --example sign_catalog`, never a checkout with `.git`.
+It builds a disposable contract v2 `main` bucket with `bucket.json` schema 2 and a copied Cyberpunk module.
+It packs that tree and signs it with an ephemeral key through `cargo run -p modn-core --example sign_catalog`, never a checkout with `.git`.
+It never reads the repository's `buckets/main` submodule.
 A `test-main-key` build, passed as `--bucket-binary`, runs only the `bucket update` step with that key in `MODN_TEST_MAIN_BUCKET_PUBLIC_KEY`.
 Every other step uses `--binary`, which refuses unsigned main releases.
 Omitting `--bucket-binary` fails before any fixture work and prints the build command.
 It uses the bootstrapped first-party Cyberpunk policy without a module override.
 
-The disposable community catalog contains synthetic ZIP payloads and pinned digests.
+The disposable community catalog uses contract v2 records under `mods/cyberpunk-2077/` with real BLAKE3 pins of the synthetic ZIP payloads.
 Its stack contains RED4ext, redscript, CET, ArchiveXL, Codeware, TweakXL, Equipment-EX and a synthetic top package.
-The driver checks installed bytes, eight managed packages and all 13 dependency edges.
+The driver checks installed bytes, eight managed packages and all 14 dependency edges.
 These fixtures prove policy planning and managed transactions. They do not establish framework or game compatibility.
 
 Update checks cover read-only preview, pin skip, drift rejection before mutation and approved replacement.
@@ -33,12 +33,11 @@ The driver then checks every original game digest, all database rows and empty t
 A missing removal witness fails the run. It must not be reported as rollback proof.
 Successful replacement must preserve dependency edges and point them to the successor package.
 
-The provider probe selects the pinned public ripgrep 14.1.1 Windows ZIP.
-It independently downloads and hashes that ZIP, then starts production provider acquisition with an empty cache.
-`install --dry-run --download` must cache exactly those bytes and preserve game files and database rows.
-The non-mod ZIP must be layout-blocked after acquisition.
-Report transport success separately from install compatibility.
-An external provider failure appears as `UNVERIFIED` in the summary; it does not establish live transport coverage.
+The provider probe declares an unreachable loopback HTTPS source with a valid BLAKE3 pin.
+It starts acquisition with an empty cache and proves the release binary reports a transport failure.
+The archive cache must stay empty, and game files and database rows must stay unchanged.
+The driver uses no external network.
+Live provider acquisition remains a manual release check; the offline probe does not establish transport coverage.
 
 Each invocation retains `modn-portable-evidence-*` under the OS temporary directory.
 Numbered transcripts contain commands, working directories, actual exits, stdout and stderr.

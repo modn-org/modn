@@ -3,7 +3,6 @@ use crate::archive::{ArchiveFormat, Inspection};
 use crate::planning::InstallPlan;
 use crate::progress::OperationControl;
 use anyhow::{bail, Context, Result};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
@@ -12,7 +11,7 @@ use std::path::Path;
 /// Bytes read between cancellation checks while a ZIP member is hashed.
 const DIGEST_CHUNK_BYTES: usize = 64 * 1024;
 
-/// SHA-256 of every archive member that `plan` selects, keyed by root and
+/// BLAKE3 digest of every archive member that `plan` selects, keyed by root and
 /// destination.
 ///
 /// `control` is checked before the archive is inspected and while its members
@@ -77,7 +76,7 @@ fn member_digest(
     control: &OperationControl,
     source: &str,
 ) -> Result<String> {
-    let mut hasher = Sha256::new();
+    let mut hasher = blake3::Hasher::new();
     let mut remaining = bytes.saturating_add(1);
     let mut copied = 0u64;
     let mut buffer = [0u8; DIGEST_CHUNK_BYTES];
@@ -95,7 +94,7 @@ fn member_digest(
     if copied != bytes {
         bail!("archive extraction size mismatch for {source}");
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn sevenz_digests(
@@ -115,7 +114,7 @@ fn sevenz_digests(
         .map(|file| {
             (
                 (file.root.label().to_owned(), file.destination),
-                file.sha256,
+                file.blake3,
             )
         })
         .collect())

@@ -6,7 +6,6 @@ use modn_core::acquisition::NexusApiKey;
 use modn_core::data_dir;
 use modn_core::game_modules::with_module_source;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -115,16 +114,16 @@ impl Fixture {
     }
 
     fn setup(&mut self, payload: &[u8]) {
-        fs::create_dir_all(self.root.join("buckets/main/games")).expect("main bucket");
+        fs::create_dir_all(self.root.join("buckets/main/mods")).expect("main bucket");
         fs::write(
             self.root.join("buckets/main/bucket.json"),
-            r#"{"schema_version":1,"name":"main","title":"Fixture"}"#,
+            r#"{"schema_version":2,"name":"main","title":"Fixture"}"#,
         )
         .expect("main bucket metadata");
-        fs::create_dir_all(self.catalog.join("games/test-game")).expect("catalog");
+        fs::create_dir_all(self.catalog.join("mods/test-game")).expect("catalog");
         fs::write(
             self.catalog.join("bucket.json"),
-            r#"{"schema_version":1,"name":"fixture","title":"Fixture"}"#,
+            r#"{"schema_version":2,"name":"fixture","title":"Fixture"}"#,
         )
         .expect("catalog metadata");
         fs::create_dir_all(self.game.join("bin")).expect("game");
@@ -155,18 +154,17 @@ impl Fixture {
         .expect("archive entry");
         zip.write_all(payload).expect("archive payload");
         zip.finish().expect("archive finish");
-        let hash = format!(
-            "{:x}",
-            Sha256::digest(fs::read(&archive).expect("archive bytes"))
-        );
+        let hash = blake3::hash(&fs::read(&archive).expect("archive bytes"))
+            .to_hex()
+            .to_string();
         let manifest = json!({
-            "schema_version": 1, "game": "test-game", "id": "nexusmod",
+            "schema_version": 2, "game": "test-game", "id": "nexusmod",
             "name": "Nexus Mod", "version": version, "archive_format": "zip",
-            "sha256": hash,
-            "source": {
+            "blake3": hash,
+            "sources": [{
                 "kind": "nexus", "game_domain": DOMAIN, "mod_id": MOD_ID,
                 "file_id": file_id, "file_name": "NexusMod.zip"
-            }
+            }]
         });
         let name = if current {
             "nexusmod.json".to_owned()
@@ -174,7 +172,7 @@ impl Fixture {
             format!("nexusmod@{version}.json")
         };
         fs::write(
-            self.catalog.join("games/test-game").join(name),
+            self.catalog.join("mods/test-game").join(name),
             serde_json::to_vec(&manifest).expect("manifest JSON"),
         )
         .expect("manifest");

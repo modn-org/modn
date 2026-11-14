@@ -11,20 +11,19 @@
  * @typedef {Object} OwnedFile
  * @property {string} root
  * @property {string} destination
- * @property {string} sha256
+ * @property {string} blake3
  * @property {number} bytes
  *
  * @typedef {Object} ManagedPackage
  * @property {string} id
  * @property {boolean} pinned
  * @property {string} game_installation
- * @property {string} archive_sha256
+ * @property {string} archive_blake3
  * @property {OwnedFile[]} files
  * @property {string[]} directories
  * @property {{bucket: string, game_id: string, mod_id: string}|null} catalog
  * @property {string} [mod_id]
  * @property {{kind: string, filename?: string}} source
- * @property {string} [archive_blake3]
  *
  * @typedef {Object} BucketPackage
  * @property {string} bucket
@@ -34,7 +33,7 @@
  * @property {string} name
  * @property {string} version
  * @property {string} [archive_format]
- * @property {string} [sha256]
+ * @property {string} [blake3]
  * @property {Object} source
  * @property {string[]} dependencies
  * @property {string} [homepage]
@@ -66,7 +65,7 @@
  * @property {ApprovalRequest} [approval]
  *
  * @typedef {Object} InstallPlan
- * @property {string} archive_sha256
+ * @property {string} archive_blake3
  * @property {string} game_installation
  * @property {'reviewable'|'blocked'} status
  * @property {boolean} metadata_only

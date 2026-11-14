@@ -39,18 +39,18 @@ shipped behavior.
 - [`data-model.md`](data-model.md): entities, trust, selection and ownership
   boundaries, and their mapping to persistence.
 - [`game-modules.md`](game-modules.md): Lua game modules, module releases,
-  pin, update and rollback, trusted sources, `modn module check`, host API v1
-  and development overrides.
+  pin, update and rollback, trusted sources, `modn module check`, host API
+  version 3 only with older modules refused, and development overrides.
 - [`transactions.md`](transactions.md): transactional install, exclusive
   folders, created directories and recovery.
 - [`development.md`](development.md): build, test, `verify-modn` and the
   read-only Cyberpunk archive benchmark.
-- [`releasing.md`](releasing.md): the `Release` workflow, the release gates and
-  real-game validation.
+- [`releasing.md`](releasing.md): the `Release` workflow, the closed milestone
+  gates and real-game validation.
 
 ## Buckets and verification
 
-- [`../buckets/README.md`](../buckets/README.md): bucket metadata contract v1.
+- [`../buckets/README.md`](../buckets/README.md): bucket metadata contract v2.
 - [`modn-org/main`](https://github.com/modn-org/main): the `main` bucket
   repository. Its `PROVENANCE.md` holds versions, checksums and dependency
   evidence. This repository pins it as the `buckets/main` submodule.

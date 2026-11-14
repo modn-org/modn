@@ -11,7 +11,6 @@
 
 use crate::main_bucket;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -27,7 +26,7 @@ const SCRIPT: &str = r#"
 local fs = mods_host.fs
 
 return {
-    game_id = "content-game", api_version = 2, version = "1.0.0",
+    game_id = "content-game", api_version=3, version = "1.0.0",
     marker = "ContentGame.exe", common_paths = {},
     validate = function()
         local ok, info = pcall(fs.metadata, 1, "ContentGame.exe")
@@ -94,25 +93,17 @@ impl Fixture {
         fs::write(
             module.join("module.json"),
             format!(
-                r#"{{"game_id":"{GAME_ID}","version":"1.0.0","api_version":2,"entrypoint":"module.lua","content_root":{{"base":"appdata","path":"{CONTENT_RELATIVE}"}}}}"#
+                r#"{{"game_id":"{GAME_ID}","version":"1.0.0","api_version":3,"entrypoint":"module.lua","content_root":{{"base":"appdata","path":"{CONTENT_RELATIVE}"}}}}"#
             ),
         )
         .expect("manifest");
         fs::write(module.join("module.lua"), SCRIPT).expect("script");
         let cyberpunk =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
-        let cyberpunk_target = modules.join("cyberpunk-2077");
-        fs::create_dir_all(&cyberpunk_target).expect("official module");
-        for file in ["module.json", "module.lua"] {
-            fs::copy(cyberpunk.join(file), cyberpunk_target.join(file)).expect("official source");
-        }
+        main_bucket::copy_main_module(&cyberpunk, &modules.join("cyberpunk-2077"));
         let balatro =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/balatro");
-        let balatro_target = modules.join("balatro");
-        fs::create_dir_all(&balatro_target).expect("balatro module");
-        for file in ["module.json", "module.lua"] {
-            fs::copy(balatro.join(file), balatro_target.join(file)).expect("balatro source");
-        }
+        main_bucket::copy_main_module(&balatro, &modules.join("balatro"));
         Self {
             temp,
             game,
@@ -182,17 +173,17 @@ impl Fixture {
             zip.write_all(bytes).expect("payload");
         }
         zip.finish().expect("finish archive");
-        let digest = Sha256::digest(fs::read(&path).expect("archive bytes"));
-        (path, format!("{digest:x}"))
+        let digest = blake3::hash(&fs::read(&path).expect("archive bytes"));
+        (path, digest.to_hex().to_string())
     }
 
     pub fn bucket(&mut self) {
         let root = self.temp.path().join("fixture-bucket");
-        fs::create_dir_all(root.join(format!("games/{GAME_ID}"))).expect("bucket dirs");
+        fs::create_dir_all(root.join("mods").join(GAME_ID)).expect("bucket dirs");
         fs::write(
             root.join("bucket.json"),
             serde_json::to_vec(&json!({
-                "schema_version": 1, "name": "fixture-bucket", "title": "Content root fixture"
+                "schema_version": 2, "name": "fixture-bucket", "title": "Content root fixture"
             }))
             .expect("JSON"),
         )
@@ -208,16 +199,16 @@ impl Fixture {
 
     pub fn release(&self, file: &str, version: &str, hash: &str) {
         fs::write(
-            self.bucket_root.join("games").join(GAME_ID).join(file),
+            self.bucket_root.join("mods").join(GAME_ID).join(file),
             serde_json::to_vec(&json!({
-                "schema_version": 1, "id": "fixture", "game": GAME_ID,
+                "schema_version": 2, "id": "fixture", "game": GAME_ID,
                 "name": "Fixture", "version": version, "archive_format": "zip",
-                "sha256": hash,
-                "source": {"kind": "manual", "filename": format!("fixture-{version}.zip")}
+                "blake3": hash,
+                "sources": [{"kind": "manual", "filename": format!("fixture-{version}.zip")}]
             }))
             .expect("JSON"),
         )
-        .expect("release manifest");
+        .expect("release record");
     }
 }
 

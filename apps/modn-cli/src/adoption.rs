@@ -35,7 +35,7 @@ pub(super) fn run(
             "verification_required"
         };
         let pending = [
-            "target byte size and SHA-256 match",
+            "target byte size and BLAKE3 digest match",
             "staged archive content",
             "ownership and recorded conflicts",
             "current paths and pending transactions",
@@ -53,7 +53,7 @@ pub(super) fn run(
             );
         } else {
             println!("Adoption preview: {status} (metadata only)");
-            println!("Archive SHA-256: {}", plan.archive_sha256);
+            println!("Archive BLAKE3: {}", plan.archive_blake3);
             for file in &plan.operations {
                 println!(
                     "{} => {} ({} bytes)",
@@ -85,7 +85,7 @@ pub(super) fn run(
             &game_id,
             &game,
             &args.archive,
-            &plan.archive_sha256,
+            &plan.archive_blake3,
             AdoptionApproval::Acknowledged,
             appdata,
         )?,
@@ -93,7 +93,7 @@ pub(super) fn run(
             &game_id,
             &game,
             &args.archive,
-            &plan.archive_sha256,
+            &plan.archive_blake3,
             AdoptionApproval::Acknowledged,
         )?,
     };

@@ -11,7 +11,7 @@ cargo run --bin modn -- module check examples/game-modules/sample-game --json
 `module.json`:
 
 ```json
-{"game_id":"sample-game","version":"0.1.0","api_version":1,"entrypoint":"main.lua"}
+{"game_id":"sample-game","version":"0.1.0","api_version":3,"entrypoint":"main.lua"}
 ```
 
 An optional `min_modn_version` sets the minimum Modn release that can load the module.
@@ -25,8 +25,9 @@ A newer requirement returns, for example, `module cyberpunk-2077 needs Modn 0.3.
 Released Modn 0.2.0 rejects this field as an unknown manifest field.
 It never silently loads a module that declares the requirement.
 Its error names `min_modn_version`, but cannot display the needed release.
-Keep `api_version` at 1 when the module still uses host API v1.
-Version requirements can cover new host validation behavior without changing that API revision.
+Set `api_version` to 3 for bucket contract v2.
+Modn refuses a module that declares an earlier host API version, because contract v2 renamed the Lua hash function from `sha256` to `blake3`.
+The refusal names the declared version and the supported version, and tells the publisher to republish the module for bucket contract v2.
 
 `main.lua`:
 
@@ -34,7 +35,7 @@ Version requirements can cover new host validation behavior without changing tha
 return { game_id = "sample-game", api_version = mods_host.api_version }
 ```
 
-The loader negotiates **host API v1** and rejects mismatching manifest/script identities, unsupported versions, malformed input, unsafe filenames, linked files and directories, oversized source files, and binary/non-UTF-8 Lua chunks. The VM is fresh per check, with an 8 MiB memory ceiling, a 1-second execution deadline checked every 1,000 VM instructions, and a ceiling of 100,000 instruction-hook callbacks. Manifest size is capped at 16 KiB and script size at 256 KiB. Script failures produce explicit errors.
+The loader negotiates **host API v3** for bucket contract v2 and rejects mismatching manifest/script identities, unsupported versions, malformed input, unsafe filenames, linked files and directories, oversized source files, and binary/non-UTF-8 Lua chunks. The VM is fresh per check, with an 8 MiB memory ceiling, a 1-second execution deadline checked every 1,000 VM instructions, and a ceiling of 100,000 instruction-hook callbacks. Manifest size is capped at 16 KiB and script size at 256 KiB. Script failures produce explicit errors.
 
 The internal `test-instruction-budget` Cargo feature disables the wall-clock check for CLI integration tests. It retains the instruction-hook ceiling. Do not enable it in production builds.
 
@@ -49,7 +50,7 @@ modn module check ./module --allow-root "/path/to/game" --json
 # Repeat --allow-root for more than one candidate installation.
 ```
 
-The host exposes a version-1 additive API on the existing `mods_host` API (a proxy rejecting normal assignments). Only the operator-selected roots are enumerated; there is **no automatic drive scanning**, no generic Rust claim of game compatibility and no unrestricted filesystem access. A game-specific Lua module uses file metadata to recognize installations among those roots:
+The host exposes a version-3 additive API on the existing `mods_host` API (a proxy rejecting normal assignments). Only the operator-selected roots are enumerated; there is **no automatic drive scanning**, no generic Rust claim of game compatibility and no unrestricted filesystem access. A game-specific Lua module uses file metadata to recognize installations among those roots:
 
 ```lua
 local roots = mods_host.discovery.roots() -- { { id = 1 }, ... }
@@ -57,9 +58,9 @@ local root = roots[1]
 if root then
     local metadata = mods_host.fs.metadata(root.id, "game.marker")
     -- metadata: { kind = "file" | "directory", bytes = integer }
-    local digest = mods_host.hash.sha256(root.id, "game.marker") -- hex string
+    local digest = mods_host.hash.blake3(root.id, "game.marker") -- hex string
     local archive = mods_host.archive.inspect(root.id, "mods/package.zip")
-    -- { format, sha256, total_uncompressed_bytes, metadata_only = true,
+    -- { format, blake3, total_uncompressed_bytes, metadata_only = true,
     --   files = { { entry, bytes }, ... } }
 end
 return { game_id = "my-game", api_version = mods_host.api_version }
@@ -119,7 +120,7 @@ Registration copies the manifest and Lua entrypoint into a separate registry. It
 
 ### Module releases
 
-A module release identity has two parts: the required `version` in `module.json`, and the SHA-256 digest of the `module.json` bytes followed by the entrypoint bytes. Modn stores each release under `<data>/game-modules/<game-id>/versions/<version>/`. It keeps every retained release and imports a receipt with the identity, digest and source.
+A module release identity has two parts: the required `version` in `module.json`, and the BLAKE3 digest of the `module.json` bytes followed by the entrypoint bytes. Modn stores each release under `<data>/game-modules/<game-id>/versions/<version>/`. It keeps every retained release and imports a receipt with the identity, digest and source.
 
 The `current` file names the one active release. An update stages the new release in private storage and validates it there. It switches the `current` pointer only after the source bucket publishes. A failed update keeps the previous active release, and a failed registry commit removes every release directory it moved and restores every `current` pointer before returning the error. `module update` reports `imported`, `unchanged`, `not_newer` or `pinned`.
 
@@ -152,9 +153,32 @@ modn bucket trust-modules <bucket>
 modn bucket untrust-modules <bucket>
 ```
 
+A local folder bucket cannot supply game modules. An attempt to trust one is
+refused with an error that names the bucket and states that only `main` and the
+signed Git catalogs the user trusts for modules supply game modules.
+
 `bucket trust-modules` prints the pinned signer key ID and refuses without `--yes`. Use `--fingerprint <KEY_ID>` to require an exact signer. Trust covers the whole bucket, so one acknowledgement covers every game in it. A signer key change ends trust. See [buckets.md](buckets.md#module-sources-and-trust).
 
-A catalog sync imports modules only from trusted buckets. It reports and ignores modules from untrusted buckets. It also ignores a catalog module for a game that `main` provides, because official modules take priority. `modn doctor` reports that case as `MODULE_HIDDEN_BY_OFFICIAL`.
+A catalog sync imports modules only from trusted buckets. For an untrusted
+catalog, sync reads game directory names and checks for `module.json` or
+`module.lua` presence. It never parses, validates or executes module content.
+It reports each such game as ignored with the reason `untrusted_source`, and
+Modn refuses the module when it is used.
+The default output prints `Ignored game module <game-id>: the bucket is not a
+trusted module source.` JSON output lists the same entry under
+`modules.ignored` as `{"game_id": "<game-id>", "reason": "untrusted_source"}`.
+It also ignores a catalog module for a game that `main` provides, because
+official modules take priority. `modn doctor` reports that case as
+`MODULE_HIDDEN_BY_OFFICIAL`.
+
+`main` and the signed Git catalogs the user trusts for modules may hold modules
+only at `games/<game-id>/module.json` and `module.lua`. Those folders may hold
+nothing else. A package manifest or any other entry under `games/` is refused at
+sync.
+`modn bucket trust-modules` validates this layout before it records trust, so a
+catalog with an extra entry is refused and stays untrusted. The refusal names
+the offending path. Package manifests live in `mods/<game-id>/`, so a mod whose ID is `module`
+is a normal package. See [buckets.md](buckets.md#module-sources-and-trust).
 
 Modn refuses a module whose bucket is no longer trusted. The refusal names the bucket and the recovery command. Run `modn bucket trust-modules <bucket>` to trust the bucket again, or `modn module remove <game-id>` to remove the module. `modn doctor` reports the same condition as `MODULE_SOURCE_UNTRUSTED`.
 
@@ -164,7 +188,7 @@ A module can declare its store identities as data in `module.json`. Lua never
 receives them and gains no filesystem or process API from them.
 
 ```json
-{"game_id":"cyberpunk-2077","version":"0.2.0","api_version":1,"entrypoint":"module.lua",
+{"game_id":"cyberpunk-2077","version":"0.2.0","api_version":3,"entrypoint":"module.lua",
  "stores":{"steam":"1091500","gog":"1423049311","epic":"Ginger"}}
 ```
 
@@ -177,7 +201,7 @@ receives them and gains no filesystem or process API from them.
 | `epic` | Epic Games Launcher `AppName` | 1 to 64 ASCII letters, digits, `-`, `_` or `.` |
 
 An unknown key or a malformed identity makes the module invalid. The error
-starts with `MODULE_STORE_ID_INVALID`. Any API version can declare `stores`.
+starts with `MODULE_STORE_ID_INVALID`. Any supported host API version can declare `stores`.
 A change to `stores` is a module release, so increment `version`.
 Modn 0.5.0 and earlier refuse the field as an unknown manifest field; Modn 0.6.0
 reads it. The matching `main` bucket release ships only after Modn 0.6.0 is
@@ -210,12 +234,12 @@ validates every target, and `modn play` starts it. Lua never receives launch
 targets and gains no process API.
 
 ```json
-{"game_id":"cyberpunk-2077","version":"0.3.0","api_version":1,"entrypoint":"module.lua",
+{"game_id":"cyberpunk-2077","version":"0.3.0","api_version":3,"entrypoint":"module.lua",
  "launch":{"steam":"steam://rungameid/1091500","executable":"bin/x64/Cyberpunk2077.exe"}}
 ```
 
 `launch` is optional. Each key is optional, but a present `launch` object must
-declare at least one target. Any host API version can declare `launch`:
+declare at least one target. Any supported host API version can declare `launch`:
 
 | Key | Shape |
 | --- | --- |
@@ -273,13 +297,13 @@ The module does not validate plugin dependencies, game versions, BSA contents, o
 
 Synthetic fixtures cover the managed lifecycle. They do not establish real-game compatibility.
 The example is documentation and test input; Modn does not embed it.
-## Host API v2 and content roots
+## Host API v3 and content roots
 
-API 2 modules accept the API 1 manifest fields plus an optional `content_root`.
-The host accepts API 1 and API 2 modules. An API 1 module with `content_root` is rejected.
+API 3 modules accept the earlier manifest fields plus an optional `content_root`.
+The host accepts API 3 modules only. A module with `content_root` and an earlier host API version is rejected.
 
 ```json
-{"game_id":"balatro","version":"0.2.0","api_version":2,"entrypoint":"module.lua",
+{"game_id":"balatro","version":"0.2.0","api_version":3,"entrypoint":"module.lua",
  "content_root":{"base":"appdata","path":"Balatro/Mods"}}
 ```
 
@@ -292,4 +316,4 @@ A schema-v1 plan operation may add `"root": "content"`; an absent or `"game"` ro
 An operation with `"root": "content"` is blocked when the module did not declare `content_root`.
 Exclusive `owned_directory` claims are limited to the game root in this release.
 Modn records content files with a root-qualified ownership key, so plan, install, dry-run, update, uninstall, adoption and recovery use the same root model.
-`validate` still receives only the game root. For an API 2 module with `content_root`, `scan` also authorizes the content root: the game root is numeric ID 1 and the content root is ID 2. A scan entry from the content root sets `root = "content"`; a game-root entry omits `root`. Rust labels and reports both roots, while Lua never receives an absolute root path. `doctor` uses the same authorized roots and reports content-root health from Rust.
+`validate` still receives only the game root. For an API 3 module with `content_root`, `scan` also authorizes the content root: the game root is numeric ID 1 and the content root is ID 2. A scan entry from the content root sets `root = "content"`; a game-root entry omits `root`. Rust labels and reports both roots, while Lua never receives an absolute root path. `doctor` uses the same authorized roots and reports content-root health from Rust.

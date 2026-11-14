@@ -125,7 +125,7 @@ fn inspect_archive(archive: &Path, json: bool) -> Result<()> {
             report.archive.display(),
             report.format
         );
-        println!("SHA-256: {}", report.sha256);
+        println!("BLAKE3: {}", report.blake3);
         for file in report.files {
             println!("{} ({} bytes)", file.entry, file.bytes);
         }

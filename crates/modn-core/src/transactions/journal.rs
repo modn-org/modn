@@ -4,7 +4,6 @@ use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use rusqlite::params;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -16,7 +15,7 @@ pub struct ManagedPackage {
     pub id: String,
     pub pinned: bool,
     pub game_installation: PathBuf,
-    pub archive_sha256: String,
+    pub archive_blake3: String,
     /// Exact owned files installed through the recorded source ZIP.
     pub files: Vec<OwnedFile>,
     /// Exclusive game-relative directory roots, owned in their entirety.
@@ -32,9 +31,6 @@ pub struct ManagedPackage {
     /// Release source descriptor, when recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<crate::buckets::PackageSource>,
-    /// Archive BLAKE3 digest as `blake3:<hex>`, when recorded.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub archive_blake3: Option<String>,
     /// Declared catalog data recorded with this package.
     #[serde(skip)]
     pub declarations: Option<super::catalog::ReleaseDeclarations>,
@@ -48,8 +44,8 @@ pub struct OwnedFile {
     pub root: String,
     /// Root-relative destination path.
     pub destination: String,
-    /// Verified installed SHA-256 digest.
-    pub sha256: String,
+    /// Verified installed BLAKE3 digest.
+    pub blake3: String,
     /// Verified installed file size.
     pub bytes: u64,
 }
@@ -59,7 +55,7 @@ pub(super) struct JournalFile {
     pub(super) ordinal: usize,
     pub(super) root: RootKind,
     pub(super) destination: String,
-    pub(super) sha256: String,
+    pub(super) blake3: String,
     pub(super) bytes: u64,
 }
 
@@ -103,9 +99,9 @@ pub(super) struct Journal {
 
 pub(super) fn digest(path: &Path) -> Result<String> {
     let mut reader = File::open(path)?;
-    let mut hasher = Sha256::new();
+    let mut hasher = blake3::Hasher::new();
     io::copy(&mut reader, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 pub(crate) fn lock_store(store: &Store) -> Result<File> {
@@ -194,7 +190,7 @@ impl Store {
     ) -> Result<()> {
         let tx = self.connection.transaction()?;
         tx.execute(
-            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
+            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_blake3)
             VALUES (?1,?2,'pending',?3,?4,?5)",
             params![
                 id,
@@ -206,14 +202,14 @@ impl Store {
         )?;
         for f in files {
             tx.execute(
-                "INSERT INTO pending_files(transaction_id,ord,root,relative_path,sha256,bytes)
+                "INSERT INTO pending_files(transaction_id,ord,root,relative_path,blake3,bytes)
                 VALUES (?1,?2,?3,?4,?5,?6)",
                 params![
                     id,
                     f.ordinal as i64,
                     f.root.label(),
                     f.destination,
-                    f.sha256,
+                    f.blake3,
                     f.bytes as i64
                 ],
             )?;
@@ -246,7 +242,7 @@ impl Store {
         self.ensure_pending_only(allowed)?;
         let tx = self.connection.transaction()?;
         tx.execute(
-            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_sha256)
+            "INSERT INTO pending_transactions(id,action,status,game_path,package_id,archive_blake3)
              VALUES (?1,'install','staging',?2,?1,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
@@ -268,14 +264,14 @@ impl Store {
         let tx = self.connection.transaction()?;
         for f in files {
             tx.execute(
-                "INSERT INTO pending_files(transaction_id,ord,root,relative_path,sha256,bytes)
+                "INSERT INTO pending_files(transaction_id,ord,root,relative_path,blake3,bytes)
                 VALUES (?1,?2,?3,?4,?5,?6)",
                 params![
                     id,
                     f.ordinal as i64,
                     f.root.label(),
                     f.destination,
-                    f.sha256,
+                    f.blake3,
                     f.bytes as i64
                 ],
             )?;
@@ -352,7 +348,7 @@ impl Store {
                     .map(|file| crate::history::FileSpec {
                         root: file.root.label().to_owned(),
                         destination: file.destination.clone(),
-                        digest: file.sha256.clone(),
+                        digest: file.blake3.clone(),
                     })
                     .collect();
                 Some(crate::history::install_operation(
@@ -375,18 +371,18 @@ impl Store {
             record_root(&tx, game, RootKind::Content, content)?;
         }
         tx.execute(
-            "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES (?1,?2,?3)",
+            "INSERT INTO managed_packages(id,game_path,archive_blake3) VALUES (?1,?2,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
         if let Some(metadata) = &metadata {
             crate::history::record_metadata(&tx, id, metadata)?;
         }
         for f in files {
-            tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,sha256,bytes)
+            tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,blake3,bytes)
                 VALUES (?1,?2,?3,?4,?5,?6,?7)",
                 params![game.to_string_lossy().as_ref(), f.root.label(),
                     super::ownership_key(&f.destination),
-                    f.destination, id, f.sha256, f.bytes as i64])?;
+                    f.destination, id, f.blake3, f.bytes as i64])?;
         }
         for directory in directories {
             let identity: String = tx.query_row(

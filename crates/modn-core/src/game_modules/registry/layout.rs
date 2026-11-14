@@ -2,7 +2,6 @@ use super::super::loader::{self, GameModuleInfo, VerifiedModule};
 use super::{ModuleSource, RegisteredModule};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::fs;
 use std::io::Write;
@@ -21,7 +20,7 @@ pub(in crate::game_modules) struct Receipt {
     pub(in crate::game_modules) game_id: String,
     pub(in crate::game_modules) version: String,
     pub(in crate::game_modules) api_version: u32,
-    pub(in crate::game_modules) sha256: String,
+    pub(in crate::game_modules) blake3: String,
     pub(in crate::game_modules) bucket: Option<String>,
     pub(in crate::game_modules) signer_key_id: Option<String>,
 }
@@ -31,7 +30,7 @@ pub(in crate::game_modules) struct RetainedRelease {
     pub(in crate::game_modules) manifest: VerifiedModule,
     pub(in crate::game_modules) script: String,
     pub(in crate::game_modules) info: GameModuleInfo,
-    pub(in crate::game_modules) sha256: String,
+    pub(in crate::game_modules) blake3: String,
     pub(in crate::game_modules) source: ModuleSource,
 }
 
@@ -39,11 +38,18 @@ impl RetainedRelease {
     pub(in crate::game_modules) fn registered(&self, active: bool) -> RegisteredModule {
         RegisteredModule {
             module: self.info.clone(),
-            sha256: self.sha256.clone(),
+            blake3: self.blake3.clone(),
             source: self.source.clone(),
             active,
         }
     }
+}
+
+/// Whether a stored module record still names the retired `sha256` digest field.
+pub(in crate::game_modules) fn names_retired_digest(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .is_some_and(|value| value.get("sha256").is_some())
 }
 
 /// Validate the versioned shape of an existing game entry and return its current version.
@@ -175,18 +181,25 @@ pub(in crate::game_modules) fn read_release(
         &root,
         loader::MAX_MANIFEST_BYTES,
     )?;
-    let receipt: Receipt = serde_json::from_slice(&loader::bounded_file(
+    let receipt_bytes = loader::bounded_file(
         &version_directory.join(RECEIPT),
         &root,
         loader::MAX_MANIFEST_BYTES,
-    )?)?;
-    let sha256 = digest(&bytes, script.as_bytes());
+    )?;
+    if names_retired_digest(&receipt_bytes) {
+        bail!(
+            "module release {version} for {game} records the retired SHA-256 module digest; \
+             remove the retained release and register the module again"
+        );
+    }
+    let receipt: Receipt = serde_json::from_slice(&receipt_bytes)?;
+    let blake3 = digest(&bytes, script.as_bytes());
     if receipt.game_id != game
         || manifest.game_id != game
         || receipt.version != version
         || manifest.version != version
         || receipt.api_version != manifest.api_version
-        || receipt.sha256 != sha256
+        || receipt.blake3 != blake3
     {
         bail!("registered module release identity or digest changed");
     }
@@ -199,7 +212,7 @@ pub(in crate::game_modules) fn read_release(
         manifest,
         script,
         info,
-        sha256,
+        blake3,
         source: ModuleSource {
             bucket: receipt.bucket,
             signer_key_id: receipt.signer_key_id,
@@ -216,8 +229,8 @@ pub(in crate::game_modules) fn compare_versions(left: &str, right: &str) -> Orde
 }
 
 pub(in crate::game_modules) fn digest(manifest: &[u8], script: &[u8]) -> String {
-    let mut hash = Sha256::new();
+    let mut hash = blake3::Hasher::new();
     hash.update(manifest);
     hash.update(script);
-    format!("{:x}", hash.finalize())
+    hash.finalize().to_hex().to_string()
 }

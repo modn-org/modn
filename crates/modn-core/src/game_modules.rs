@@ -10,7 +10,7 @@ mod runtime;
 mod store_data;
 mod visibility;
 
-pub(crate) use import::stage_catalog_modules_at;
+pub(crate) use import::{ignored_catalog_modules, stage_catalog_modules_at};
 pub use import::{
     stage_catalog_modules, CatalogModuleReport, IgnoredModule, ModuleIgnoreReason,
     StagedCatalogImport,

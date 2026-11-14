@@ -16,12 +16,12 @@ fn invalid_development_source_cannot_redirect_bucket_registry_into_game() {
     fs::create_dir(&broken).expect("fixture");
     fs::write(
         broken.join("module.json"),
-        r#"{"game_id":"cyberpunk-2077","version":"1.0","api_version":1,"entrypoint":"main.lua"}"#,
+        r#"{"game_id":"cyberpunk-2077","version":"1.0","api_version":3,"entrypoint":"main.lua"}"#,
     )
     .expect("manifest");
     fs::write(
         broken.join("main.lua"),
-        "return { game_id='cyberpunk-2077', api_version=1, validate=function() error('broken validation') end }",
+        "return { game_id='cyberpunk-2077', api_version=3, validate=function() error('broken validation') end }",
     )
     .expect("Lua");
     for source in [&invalid, &mismatched, &broken] {

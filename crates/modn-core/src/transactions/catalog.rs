@@ -37,16 +37,16 @@ pub struct CatalogConflict {
     pub reference: CatalogReference,
     /// Archive digest the bucket pins for that mod, when it publishes one.
     /// A managed package with this digest counts as that mod.
-    pub archive_sha256: Option<String>,
+    pub archive_blake3: Option<String>,
 }
 
 #[expect(missing_docs, reason = "Method names state their behavior")]
 impl CatalogConflict {
     #[must_use]
-    pub fn new(reference: CatalogReference, archive_sha256: Option<String>) -> Self {
+    pub fn new(reference: CatalogReference, archive_blake3: Option<String>) -> Self {
         Self {
             reference,
-            archive_sha256,
+            archive_blake3,
         }
     }
 }
@@ -54,10 +54,10 @@ impl CatalogConflict {
 impl CatalogDependency {
     /// Require the release whose archive digest is pinned by its manifest.
     #[must_use]
-    pub fn new(reference: CatalogReference, archive_sha256: String) -> Self {
+    pub fn new(reference: CatalogReference, archive_blake3: String) -> Self {
         Self {
             reference,
-            archive_sha256,
+            archive_blake3,
             requirement: None,
         }
     }
@@ -78,7 +78,7 @@ pub struct RecordedDependency {
     /// The catalog mod that the dependent's manifest named.
     pub reference: CatalogReference,
     /// The archive digest that the dependency's release pinned at installation.
-    pub archive_sha256: String,
+    pub archive_blake3: String,
     /// The manifest's version requirement, if any.
     pub requirement: Option<String>,
 }
@@ -135,7 +135,7 @@ impl fmt::Display for CatalogReference {
 pub struct CatalogDependency {
     /// Catalog identity used in diagnostics.
     pub reference: CatalogReference,
-    pub archive_sha256: String,
+    pub archive_blake3: String,
     /// The dependent manifest's version requirement for this dependency.
     pub requirement: Option<String>,
 }
@@ -258,7 +258,7 @@ impl Store {
         dependencies
             .iter()
             .map(|dependency| {
-                let (intact, damaged): (Vec<_>, Vec<_>) = if dependency.archive_sha256.is_empty() {
+                let (intact, damaged): (Vec<_>, Vec<_>) = if dependency.archive_blake3.is_empty() {
                     let recorded = provenance_packages(self, &dependency.reference)?;
                     installed
                         .iter()
@@ -267,7 +267,7 @@ impl Store {
                 } else {
                     installed
                         .iter()
-                        .filter(|package| package.archive_sha256 == dependency.archive_sha256)
+                        .filter(|package| package.archive_blake3 == dependency.archive_blake3)
                         .partition(|package| package_intact(self, &game, package))
                 };
                 if !intact.is_empty() {
@@ -308,7 +308,7 @@ impl Store {
             return Ok(None);
         }
         let mut statement = self.connection.prepare(
-            "SELECT bucket, game_id, mod_id, archive_sha256, requirement
+            "SELECT bucket, game_id, mod_id, archive_blake3, requirement
              FROM package_requirements WHERE package_id=?1 ORDER BY bucket, game_id, mod_id",
         )?;
         let recorded = statement
@@ -319,7 +319,7 @@ impl Store {
                         game_id: row.get(1)?,
                         mod_id: row.get(2)?,
                     },
-                    archive_sha256: row.get(3)?,
+                    archive_blake3: row.get(3)?,
                     requirement: row.get(4)?,
                 })
             })?
@@ -370,14 +370,14 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
         let reference = &dependency.reference;
         tx.execute(
             "INSERT OR REPLACE INTO package_requirements
-                 (package_id,bucket,game_id,mod_id,archive_sha256,requirement)
+                 (package_id,bucket,game_id,mod_id,archive_blake3,requirement)
              VALUES (?1,?2,?3,?4,?5,?6)",
             params![
                 package_id,
                 reference.bucket,
                 reference.game_id,
                 reference.mod_id,
-                dependency.archive_sha256,
+                dependency.archive_blake3,
                 dependency.requirement
             ],
         )?;

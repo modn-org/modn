@@ -119,12 +119,12 @@ fn dry_run_reports_ready_damaged_and_other_release_dependencies() {
     let (base_archive, base_hash) = fixture.archive();
     fixture.bucket("deps", "test-game", "base", &base_hash, &[]);
     let dependent = json!({
-        "schema_version":1, "id":"dependent", "game":"test-game",
+        "schema_version":2, "id":"dependent", "game":"test-game",
         "name":"Dependent", "version":"2.0", "archive_format":"zip",
-        "sha256":"1".repeat(64), "source":{"kind":"manual","filename":"dependent.zip"},
+        "blake3":"1".repeat(64), "sources":[{"kind":"manual","filename":"dependent.zip"}],
         "dependencies":["base"]
     });
-    let manifests = fixture.temp.path().join("deps/games/test-game");
+    let manifests = fixture.temp.path().join("deps/mods/test-game");
     fs::write(
         manifests.join("dependent.json"),
         serde_json::to_vec(&dependent).expect("JSON"),
@@ -159,7 +159,7 @@ fn dry_run_reports_ready_damaged_and_other_release_dependencies() {
     let mut base: Value =
         serde_json::from_slice(&fs::read(manifests.join("base.json")).expect("base"))
             .expect("JSON");
-    base["sha256"] = json!("2".repeat(64));
+    base["blake3"] = json!("2".repeat(64));
     fs::write(
         manifests.join("base.json"),
         serde_json::to_vec(&base).expect("JSON"),
@@ -175,12 +175,12 @@ fn dependency_cycle_fails_the_dry_run_with_its_path() {
     let fixture = Fixture::new();
     fixture.bucket("loop", "test-game", "a", &"0".repeat(64), &["b"]);
     let b = json!({
-        "schema_version":1, "id":"b", "game":"test-game", "name":"B",
-        "version":"1.0", "archive_format":"zip", "sha256":"0".repeat(64),
-        "source":{"kind":"manual","filename":"b.zip"}, "dependencies":["a"]
+        "schema_version":2, "id":"b", "game":"test-game", "name":"B",
+        "version":"1.0", "archive_format":"zip", "blake3":"0".repeat(64),
+        "sources":[{"kind":"manual","filename":"b.zip"}], "dependencies":["a"]
     });
     fs::write(
-        fixture.temp.path().join("loop/games/test-game/b.json"),
+        fixture.temp.path().join("loop/mods/test-game/b.json"),
         serde_json::to_vec(&b).expect("JSON"),
     )
     .expect("manifest");

@@ -103,7 +103,7 @@ pub struct ScanReport {
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum IntegrityStatus {
-    /// Size and SHA-256 match the installation record.
+    /// Size and BLAKE3 digest match the installation record.
     Intact,
     /// Covered by a verified exclusive directory; contents are not hashed.
     Present,
@@ -155,8 +155,8 @@ pub struct OwnedFileCheck {
     /// Recorded root-relative destination.
     pub relative_path: String,
     pub status: IntegrityStatus,
-    /// SHA-256 recorded during installation.
-    pub expected_sha256: String,
+    /// BLAKE3 digest recorded during installation.
+    pub expected_blake3: String,
     /// Size recorded during installation.
     pub expected_bytes: u64,
 }

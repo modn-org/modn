@@ -117,7 +117,7 @@ fn refuses_play_while_recovery_is_pending() {
     connection
         .execute(
             "INSERT INTO pending_transactions
-             (id, action, status, game_path, package_id, archive_sha256)
+             (id, action, status, game_path, package_id, archive_blake3)
              VALUES ('pending', 'install', 'pending', ?1, 'fixture', NULL)",
             [game.to_string_lossy().as_ref()],
         )
@@ -145,7 +145,7 @@ fn refuses_a_module_with_a_traversing_executable() {
     let module = temp.path().join("launch-bad");
     write(
         &module.join("module.json"),
-        br#"{"game_id":"launch-bad","version":"0.1.0","api_version":1,"entrypoint":"module.lua","launch":{"executable":"../Game.exe"}}"#,
+        br#"{"game_id":"launch-bad","version":"0.1.0","api_version":3,"entrypoint":"module.lua","launch":{"executable":"../Game.exe"}}"#,
     );
     write(
         &module.join("module.lua"),
@@ -172,7 +172,7 @@ fn refuses_a_module_whose_store_uri_scheme_disagrees_with_its_store() {
     let module = temp.path().join("launch-bad");
     write(
         &module.join("module.json"),
-        br#"{"game_id":"launch-bad","version":"0.1.0","api_version":1,"entrypoint":"module.lua","stores":{"steam":"1091500"},"launch":{"steam":"goggalaxy://openGameView/1"}}"#,
+        br#"{"game_id":"launch-bad","version":"0.1.0","api_version":3,"entrypoint":"module.lua","stores":{"steam":"1091500"},"launch":{"steam":"goggalaxy://openGameView/1"}}"#,
     );
     write(
         &module.join("module.lua"),
@@ -199,7 +199,7 @@ fn refuses_play_when_the_module_declares_no_launch_target() {
     let module = temp.path().join("launch-none");
     write(
         &module.join("module.json"),
-        br#"{"game_id":"launch-none","version":"0.1.0","api_version":1,"entrypoint":"module.lua"}"#,
+        br#"{"game_id":"launch-none","version":"0.1.0","api_version":3,"entrypoint":"module.lua"}"#,
     );
     write(
         &module.join("module.lua"),

@@ -7,14 +7,17 @@ test runs from an empty directory, with no repository and no `cargo` or `rustc`
 on `PATH`. It checks the checksum, the absence of C runtime DLL imports,
 `search`, `install --dry-run` for a catalog mod and for a local archive, and
 `doctor` on a fake game. It also checks that the fake game's files and their
-contents are unchanged. The smoke test installs the pinned `buckets/main`
-submodule, packed with that repository's `pack.py` and signed with an
-ephemeral test key. Only
-then does the workflow publish the GitHub release with `modn.exe`, its checksum
-and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
+contents are unchanged. The smoke test needs a contract v2 `main` bucket. It
+installs the pinned `buckets/main` submodule, packed with the bucket
+repository's v2 packer and signed with an ephemeral test key. **Precondition
+for a Modn release:** `modn-org/main` must publish a contract v2 bucket, and
+this repository must pin that commit. The submodule still points at contract
+v1 today. A Modn release and the restructured, signed `modn-org/main` release
+ship together. Only then does the workflow publish the GitHub release with
+`modn.exe`, its checksum and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
 must include `main-bucket.zip.minisig`. The bucket repository's tag release signs
-the catalog with the key built into Modn; `v2026.11.08` is the first signed
-bucket release. A version with a pre-release
+the v2 catalog with the key built into Modn; `v2026.11.08` was the first signed
+v1 bucket release. A version with a pre-release
 suffix, such as `0.2.0-alpha.1`, becomes a GitHub pre-release. Pull requests
 that change the workflow or the smoke script run the build and smoke jobs, but
 they never publish.
@@ -49,7 +52,9 @@ the release publishes no copy of it.
 
 ## Milestone 1 exit gate
 
-After a release, run the gate against its published assets:
+Both milestone gate scripts target contract v1 and stay unchanged as closed-milestone evidence; do not run them against a v2 bucket.
+
+The closed gate ran after a release against its published assets:
 
 ```powershell
 pwsh -File .github/scripts/milestone1-gate.ps1 -Tag v0.2.0
@@ -75,28 +80,26 @@ authorization.
 
 ## Milestone 2 exit gate
 
-Run the gate against published release assets:
+This gate closed Milestone 2, and its results stay as evidence.
+`.github/scripts/milestone2-gate.ps1` and `milestone1-gate.ps1` target contract
+v1 and cannot run against a v2 bucket. Do not run them for a current release.
+The results below are the record of the closed milestone.
+
+These checks replace the gate for current releases:
 
 ```powershell
-pwsh -File .github/scripts/milestone2-gate.ps1 -Tag v0.3.0
+python .agents/skills/verify-modn/scripts/verify.py --build
+cargo test --workspace --locked
 ```
 
-Before release, build the static executable and checksum with the smoke-test
-commands above. Then run:
+`verify.py --build` builds the CLI and checks the bucket, module, install and
+undo flows against disposable fixtures.
+The cargo tests cover the transaction, ownership and module suites.
+`python .agents/skills/verify-modn/scripts/portable_mvp.py` checks the portable
+release build; it needs `target/release/modn` and the `test-main-key` smoke
+build.
 
-```powershell
-pwsh -File .github/scripts/milestone2-gate.ps1 `
-  -Binary target/release/modn.exe -Checksum target/release/modn.exe.sha256 `
-  -VerifierBinaries target/release
-```
-
-The gate verifies the checksum and calls the existing Milestone 1 gate.
-The local mode bootstraps the bucket directly with the selected executable.
-It cannot test an installer from an unpublished release.
-The tag mode retains the released installer check.
-Both modes download the previous release for the Milestone 1 state-compatibility check.
-
-The additional checks use disposable game installations:
+The closed gate ran these checks against disposable game installations:
 
 1. Sync a local Git catalog twice and resolve its package.
 2. Install pinned redscript bytes through a `github-release` source, then uninstall them.
@@ -116,7 +119,7 @@ Tag mode requires an authenticated `gh` CLI with Actions read access.
 It selects a successful Release workflow run for the tag and checks its commit against the tag commit.
 It downloads that run's verifier artifact and verifies all four SHA-256 files before execution.
 It does not use local build directories.
-Run the gate before the artifact expires.
+Tag mode checks the artifact before it expires.
 If the artifact is unavailable, tag mode fails.
 
 Local mode requires an explicit `-VerifierBinaries <directory>` argument.
@@ -159,7 +162,8 @@ Remove that printed directory after inspecting the evidence.
 It compares the original Modn roots before and after the run.
 Each check prints `PASS` or `FAIL`. Any failure produces a nonzero exit.
 These fixture checks do not establish real-game compatibility or REDmod activation.
-The gate must pass against published assets after tagging; local proof alone does not close issue #87.
+The closed gate passed against published assets after tagging for v0.3.0 and v0.5.0.
+Those runs are its record and the evidence for issue #87.
 
 ### Result for v0.3.0
 
@@ -225,7 +229,10 @@ Expect the two hashes to match, in any case, and a full commit SHA.
 Record the tag, the commit and the SHA-256. Install Python 3, Git, `gh` and 7-Zip on `PATH`.
 
 **Bucket release.** `modn bucket update` installs the latest `modn-org/main` release, not the bucket commit that `$tag` pins.
+The release must use contract v2: `bucket.json` with `schema_version: 2`, package manifests under `mods/<game-id>/` and game modules under `games/<game-id>/`.
+This Modn refuses a contract v1 bucket.
 The release must include `main-bucket.zip.minisig`, signed by the key built into Modn.
+This repository's submodule still pins contract v1 until the maintainer republishes `main`; a Modn release and that v2 bucket release ship together.
 Confirm that the bucket release contains that commit:
 
 ```powershell
@@ -337,18 +344,19 @@ Add 1.28.5 to a local bucket:
 
 ```powershell
 $bucket = "$live\bucket"
-$main = "<data dir>\buckets\main"  # the official bucket copy; see buckets.md
-New-Item -ItemType Directory -Force "$bucket\games\cyberpunk-2077" | Out-Null
-'{"schema_version":1,"name":"live","title":"Live validation"}' | Set-Content "$bucket\bucket.json"
+$main = "<data dir>\buckets\main"  # the contract v2 official bucket copy; see buckets.md
+New-Item -ItemType Directory -Force "$bucket\mods\cyberpunk-2077" | Out-Null
+'{"schema_version":2,"name":"live","title":"Live validation"}' | Set-Content "$bucket\bucket.json"
 'archivexl','red4ext','redscript' | ForEach-Object {
-  Copy-Item "$main\games\cyberpunk-2077\$_.json" "$bucket\games\cyberpunk-2077\"
+  Copy-Item "$main\mods\cyberpunk-2077\$_.json" "$bucket\mods\cyberpunk-2077\"
 }
 $url = 'https://github.com/psiberx/cp2077-archive-xl/releases/download/v1.28.5/ArchiveXL-1.28.5.zip'
 Invoke-WebRequest $url -OutFile "$live\ArchiveXL-1.28.5.zip"
-$old = Get-Content "$bucket\games\cyberpunk-2077\archivexl.json" -Raw | ConvertFrom-Json
-$old.version = '1.28.5'; $old.source.url = $url
-$old.sha256 = (Get-FileHash "$live\ArchiveXL-1.28.5.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-$old | ConvertTo-Json -Depth 5 | Set-Content "$bucket\games\cyberpunk-2077\archivexl@1.28.5.json"
+$old = Get-Content "$bucket\mods\cyberpunk-2077\archivexl.json" -Raw | ConvertFrom-Json
+$old.version = '1.28.5'
+$old.sources = @(@{kind = 'https'; url = $url})
+$old.blake3 = (modn --json inspect "$live\ArchiveXL-1.28.5.zip" | ConvertFrom-Json).blake3
+$old | ConvertTo-Json -Depth 5 | Set-Content "$bucket\mods\cyberpunk-2077\archivexl@1.28.5.json"
 modn bucket add live $bucket
 ```
 
@@ -540,8 +548,7 @@ Differences from fixture results
 This run records the first live check of the Balatro packages.
 It covers a native injector, a Git source and an AppData content root.
 Use Modn 0.5.0 or later, from [Before any live step](#before-any-live-step). Record its commit and SHA-256.
-Run `modn bucket update` first. The `main` bucket release must be `v2026.11.07.1` or later,
-which contains the two Balatro packages.
+Run `modn bucket update` first. The `main` bucket release must use contract v2 and contain the two Balatro packages.
 Every command and flag below exists in the built CLI. Check one with `modn <command> --help`.
 
 Set these values once. Reuse `$live` and `$game` from [Before any live step](#before-any-live-step).
@@ -878,19 +885,29 @@ Get-ChildItem "$live\verifiers\*.exe" | ForEach-Object {
 Expect `True` for all four verifier binaries and record each SHA-256 with the tag, commit and run ID.
 Stop if an artifact is missing; do not use a local build.
 
-#### Step 3: Run the Milestone 1 gate
+#### Step 3: Run the portable verifier
 
-**Authorize this step.** The gate uses release assets and a fake game in a temporary directory.
+**Authorize this step.** The verifier builds disposable contract v2 fixtures and a fake game in a temporary directory.
+
+Prerequisites: a checkout of this repository at the release tag, Python 3, and a Rust toolchain with `cargo`.
+The verifier runs `cargo run --quiet --locked -p modn-core --example sign_catalog` to sign its disposable main bucket, so `cargo` must be on `PATH`.
+The verifier tests the published executable: pass the `modn.exe` that you downloaded and checked in Step 1 (`$live\release\modn.exe`) through `--binary`. Do not pass a local build there.
+The checkout and `cargo` serve only the test-key signing prerequisite: build the smoke copy with the test main key at that checkout with `$env:RUSTFLAGS = '-C target-feature=+crt-static'` and `cargo build --release --locked -p modn-cli --features modn-core/test-main-key --target-dir target/smoke` (the commands near the top of this page).
+The verifier reads that smoke build through `--bucket-binary`; its default is `target/smoke/release/modn.exe`.
+The verifier fails its static C runtime check when a binary imports a dynamic Visual C++ runtime; the published release binary links the runtime statically.
+
+The Milestone 1 gate targets contract v1 and cannot pass against a contract v2 release. Do not run it.
+Run the portable verifier against the released `modn.exe` instead.
+Run `python .agents/skills/verify-modn/scripts/portable_mvp.py --help` for its arguments, and expect exit 0 and no failed check.
+Then run the verifier with the two binaries:
 
 ```powershell
-git clone https://github.com/modn-org/modn.git "$live\modn"
-git -C "$live\modn" checkout $tag
-Set-Location "$live\modn"
-pwsh -File .github/scripts/milestone1-gate.ps1 -Tag $tag
+python .agents/skills/verify-modn/scripts/portable_mvp.py `
+  --binary "$live\release\modn.exe" `
+  --bucket-binary target/smoke/release/modn.exe
 ```
 
-Expect exit 0, `ok:` for every check and a final `milestone 1 exit gate passed for <tag>`.
-The gate uses the released `modn.exe`. See [Milestone 1 exit gate](#milestone-1-exit-gate).
+See [Milestone 1 exit gate](#milestone-1-exit-gate) for the closed v1 evidence.
 Count the `ok:` lines and record the count.
 
 #### Step 4: Run the desktop verifiers
@@ -925,7 +942,7 @@ Windows 11 validation, <date>
 
 | Command | Exit | Key output line |
 | --- | --- | --- |
-| milestone1-gate.ps1 | 0 | milestone 1 exit gate passed for <tag>, <n> ok lines |
+| portable_mvp.py | 0 | its final summary line, no failed check |
 | verify.py | 0 | status: passed, <n> assertions, 0 failures |
 | lifecycle.py | 0 | status: passed, <n> assertions, 0 failures |
 

@@ -112,16 +112,18 @@ mod tests {
         BucketPackage {
             bucket: bucket.into(),
             package: PackageManifest {
-                schema_version: 1,
+                schema_version: 2,
                 id: id.into(),
                 game: "test-game".into(),
                 name: id.into(),
                 version: "1.0".into(),
                 archive_format: Some(ArchiveFormat::Zip),
-                sha256: Some("0".repeat(64)),
-                source: PackageSource::Manual {
+                blake3: Some("0".repeat(64)),
+                sources: vec![PackageSource::Manual {
                     filename: format!("{id}.zip"),
-                },
+                }],
+                redistributable: false,
+                upstream_sha256: None,
                 dependencies: dependencies.iter().map(|id| (*id).into()).collect(),
                 homepage: None,
                 executables: Vec::new(),

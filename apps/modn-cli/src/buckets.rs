@@ -2,8 +2,8 @@ use crate::commands::BucketCommand;
 use crate::state_access::{validate_state_path, ManagerState};
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{
-    BucketStore, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck,
-    ModuleTrustState,
+    local_bucket_module_refusal, BucketStore, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason,
+    ModuleTrustAck, ModuleTrustState,
 };
 use modn_core::state::Store;
 use serde_json::Value;
@@ -92,7 +92,9 @@ fn module_signer(store: &BucketStore, bucket: &str) -> Result<String> {
         bail!("the official main bucket is always a module source and needs no trust record");
     }
     match store.module_trust(bucket)? {
-        ModuleTrustState::Local => bail!("local folder buckets cannot be module sources: {bucket}"),
+        ModuleTrustState::Local => {
+            bail!("{}", local_bucket_module_refusal(bucket))
+        }
         ModuleTrustState::Main => bail!("the official main bucket is always a module source"),
         ModuleTrustState::Trusted | ModuleTrustState::Untrusted => Ok(store
             .git_revision(bucket)?

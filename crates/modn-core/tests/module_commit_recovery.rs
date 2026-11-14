@@ -1,3 +1,5 @@
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
@@ -12,10 +14,9 @@ use serde_json::json;
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
-use std::process::Command;
 
 fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .args([
             "-c",
             "user.name=Fixture",
@@ -90,7 +91,7 @@ impl Catalog {
         git(directory.path(), &["init", "--initial-branch=fixture"]);
         fs::write(
             directory.path().join("bucket.json"),
-            json!({"schema_version": 1, "name": "community", "title": "Community"}).to_string(),
+            json!({"schema_version": 2, "name": "community", "title": "Community"}).to_string(),
         )
         .expect("metadata");
         let pair = KeyPair::generate_unencrypted_keypair().expect("key");
@@ -117,7 +118,7 @@ impl Catalog {
             json!({
                 "game_id": game,
                 "version": version,
-                "api_version": 1,
+                "api_version":3,
                 "entrypoint": "module.lua",
             })
             .to_string(),
@@ -125,7 +126,7 @@ impl Catalog {
         .expect("manifest");
         fs::write(
             directory.join("module.lua"),
-            format!("return {{game_id='{game}', api_version=1, version='{version}'}}"),
+            format!("return {{game_id='{game}', api_version=3, version='{version}'}}"),
         )
         .expect("Lua");
     }

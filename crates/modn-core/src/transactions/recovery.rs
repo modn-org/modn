@@ -28,7 +28,7 @@ impl Store {
             .into_iter()
             .map(|(id, action, status, game)| {
                 let mut q = self.connection.prepare(
-                    "SELECT ord, root, relative_path, sha256, bytes FROM pending_files
+                    "SELECT ord, root, relative_path, blake3, bytes FROM pending_files
                  WHERE transaction_id=?1 ORDER BY ord",
                 )?;
                 let files = q
@@ -38,7 +38,7 @@ impl Store {
                             root: RootKind::from_label(&row.get::<_, String>(1)?)
                                 .unwrap_or(RootKind::Game),
                             destination: row.get(2)?,
-                            sha256: row.get(3)?,
+                            blake3: row.get(3)?,
                             bytes: row.get::<_, i64>(4)? as u64,
                         })
                     })?
@@ -147,7 +147,7 @@ impl Store {
                         fs::remove_file(&temp)?;
                         continue;
                     }
-                    if digest(&temp)? != f.sha256 {
+                    if digest(&temp)? != f.blake3 {
                         bail!("transaction {} has a changed or incomplete witness {}; preserve it and repair manually",
                             journal.id, temp.display());
                     }
@@ -160,7 +160,7 @@ impl Store {
             match (journal.action.as_str(), journal.status.as_str()) {
                 ("install", "pending") => {
                     if witness && present {
-                        if !same_file::is_same_file(&temp, &dest)? || digest(&dest)? != f.sha256 {
+                        if !same_file::is_same_file(&temp, &dest)? || digest(&dest)? != f.blake3 {
                             bail!(
                                 "transaction {} target changed; preserve {}",
                                 journal.id,
@@ -176,7 +176,7 @@ impl Store {
                 ("uninstall" | "cleanup", "pending") => {
                     if witness {
                         if present {
-                            if !same_file::is_same_file(&temp, &dest)? || digest(&dest)? != f.sha256
+                            if !same_file::is_same_file(&temp, &dest)? || digest(&dest)? != f.blake3
                             {
                                 bail!(
                                     "transaction {} destination changed; preserve {}",
@@ -194,7 +194,7 @@ impl Store {
                             fs::hard_link(&temp, &checked)?;
                         }
                         fs::remove_file(&temp)?;
-                    } else if !present || digest(&dest)? != f.sha256 {
+                    } else if !present || digest(&dest)? != f.blake3 {
                         bail!(
                             "transaction {} has no safe uninstall backup for {}",
                             journal.id,

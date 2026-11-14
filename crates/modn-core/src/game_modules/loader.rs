@@ -10,10 +10,12 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-/// Newest host API revision. Older revisions stay supported.
-pub const HOST_API_VERSION: u32 = 2;
-/// Oldest host API revision this build still accepts.
-pub const MIN_HOST_API_VERSION: u32 = 1;
+/// Host API revision this build implements. Bucket contract v2 starts at
+/// revision 3; earlier revisions are refused.
+pub const HOST_API_VERSION: u32 = 3;
+/// Oldest host API revision this build accepts. Earlier revisions are refused
+/// because contract v2 renamed the Lua hash function from `sha256` to `blake3`.
+pub const MIN_HOST_API_VERSION: u32 = 3;
 pub(super) const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 pub(super) const MAX_SCRIPT_BYTES: u64 = 256 * 1024;
 
@@ -47,8 +49,8 @@ pub struct ContentRootSpec {
 
 impl ContentRootSpec {
     fn validate(&self, api_version: u32) -> Result<()> {
-        if api_version < 2 {
-            bail!("content_root requires api_version 2");
+        if api_version < 3 {
+            bail!("content_root requires api_version 3");
         }
         if self.base != "appdata" {
             bail!(
@@ -162,9 +164,8 @@ pub(super) fn validate_manifest(manifest: &ModuleManifest) -> Result<()> {
     }
     if !supported_api_version(manifest.api_version) {
         bail!(
-            "incompatible host API: module requires {}, host supports {} through {}",
+            "incompatible host API: module declares {}, this build supports {}; the module must be republished for bucket contract v2",
             manifest.api_version,
-            MIN_HOST_API_VERSION,
             HOST_API_VERSION
         );
     }

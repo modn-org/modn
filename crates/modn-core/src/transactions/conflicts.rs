@@ -6,7 +6,7 @@ use std::path::Path;
 
 struct Installed {
     id: String,
-    archive_sha256: String,
+    archive_blake3: String,
     reference: Option<CatalogReference>,
 }
 
@@ -14,19 +14,19 @@ impl Installed {
     fn label(&self) -> String {
         match &self.reference {
             Some(reference) => format!("{} ({reference})", self.id),
-            None => format!("{} (archive {})", self.id, self.archive_sha256),
+            None => format!("{} (archive {})", self.id, self.archive_blake3),
         }
     }
 
     fn is(&self, conflict: &CatalogConflict) -> bool {
         self.reference.as_ref() == Some(&conflict.reference)
-            || conflict.archive_sha256.as_deref() == Some(self.archive_sha256.as_str())
+            || conflict.archive_blake3.as_deref() == Some(self.archive_blake3.as_str())
     }
 }
 
 impl Store {
     /// Managed packages in `game` that conflict with an archive whose digest
-    /// is `archive_sha256`, as `package-id (bucket/game/mod)`.
+    /// is `archive_blake3`, as `package-id (bucket/game/mod)`.
     ///
     /// A conflict exists when `release` declares an installed package, or an
     /// installed package declares the archive's release, by catalog identity
@@ -37,18 +37,18 @@ impl Store {
         &self,
         game: &Path,
         release: Option<&CatalogRelease>,
-        archive_sha256: &str,
+        archive_blake3: &str,
     ) -> Result<Vec<String>> {
         let game = self.transaction_root(game)?;
         let game_path = game.to_string_lossy().into_owned();
         let mut statement = self
             .connection
             .prepare(if self.has_table("catalog_provenance")? {
-                "SELECT p.id, p.archive_sha256, c.bucket, c.game_id, c.mod_id
+                "SELECT p.id, p.archive_blake3, c.bucket, c.game_id, c.mod_id
              FROM managed_packages p LEFT JOIN catalog_provenance c ON c.package_id = p.id
              WHERE p.game_path=?1 ORDER BY p.id"
             } else {
-                "SELECT id, archive_sha256, NULL, NULL, NULL
+                "SELECT id, archive_blake3, NULL, NULL, NULL
              FROM managed_packages WHERE game_path=?1 ORDER BY id"
             })?;
         let installed = statement
@@ -56,7 +56,7 @@ impl Store {
                 let bucket: Option<String> = row.get(2)?;
                 Ok(Installed {
                     id: row.get(0)?,
-                    archive_sha256: row.get(1)?,
+                    archive_blake3: row.get(1)?,
                     reference: match bucket {
                         Some(bucket) => {
                             Some(CatalogReference::new(bucket, row.get(3)?, row.get(4)?))
@@ -72,7 +72,7 @@ impl Store {
                 "SELECT k.package_id FROM package_conflicts k
                  JOIN managed_packages p ON p.id = k.package_id
                  WHERE p.game_path=?1
-                   AND ((k.bucket=?2 AND k.game_id=?3 AND k.mod_id=?4) OR k.archive_sha256=?5)",
+                   AND ((k.bucket=?2 AND k.game_id=?3 AND k.mod_id=?4) OR k.archive_blake3=?5)",
             )?;
             let reference = release.map(|release| &release.reference);
             declaring = statement
@@ -82,7 +82,7 @@ impl Store {
                         reference.map(|r| r.bucket.as_str()),
                         reference.map(|r| r.game_id.as_str()),
                         reference.map(|r| r.mod_id.as_str()),
-                        archive_sha256
+                        archive_blake3
                     ],
                     |row| row.get::<_, String>(0),
                 )?
@@ -117,14 +117,14 @@ pub(super) fn record(
         let reference = &conflict.reference;
         tx.execute(
             "INSERT OR IGNORE INTO package_conflicts
-                 (package_id,bucket,game_id,mod_id,archive_sha256)
+                 (package_id,bucket,game_id,mod_id,archive_blake3)
              VALUES (?1,?2,?3,?4,?5)",
             params![
                 package_id,
                 reference.bucket,
                 reference.game_id,
                 reference.mod_id,
-                conflict.archive_sha256
+                conflict.archive_blake3
             ],
         )?;
     }

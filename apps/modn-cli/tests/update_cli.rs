@@ -4,7 +4,6 @@ mod support;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -24,20 +23,22 @@ fn plugins(fixture: &Fixture, name: &str, files: &[(&str, &str)]) -> (PathBuf, S
         zip.write_all(contents.as_bytes()).expect("payload");
     }
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn manifest(fixture: &Fixture, file: &str, id: &str, version: &str, hash: &str, extra: Value) {
     let mut manifest = json!({
-        "schema_version": 1, "id": id, "game": "test-game", "name": id,
-        "version": version, "archive_format": "zip", "sha256": hash,
-        "source": {"kind": "manual", "filename": format!("{id}-{version}.zip")}
+        "schema_version": 2, "id": id, "game": "test-game", "name": id,
+        "version": version, "archive_format": "zip", "blake3": hash,
+        "sources": [{"kind": "manual", "filename": format!("{id}-{version}.zip")}]
     });
     if let (Some(manifest), Value::Object(extra)) = (manifest.as_object_mut(), extra) {
         manifest.extend(extra);
     }
-    let folder = fixture.temp.path().join("deps/games/test-game");
+    let folder = fixture.temp.path().join("deps/mods/test-game");
     fs::create_dir_all(&folder).expect("bucket folder");
     fs::write(
         folder.join(file),
@@ -288,7 +289,9 @@ fn dry_run_shows_both_releases_the_changed_files_and_the_dependents() {
         Some(&catalog.v2),
     ));
     assert_eq!(report["installed"]["version"], "1.0");
+    assert_eq!(report["installed"]["archive_blake3"], catalog.v1_hash);
     assert_eq!(report["target"]["version"], "2.0");
+    assert_eq!(report["target"]["archive_blake3"], catalog.v2_hash);
     assert_eq!(report["up_to_date"], false);
     assert_eq!(report["files"]["added"], json!(["addons/added.plugin"]));
     assert_eq!(report["files"]["replaced"], json!(["addons/base.plugin"]));
@@ -389,7 +392,7 @@ fn the_installed_dependent_requirement_blocks_the_update_without_writing() {
             .fixture
             .temp
             .path()
-            .join("deps/games/test-game/top@1.0.json"),
+            .join("deps/mods/test-game/top@1.0.json"),
     )
     .expect("retire the installed release");
     catalog.blocked_update_to_2("requirement on base is unknown");

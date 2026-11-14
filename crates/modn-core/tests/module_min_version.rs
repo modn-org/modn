@@ -1,3 +1,5 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use modn_core::game_modules::check_module;
 use serde_json::json;
 use std::fs;
@@ -5,7 +7,7 @@ use tempfile::TempDir;
 
 fn module(minimum: Option<&str>) -> TempDir {
     let directory = tempfile::tempdir().expect("create module fixture");
-    let mut manifest = json!({"game_id":"fixture-game", "version":"1.0.0", "api_version":1, "entrypoint":"main.lua"});
+    let mut manifest = json!({"game_id":"fixture-game", "version":"1.0.0", "api_version":3, "entrypoint":"main.lua"});
     if let Some(minimum) = minimum {
         manifest["min_modn_version"] = json!(minimum);
     }
@@ -66,17 +68,13 @@ fn cyberpunk_requiring_release_030_is_refused_by_older_development_build() {
     let directory = tempfile::tempdir().expect("valid test fixture");
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../buckets/main/games/cyberpunk-2077");
+    main_bucket::copy_main_module(&source, directory.path());
+    let manifest_path = directory.path().join("module.json");
     let mut manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(source.join("module.json")).expect("valid test fixture"))
+        serde_json::from_slice(&fs::read(&manifest_path).expect("valid test fixture"))
             .expect("valid test fixture");
     manifest["min_modn_version"] = json!("0.3.0");
-    fs::write(directory.path().join("module.json"), manifest.to_string())
-        .expect("valid test fixture");
-    fs::copy(
-        source.join("module.lua"),
-        directory.path().join("module.lua"),
-    )
-    .expect("valid test fixture");
+    fs::write(&manifest_path, manifest.to_string()).expect("valid test fixture");
     let result = check_module(directory.path());
     if semver::Version::parse(env!("CARGO_PKG_VERSION")).expect("valid test fixture")
         < semver::Version::new(0, 3, 0)
