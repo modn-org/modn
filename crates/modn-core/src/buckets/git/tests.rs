@@ -213,7 +213,10 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
         )),
         "{error}"
     );
-    assert!(error.contains("#122"), "{error}");
+    assert!(
+        error.contains("A key change needs a signed rotation or revocation statement"),
+        "{error}"
+    );
     assert!(
         error.contains("remove the bucket and sync it again to trust the new key."),
         "{error}"

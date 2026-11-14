@@ -10,7 +10,7 @@ use crate::bucket_update;
 use crate::buckets;
 use crate::commands::UpdateArgs;
 use anyhow::{bail, Result};
-use modn_core::buckets::{BucketStore, GitCatalogSync, ZipCatalogSync};
+use modn_core::buckets::{BucketStore, CatalogKeyChange, GitCatalogSync, ZipCatalogSync};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -25,11 +25,13 @@ enum Detail {
         changed: bool,
         commit: String,
         signer: String,
+        key_change: Option<CatalogKeyChange>,
     },
     Zip {
         changed: bool,
         digest: String,
         signer: String,
+        key_change: Option<CatalogKeyChange>,
     },
     Local,
 }
@@ -61,23 +63,27 @@ impl Refresh {
                 changed,
                 commit,
                 signer,
+                key_change,
             }) => json!({
                 "name": self.name,
                 "kind": self.kind,
                 "changed": changed,
                 "commit": commit,
                 "signer_key_id": signer,
+                "key_change": key_change,
             }),
             Ok(Detail::Zip {
                 changed,
                 digest,
                 signer,
+                key_change,
             }) => json!({
                 "name": self.name,
                 "kind": self.kind,
                 "changed": changed,
                 "digest": digest,
                 "signer_key_id": signer,
+                "key_change": key_change,
             }),
             Ok(Detail::Local) => json!({
                 "name": self.name,
@@ -102,12 +108,20 @@ impl Refresh {
                 changed,
                 commit,
                 signer,
-            }) => format!("{prefix}: changed: {changed}, commit {commit}, signer {signer}"),
+                key_change,
+            }) => format!(
+                "{prefix}: changed: {changed}, commit {commit}, signer {signer}{}",
+                key_change_suffix(key_change.as_ref())
+            ),
             Ok(Detail::Zip {
                 changed,
                 digest,
                 signer,
-            }) => format!("{prefix}: changed: {changed}, digest {digest}, signer {signer}"),
+                key_change,
+            }) => format!(
+                "{prefix}: changed: {changed}, digest {digest}, signer {signer}{}",
+                key_change_suffix(key_change.as_ref())
+            ),
             Ok(Detail::Local) => format!("{prefix}: skipped; {LOCAL_SKIP}"),
             Err(error) => format!("{prefix}: error: {error}"),
         }
@@ -169,6 +183,7 @@ fn git_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
                 changed: previous.as_deref() != Some(commit.as_str()),
                 commit,
                 signer: synced.revision.signer.key_id.clone(),
+                key_change: synced.key_change,
             })
         },
     );
@@ -193,6 +208,7 @@ fn zip_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
                 changed: previous.as_deref() != Some(digest.as_str()),
                 digest,
                 signer: synced.revision.signer.key_id.clone(),
+                key_change: synced.key_change,
             })
         },
     );
@@ -201,6 +217,9 @@ fn zip_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
         kind: "zip",
         outcome,
     }
+}
+fn key_change_suffix(change: Option<&CatalogKeyChange>) -> String {
+    change.map_or_else(String::new, |change| format!(", {}", change.line()))
 }
 fn catalog_refreshes(state_path: &Path, json: bool) -> Vec<Refresh> {
     let mut refreshes = vec![main_refresh()];

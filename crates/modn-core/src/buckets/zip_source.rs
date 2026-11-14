@@ -9,6 +9,7 @@ use super::manifest::valid_id;
 use super::mirrors::{
     check_mirror_kinds, read_mirrors, read_relocation, CatalogHost, CatalogSyncTrace,
 };
+use super::rotation::{CatalogKeyChange, KeyChangeKind};
 use super::store::{bounded_json, BucketStore, Registration};
 use super::trust::ModuleTrustState;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
@@ -89,6 +90,9 @@ pub struct ZipCatalogSync {
     pub revision: ZipCatalogRevision,
     /// True when this sync pinned the signer key.
     pub pinned: bool,
+    /// Accepted rotation or revocation, when this revision carried one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_change: Option<CatalogKeyChange>,
     /// Game module releases imported or ignored during this sync.
     pub modules: CatalogModuleReport,
     /// The primary, the source that served the revision and any failures.
@@ -288,13 +292,18 @@ impl BucketStore {
         };
         let served_by = CatalogHost::from(&served_source);
         let label = format!("ZIP catalog {name} at {}", served_source.label());
-        let signer = verify_catalog_tree(
+        let verification = verify_catalog_tree(
             &catalog,
             name,
             &label,
             previous.as_ref().map(|revision| &revision.signer),
         )
         .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let trust = match verification.key_change.as_ref().map(|change| change.kind) {
+            Some(KeyChangeKind::Revoked) => ModuleTrustState::Untrusted,
+            _ => trust,
+        };
+        let pinned = verification.pinned;
         validate_tree(&catalog, &catalog, trust)
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         let mirrors = read_mirrors(&catalog)
@@ -310,12 +319,12 @@ impl BucketStore {
                 .context("relocation must name a ZIP source")?,
             None => source,
         };
-        let pinned = previous.is_none();
         let revision = ZipCatalogRevision {
             source: published_source,
             digest: bucket_digest::catalog_digest(&catalog)?.to_string(),
-            signer,
+            signer: verification.signer,
         };
+        let key_change = verification.key_change;
         let staged = if trust == ModuleTrustState::Trusted {
             Some(stage_catalog_modules_at(
                 &crate::data_dir::profile_directory()?,
@@ -330,7 +339,13 @@ impl BucketStore {
             Some(staged) => staged.ignored().to_vec(),
             None => ignored_catalog_modules(&catalog)?,
         };
-        self.publish_zip(name, catalog, revision.clone(), mirrors.clone())?;
+        self.publish_zip(
+            name,
+            catalog,
+            revision.clone(),
+            mirrors.clone(),
+            trust == ModuleTrustState::Trusted,
+        )?;
         let imported = match staged {
             Some(staged) => staged.commit()?,
             None => Vec::new(),
@@ -339,6 +354,7 @@ impl BucketStore {
         Ok(ZipCatalogSync {
             revision,
             pinned,
+            key_change,
             modules: CatalogModuleReport { imported, ignored },
             trace: CatalogSyncTrace {
                 primary: primary.clone(),
@@ -355,13 +371,10 @@ impl BucketStore {
         path: PathBuf,
         zip: super::ZipCatalogRevision,
         mirrors: Vec<CatalogHost>,
+        trusted: bool,
     ) -> Result<()> {
         let signer_key_id = zip.signer.key_id.clone();
-        let module_trust = self
-            .registrations()?
-            .remove(name)
-            .and_then(|registration| registration.module_trust)
-            .filter(|trust| trust.signer_key_id == signer_key_id);
+        let module_trust = trusted.then(|| super::ModuleSourceTrust { signer_key_id });
         let trust = if module_trust.is_some() {
             ModuleTrustState::Trusted
         } else {

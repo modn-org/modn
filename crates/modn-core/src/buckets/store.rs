@@ -1,6 +1,8 @@
 mod packages;
 mod registration;
 
+pub(super) use self::registration::{bounded_json, Registration};
+
 use self::packages::{read_packages, Releases};
 use super::manifest::{valid_id, PackageManifest};
 use super::trust::ModuleTrustState;
@@ -8,11 +10,9 @@ use super::BucketSnapshot;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-const MAX_JSON: u64 = 32 * 1024;
 /// Path constant for one module manifest inside `games/<game>/`.
 pub(super) const MODULE_MANIFEST: &str = "module.json";
 /// Path constant for one module script inside `games/<game>/`.
@@ -32,6 +32,15 @@ pub struct BucketInfo {
     /// Pinned catalog signer key identifier, when the bucket is a signed catalog.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signer_key_id: Option<String>,
+    /// Pinned offline revocation key identifier, when the catalog named one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revocation_key_id: Option<String>,
+    /// Key identifiers this catalog rotated away from.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub previous_signers: Vec<String>,
+    /// Key identifiers revoked by the offline revocation key.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub revoked_signers: Vec<String>,
     /// `git` or `zip` for a registered catalog; omitted for other buckets.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_kind: Option<String>,
@@ -64,58 +73,12 @@ struct Metadata {
     title: String,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Registration {
-    pub(super) path: PathBuf,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) git: Option<super::git::StoredGitCatalogRevision>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) zip: Option<super::zip_source::StoredZipCatalogRevision>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) module_trust: Option<super::trust::ModuleSourceTrust>,
-    /// Mirrors listed by the latest verified revision.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) mirrors: Option<Vec<super::mirrors::CatalogHost>>,
-}
-
-impl Registration {
-    pub(super) fn revision(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
-        self.git
-            .clone()
-            .map(|stored| stored.revision(name))
-            .transpose()
-    }
-
-    pub(super) fn catalog_signer(&self) -> Option<&super::CatalogSigner> {
-        self.zip
-            .as_ref()
-            .map(|zip| &zip.signer)
-            .or_else(|| self.git.as_ref().and_then(|git| git.signer.as_ref()))
-    }
-}
-
 /// Catalog registry, separate from game registrations and ownership state.
 pub struct BucketStore {
     pub(super) root: PathBuf,
     /// Test seam: the next registration write fails before any file changes.
     #[cfg(test)]
     pub(super) fail_next_registration_write: std::sync::atomic::AtomicBool,
-}
-
-pub(super) fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
-    if !fs::symlink_metadata(path)?.file_type().is_file() {
-        bail!("bucket metadata must be a regular file: {}", path.display());
-    }
-    let mut bytes = Vec::new();
-    File::open(path)?
-        .take(MAX_JSON + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_JSON {
-        bail!("bucket metadata exceeds size limit");
-    }
-    serde_json::from_slice(&bytes)
-        .with_context(|| format!("invalid bucket JSON {}", path.display()))
 }
 
 impl BucketStore {
@@ -235,6 +198,9 @@ impl BucketStore {
                 title: metadata.title,
                 path: Some(path.to_path_buf()),
                 signer_key_id: None,
+                revocation_key_id: None,
+                previous_signers: Vec::new(),
+                revoked_signers: Vec::new(),
                 source_kind: None,
                 primary: None,
                 mirrors: Vec::new(),
@@ -333,13 +299,10 @@ impl BucketStore {
         path: PathBuf,
         git: super::GitCatalogRevision,
         mirrors: Vec<super::CatalogHost>,
+        trusted: bool,
     ) -> Result<()> {
         let signer_key_id = git.signer.key_id.clone();
-        let module_trust = self
-            .registrations()?
-            .remove(name)
-            .and_then(|registration| registration.module_trust)
-            .filter(|trust| trust.signer_key_id == signer_key_id);
+        let module_trust = trusted.then(|| super::ModuleSourceTrust { signer_key_id });
         let trust = if module_trust.is_some() {
             ModuleTrustState::Trusted
         } else {
@@ -392,6 +355,14 @@ impl BucketStore {
                 Some(zip) => Some(zip.signer.key_id.clone()),
                 None => revision.map(|revision| revision.signer.key_id),
             };
+            let signer = registration.catalog_signer();
+            let revocation_key_id = signer.and_then(|signer| signer.revocation_key_id.clone());
+            let previous_signers = signer
+                .map(|signer| signer.previous_signers.clone())
+                .unwrap_or_default();
+            let revoked_signers = signer
+                .map(|signer| signer.revoked_signers.clone())
+                .unwrap_or_default();
             let source_kind = match (&registration.git, &registration.zip) {
                 (Some(_), None) => Some("git".to_owned()),
                 (None, Some(_)) => Some("zip".to_owned()),
@@ -399,6 +370,9 @@ impl BucketStore {
             };
             let mut info = self.load(&id, &registration.path, trust)?.0;
             info.signer_key_id = signer_key_id;
+            info.revocation_key_id = revocation_key_id;
+            info.previous_signers = previous_signers;
+            info.revoked_signers = revoked_signers;
             info.source_kind = source_kind;
             info.primary = super::mirrors::registration_primary(&registration);
             info.mirrors = super::mirrors::registration_mirrors(&registration);

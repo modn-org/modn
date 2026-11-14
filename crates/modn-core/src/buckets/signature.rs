@@ -84,6 +84,27 @@ impl CatalogPublicKey {
     pub fn key_id(&self) -> CatalogKeyId {
         self.key_id
     }
+
+    /// Verify a detached signature over domain-separated statement bytes.
+    pub(crate) fn verify_statement(
+        &self,
+        statement: &[u8],
+        signature_text: &str,
+        role: &str,
+    ) -> Result<()> {
+        let signature = parse_signature(signature_text)
+            .with_context(|| format!("malformed {role} signature"))?;
+        if signature.key_id != self.key_id {
+            bail!(
+                "{role} signature key {} does not match pinned key {}",
+                signature.key_id,
+                self.key_id
+            );
+        }
+        self.verification_key
+            .verify(statement, &signature.signature, false)
+            .map_err(|error| anyhow!("{role} signature verification failed: {error}"))
+    }
 }
 
 /// Exact bytes signed by a catalog signature.
@@ -147,7 +168,7 @@ struct CatalogMetadata {
     name: String,
 }
 
-fn catalog_name(root: &Path) -> Result<String> {
+pub(crate) fn catalog_name(root: &Path) -> Result<String> {
     let path = root.join("bucket.json");
     let metadata = fs::symlink_metadata(&path)
         .with_context(|| format!("missing catalog metadata: {}", path.display()))?;
