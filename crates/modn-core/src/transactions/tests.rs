@@ -156,6 +156,7 @@ fn recovering_crashed_install_removes_only_proven_hardlinks() {
         assert_eq!(store.recover().unwrap(), 1);
         assert!(!dest.exists());
         assert!(!temp.exists());
+        assert!(store.pending().unwrap().is_empty());
         assert_eq!(store.recover().unwrap(), 0);
     });
 }
@@ -185,6 +186,8 @@ fn recovering_crashed_uninstall_restores_original_file() {
         assert_eq!(store.recover().unwrap(), 1);
         assert_eq!(fs::read(&dest).unwrap(), b"owned");
         assert!(!temp.exists());
+        assert!(store.pending().unwrap().is_empty());
+        assert_eq!(store.recover().unwrap(), 0);
     });
 }
 
