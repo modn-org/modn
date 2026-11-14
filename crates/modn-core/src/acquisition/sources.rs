@@ -279,9 +279,9 @@ impl fmt::Display for SourcesError {
                 .as_ref()
                 .map_or_else(|| "unknown".to_owned(), ToString::to_string);
             if count == 1 {
-                writeln!(f, "  {source}: {reason}")?;
+                writeln!(f, "  download failed: {source}: {reason}")?;
             } else {
-                writeln!(f, "  {source}: {reason} ({count} attempts)")?;
+                writeln!(f, "  download failed: {source}: {reason} ({count} attempts)")?;
             }
             index = end;
         }

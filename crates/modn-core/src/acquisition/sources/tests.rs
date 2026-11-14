@@ -54,9 +54,7 @@ impl SourceTransport for Fake {
             .get_mut(url)
             .ok_or_else(|| FetchError::Network("unexpected request".to_owned()))?;
         match queue.pop_front().expect("a queued response") {
-            Response::Body(bytes) => {
-                Ok(SourceBody::new(Box::new(Cursor::new(bytes)), None))
-            }
+            Response::Body(bytes) => Ok(SourceBody::new(Box::new(Cursor::new(bytes)), None)),
             Response::TimeoutAfter(delay) => Ok(SourceBody {
                 reader: Box::new(TimeoutBody { delay, sent: false }),
                 total: None,
