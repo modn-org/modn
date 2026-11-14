@@ -77,8 +77,6 @@ impl Fixture {
         let modules = temp.path().join("modules");
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         for (source, name) in [
-            ("buckets/main/games/cyberpunk-2077", "cyberpunk-2077"),
-            ("buckets/main/games/balatro", "balatro"),
             ("tests/fixtures/test-game", "test-game"),
             (
                 "apps/modn-cli/tests/fixtures/native-injector-game",
@@ -86,6 +84,12 @@ impl Fixture {
             ),
         ] {
             copy_module(&repo.join(source), &modules.join(name));
+        }
+        for (source, name) in [
+            ("buckets/main/games/cyberpunk-2077", "cyberpunk-2077"),
+            ("buckets/main/games/balatro", "balatro"),
+        ] {
+            main_bucket::copy_main_module(&repo.join(source), &modules.join(name));
         }
         let module = modules.join(GAME);
         fs::create_dir_all(&module).expect("module directory");

@@ -211,8 +211,8 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     fs::create_dir_all(&module).expect("module directory");
     let source =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
-    fs::copy(source.join("module.json"), module.join("module.json")).expect("manifest fixture");
-    let original = fs::read_to_string(source.join("module.lua")).expect("Lua policy");
+    main_bucket::copy_main_module(&source, &module);
+    let original = fs::read_to_string(module.join("module.lua")).expect("Lua policy");
     fs::write(module.join("module.lua"), &original).expect("initial policy");
 
     let game = root.path().join("game");

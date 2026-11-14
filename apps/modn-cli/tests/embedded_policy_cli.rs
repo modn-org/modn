@@ -13,10 +13,9 @@ fn policy_beside_the_executable_is_ignored() {
     fs::copy(source, &copied).expect("copy modn binary");
 
     let planted = bin.join("game-modules/cyberpunk-2077");
-    fs::create_dir_all(&planted).expect("planted module");
-    let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../buckets/main/games/cyberpunk-2077/module.json");
-    fs::copy(bundled, planted.join("module.json")).expect("planted manifest");
+    let bundled =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
+    main_bucket::copy_main_module(&bundled, &planted);
     fs::write(planted.join("main.lua"), "error('planted policy loaded')").expect("planted Lua");
 
     let game = root.path().join("not-a-game");
