@@ -222,9 +222,8 @@ fn module_with_undeclared_tool(fixture: &mut Fixture) {
     let source =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
     let modules = fixture.temp.path().join("modules/cyberpunk-2077");
-    fs::create_dir_all(&modules).expect("modules");
-    fs::copy(source.join("module.json"), modules.join("module.json")).expect("module manifest");
-    let script = fs::read_to_string(source.join("module.lua")).expect("module script");
+    main_bucket::copy_main_module(&source, &modules);
+    let script = fs::read_to_string(modules.join("module.lua")).expect("module script");
     let marker = r#"if framework == "redscript-runtime" and (relative == "engine/tools/scc.exe" or relative == "engine/tools/scc_lib.dll""#;
     let replacement = r#"if framework == "redscript-runtime" and relative == "engine/tools/extra.exe" then return framework end
         if framework == "redscript-runtime" and (relative == "engine/tools/scc.exe" or relative == "engine/tools/scc_lib.dll""#;

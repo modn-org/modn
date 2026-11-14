@@ -36,11 +36,10 @@ fn fixture(entries: &[&str]) -> (TempDir, PathBuf, PathBuf, PathBuf) {
 fn module_with(temp: &Path, implementation: &str) -> PathBuf {
     let parent = temp.join("modules");
     let module = parent.join("cyberpunk-2077");
-    fs::create_dir_all(&module).unwrap();
     let bundled =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
-    fs::copy(bundled.join("module.json"), module.join("module.json")).unwrap();
-    let code = fs::read_to_string(bundled.join("module.lua")).unwrap();
+    main_bucket::copy_main_module(&bundled, &module);
+    let code = fs::read_to_string(module.join("module.lua")).unwrap();
     let before = code
         .strip_suffix("return policy\r\n")
         .or_else(|| code.strip_suffix("return policy\n"))

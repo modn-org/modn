@@ -31,18 +31,10 @@ impl Fixture {
         }
         let cyberpunk =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
-        let cyberpunk_target = modules.join("cyberpunk-2077");
-        fs::create_dir_all(&cyberpunk_target).expect("cyberpunk module");
-        for file in ["module.lua", "module.json"] {
-            fs::copy(cyberpunk.join(file), cyberpunk_target.join(file)).expect("cyberpunk source");
-        }
+        main_bucket::copy_main_module(&cyberpunk, &modules.join("cyberpunk-2077"));
         let balatro =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/balatro");
-        let balatro_target = modules.join("balatro");
-        fs::create_dir_all(&balatro_target).expect("balatro module");
-        for file in ["module.lua", "module.json"] {
-            fs::copy(balatro.join(file), balatro_target.join(file)).expect("balatro source");
-        }
+        main_bucket::copy_main_module(&balatro, &modules.join("balatro"));
         let game = temp.path().join("game");
         fs::create_dir_all(game.join("bin")).expect("game");
         fs::write(game.join("bin/TestGame.exe"), b"game-exe").expect("marker");

@@ -162,21 +162,41 @@ pub fn to_contract_v2(root: &Path) {
     }
 }
 
-pub fn seed(data: &Path) {
-    fn copy(source: &Path, target: &Path) {
-        fs::create_dir_all(target).expect("bucket directory");
-        for entry in fs::read_dir(source).expect("bucket entries") {
-            let entry = entry.expect("bucket entry");
-            let target = target.join(entry.file_name());
-            if entry.file_type().expect("entry type").is_dir() {
-                copy(&entry.path(), &target);
-            } else {
-                fs::copy(entry.path(), target).expect("bucket file");
-            }
+fn copy_tree(source: &Path, target: &Path) {
+    fs::create_dir_all(target).expect("bucket directory");
+    for entry in fs::read_dir(source).expect("bucket entries") {
+        let entry = entry.expect("bucket entry");
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let target = target.join(entry.file_name());
+        if entry.file_type().expect("entry type").is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("bucket file");
         }
     }
+}
+
+/// Copy a real game module from the checked-in `buckets/main` submodule and
+/// declare host API 3 in its manifest.
+///
+/// The submodule stays on contract v1 and its manifests declare host API 1 or
+/// 2. Only `api_version` changes; every other field and file is copied as is.
+pub fn copy_main_module(source: &Path, target: &Path) {
+    copy_tree(source, target);
+    let manifest_path = target.join("module.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).expect("fixture module"))
+            .expect("module JSON");
+    manifest["api_version"] = serde_json::json!(3);
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).expect("JSON"))
+        .expect("fixture module");
+}
+
+pub fn seed(data: &Path) {
     let main = data.join("modn/buckets/main");
-    copy(
+    copy_tree(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main"),
         &main,
     );
