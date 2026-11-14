@@ -196,6 +196,9 @@ export function createTile(model, ctx, { onChanged, operations, undoHost = null 
  * button in a stable host, so a grid refresh may replace the button that
  * showed the toast without making its Undo a no-op. The fresh button offers
  * the same launcher again, so every later Undo starts from a live button.
+ * The button keeps the operation ID across retries, and the temporary row
+ * leaves the host as soon as the attempt settles, except while an approval
+ * ask waits for the user.
  * @param {{
  *   host: HTMLElement,
  *   runUndo: (args: Object) => Promise<unknown>,
@@ -213,7 +216,7 @@ export function createUndoLauncher({ host, runUndo, onSettled }) {
     const runner = createOperationButton({
       label: 'Undo',
       action: 'Undo',
-      run: runUndo,
+      run: (args) => runUndo({ ...args, operationId }),
       testId: 'toast-undo-button',
       ariaLabel: 'Undo the last operation',
       askHost,
@@ -227,11 +230,12 @@ export function createUndoLauncher({ host, runUndo, onSettled }) {
         }
       },
       onError: () => row.remove(),
+      onBlocked: () => row.remove(),
+      onDeclined: () => row.remove(),
     });
     row.append(runner.element, askHost);
     host.append(row);
     void runner.start({
-      run: runUndo,
       label: 'Undo',
       action: 'Undo',
       operationId,
