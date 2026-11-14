@@ -16,15 +16,19 @@ or game modules. The install script runs `modn bucket update` to install a local
 The `main` official bucket and registered community catalogs describe
 mod packages: versions, BLAKE3 archive pins, ordered artifact sources and
 known dependencies. `main` and the
-signed Git catalogs the user trusts for modules may contain game modules. Modn
+signed Git and ZIP catalogs the user trusts for modules may contain game modules. Modn
 ignores modules from other buckets, and local folder buckets cannot be module
 sources. The local copy works offline. Only `modn bucket update` fetches it.
 If the copy is missing, Modn asks the user to run that command.
 The update verifies a minisign signature over the catalog digest with the signer
 key built into Modn. Each release must include `main-bucket.zip.minisig`.
 `main` lives in the `modn-org/main` repository, with its own release cycle.
-Key rotation and revocation are planned (#122).
-Trusted third-party game modules come from signed Git catalogs the user trusts for modules and use a versioned registry. Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
+A registered catalog can rotate its signer key with a statement signed by the
+pinned key, or revoke it with the pinned offline revocation key. A signed
+relocation record moves a catalog to a new primary host.
+Trusted third-party game modules come from signed Git and ZIP catalogs the user
+trusts for modules and use a versioned registry. Explicit Git and ZIP community
+catalog sync is available; see [sources.md](sources.md).
 Package manifests never authorize changes to game files: a
 manifest may declare the tool executables its archive installs, but only the
 user's confirmation or an explicit `--allow-executable` approves them.

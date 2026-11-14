@@ -43,9 +43,12 @@ A Git catalog is signed. The first revision must have `catalog.pub` and
 `Pinned signer key <key ID> for bucket <name>; compare this fingerprint with the catalog author.`
 Later syncs verify the revision with the pinned key only. A later revision may
 omit `catalog.pub`.
-A `catalog.pub` with another key ID is refused, because Modn does not rotate
-keys yet (#122). An unsigned or invalid revision is refused, and there is no
-`--allow-unsigned` option.
+A `catalog.pub` with another key ID is refused unless the revision carries a
+signed rotation or revocation statement. A rotation signed by the pinned key
+moves the pin to the successor. A revocation signed by the pinned offline
+revocation key retires the signer and clears module trust. See
+[buckets](buckets.md#catalog-key-rotation-and-revocation). An unsigned or
+invalid revision is refused, and there is no `--allow-unsigned` option.
 A registration made before catalog signing fails with a request to remove the
 bucket and sync it again.
 `modn bucket list` shows the pinned key ID after the catalog title.
