@@ -18,11 +18,14 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "progress/outcome.rs"]
+mod outcome;
 #[path = "progress/spawn.rs"]
 mod spawn;
 #[path = "progress/streams.rs"]
 mod streams;
 
+pub(super) use outcome::{CommittedOutcome, committed_outcome};
 pub(super) use spawn::spawn;
 
 use streams::{StderrItem, StdoutItem, read_stderr, read_stdout};
@@ -109,39 +112,6 @@ impl ProgressEvent {
                 .and_then(Value::as_str)
                 .map(str::to_owned),
         })
-    }
-}
-
-/// The outcome to report once the CLI reported its commit event.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CommittedOutcome {
-    /// The CLI exited with a failure, so the commit did not complete.
-    Refused,
-    /// The committed result could not be read.
-    OutputLost,
-    /// stderr could not be read, so the operation has no progress warning.
-    StreamLost,
-    /// stdout was read within its bound and still has to be parsed.
-    Readable,
-}
-
-/// Decides how a call that saw the commit event ends.
-///
-/// The exit status comes first: a `commit` event alone does not prove that the
-/// write completed, so a failed exit is a refusal even when the result stream
-/// was lost. A lost stream with a successful exit is a committed outcome that
-/// callers refresh, never plain success. So is a readable stream whose bytes
-/// are not one JSON value: the write is installed and only its result is
-/// unknown.
-fn committed_outcome(exit_ok: bool, stdout_lost: bool, stderr_lost: bool) -> CommittedOutcome {
-    if !exit_ok {
-        CommittedOutcome::Refused
-    } else if stdout_lost {
-        CommittedOutcome::OutputLost
-    } else if stderr_lost {
-        CommittedOutcome::StreamLost
-    } else {
-        CommittedOutcome::Readable
     }
 }
 

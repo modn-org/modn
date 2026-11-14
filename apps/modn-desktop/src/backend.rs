@@ -173,17 +173,17 @@ impl Backend {
     /// Runs a command that does not report progress with the inactivity
     /// timeout.
     ///
-    /// `--progress json` is not appended. Any output resets the timer. The
-    /// call ends when the CLI process exits, so a started game that inherited
-    /// the CLI's pipes cannot hold the caller open. Once stdout carries output,
-    /// the call never kills the process: the write has committed and its
-    /// result is recoverable.
+    /// `--progress json` is not appended, and any output resets the timer. The
+    /// call ends when the CLI process exits, so a started game holding the
+    /// inherited pipes cannot block it. Stdout that starts is never killed: the
+    /// write committed and its result is recoverable. A nonzero exit is a
+    /// refusal whatever the output; with exit 0, a lost, oversized or malformed
+    /// result after stdout started reports `BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT`.
     ///
     /// # Errors
     ///
-    /// Returns [`BackendError`] when the CLI refuses, output is invalid or
-    /// exceeds its bound before stdout starts, the process cannot start, or
-    /// inactivity expires before stdout starts.
+    /// Returns [`BackendError`] when the CLI refuses, output is lost before
+    /// stdout starts, the process cannot start, or inactivity expires.
     pub fn call_with_inactivity_timeout(&self, args: &[OsString]) -> Result<Value, BackendError> {
         inactivity::call(self, args)
     }

@@ -426,6 +426,43 @@ fn game_registration_is_not_killed_after_stdout_reports_the_result() {
 }
 
 #[test]
+fn registration_output_loss_after_a_failure_is_a_refusal() {
+    let f = Fixture::new();
+    let args = f.registration_args("overflow-failure");
+    let error = f
+        .backend
+        .call_with_inactivity_timeout(&args)
+        .expect_err("a failed exit after stdout started must not report a completed write");
+    assert_eq!(
+        error.kind(),
+        BackendErrorKind::Refused,
+        "the exit status decides the outcome, whatever stdout did"
+    );
+    assert_eq!(error.code(), Some("INSTALL_FAILED"));
+    assert_ne!(error.code(), Some("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT"));
+    f.no_write();
+}
+
+#[test]
+fn registration_is_not_killed_after_stdout_starts_before_a_failure() {
+    let f = Fixture::new();
+    let args = f.registration_args("overflow-stall-failure");
+    let backend = f
+        .backend
+        .clone()
+        .with_inactivity_timeout(Duration::from_secs(1));
+    let error = backend
+        .call_with_inactivity_timeout(&args)
+        .expect_err("the fixture fails after its stalled result stream");
+    assert!(
+        f.backend.state.join("survived-after-output").is_file(),
+        "a writer whose stdout started must never be killed"
+    );
+    assert_eq!(error.kind(), BackendErrorKind::Refused);
+    assert_eq!(error.code(), Some("INSTALL_FAILED"));
+}
+
+#[test]
 fn game_launch_returns_before_the_started_game_exits() {
     let f = Fixture::new();
     let args = f.registration_args("game-launch");

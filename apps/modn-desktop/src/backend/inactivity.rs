@@ -8,9 +8,13 @@
 //! The call ends when the CLI process exits, not when its output pipes reach
 //! EOF. A started game can inherit those pipe handles on Windows and hold them
 //! for hours; the CLI has already printed its result by then.
+//!
+//! The exit status decides first: a nonzero exit is a refusal whatever the
+//! output. With exit status 0 and stdout started, a lost, oversized or
+//! malformed result is the committed outcome that callers refresh.
 
 use super::error::BackendError;
-use super::progress;
+use super::progress::{self, CommittedOutcome};
 use super::{Backend, OUTPUT_LIMIT};
 use serde_json::Value;
 use std::ffi::OsString;
@@ -127,6 +131,14 @@ pub(super) fn call(backend: &Backend, args: &[OsString]) -> Result<Value, Backen
                 }
             }
             Ok(None) => {}
+            Err(_) if stdout_started => {
+                // The result stream started, so the write may have committed.
+                // Wait for the process instead of killing the writer.
+                match child.wait() {
+                    Ok(status) => break status,
+                    Err(_) => return Err(BackendError::output_after_commit()),
+                }
+            }
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -139,21 +151,30 @@ pub(super) fn call(backend: &Backend, args: &[OsString]) -> Result<Value, Backen
     if timed_out {
         return Err(BackendError::timeout(timeout));
     }
-    if stdout_truncated || stdout_failed {
-        return Err(if stdout_started {
-            BackendError::output_after_commit()
-        } else {
-            BackendError::output()
-        });
+    // The exit status comes first, as on the progress path: a failed exit is a
+    // refusal even when stdout was lost. With stdout started and exit status 0,
+    // the write committed, so an unreadable result is a committed outcome that
+    // callers refresh rather than a plain output failure. Without stdout, an
+    // output problem stays the pre-commit failure it always was.
+    match progress::committed_outcome(
+        status.success(),
+        stdout_truncated || stdout_failed,
+        !stdout_started && (stderr_truncated || stderr_failed),
+    ) {
+        CommittedOutcome::Refused => Err(BackendError::refused(status, error_code, None)),
+        CommittedOutcome::OutputLost if stdout_started => Err(BackendError::output_after_commit()),
+        CommittedOutcome::OutputLost | CommittedOutcome::StreamLost => Err(BackendError::output()),
+        CommittedOutcome::Readable => {
+            let stdout = String::from_utf8_lossy(&stdout_bytes);
+            serde_json::from_str(&stdout).map_err(|_| {
+                if stdout_started {
+                    BackendError::output_after_commit()
+                } else {
+                    BackendError::invalid_json()
+                }
+            })
+        }
     }
-    if !stdout_started && (stderr_truncated || stderr_failed) {
-        return Err(BackendError::output());
-    }
-    if !status.success() {
-        return Err(BackendError::refused(status, error_code, None));
-    }
-    let stdout = String::from_utf8_lossy(&stdout_bytes);
-    serde_json::from_str(&stdout).map_err(|_| BackendError::invalid_json())
 }
 
 fn read_stdout(
