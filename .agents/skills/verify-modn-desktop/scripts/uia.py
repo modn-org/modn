@@ -301,6 +301,8 @@ def _walk(control):
 WM_SETTEXT = 0x000C
 BM_CLICK = 0x00F5
 IDCANCEL = 2
+# TaskDialog answers its own button ids through this window message.
+TDM_CLICK_BUTTON = 0x0400 + 102
 
 
 def _win32():
@@ -406,11 +408,14 @@ def answer_dialog(dialog, session, name, timeout=15):
 
     `name` is one of `DIALOG_BUTTON_IDS`: OK, Cancel, Yes or No. The answer
     resolves by Win32 control id first, so a localized label still selects the
-    intended button. A click can be lost when a UI Automation proxy disconnects
-    while the dialog is open, so the answer counts only once the dialog window
-    is gone; an unanswered dialog is retried with a fresh element.
+    intended button. The confirmation is a TaskDialog, whose UI Automation
+    Invoke can be dropped while the dialog stays open, so the answer first
+    posts the documented TaskDialog button message and only falls back to
+    Invoke. The answer counts only once the dialog window is gone; an
+    unanswered dialog is retried with a fresh element.
     """
     require(name in DIALOG_BUTTON_IDS, f"Unknown dialog answer {name!r}")
+    control_id = int(DIALOG_BUTTON_IDS[name])
     deadline = time.monotonic() + timeout
     last = "it did not open"
     while time.monotonic() < deadline:
@@ -421,6 +426,12 @@ def answer_dialog(dialog, session, name, timeout=15):
             last = f"it has no {name} button"
             time.sleep(0.1)
             continue
+        _win32().PostMessageW(handle, TDM_CLICK_BUTTON, control_id, 0)
+        until = time.monotonic() + min(3.0, max(0.0, deadline - time.monotonic()))
+        while time.monotonic() < until:
+            if not _win32().IsWindow(handle):
+                return control
+            time.sleep(0.05)
         try:
             session.activate(control)
         except Exception as error:  # noqa: BLE001 - a retry uses a fresh node
