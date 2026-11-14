@@ -29,7 +29,7 @@ def bootstrap():
         raise SystemExit("uiautomation is unavailable")
     os.environ["MODN_UIA_BOOTSTRAP"] = "1"
     command = [
-        "uv", "run", "--no-project", "--with", "uiautomation", "python",
+        "uv", "run", "--no-project", "--with", "uiautomation", "--with", "blake3", "python",
         str(Path(sys.argv[0]).resolve()), *sys.argv[1:],
     ]
     raise SystemExit(subprocess.call(command))
