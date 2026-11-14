@@ -65,6 +65,58 @@ test('matches one package to each catalog entry of the same mod ID', () => {
   assert.equal(other.hasUpdate, true);
 });
 
+test('matches a catalog entry only with a package from its own bucket', () => {
+  const entries = [
+    { id: 'cool-mod', bucket: 'main', name: 'Cool Mod', version: '2.0.0' },
+    { id: 'cool-mod', bucket: 'other', name: 'Cool Mod', version: '3.0.0' },
+  ];
+  const otherPackage = {
+    id: 'pkg-other',
+    version: '3.0.0',
+    catalog: { bucket: 'other', game_id: 'game', mod_id: 'cool-mod' },
+  };
+  const models = mergeLibrary(entries, [otherPackage]);
+  assert.equal(models.length, 2, 'the unmatched catalog row stays available');
+  const main = models.find((model) => model.bucket === 'main');
+  const other = models.find((model) => model.bucket === 'other');
+  assert.equal(main.installedPackage, null, 'the main row must offer Install');
+  assert.equal(main.key, 'catalog-main-cool-mod');
+  assert.equal(other.installedPackage, otherPackage, 'the other row owns its package');
+  assert.equal(other.key, 'catalog-other-cool-mod-pkg-other');
+  assert.deepEqual(
+    visibleModels(models, 'available', '').map((model) => model.key),
+    ['catalog-main-cool-mod'],
+  );
+  assert.deepEqual(
+    visibleModels(models, 'installed', '').map((model) => model.key),
+    ['catalog-other-cool-mod-pkg-other'],
+  );
+});
+
+test('matches a package from the same bucket as the catalog entry', () => {
+  const pkg = {
+    id: 'pkg-main',
+    version: '1.0.0',
+    catalog: { bucket: 'main', game_id: 'game', mod_id: 'cool-mod' },
+  };
+  const models = mergeLibrary([ENTRY], [pkg]);
+  assert.equal(models.length, 1);
+  assert.equal(models[0].installedPackage, pkg);
+  assert.equal(models[0].bucket, 'main');
+  assert.equal(models[0].hasUpdate, true);
+});
+
+test('an installed package without a bucket never matches a catalog row', () => {
+  const archive = { id: 'pkg-archive', mod_id: 'cool-mod', version: '1.0.0' };
+  const models = mergeLibrary([ENTRY], [archive]);
+  assert.equal(models.length, 2, 'the archive install stays its own row');
+  const catalogRow = models.find((model) => model.key === 'catalog-main-cool-mod');
+  assert.equal(catalogRow.installedPackage, null);
+  const archiveRow = models.find((model) => model.key === 'package-pkg-archive');
+  assert.equal(archiveRow.installedPackage, archive);
+  assert.equal(archiveRow.bucket, '');
+});
+
 test('keeps unmatched packages and manual packages beside catalog rows', () => {
   const packages = [
     {
