@@ -266,11 +266,11 @@ Pin changes hold the manager transaction lock and change no ownership or game fi
 ### Installation roots
 
 Manager state records the roots of each installation.
-The root model uses the `game` root and, for an API 2 module that declares `content_root`, the `content` root.
+The root model uses the `game` root and, for a module that declares `content_root`, the `content` root.
 Pending journal rows record the root label.
 An installation is identified by its canonical `game_path`.
 A root is identified by its label within that installation and by its canonical `path`.
-The labels are `game` and, for an API 2 module that declares `content_root`, `content`.
+The labels are `game` and, for a module that declares `content_root`, `content`.
 The game root's path is the installation path.
 The content root is resolved from the declared appdata base and recorded when an installation first writes content there.
 

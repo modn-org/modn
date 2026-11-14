@@ -277,6 +277,6 @@ It preserves unrecorded descendants and retains transaction backups and recovery
 ## Content root
 
 A module-declared directory outside the game installation that holds mod content, such as `%APPDATA%\Balatro\Mods` for Balatro.
-An API 2 module declares it in `module.json` as `content_root` with `base` (`appdata` only) and a relative `path`.
+A module declares it in `module.json` as `content_root` with `base` (`appdata` only) and a relative `path`.
 Rust resolves and validates it, records it as the `content` installation root, and qualifies every owned file, owned directory and created folder by that root.
 A plan operation selects it with `"root": "content"`.

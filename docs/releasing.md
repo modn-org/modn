@@ -885,19 +885,14 @@ Get-ChildItem "$live\verifiers\*.exe" | ForEach-Object {
 Expect `True` for all four verifier binaries and record each SHA-256 with the tag, commit and run ID.
 Stop if an artifact is missing; do not use a local build.
 
-#### Step 3: Run the Milestone 1 gate
+#### Step 3: Run the portable verifier
 
-**Authorize this step.** The gate uses release assets and a fake game in a temporary directory.
+**Authorize this step.** The verifier builds disposable contract v2 fixtures and a fake game in a temporary directory.
 
-```powershell
-git clone https://github.com/modn-org/modn.git "$live\modn"
-git -C "$live\modn" checkout $tag
-Set-Location "$live\modn"
-pwsh -File .github/scripts/milestone1-gate.ps1 -Tag $tag
-```
-
-Expect exit 0, `ok:` for every check and a final `milestone 1 exit gate passed for <tag>`.
-The gate uses the released `modn.exe`. See [Milestone 1 exit gate](#milestone-1-exit-gate).
+The Milestone 1 gate targets contract v1 and cannot pass against a contract v2 release. Do not run it.
+Run the portable verifier against the released `modn.exe` instead.
+Run `python .agents/skills/verify-modn/scripts/portable_mvp.py --help` for its arguments, pass the released binaries, and expect exit 0 and no failed check.
+See [Milestone 1 exit gate](#milestone-1-exit-gate) for the closed v1 evidence.
 Count the `ok:` lines and record the count.
 
 #### Step 4: Run the desktop verifiers
@@ -932,7 +927,7 @@ Windows 11 validation, <date>
 
 | Command | Exit | Key output line |
 | --- | --- | --- |
-| milestone1-gate.ps1 | 0 | milestone 1 exit gate passed for <tag>, <n> ok lines |
+| portable_mvp.py | 0 | its final summary line, no failed check |
 | verify.py | 0 | status: passed, <n> assertions, 0 failures |
 | lifecycle.py | 0 | status: passed, <n> assertions, 0 failures |
 
