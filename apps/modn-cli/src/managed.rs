@@ -129,7 +129,6 @@ pub(super) fn uninstall(
     store.set_control(progress.control().clone());
     let game = selected.root;
     let game_id = selected.game_id;
-    let known = crate::operation_id::KnownOperations::read(&store, &game_id)?;
     store.set_history_context(HistoryContext::new(game_id.clone(), game.clone()));
     let removed = if args.force {
         let plan = store.plan_uninstall(&game, &args.package, scope)?;
@@ -139,7 +138,7 @@ pub(super) fn uninstall(
     } else {
         store.uninstall_with(&game, &args.package, scope)?
     };
-    let operation_id = known.committed(&store, &game_id)?;
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     if json {
         let mut result = serde_json::json!({"uninstalled": args.package, "packages": removed});
         if let Some(operation_id) = operation_id {

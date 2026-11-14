@@ -21,7 +21,6 @@ mod nexus_auth;
 #[cfg(test)]
 mod nexus_fixture_tests;
 mod nxm;
-mod operation_id;
 mod play;
 mod progress;
 #[cfg(test)]

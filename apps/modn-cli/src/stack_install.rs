@@ -231,7 +231,6 @@ pub(super) fn run(
         game: Some(stack.game_id.clone()),
         root: Some(stack.installation.clone()),
     })?;
-    let known = crate::operation_id::KnownOperations::read(&store, &stack.game_id)?;
     store.set_control(progress.control().clone());
     store.set_history_context(history);
     let mut installed_capabilities: BTreeMap<String, Capabilities> = checks
@@ -294,7 +293,7 @@ pub(super) fn run(
         .zip(&installed)
         .map(|(member, package)| (member.release.reference.to_string(), package))
         .collect();
-    let operation_id = known.committed(&store, &stack.game_id)?;
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     if json {
         let packages: Vec<_> = report
             .iter()

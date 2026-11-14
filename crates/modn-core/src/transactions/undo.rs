@@ -327,6 +327,7 @@ impl Store {
         target: &HistoryOperation,
         installed: &[ManagedPackage],
     ) -> Result<()> {
+        self.committed_operation = None;
         let tx = self.connection.transaction()?;
         let mut packages = Vec::new();
         for (ordering, package) in installed.iter().enumerate() {
@@ -380,6 +381,7 @@ impl Store {
         };
         crate::history::insert(&tx, &record)?;
         tx.commit()?;
+        self.committed_operation = Some(record.id);
         Ok(())
     }
 }

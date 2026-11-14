@@ -405,7 +405,6 @@ fn install_mod(
         game: Some(game_id.clone()),
         root: Some(installation.clone()),
     })?;
-    let known = crate::operation_id::KnownOperations::read(&store, &game_id)?;
     store.set_control(progress.control().clone());
     store.set_history_context(
         HistoryContext::new(game_id.clone(), installation.clone())
@@ -419,7 +418,7 @@ fn install_mod(
         policy,
         &approved,
     )?;
-    let operation_id = known.committed(&store, &game_id)?;
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     install_consent::record(&mut store, &installation, &reference_key, &needed)?;
     if json {
         let mut result = serde_json::json!({

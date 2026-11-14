@@ -104,7 +104,6 @@ fn install_archive(
         let store = store
             .as_mut()
             .expect("approved installation opens writable state");
-        let known = crate::operation_id::KnownOperations::read(store, &game_id)?;
         store.set_history_context(history);
         let package = store.install_operations_zip_with_permissions(
             &game,
@@ -112,7 +111,7 @@ fn install_archive(
             &report,
             &args.allow_executable,
         )?;
-        let operation_id = known.committed(store, &game_id)?;
+        let operation_id = store.committed_operation_id().map(str::to_owned);
         (package, operation_id)
     };
     if json {

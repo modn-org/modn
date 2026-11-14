@@ -389,7 +389,6 @@ pub(super) fn run(
         game: Some(target.game_id.clone()),
         root: Some(target.installation.clone()),
     })?;
-    let known = crate::operation_id::KnownOperations::read(&store, &target.game_id)?;
     store.set_control(progress.control().clone());
     store.set_history_context(
         HistoryContext::new(target.game_id.clone(), target.installation.clone())
@@ -438,7 +437,7 @@ pub(super) fn run(
         _ => bail!("unknown history kind"),
     }
     let effect = inverse(target.kind);
-    let operation_id = known.committed(&store, &target.game_id)?;
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     if json {
         let mut result = serde_json::json!({
             "undo": target.id,
