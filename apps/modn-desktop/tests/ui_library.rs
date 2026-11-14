@@ -442,15 +442,15 @@ fn catalog_less_installed_packages_stay_in_the_grid() {
 }
 
 #[test]
-fn grid_refresh_keeps_running_operation_buttons() {
+fn grid_refresh_keeps_running_buttons_and_live_toast_undo() {
     let library = read("ui/js/library.js");
     assert!(
         library.contains("const operations = new Map()"),
         "the Library must own one registry of running operation buttons"
     );
     assert!(
-        library.contains("createTile(model, ctx, { onChanged: refresh, operations })"),
-        "every grid tile must receive the registry"
+        library.contains("createTile(model, ctx, { onChanged: refresh, operations, undoHost })"),
+        "every grid tile must receive the registry and undo host"
     );
     let tile = read("ui/js/library/tile.js");
     for fragment in [
@@ -467,6 +467,16 @@ fn grid_refresh_keeps_running_operation_buttons() {
             "tile.js must reattach a running operation via {fragment}"
         );
     }
+    let op = read("ui/js/op-button.js");
+    assert!(op.contains("launchUndo(committedId)"), "toast runner");
+    let launcher = tile.find("createUndoLauncher").expect("launcher");
+    let runner = &tile[launcher..];
+    assert!(runner.contains("createOperationButton("), "runner button");
+    assert!(runner.contains("askHost,"), "runner ask");
+    assert!(runner.contains("void runner.start("), "runner start");
+    assert!(!runner.contains("operations.set("), "runner not grid");
+    assert!(library.contains("const undoHost"), "library host");
+    assert!(tile.contains("launchUndo: undoToast"), "tile runner");
 }
 
 #[test]

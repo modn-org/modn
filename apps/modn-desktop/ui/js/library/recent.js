@@ -2,7 +2,7 @@ import { history, undo } from '../api.js';
 import { messageFor } from '../messages.js';
 import { createOperationButton } from '../op-button.js';
 import { element } from './dom.js';
-import { undoHooks } from './tile.js';
+import { createUndoLauncher, undoHooks } from './tile.js';
 
 const KINDS = {
   install: 'Installed',
@@ -25,11 +25,22 @@ function entryLabel(entry) {
 
 /**
  * Recent menu in the Library header: newest operations first, each with Undo.
- * @param {{gameId: string, onChanged: () => void|Promise<void>}} options
+ * @param {{gameId: string, onChanged: () => void|Promise<void>,
+ *   undoHost?: HTMLElement|null}} options
  * @returns {HTMLElement}
  */
-export function createRecentMenu({ gameId, onChanged }) {
+export function createRecentMenu({ gameId, onChanged, undoHost = null }) {
   const hooks = undoHooks(gameId);
+  const launchUndo = undoHost
+    ? createUndoLauncher({
+      host: undoHost,
+      ...hooks,
+      onSettled: async () => {
+        await load();
+        await onChanged();
+      },
+    })
+    : null;
   const wrapper = element('div', 'modn-recent');
   const button = element('button', 'modn-button modn-button--quiet', 'Recent');
   button.type = 'button';
@@ -65,6 +76,7 @@ export function createRecentMenu({ gameId, onChanged }) {
       row.append(
         createOperationButton({
           ...hooks,
+          launchUndo,
           label: 'Undo',
           action: 'Undo',
           testId: 'recent-undo',
