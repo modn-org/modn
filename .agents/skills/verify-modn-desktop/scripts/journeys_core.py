@@ -28,7 +28,7 @@ def journey_detection(runner):
         "detected Balatro card",
     )
     runner.check(snapshot(game) == before, "Detection changed the fixture game folder")
-    card = session.find_all(prefix="Add Balatro at", control_type="ButtonControl")[0]
+    card = session.wait_control(prefix="Add Balatro at", control_type="ButtonControl")
     session.activate(card)
     session.wait_for(
         lambda s: s.find_all(prefix="Open Balatro at", control_type="ButtonControl"),
@@ -253,7 +253,7 @@ def journey_play(runner):
         time.sleep(0.2)
     runner.check(marker.exists(), "Play did not start the fixture executable")
     runner.check(snapshot(game).keys() - before.keys() == {"play-marker.txt"}, "Play changed other files")
-    session.activate(session.find_all(prefix="Open details for", control_type="HyperlinkControl")[0])
+    session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
     session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
     runner.check(session.exists(name="Operation history"), "History section is missing")
     toast = click_until(session, "Copy diagnostics", ("Diagnostics copied.", "Something went wrong"))

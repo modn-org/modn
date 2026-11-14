@@ -198,15 +198,27 @@ def cli(fixture, *args):
     )
 
 
+def wait_control(self, name=None, prefix=None, control_type=None, timeout=45):
+    """Waits for a control and returns the node the wait found.
+
+    Re-renders can replace a node between a wait and a second lookup, so
+    callers activate the returned node instead of searching again.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        matches = self.find_all(name=name, prefix=prefix, control_type=control_type)
+        if matches:
+            return matches[0]
+        time.sleep(0.2)
+    raise uia.Failure(f"Timed out waiting for control {name or prefix}")
+
+
 def wait_cards(self, prefix, timeout=45):
     """Waits for one Home card whose accessible name starts with `prefix`."""
-    self.wait_for(
-        lambda s: s.find_all(prefix=prefix, control_type="ButtonControl"),
-        f"home card {prefix}", timeout,
-    )
-    return self.find_all(prefix=prefix, control_type="ButtonControl")[0]
+    return self.wait_control(prefix=prefix, control_type="ButtonControl", timeout=timeout)
 
 
+uia.Session.wait_control = wait_control
 uia.Session.wait_cards = wait_cards
 
 

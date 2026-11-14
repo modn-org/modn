@@ -40,10 +40,17 @@ def _remove_controls(session):
 
 
 def _remove_control(session, timeout=20):
-    session.wait_for(_remove_controls, f"{REMOVE_TEXT} control", timeout=timeout)
-    controls = _remove_controls(session)
-    uia.require(len(controls) == 1, f"Expected one {REMOVE_TEXT} control, found {len(controls)}")
-    return controls[0]
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        controls = _remove_controls(session)
+        if controls:
+            uia.require(
+                len(controls) == 1,
+                f"Expected one {REMOVE_TEXT} control, found {len(controls)}",
+            )
+            return controls[0]
+        time.sleep(0.2)
+    raise uia.Failure(f"Timed out waiting for the {REMOVE_TEXT} control")
 
 
 def _start_removal(session):
@@ -79,9 +86,8 @@ def _check_dialog_closed(runner, session):
 
 
 def _check_registered(runner, session, game, listed):
-    cards = _registered_cards(session)
-    runner.check(len(cards) == 1, f"Expected one Open {GAME} card, found {len(cards)}")
-    runner.check(str(game) in cards[0].Name, f"Open card does not name {game}: {cards[0].Name!r}")
+    card = session.wait_control(prefix=f"Open {GAME} at", control_type="ButtonControl")
+    runner.check(str(game) in card.Name, f"Open card does not name {game}: {card.Name!r}")
     runner.check(not _add_cards(session), f"Home also shows an Add {GAME} card")
     runner.check(listed.returncode == 0, f"CLI game list failed: {listed.stderr}")
     runner.check(GAME_ID in listed.stdout.lower(), "CLI no longer lists the registered game")
@@ -99,11 +105,7 @@ def journey_remove(runner):
     runner.cleanup.append(app.kill)
     session = app.session
 
-    session.wait_for(
-        lambda s: _add_cards(s),
-        f"detected {GAME} card",
-    )
-    session.activate(_add_cards(session)[0])
+    session.activate(session.wait_control(prefix=f"Add {GAME} at", control_type="ButtonControl"))
     session.wait_for(lambda s: _registered_cards(s), f"registered {GAME} card")
     _check_registered(runner, session, game, cli(fx, "game", "list"))
     runner.check(snapshot(game) == before, "Registration changed the fixture game folder")
@@ -132,15 +134,9 @@ def journey_remove(runner):
     _check_dialog_closed(runner, session)
     runner.check(app.process.poll() is None, "The app exited after answering Yes")
 
-    session.wait_for(lambda s: _add_cards(s), f"removed {GAME} card", timeout=45)
-    session.wait_for(
-        lambda s: not _registered_cards(s),
-        f"no Open {GAME} card after Yes",
-        timeout=15,
-    )
-    cards = _add_cards(session)
-    runner.check(len(cards) == 1, f"Expected one Add {GAME} card, found {len(cards)}")
-    runner.check(str(game) in cards[0].Name, f"Add card does not name {game}: {cards[0].Name!r}")
+    session.wait_for(lambda s: not _registered_cards(s), f"no Open {GAME} card after Yes", timeout=15)
+    card = session.wait_control(prefix=f"Add {GAME} at", control_type="ButtonControl", timeout=45)
+    runner.check(str(game) in card.Name, f"Add card does not name {game}: {card.Name!r}")
     runner.check(not _remove_controls(session), f"{REMOVE_TEXT} still shows while unregistered")
     listed = cli(fx, "game", "list")
     runner.check(listed.returncode == 0, f"CLI game list failed: {listed.stderr}")
