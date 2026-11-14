@@ -6,11 +6,11 @@ use std::path::Path;
 
 fn manifest(root: &Path, id: &str, digest: &str, dependencies: &[&str]) {
     fs::write(
-        root.join(format!("games/test-game/{id}.json")),
+        root.join(format!("mods/test-game/{id}.json")),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "id": id, "game": "test-game", "name": id,
-            "version": "1.0", "archive_format": "zip", "sha256": digest,
-            "source": {"kind": "manual", "filename": format!("{id}.zip")},
+            "schema_version": 2, "id": id, "game": "test-game", "name": id,
+            "version": "1.0", "archive_format": "zip", "blake3": digest,
+            "sources": [{"kind": "manual", "filename": format!("{id}.zip")}],
             "dependencies": dependencies,
         }))
         .expect("manifest JSON"),
@@ -25,12 +25,12 @@ fn selected_release_keeps_dependency_pins_when_bucket_changes() {
     let official = data.join("buckets/main");
     let local = temp.path().join("local");
     fs::create_dir_all(&official).expect("official bucket");
-    fs::create_dir_all(local.join("games/test-game")).expect("local bucket");
+    fs::create_dir_all(local.join("mods/test-game")).expect("local bucket");
     for (path, name) in [(&official, "main"), (&local, "local")] {
         fs::write(
             path.join("bucket.json"),
             serde_json::to_vec(&json!({
-                "schema_version": 1, "name": name, "title": "Fixture",
+                "schema_version": 2, "name": name, "title": "Fixture",
             }))
             .expect("bucket JSON"),
         )

@@ -109,9 +109,9 @@ impl BucketSnapshot {
                 })?;
                 Ok(CatalogDependency::new(
                     dependency.reference(),
-                    // The v2 BLAKE3 pin has no state-database column until the
-                    // state schema moves from `archive_sha256` to `archive_blake3`.
-                    String::new(),
+                    // The dependency pin is BLAKE3 hex in the `archive_sha256`
+                    // field until the state schema renames it (task a3).
+                    dependency.package.blake3.clone().unwrap_or_default(),
                 )
                 .with_requirement(selected.package.dependency_versions.get(id).cloned()))
             })
