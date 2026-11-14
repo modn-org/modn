@@ -18,6 +18,8 @@
 //!   stalls for 30 seconds before exiting 2 without a write.
 //! - `oversized-after-commit`: commits, records the write, writes 2 MiB on
 //!   stdout, records that it survived that write, then exits 0.
+//! - `malformed-after-commit`: commits, records the write, writes non-JSON
+//!   text on stdout, then exits 0.
 //! - `overflow-failure-after-commit`: commits, records the write, writes 2 MiB
 //!   on stdout, writes an `INSTALL_FAILED` envelope and exits 1.
 //! - `approval-both`: refuses with a `NATIVE_INJECTOR_NOT_ALLOWED` envelope
@@ -233,6 +235,11 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
         fs::write(state.join("survived-after-output"), b"not killed")?;
         return Ok(());
     }
+    if scenario == "malformed-after-commit" {
+        io::stdout().write_all(b"{\"id\": \"owned-package\"")?;
+        io::stdout().flush()?;
+        return Ok(());
+    }
     println!("{}", json!({"id":"owned-package"}));
     Ok(())
 }
@@ -292,6 +299,7 @@ fn scenario(args: &[OsString]) -> &'static str {
         "hang-after-commit",
         "stall-after-cancel",
         "oversized-after-commit",
+        "malformed-after-commit",
         "overflow-failure-after-commit",
         "approval-both",
         "refuse",

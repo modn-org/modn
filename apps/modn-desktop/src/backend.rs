@@ -150,7 +150,10 @@ impl Backend {
     /// Output that exceeds it after the commit event is drained, the writer is
     /// not killed, and the error code is
     /// `BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT`: the files are installed, so
-    /// callers refresh instead of reporting a failed write.
+    /// callers refresh instead of reporting a failed write. The same code
+    /// reports stdout after an exit status of 0 when it is missing, unreadable
+    /// or not one JSON value, because the commit still completed. A nonzero
+    /// exit after the commit stays a refusal and outranks any output problem.
     ///
     /// # Errors
     ///

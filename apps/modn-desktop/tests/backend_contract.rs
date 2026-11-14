@@ -181,6 +181,19 @@ fn an_oversized_result_after_commit_reports_a_committed_outcome() {
 }
 
 #[test]
+fn a_malformed_result_after_commit_reports_a_committed_outcome() {
+    let f = Fixture::new();
+    let args = f.progress_args("malformed-after-commit");
+    let error = f
+        .backend
+        .call_with_progress(&args, &CancelToken::new(), &mut |_| {})
+        .expect_err("a malformed result must still report the commit");
+    assert_eq!(error.kind(), BackendErrorKind::Committed);
+    assert_eq!(error.code(), Some("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT"));
+    assert!(f.backend.state.join("write.json").is_file());
+}
+
+#[test]
 fn a_failed_exit_after_commit_outranks_lost_output() {
     let f = Fixture::new();
     let args = f.progress_args("overflow-failure-after-commit");

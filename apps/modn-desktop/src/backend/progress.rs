@@ -121,8 +121,8 @@ enum CommittedOutcome {
     OutputLost,
     /// stderr could not be read, so the operation has no progress warning.
     StreamLost,
-    /// stdout carries the committed result.
-    Result,
+    /// stdout was read within its bound and still has to be parsed.
+    Readable,
 }
 
 /// Decides how a call that saw the commit event ends.
@@ -130,7 +130,9 @@ enum CommittedOutcome {
 /// The exit status comes first: a `commit` event alone does not prove that the
 /// write completed, so a failed exit is a refusal even when the result stream
 /// was lost. A lost stream with a successful exit is a committed outcome that
-/// callers refresh, never plain success.
+/// callers refresh, never plain success. So is a readable stream whose bytes
+/// are not one JSON value: the write is installed and only its result is
+/// unknown.
 fn committed_outcome(exit_ok: bool, stdout_lost: bool, stderr_lost: bool) -> CommittedOutcome {
     if !exit_ok {
         CommittedOutcome::Refused
@@ -139,7 +141,7 @@ fn committed_outcome(exit_ok: bool, stdout_lost: bool, stderr_lost: bool) -> Com
     } else if stderr_lost {
         CommittedOutcome::StreamLost
     } else {
-        CommittedOutcome::Result
+        CommittedOutcome::Readable
     }
 }
 
@@ -318,10 +320,10 @@ pub(super) fn call(
             CommittedOutcome::OutputLost | CommittedOutcome::StreamLost => {
                 Err(BackendError::output_after_commit())
             }
-            CommittedOutcome::Result => {
+            CommittedOutcome::Readable => {
                 let bytes = stdout_bytes.ok_or_else(BackendError::output_after_commit)?;
                 let stdout = String::from_utf8_lossy(&bytes);
-                serde_json::from_str(&stdout).map_err(|_| BackendError::invalid_json())
+                serde_json::from_str(&stdout).map_err(|_| BackendError::output_after_commit())
             }
         };
     }
@@ -373,7 +375,7 @@ mod tests {
         );
         assert_eq!(
             committed_outcome(true, false, false),
-            CommittedOutcome::Result
+            CommittedOutcome::Readable
         );
     }
 
