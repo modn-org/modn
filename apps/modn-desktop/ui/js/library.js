@@ -131,6 +131,25 @@ export async function render(root, ctx) {
     tabButtons.set(filter.id, tab);
     tabs.append(tab);
   }
+  tabs.addEventListener('keydown', (event) => {
+    const index = FILTERS.findIndex((filter) => filter.id === state.filter);
+    let next = -1;
+    if (event.key === 'ArrowRight') {
+      next = (index + 1) % FILTERS.length;
+    } else if (event.key === 'ArrowLeft') {
+      next = (index - 1 + FILTERS.length) % FILTERS.length;
+    } else if (event.key === 'Home') {
+      next = 0;
+    } else if (event.key === 'End') {
+      next = FILTERS.length - 1;
+    }
+    if (next < 0) {
+      return;
+    }
+    event.preventDefault();
+    setFilter(FILTERS[next].id);
+    tabButtons.get(FILTERS[next].id).focus();
+  });
   const search = element('label', 'modn-library__search');
   search.append(element('span', 'modn-library__label', 'Search mods'));
   const searchInput = document.createElement('input');

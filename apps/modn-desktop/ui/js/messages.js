@@ -3,6 +3,7 @@ const FALLBACK = 'Something went wrong. Try again, or copy diagnostics from Mod 
 const MESSAGES = {
   BACKEND_FAILED: 'Modn could not start the operation. Check the backend path.',
   BACKEND_TIMEOUT: 'The operation took too long. Check diagnostics before trying again.',
+  BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT: 'Done. Refresh to see the result.',
   PLAN_BLOCKED: 'Modn blocked this operation. Open details for the reason.',
   CONFLICT: 'Another package owns these files.',
   PACKAGE_NEEDED: 'Another mod depends on this package.',
