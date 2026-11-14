@@ -891,7 +891,7 @@ Stop if an artifact is missing; do not use a local build.
 
 Prerequisites: a checkout of this repository at the release tag, Python 3, and a Rust toolchain with `cargo`.
 The verifier runs `cargo run --quiet --locked -p modn-core --example sign_catalog` to sign its disposable main bucket, so `cargo` must be on `PATH`.
-The verifier tests the published executable: pass the `modn.exe` that you downloaded and checked in Step 1 (`$liveelease\modn.exe`) through `--binary`. Do not pass a local build there.
+The verifier tests the published executable: pass the `modn.exe` that you downloaded and checked in Step 1 (`$live\release\modn.exe`) through `--binary`. Do not pass a local build there.
 The checkout and `cargo` serve only the test-key signing prerequisite: build the smoke copy with the test main key at that checkout with `$env:RUSTFLAGS = '-C target-feature=+crt-static'` and `cargo build --release --locked -p modn-cli --features modn-core/test-main-key --target-dir target/smoke` (the commands near the top of this page).
 The verifier reads that smoke build through `--bucket-binary`; its default is `target/smoke/release/modn.exe`.
 The verifier fails its static C runtime check when a binary imports a dynamic Visual C++ runtime; the published release binary links the runtime statically.
@@ -903,7 +903,7 @@ Then run the verifier with the two binaries:
 
 ```powershell
 python .agents/skills/verify-modn/scripts/portable_mvp.py `
-  --binary "$liveelease\modn.exe" `
+  --binary "$live\release\modn.exe" `
   --bucket-binary target/smoke/release/modn.exe
 ```
 
