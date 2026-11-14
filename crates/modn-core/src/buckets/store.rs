@@ -1,4 +1,5 @@
 mod packages;
+mod registration;
 
 use self::packages::{read_packages, Releases};
 use super::manifest::{valid_id, PackageManifest};
@@ -368,41 +369,6 @@ impl BucketStore {
         bounded_json(&self.root.join("registrations").join(format!("{name}.json")))
     }
 
-    /// Atomically replace one bucket registration file.
-    pub(super) fn write_registration(&self, name: &str, registration: &Registration) -> Result<()> {
-        self.check_registry_root()?;
-        #[cfg(test)]
-        if self
-            .fail_next_registration_write
-            .swap(false, std::sync::atomic::Ordering::SeqCst)
-        {
-            bail!("injected registration write failure");
-        }
-        let dir = self.root.join("registrations");
-        if let Ok(meta) = fs::symlink_metadata(&dir) {
-            if !meta.is_dir() || meta.file_type().is_symlink() {
-                bail!("unsafe bucket registry");
-            }
-        }
-        fs::create_dir_all(&dir)?;
-        let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        serde_json::to_writer(&mut temp, registration)?;
-        temp.as_file().sync_all()?;
-        temp.persist(dir.join(format!("{name}.json")))?;
-        Ok(())
-    }
-
-    pub(super) fn registered_git(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
-        if !self.registrations()?.contains_key(name) {
-            return Ok(None);
-        }
-        let registration: Registration =
-            bounded_json(&self.root.join("registrations").join(format!("{name}.json")))?;
-        registration
-            .revision(name)?
-            .context("bucket is not a Git catalog")
-            .map(Some)
-    }
     /// Forget a registered bucket without touching its source or game files.
     pub fn remove(&self, name: &str) -> Result<()> {
         if !valid_id(name) || name == "main" {

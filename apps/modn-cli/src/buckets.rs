@@ -2,9 +2,9 @@ use crate::commands::BucketCommand;
 use crate::state_access::{validate_state_path, ManagerState};
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{
-    local_bucket_module_refusal, BucketStore, CatalogModuleReport, GitCatalogSource,
-    GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck, ModuleTrustState, ZipCatalogSource,
-    ZipCatalogSync,
+    local_bucket_module_refusal, BucketStore, CatalogModuleReport, CatalogSyncTrace,
+    GitCatalogSource, GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck, ModuleTrustState,
+    ZipCatalogSource, ZipCatalogSync,
 };
 use modn_core::state::Store;
 use serde_json::Value;
@@ -59,6 +59,7 @@ pub(super) fn sync_catalog(
         synced.pinned,
         json_output,
     );
+    report_trace(name, &synced.trace, json_output);
     Ok(synced)
 }
 /// Fetch, verify and publish one ZIP catalog, reporting a newly pinned signer.
@@ -75,6 +76,7 @@ pub(super) fn sync_zip_catalog(
         synced.pinned,
         json_output,
     );
+    report_trace(name, &synced.trace, json_output);
     Ok(synced)
 }
 fn open_zip_source(source: &ZipCatalogSource) -> Result<Box<dyn Read>> {
@@ -94,6 +96,48 @@ fn report_pin(name: &str, key_id: &str, pinned: bool, json_output: bool) {
         eprintln!("{line}");
     } else {
         println!("{line}");
+    }
+}
+/// Report a failed source, the serving mirror and a followed relocation.
+fn report_trace(name: &str, trace: &CatalogSyncTrace, json_output: bool) {
+    let mut lines = Vec::new();
+    for failure in &trace.failed_sources {
+        lines.push(format!("Source failed: {failure}"));
+    }
+    if trace.served_by != trace.primary {
+        lines.push(format!(
+            "Served bucket {name} from mirror {}.",
+            trace.served_by.label()
+        ));
+    }
+    if let (Some(from), Some(to)) = (&trace.moved_from, &trace.moved_to) {
+        lines.push(format!(
+            "catalog {name} moved from {} to {}.",
+            from.label(),
+            to.label()
+        ));
+    }
+    for line in lines {
+        if json_output {
+            eprintln!("{line}");
+        } else {
+            println!("{line}");
+        }
+    }
+}
+/// Human-readable form of one tagged `CatalogHost` JSON value.
+fn host_label(host: &Value) -> String {
+    match host.get("kind").and_then(Value::as_str) {
+        Some("zip") => format!(
+            "zip {}",
+            host.get("url").and_then(Value::as_str).unwrap_or("")
+        ),
+        Some("git") => format!(
+            "git {}@{}",
+            host.get("remote").and_then(Value::as_str).unwrap_or(""),
+            host.get("revision").and_then(Value::as_str).unwrap_or("")
+        ),
+        _ => String::new(),
     }
 }
 enum CatalogKind {
@@ -364,6 +408,16 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
                         );
                         if let Some(key_id) = entry.get("signer_key_id").and_then(Value::as_str) {
                             line.push_str(&format!(" [signer {key_id}]"));
+                        }
+                        if let Some(primary) = entry.get("primary") {
+                            let mirrors = entry
+                                .get("mirrors")
+                                .and_then(Value::as_array)
+                                .map_or(0, Vec::len);
+                            line.push_str(&format!(
+                                " [primary {}, {mirrors} mirrors]",
+                                host_label(primary)
+                            ));
                         }
                         line
                     }

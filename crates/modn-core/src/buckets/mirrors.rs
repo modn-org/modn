@@ -197,10 +197,7 @@ pub(super) fn read_mirrors(root: &Path) -> Result<Vec<CatalogHost>> {
 }
 
 /// Read and validate `relocation.json` from one verified catalog root.
-pub(super) fn read_relocation(
-    root: &Path,
-    current: &CatalogHost,
-) -> Result<Option<CatalogHost>> {
+pub(super) fn read_relocation(root: &Path, current: &CatalogHost) -> Result<Option<CatalogHost>> {
     let Some(file): Option<RelocationFile> = read_declared(root, RELOCATION_FILE)? else {
         return Ok(None);
     };
