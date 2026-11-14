@@ -50,6 +50,10 @@ shipped behavior.
 
 ## Buckets and verification
 
+- [`buckets.md`](buckets.md): the official `main` bucket, `modn bucket update`,
+  local buckets and manifest rules.
+- [`catalog-authoring.md`](catalog-authoring.md): create a signing key, sign and
+  verify a catalog, host it in Git and pin its archives.
 - [`../buckets/README.md`](../buckets/README.md): bucket metadata contract v2.
 - [`modn-org/main`](https://github.com/modn-org/main): the `main` bucket
   repository. Its `PROVENANCE.md` holds versions, checksums and dependency

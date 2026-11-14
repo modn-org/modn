@@ -6,7 +6,7 @@
 use crate::commands::CatalogCommand;
 use anyhow::{anyhow, bail, Context, Result};
 use minisign::{KeyPair, PublicKey, SecretKey, SecretKeyBox};
-use modn_core::buckets::{catalog_statement, verify_catalog_directory, CatalogPublicKey};
+use modn_core::buckets::{catalog_statement, verify_catalog, CatalogPublicKey};
 use serde_json::json;
 use std::fs;
 use std::io::{self, Cursor};
@@ -20,6 +20,7 @@ const SECRET_KEY_SUFFIX: &str = ".key";
 const PUBLIC_KEY_SUFFIX: &str = ".pub";
 const PUBLIC_KEY_FILE: &str = "catalog.pub";
 const SIGNATURE_FILE: &str = "catalog.sig";
+const MAX_SIGNATURE_BYTES: u64 = 4 * 1024;
 
 pub(super) fn run(command: &CatalogCommand, json_output: bool) -> Result<()> {
     match command {
@@ -89,12 +90,7 @@ fn keygen(out: &Path, name: &str, password_env: Option<&str>, json_output: bool)
 }
 
 /// Sign the canonical statement of a catalog directory and publish its public key.
-fn sign(
-    root: &Path,
-    key_path: &Path,
-    password_env: Option<&str>,
-    json_output: bool,
-) -> Result<()> {
+fn sign(root: &Path, key_path: &Path, password_env: Option<&str>, json_output: bool) -> Result<()> {
     require_directory(root, "catalog directory")?;
     require_regular_file(key_path, "secret key")?;
     let canonical_root = fs::canonicalize(root)
@@ -114,7 +110,8 @@ fn sign(
     let public = PublicKey::from_secret_key(&secret)
         .map_err(|_| anyhow!("secret key does not contain its public key"))?;
     let fingerprint = fingerprint(&public)?;
-    let statement = catalog_statement(root).context("cannot read the catalog")?;
+    let (view, staging) = published_view(root)?;
+    let statement = catalog_statement(&view).context("cannot read the catalog")?;
     let signature = minisign::sign(
         Some(&public),
         &secret,
@@ -123,6 +120,7 @@ fn sign(
         Some(SIGNATURE_COMMENT),
     )
     .map_err(|error| anyhow!("cannot sign the catalog statement: {error}"))?;
+    drop(staging);
     write_signature(
         &root.join(PUBLIC_KEY_FILE),
         encoded_public(&public)?.as_bytes(),
@@ -142,10 +140,7 @@ fn sign(
             })
         );
     } else {
-        println!(
-            "Signed catalog {} with key {fingerprint}",
-            statement.name()
-        );
+        println!("Signed catalog {} with key {fingerprint}", statement.name());
         println!("Digest: {}", statement.digest());
         println!(
             "Wrote {} and {}",
@@ -156,28 +151,25 @@ fn sign(
     Ok(())
 }
 
-/// Verify a catalog directory with the function that `modn bucket sync` uses.
+/// Verify a catalog directory with the same minisign check that `modn bucket sync` uses.
 fn verify(root: &Path, key_path: &Path, json_output: bool) -> Result<()> {
     require_directory(root, "catalog directory")?;
     let text = fs::read_to_string(key_path)
         .with_context(|| format!("cannot read public key: {}", key_path.display()))?;
     let key = CatalogPublicKey::parse(&text)
         .with_context(|| format!("invalid public key: {}", key_path.display()))?;
-    let verified = verify_catalog_directory(&root, &key).map_err(|error| {
-        let digest = catalog_statement(&root)
-            .map(|statement| {
-                format!(
-                    ". The current catalog digest is {}; a changed, added or deleted file changes it.",
-                    statement.digest()
-                )
-            })
-            .unwrap_or_default();
+    let (view, staging) = published_view(root)?;
+    let statement = catalog_statement(&view).context("cannot read the catalog")?;
+    let signature = read_signature(&root.join(SIGNATURE_FILE))?;
+    let verified = verify_catalog(&view, &key, &signature).map_err(|error| {
         anyhow!(
-            "catalog {} does not verify with key {}: {error:#}{digest}",
+            "catalog {} does not verify with key {}: {error:#}. The current catalog digest is {}; a changed, added or deleted file changes it.",
             root.display(),
-            key.key_id()
+            key.key_id(),
+            statement.digest()
         )
     })?;
+    drop(staging);
     if json_output {
         println!(
             "{}",
@@ -228,7 +220,8 @@ fn hash(archive: &Path, json_output: bool) -> Result<()> {
 /// Refuse a key name that would escape the key directory or name another path.
 fn validate_key_name(name: &str) -> Result<()> {
     let mut components = Path::new(name).components();
-    let single = matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+    let single =
+        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
     if name.is_empty() || !single {
         bail!("key name must be a plain file name without a directory: {name}");
     }
@@ -258,6 +251,93 @@ fn encoded_public(public: &PublicKey) -> Result<String> {
         .to_box()
         .map_err(|error| anyhow!("cannot encode the public key: {error}"))?
         .into_string())
+}
+
+/// Read a catalog signature file and refuse a missing, large or non-regular file.
+fn read_signature(path: &Path) -> Result<String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            bail!(
+                "catalog signature is missing: {}; run `modn catalog sign` first",
+                path.display()
+            )
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("cannot read catalog signature: {}", path.display()))
+        }
+    };
+    if !metadata.is_file() {
+        bail!(
+            "catalog signature must be a regular file: {}",
+            path.display()
+        );
+    }
+    if metadata.len() > MAX_SIGNATURE_BYTES {
+        bail!("catalog signature exceeds size limit: {}", path.display());
+    }
+    let bytes = fs::read(path)
+        .with_context(|| format!("cannot read catalog signature: {}", path.display()))?;
+    String::from_utf8(bytes).map_err(|_| anyhow!("malformed catalog signature: not UTF-8"))
+}
+
+/// A directory that holds the published content of a catalog.
+///
+/// A Git checkout has a root `.git` entry, which the catalog digest never
+/// covers. A copy without it lets an author sign and verify the work tree.
+fn published_view(root: &Path) -> Result<(std::path::PathBuf, Option<tempfile::TempDir>)> {
+    if fs::symlink_metadata(root.join(".git")).is_err() {
+        return Ok((root.to_owned(), None));
+    }
+    let staging =
+        tempfile::tempdir().context("cannot create a copy of the catalog without .git")?;
+    copy_catalog_content(root, root, staging.path())?;
+    Ok((staging.path().to_owned(), Some(staging)))
+}
+
+fn copy_catalog_content(root: &Path, source: &Path, target: &Path) -> Result<()> {
+    for entry in fs::read_dir(source)
+        .with_context(|| format!("cannot read catalog directory: {}", source.display()))?
+    {
+        let entry = entry
+            .with_context(|| format!("cannot read catalog directory: {}", source.display()))?;
+        let name = entry.file_name();
+        if source == root && name == std::ffi::OsStr::new(".git") {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("cannot read catalog entry: {}", path.display()))?;
+        if is_link_or_reparse(&metadata) {
+            bail!("non-regular catalog entry: {}", path.display());
+        }
+        if metadata.is_dir() {
+            let next = target.join(&name);
+            fs::create_dir_all(&next)
+                .with_context(|| format!("cannot copy catalog directory: {}", next.display()))?;
+            copy_catalog_content(root, &path, &next)?;
+        } else if metadata.is_file() {
+            fs::copy(&path, target.join(&name))
+                .with_context(|| format!("cannot copy catalog file: {}", path.display()))?;
+        } else {
+            bail!("non-regular catalog entry: {}", path.display());
+        }
+    }
+    Ok(())
+}
+
+fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
 }
 
 /// Read the password that encrypts or decrypts a secret key from an environment variable.

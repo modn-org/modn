@@ -21,6 +21,10 @@ modn bucket add community "/path/to/catalog"
 modn bucket remove community
 modn bucket trust-modules community --fingerprint <KEY_ID> --yes
 modn bucket untrust-modules community
+modn catalog keygen --out ./author-keys
+modn catalog hash ./my-mod-1.0.zip
+modn catalog sign . --key ../author-keys/catalog.key
+modn catalog verify . --key catalog.pub
 
 modn module register ./module --trust
 modn module list
@@ -117,6 +121,45 @@ The options for one installed mod need a target and are refused without one:
 `--download`, `--allow-executable` and `--allow-native-injector`. A refresh always
 fetches, so `modn update --dry-run` is refused rather than ignored. Use
 `modn update <target>` to replace one installed catalog mod as before.
+
+## Catalog authoring
+
+`modn catalog` creates signing keys and signs, verifies and hashes a catalog
+that an author distributes. It needs no manager state and registers nothing.
+[catalog-authoring.md](catalog-authoring.md) shows the full publishing workflow.
+
+```sh
+modn catalog keygen [--out <dir>] [--name <name>] [--password-env <VAR>]
+modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>]
+modn catalog verify <dir> --key <public-key-file>
+modn catalog hash <archive> [--json]
+```
+
+`keygen` writes `<name>.key` and `<name>.pub` and prints the 16-digit key
+fingerprint. It refuses to overwrite either file and never prints secret
+material. On Unix the secret key file is owner-only. On Windows it inherits the
+access control list of the user directory, so keep that directory private.
+`--password-env <VAR>` encrypts the secret key with the password in that
+environment variable.
+
+`sign` writes `catalog.sig` and `catalog.pub` at the catalog root and prints the
+fingerprint and the digest. It replaces `catalog.sig` atomically, so a failed run
+keeps the previous signature. It refuses a secret key inside the catalog, a path
+that is not a directory, an encrypted key without `--password-env`, and a wrong
+password. A refusal writes nothing.
+
+`verify` checks a catalog against a public key and registers nothing. It exits 0
+and prints the fingerprint on success. A wrong key names the signature key and
+the expected key. A missing signature, a changed file, an added file and a
+deleted file each exit nonzero.
+
+`hash` prints the 64 lowercase hexadecimal characters of the archive's BLAKE3
+digest, which is the value of the `blake3` field in a package record. `--json`
+prints `{"blake3":"<hex>"}`. It streams the file and refuses a missing file or a
+directory.
+
+`sign` and `verify` ignore a root `.git` entry, so both run in a Git checkout.
+Under `--json` a failure carries the `BUCKET_FAILED` error code.
 
 ## Module releases and trust
 

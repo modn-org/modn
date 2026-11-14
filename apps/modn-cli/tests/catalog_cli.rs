@@ -112,6 +112,41 @@ fn keygen_sign_verify_round_trip_pins_the_fingerprint_at_sync() {
 }
 
 #[test]
+fn sign_and_verify_work_in_a_git_checkout_and_sync_accepts_it() {
+    let temp = TempDir::new().expect("test fixture invariant");
+    let repo = init_repo(temp.path());
+    copy_tree(&catalog_authoring::catalog_fixture("v1"), &repo);
+    assert!(repo.join(".git").exists());
+    let keys = temp.path().join("keys");
+    let generated = keygen(&keys, "author");
+    assert!(generated.status.success(), "{}", stderr(&generated));
+    let pinned = fingerprint(&generated);
+
+    let signed = sign(&repo, &keys.join("author.key"));
+    assert!(signed.status.success(), "{}", stderr(&signed));
+    let verified = verify(&repo, &repo.join(PUBLIC_KEY));
+    assert!(verified.status.success(), "{}", stderr(&verified));
+    assert_eq!(json(&verified)["fingerprint"], pinned.as_str());
+
+    commit_all(&repo, "signed catalog in a checkout");
+    let state = temp.path().join("state");
+    let synced = run(&[
+        "--state-dir",
+        path_text(&state),
+        "--json",
+        "bucket",
+        "sync",
+        "community",
+        "--source",
+        path_text(&repo),
+        "--revision",
+        "HEAD",
+    ]);
+    assert!(synced.status.success(), "{}", stderr(&synced));
+    assert_eq!(json(&synced)["signer"]["key_id"], pinned.as_str());
+}
+
+#[test]
 fn verify_refuses_changed_added_and_deleted_files_and_writes_nothing() {
     let temp = TempDir::new().expect("test fixture invariant");
     let catalog = prepare_catalog(temp.path(), "catalog");
@@ -133,7 +168,11 @@ fn verify_refuses_changed_added_and_deleted_files_and_writes_nothing() {
         path_text(&catalog.join(PUBLIC_KEY)),
     ]);
     assert!(!changed.status.success());
-    assert!(stderr(&changed).contains("does not verify"), "{}", stderr(&changed));
+    assert!(
+        stderr(&changed).contains("does not verify"),
+        "{}",
+        stderr(&changed)
+    );
     assert!(
         stderr(&changed).contains("changed, added or deleted file"),
         "{}",
@@ -146,7 +185,11 @@ fn verify_refuses_changed_added_and_deleted_files_and_writes_nothing() {
     let before = snapshot(&catalog);
     let added = verify(&catalog, &catalog.join(PUBLIC_KEY));
     assert!(!added.status.success());
-    assert!(stderr(&added).contains("does not verify"), "{}", stderr(&added));
+    assert!(
+        stderr(&added).contains("does not verify"),
+        "{}",
+        stderr(&added)
+    );
     assert_eq!(snapshot(&catalog), before);
 
     fs::remove_file(catalog.join("mods/test-game/added.json")).expect("remove added file");
@@ -175,14 +218,22 @@ fn verify_names_both_fingerprints_and_reports_a_missing_signature() {
 
     let other = temp.path().join("other");
     let generated_other = keygen(&other, "other");
-    assert!(generated_other.status.success(), "{}", stderr(&generated_other));
+    assert!(
+        generated_other.status.success(),
+        "{}",
+        stderr(&generated_other)
+    );
     let found_by_other = fingerprint(&generated_other);
     assert_ne!(expected, found_by_other);
     let before = snapshot(&catalog);
     let wrong = verify(&catalog, &other.join("other.pub"));
     assert!(!wrong.status.success());
     assert!(stderr(&wrong).contains(&expected), "{}", stderr(&wrong));
-    assert!(stderr(&wrong).contains(&found_by_other), "{}", stderr(&wrong));
+    assert!(
+        stderr(&wrong).contains(&found_by_other),
+        "{}",
+        stderr(&wrong)
+    );
     assert_eq!(snapshot(&catalog), before);
 
     fs::remove_file(catalog.join(SIGNATURE)).expect("removed signature");
@@ -219,19 +270,24 @@ fn keygen_never_prints_the_secret_and_refuses_to_overwrite() {
         .trim_start_matches("Signing key fingerprint ")
         .to_owned();
     assert_eq!(pinned.len(), 16, "{pinned}");
-    assert!(printed.contains(path_text(&keys.join("author.pub"))), "{printed}");
+    assert!(
+        printed.contains(path_text(&keys.join("author.pub"))),
+        "{printed}"
+    );
 
     let secret = fs::read_to_string(keys.join("author.key")).expect("secret key file");
     let body = secret
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .next_back()
+        .rfind(|line| !line.is_empty())
         .expect("secret key body");
     assert!(!body.starts_with("untrusted comment:"));
     assert!(body.len() > 100, "secret body looks empty");
     assert!(!printed.contains(body), "stdout leaked the secret key");
-    assert!(!stderr(&generated).contains(body), "stderr leaked the secret key");
+    assert!(
+        !stderr(&generated).contains(body),
+        "stderr leaked the secret key"
+    );
 
     let secret_bytes = fs::read(keys.join("author.key")).expect("secret key bytes");
     let public_bytes = fs::read(keys.join("author.pub")).expect("public key bytes");
@@ -342,11 +398,13 @@ fn encrypted_key_signs_with_its_password_and_refuses_without_it() {
     );
     assert!(generated.status.success(), "{}", stderr(&generated));
     let key = keys.join("author.key");
-    assert!(fs::read_to_string(&key)
-        .expect("secret key")
-        .lines()
-        .count()
-        >= 2);
+    assert!(
+        fs::read_to_string(&key)
+            .expect("secret key")
+            .lines()
+            .count()
+            >= 2
+    );
 
     let without = run(&[
         "catalog",
@@ -356,8 +414,15 @@ fn encrypted_key_signs_with_its_password_and_refuses_without_it() {
         path_text(&key),
     ]);
     assert!(!without.status.success());
-    assert!(stderr(&without).contains("encrypted"), "{}", stderr(&without));
-    assert!(!catalog.join(SIGNATURE).exists(), "refusal wrote a signature");
+    assert!(
+        stderr(&without).contains("encrypted"),
+        "{}",
+        stderr(&without)
+    );
+    assert!(
+        !catalog.join(SIGNATURE).exists(),
+        "refusal wrote a signature"
+    );
 
     let wrong = run_with(
         &[
@@ -377,7 +442,10 @@ fn encrypted_key_signs_with_its_password_and_refuses_without_it() {
         "{}",
         stderr(&wrong)
     );
-    assert!(!catalog.join(SIGNATURE).exists(), "refusal wrote a signature");
+    assert!(
+        !catalog.join(SIGNATURE).exists(),
+        "refusal wrote a signature"
+    );
 
     let unset = run(&[
         "catalog",
@@ -394,7 +462,10 @@ fn encrypted_key_signs_with_its_password_and_refuses_without_it() {
         "{}",
         stderr(&unset)
     );
-    assert!(!catalog.join(SIGNATURE).exists(), "refusal wrote a signature");
+    assert!(
+        !catalog.join(SIGNATURE).exists(),
+        "refusal wrote a signature"
+    );
 
     let signed = run_with(
         &[
@@ -451,7 +522,10 @@ fn hash_prints_the_exact_blake3_pin_of_a_streamed_archive() {
 
     let json_output = run(&["--json", "catalog", "hash", path_text(&archive)]);
     assert!(json_output.status.success(), "{}", stderr(&json_output));
-    assert_eq!(stdout(&json_output), format!("{{\"blake3\":\"{expected}\"}}\n"));
+    assert_eq!(
+        stdout(&json_output),
+        format!("{{\"blake3\":\"{expected}\"}}\n")
+    );
 
     let state = temp.path().join("state");
     let missing = run(&[

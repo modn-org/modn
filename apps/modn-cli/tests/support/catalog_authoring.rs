@@ -22,10 +22,7 @@ pub fn run_with(args: &[&str], variables: &[(&str, &str)]) -> Output {
     for (name, value) in variables {
         command.env(name, value);
     }
-    command
-        .args(args)
-        .output()
-        .expect("test fixture invariant")
+    command.args(args).output().expect("test fixture invariant")
 }
 
 pub fn stdout(output: &Output) -> String {
