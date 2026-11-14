@@ -1,5 +1,5 @@
 #[path = "backend/error.rs"]
-mod error;
+pub(crate) mod error;
 #[path = "backend/inactivity.rs"]
 mod inactivity;
 #[path = "backend/progress.rs"]

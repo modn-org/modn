@@ -1,3 +1,4 @@
+use crate::backend::error::UncoveredApproval;
 use crate::backend::{BackendError, BackendErrorKind};
 use serde::Serialize;
 use serde_json::Value;
@@ -9,6 +10,32 @@ pub(crate) struct ApprovalRequest {
     #[serde(rename = "nativeInjector")]
     pub(crate) native_injector: bool,
     pub(crate) executables: Vec<String>,
+    /// False when the refusal did not name every uncovered executable.
+    ///
+    /// The webview then reads the installation plan before retrying, because
+    /// an empty list may not be the whole approval.
+    pub(crate) complete: bool,
+}
+
+impl ApprovalRequest {
+    /// An approval whose executable list is not known to be complete.
+    fn incomplete(native_injector: bool) -> Self {
+        Self {
+            native_injector,
+            executables: Vec::new(),
+            complete: false,
+        }
+    }
+}
+
+impl From<&UncoveredApproval> for ApprovalRequest {
+    fn from(approval: &UncoveredApproval) -> Self {
+        Self {
+            native_injector: approval.native_injector,
+            executables: approval.executables.clone(),
+            complete: approval.complete,
+        }
+    }
 }
 
 /// The only error shape the webview receives. `code` is a CLI stable code, or
@@ -37,6 +64,7 @@ impl CommandError {
         error.approval = Some(ApprovalRequest {
             native_injector,
             executables,
+            complete: true,
         });
         error
     }
@@ -115,11 +143,14 @@ impl From<BackendError> for CommandError {
         } else {
             Self::new(error.code().unwrap_or("BACKEND_FAILED"))
         };
-        if mapped.code == "NATIVE_INJECTOR_NOT_ALLOWED" {
-            mapped.approval = Some(ApprovalRequest {
-                native_injector: true,
-                executables: Vec::new(),
-            });
+        if let Some(approval) = error.approval() {
+            mapped.approval = Some(ApprovalRequest::from(approval));
+        } else if mapped.code == "NATIVE_INJECTOR_NOT_ALLOWED" {
+            mapped.approval = Some(ApprovalRequest::incomplete(true));
+        } else if mapped.code == "APPROVAL_REQUIRED" {
+            // The refusal needs executable approval, but its envelope did not
+            // name the paths. The webview reads the plan before retrying.
+            mapped.approval = Some(ApprovalRequest::incomplete(false));
         }
         mapped
     }
@@ -157,14 +188,12 @@ fn approval_from_error(error: &anyhow::Error) -> Option<ApprovalRequest> {
             return Some(ApprovalRequest {
                 native_injector,
                 executables,
+                complete: uncovered.contains_key("executables"),
             });
         }
     }
     if code == "NATIVE_INJECTOR_NOT_ALLOWED" {
-        return Some(ApprovalRequest {
-            native_injector: true,
-            executables: Vec::new(),
-        });
+        return Some(ApprovalRequest::incomplete(true));
     }
     None
 }
@@ -235,6 +264,7 @@ fn short_message(code: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::CommandError;
+    use crate::backend::error::UncoveredApproval;
 
     #[test]
     fn cli_envelope_code_is_kept_without_cli_text() {
@@ -275,9 +305,57 @@ mod tests {
             .expect("an approval refusal names its capabilities");
         assert!(!approval.native_injector);
         assert_eq!(approval.executables, ["tools/helper.exe"]);
+        assert!(approval.complete);
         let json = serde_json::to_value(&mapped).expect("serializable error");
         assert_eq!(json["approval"]["nativeInjector"], false);
         assert_eq!(json["approval"]["executables"][0], "tools/helper.exe");
+        assert_eq!(json["approval"]["complete"], true);
+    }
+
+    #[test]
+    fn a_progress_refusal_keeps_the_native_flag_and_every_executable() {
+        let error = crate::backend::BackendError::refused_for_test(
+            "NATIVE_INJECTOR_NOT_ALLOWED",
+            Some(UncoveredApproval {
+                native_injector: true,
+                executables: vec![
+                    "tools/native-helper.exe".into(),
+                    "engine/tools/inject.exe".into(),
+                ],
+                complete: true,
+            }),
+        );
+        let mapped = CommandError::from(error);
+        assert_eq!(mapped.code, "NATIVE_INJECTOR_NOT_ALLOWED");
+        let approval = mapped
+            .approval
+            .as_ref()
+            .expect("the refusal names both capabilities");
+        assert!(approval.native_injector);
+        assert_eq!(
+            approval.executables,
+            ["tools/native-helper.exe", "engine/tools/inject.exe"]
+        );
+        assert!(approval.complete);
+        let json = serde_json::to_value(&mapped).expect("serializable error");
+        assert_eq!(json["approval"]["nativeInjector"], true);
+        assert_eq!(
+            json["approval"]["executables"],
+            serde_json::json!(["tools/native-helper.exe", "engine/tools/inject.exe"])
+        );
+        assert_eq!(json["approval"]["complete"], true);
+    }
+
+    #[test]
+    fn a_refusal_without_executables_marks_the_approval_incomplete() {
+        let error =
+            crate::backend::BackendError::refused_for_test("NATIVE_INJECTOR_NOT_ALLOWED", None);
+        let approval = CommandError::from(error)
+            .approval
+            .expect("the refusal names native code");
+        assert!(approval.native_injector);
+        assert!(approval.executables.is_empty());
+        assert!(!approval.complete);
     }
 
     #[test]
@@ -290,6 +368,7 @@ mod tests {
         let approval = mapped.approval.expect("the refusal names native code");
         assert!(approval.native_injector);
         assert!(approval.executables.is_empty());
+        assert!(!approval.complete);
     }
 
     #[test]

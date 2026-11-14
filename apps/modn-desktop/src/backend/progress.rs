@@ -5,19 +5,27 @@
 //! caller in order, and writes `cancel` on stdin when the caller asks it to.
 //! Stdout keeps its normal single JSON result.
 
+use super::Backend;
 use super::error::BackendError;
-use super::{Backend, OUTPUT_LIMIT};
 use serde::Serialize;
 use serde_json::Value;
-use std::ffi::{OsStr, OsString};
-use std::io::{self, BufReader, Read, Write};
-use std::path::Path;
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::ffi::OsString;
+use std::io::Write;
+use std::process::{ChildStdin, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[path = "progress/spawn.rs"]
+mod spawn;
+#[path = "progress/streams.rs"]
+mod streams;
+
+pub(super) use spawn::spawn;
+
+use streams::{StderrItem, StdoutItem, read_stderr, read_stdout};
 
 /// Default inactivity timeout for [`Backend::call_with_progress`].
 const DEFAULT_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(120);
@@ -26,7 +34,6 @@ const DEFAULT_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(120);
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
 
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
-const CHUNK: usize = 8 * 1024;
 
 /// A shared flag that asks a running operation to stop before its commit point.
 ///
@@ -105,96 +112,44 @@ impl ProgressEvent {
     }
 }
 
-enum StderrItem {
-    Event(ProgressEvent),
-    ErrorCode(String),
-    /// The stream passed the output bound; the reader keeps draining it.
-    Oversized,
-    Done {
-        failed: bool,
-    },
+/// The outcome to report once the CLI reported its commit event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommittedOutcome {
+    /// The CLI exited with a failure, so the commit did not complete.
+    Refused,
+    /// The committed result could not be read.
+    OutputLost,
+    /// stderr could not be read, so the operation has no progress warning.
+    StreamLost,
+    /// stdout carries the committed result.
+    Result,
 }
 
-enum StdoutItem {
-    /// The stream passed the output bound; the reader keeps draining it.
-    Oversized,
-    Done {
-        bytes: Vec<u8>,
-        failed: bool,
-    },
+/// Decides how a call that saw the commit event ends.
+///
+/// The exit status comes first: a `commit` event alone does not prove that the
+/// write completed, so a failed exit is a refusal even when the result stream
+/// was lost. A lost stream with a successful exit is a committed outcome that
+/// callers refresh, never plain success.
+fn committed_outcome(exit_ok: bool, stdout_lost: bool, stderr_lost: bool) -> CommittedOutcome {
+    if !exit_ok {
+        CommittedOutcome::Refused
+    } else if stdout_lost {
+        CommittedOutcome::OutputLost
+    } else if stderr_lost {
+        CommittedOutcome::StreamLost
+    } else {
+        CommittedOutcome::Result
+    }
 }
 
-/// Starts the configured CLI with the fixed argument prefix.
+/// Whether the backend process may be killed on this path.
 ///
-/// This is the only place in the crate that creates a [`Command`]. The child
-/// environment is cleared, then only these variables are forwarded from the
-/// app's own environment when they are set:
-///
-/// - `SystemRoot`: process basics on Windows.
-/// - `TEMP` and `TMP`: only when the value is an absolute Windows path. A
-///   POSIX value such as Git Bash's `/tmp`, or a drive-relative value, is left
-///   out so the CLI keeps its default instead of resolving the path against
-///   the current drive.
-/// - `LOCALAPPDATA`: Modn's data directory, unless `--data-dir` overrides it.
-/// - `MODN_CACHE`, `MODN_STORE_LIBRARIES` and `MODN_APPDATA`: disposable
-///   fixture overrides.
-/// - `MODN_GAME_MODULES_DIR`: the module source, unless `--module-dir`
-///   overrides it.
-pub(super) fn spawn(backend: &Backend, args: &[OsString], stdin: Stdio) -> io::Result<Child> {
-    let mut command = Command::new(&backend.binary);
-    command.args([
-        OsString::from("--json"),
-        OsString::from("--state-dir"),
-        backend.state.clone().into_os_string(),
-    ]);
-    command
-        .args(args)
-        .stdin(stdin)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    command.env_clear();
-    for name in [
-        "SystemRoot",
-        "MODN_CACHE",
-        "MODN_STORE_LIBRARIES",
-        "MODN_APPDATA",
-    ] {
-        if let Some(value) = std::env::var_os(name) {
-            command.env(name, value);
-        }
-    }
-    for name in ["TEMP", "TMP"] {
-        if let Some(value) = std::env::var_os(name)
-            && is_absolute_windows_path(&value)
-        {
-            command.env(name, value);
-        }
-    }
-    if let Some(modules) = &backend.modules {
-        command.env("MODN_GAME_MODULES_DIR", modules);
-    } else if let Some(value) = std::env::var_os("MODN_GAME_MODULES_DIR") {
-        command.env("MODN_GAME_MODULES_DIR", value);
-    }
-    if let Some(data) = &backend.data {
-        command.env("LOCALAPPDATA", data);
-    } else if let Some(value) = std::env::var_os("LOCALAPPDATA") {
-        command.env("LOCALAPPDATA", value);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    command.spawn()
-}
-
-/// Whether `value` names an absolute Windows path.
-///
-/// [`Path::is_absolute`] needs a drive prefix or a UNC share on Windows, so
-/// `/tmp` and `\tmp` fail while `C:\tmp` and `\\server\share` pass. Only such
-/// values are safe to hand to a Windows child process.
-fn is_absolute_windows_path(value: &OsStr) -> bool {
-    Path::new(value).is_absolute()
+/// A kill is only allowed before the commit event. After it, the files are
+/// installed and the CLI may still be finishing its own result or rollback, so
+/// every path waits or polls instead.
+fn may_kill(committed: bool) -> bool {
+    !committed
 }
 
 /// Runs one write command with `--progress json` and cooperative cancellation.
@@ -242,10 +197,12 @@ pub(super) fn call(
     let mut stdout_done = false;
     let mut stdout_bytes = None;
     let mut stream_failed = false;
+    let mut stderr_failed = false;
     let mut truncated = false;
     let mut stdout_truncated = false;
     let mut stdout_failed = false;
     let mut error_code = None;
+    let mut approval = None;
 
     let status = loop {
         while let Ok(item) = stderr_rx.try_recv() {
@@ -262,10 +219,14 @@ pub(super) fn call(
                     }
                     on_event(event);
                 }
-                StderrItem::ErrorCode(code) => error_code = Some(code),
+                StderrItem::Envelope(envelope) => {
+                    error_code = Some(envelope.code);
+                    approval = envelope.approval;
+                }
                 StderrItem::Oversized => truncated = true,
                 StderrItem::Done { failed } => {
                     stderr_done = true;
+                    stderr_failed |= failed;
                     stream_failed |= failed;
                 }
             }
@@ -312,20 +273,31 @@ pub(super) fn call(
             }
         }
         if timeout_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            let _ = child.kill();
-            killed = true;
+            if may_kill(committed) {
+                let _ = child.kill();
+                killed = true;
+            }
             timeout_deadline = None;
         }
         // The readers keep draining after an oversized stream, so this kill is
         // what stops an unbounded or unreadable writer before the commit.
         // Never kill after the commit event: the files are installed and the
         // result is recoverable.
-        if !committed && (truncated || stream_failed) {
+        if may_kill(committed) && (truncated || stream_failed) {
             let _ = child.kill();
         }
         match child.try_wait() {
             Ok(Some(status)) if stderr_done && stdout_done => break status,
             Ok(Some(_) | None) => {}
+            Err(_) if !may_kill(committed) => {
+                // The commit is durable. Wait for the process instead of
+                // killing it; a failed wait leaves the outcome uncertain, so
+                // report a committed refresh outcome rather than success.
+                match child.wait() {
+                    Ok(status) => break status,
+                    Err(_) => return Err(BackendError::output_after_commit()),
+                }
+            }
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -337,15 +309,21 @@ pub(super) fn call(
     drop(stdin);
 
     if committed {
-        if stdout_truncated || stdout_failed {
-            return Err(BackendError::output_after_commit());
-        }
-        if !status.success() {
-            return Err(BackendError::refused(status, error_code));
-        }
-        let bytes = stdout_bytes.ok_or_else(BackendError::output_after_commit)?;
-        let stdout = String::from_utf8_lossy(&bytes);
-        return serde_json::from_str(&stdout).map_err(|_| BackendError::invalid_json());
+        return match committed_outcome(
+            status.success(),
+            stdout_truncated || stdout_failed,
+            stderr_failed,
+        ) {
+            CommittedOutcome::Refused => Err(BackendError::refused(status, error_code, approval)),
+            CommittedOutcome::OutputLost | CommittedOutcome::StreamLost => {
+                Err(BackendError::output_after_commit())
+            }
+            CommittedOutcome::Result => {
+                let bytes = stdout_bytes.ok_or_else(BackendError::output_after_commit)?;
+                let stdout = String::from_utf8_lossy(&bytes);
+                serde_json::from_str(&stdout).map_err(|_| BackendError::invalid_json())
+            }
+        };
     }
     if killed || timed_out {
         return Err(if user_cancelled {
@@ -361,7 +339,7 @@ pub(super) fn call(
         if user_cancelled || cancel.is_cancelled() {
             return Err(BackendError::cancelled());
         }
-        return Err(BackendError::refused(status, error_code));
+        return Err(BackendError::refused(status, error_code, approval));
     }
     let bytes = stdout_bytes.ok_or_else(BackendError::output)?;
     let stdout = String::from_utf8_lossy(&bytes);
@@ -373,128 +351,35 @@ fn send_cancel(stdin: &mut ChildStdin) {
     let _ = stdin.flush();
 }
 
-fn touch(activity: &AtomicU64, start: Instant) {
-    activity.store(start.elapsed().as_millis() as u64, Ordering::Relaxed);
-}
-
-fn read_stderr(
-    stderr: ChildStderr,
-    tx: Sender<StderrItem>,
-    activity: Arc<AtomicU64>,
-    start: Instant,
-) {
-    let mut reader = BufReader::new(stderr);
-    let mut pending = Vec::new();
-    let mut chunk = [0_u8; CHUNK];
-    let mut discarding = false;
-    loop {
-        match reader.read(&mut chunk) {
-            Ok(0) => {
-                if !discarding && !pending.is_empty() {
-                    emit_line(&pending, &tx);
-                }
-                let _ = tx.send(StderrItem::Done { failed: false });
-                return;
-            }
-            Ok(count) => {
-                touch(&activity, start);
-                if discarding {
-                    continue;
-                }
-                pending.extend_from_slice(&chunk[..count]);
-                while let Some(index) = pending.iter().position(|byte| *byte == b'\n') {
-                    let line: Vec<u8> = pending.drain(..=index).collect();
-                    emit_line(&line, &tx);
-                }
-                if pending.len() as u64 > OUTPUT_LIMIT {
-                    pending.clear();
-                    discarding = true;
-                    let _ = tx.send(StderrItem::Oversized);
-                }
-            }
-            Err(_) => {
-                let _ = tx.send(StderrItem::Done { failed: true });
-                return;
-            }
-        }
-    }
-}
-
-fn emit_line(line: &[u8], tx: &Sender<StderrItem>) {
-    let text = String::from_utf8_lossy(line);
-    let text = text.trim();
-    if text.is_empty() {
-        return;
-    }
-    let Ok(value) = serde_json::from_str::<Value>(text) else {
-        return;
-    };
-    if let Some(event) = ProgressEvent::parse(&value) {
-        let _ = tx.send(StderrItem::Event(event));
-    } else if let Some(code) = value.get("error").and_then(Value::as_str) {
-        let _ = tx.send(StderrItem::ErrorCode(code.to_owned()));
-    }
-}
-
-fn read_stdout(
-    stdout: ChildStdout,
-    tx: Sender<StdoutItem>,
-    activity: Arc<AtomicU64>,
-    start: Instant,
-) {
-    let mut reader = stdout;
-    let mut bytes = Vec::new();
-    let mut chunk = [0_u8; CHUNK];
-    let mut oversized = false;
-    loop {
-        match reader.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(count) => {
-                touch(&activity, start);
-                if oversized {
-                    continue;
-                }
-                bytes.extend_from_slice(&chunk[..count]);
-                if bytes.len() as u64 > OUTPUT_LIMIT {
-                    // Keep the pipe moving so a writer that committed is not
-                    // blocked, and free the unusable result as it arrives.
-                    oversized = true;
-                    bytes = Vec::new();
-                    let _ = tx.send(StdoutItem::Oversized);
-                }
-            }
-            Err(_) => {
-                let _ = tx.send(StdoutItem::Done {
-                    bytes: Vec::new(),
-                    failed: true,
-                });
-                return;
-            }
-        }
-    }
-    let _ = tx.send(StdoutItem::Done {
-        bytes,
-        failed: false,
-    });
-}
-
-#[cfg(all(test, windows))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn only_drive_qualified_temp_paths_are_forwarded() {
-        for absolute in [r"C:\Users\J\AppData\Local\Temp", r"\\server\share\tmp"] {
-            assert!(
-                is_absolute_windows_path(OsStr::new(absolute)),
-                "expected an absolute Windows path: {absolute}"
-            );
-        }
-        for relative in ["/tmp", r"\tmp", "tmp", r"C:tmp"] {
-            assert!(
-                !is_absolute_windows_path(OsStr::new(relative)),
-                "must not forward a non-absolute Windows path: {relative}"
-            );
-        }
+    fn a_failed_exit_after_commit_wins_over_lost_output() {
+        assert_eq!(
+            committed_outcome(false, true, true),
+            CommittedOutcome::Refused,
+            "a commit event alone does not prove the write completed"
+        );
+    }
+
+    #[test]
+    fn a_stderr_failure_after_commit_is_not_plain_success() {
+        assert_eq!(
+            committed_outcome(true, false, true),
+            CommittedOutcome::StreamLost,
+            "a committed result with an unreadable progress stream needs a refresh outcome"
+        );
+        assert_eq!(
+            committed_outcome(true, false, false),
+            CommittedOutcome::Result
+        );
+    }
+
+    #[test]
+    fn a_committed_backend_is_never_killed() {
+        assert!(!may_kill(true), "no path may kill after the commit event");
+        assert!(may_kill(false), "a pre-commit stall may be killed");
     }
 }
