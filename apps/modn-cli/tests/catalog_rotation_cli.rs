@@ -23,7 +23,6 @@ use catalog_rotation::{revoke, rotate, sign};
 use catalog_rotation_state::{
     copy_into, listed_entry, listed_entry_git, registration, state_snapshot, GitFixture,
 };
-use std::fs;
 use zip_catalog::pack;
 use zip_catalog_fixture::Fixture;
 
@@ -106,7 +105,11 @@ fn rotation_on_a_git_checkout_is_accepted_by_sync() {
     assert!(first.status.success(), "{}", stderr(&first));
     assert!(stderr(&first).contains(&format!("Pinned signer key {old}")));
 
-    rotate(&fixture.repo, &keys.join("author.key"), &keys.join("next.pub"));
+    rotate(
+        &fixture.repo,
+        &keys.join("author.key"),
+        &keys.join("next.pub"),
+    );
     sign(&fixture.repo, &keys.join("next.key"));
     git_fixture::commit_all(&fixture.repo, "rotation");
     let rotated = fixture.sync();

@@ -287,7 +287,10 @@ fn a_failed_nexus_primary_falls_back_to_the_https_source() {
     let attempts = result.expect("the https source supplies the archive");
     TEST_RESPONSES.with(|responses| responses.replace(None));
     let (attempts, archive) = attempts;
-    assert!(attempts.len() >= 2, "the Nexus attempt was not recorded: {attempts:?}");
+    assert!(
+        attempts.len() >= 2,
+        "the Nexus attempt was not recorded: {attempts:?}"
+    );
     assert!(
         attempts[0].source.contains("Nexus Mods"),
         "the first attempt is not the Nexus source: {attempts:?}"
