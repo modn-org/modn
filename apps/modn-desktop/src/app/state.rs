@@ -71,16 +71,25 @@ pub(crate) struct Runs {
 
 impl Runs {
     /// Registers one run. The returned guard removes the entry when dropped.
-    pub(crate) fn start(self: &Arc<Self>, run_id: &str) -> RunGuard {
+    ///
+    /// A run id that another live guard holds is refused: the first guard would
+    /// otherwise drop the second entry, and neither run could be cancelled.
+    pub(crate) fn start(self: &Arc<Self>, run_id: &str) -> Result<RunGuard, CommandError> {
         let token = CancelToken::new();
-        if let Ok(mut tokens) = self.tokens.lock() {
-            tokens.insert(run_id.to_string(), token.clone());
+        let mut tokens = self
+            .tokens
+            .lock()
+            .map_err(|_| CommandError::backend_failed())?;
+        if tokens.contains_key(run_id) {
+            return Err(CommandError::run_in_use());
         }
-        RunGuard {
+        tokens.insert(run_id.to_string(), token.clone());
+        drop(tokens);
+        Ok(RunGuard {
             runs: Arc::clone(self),
             run_id: run_id.to_string(),
             token,
-        }
+        })
     }
 
     /// Cancels a running write and reports whether the id was known.
@@ -140,7 +149,7 @@ mod tests {
     #[test]
     fn cancel_reaches_the_token_of_a_running_run() {
         let runs = Arc::new(Runs::default());
-        let run = runs.start("run-1");
+        let run = runs.start("run-1").expect("first start");
         assert!(!run.token().is_cancelled());
         assert!(runs.cancel("run-1"));
         assert!(run.token().is_cancelled());
@@ -149,7 +158,7 @@ mod tests {
     #[test]
     fn cancelling_an_unknown_run_is_a_no_op() {
         let runs = Arc::new(Runs::default());
-        let run = runs.start("run-1");
+        let run = runs.start("run-1").expect("first start");
         assert!(!runs.cancel("run-2"));
         assert!(!run.token().is_cancelled());
     }
@@ -157,8 +166,31 @@ mod tests {
     #[test]
     fn finished_runs_are_removed_from_the_registry() {
         let runs = Arc::new(Runs::default());
-        let run = runs.start("run-1");
+        let run = runs.start("run-1").expect("first start");
         drop(run);
+        assert!(!runs.cancel("run-1"));
+    }
+
+    #[test]
+    fn a_second_run_with_the_same_id_is_refused_and_the_first_stays_cancellable() {
+        let runs = Arc::new(Runs::default());
+        let first = runs.start("run-1").expect("first start");
+        let error = runs.start("run-1").err().expect("the id is occupied");
+        assert_eq!(error.code, "RUN_ID_IN_USE");
+        assert!(runs.cancel("run-1"));
+        assert!(first.token().is_cancelled());
+    }
+
+    #[test]
+    fn the_first_guard_removes_only_its_own_entry() {
+        let runs = Arc::new(Runs::default());
+        let first = runs.start("run-1").expect("first start");
+        drop(first);
+
+        let second = runs.start("run-1").expect("the id is free again");
+        assert!(runs.cancel("run-1"));
+        assert!(second.token().is_cancelled());
+        drop(second);
         assert!(!runs.cancel("run-1"));
     }
 }

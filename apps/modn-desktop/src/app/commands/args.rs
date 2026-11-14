@@ -87,7 +87,7 @@ fn with_executables(
 ///
 /// Checks separators on every host so the same paths are rejected on CI and on
 /// Windows, where the desktop runs.
-fn game_relative(executable: &str) -> bool {
+pub(super) fn game_relative(executable: &str) -> bool {
     let bytes = executable.as_bytes();
     let drive_prefix = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
     !executable.is_empty()
@@ -192,8 +192,14 @@ pub(super) fn update(
     with_executables(args, executables)
 }
 
-pub(super) fn undo(operation_id: &str) -> Vec<OsString> {
-    vec!["undo".into(), operation_id.into(), "--yes".into()]
+pub(super) fn undo(
+    operation_id: &str,
+    allow_native_injector: bool,
+    executables: &[String],
+) -> Result<Vec<OsString>, CommandError> {
+    let args: Vec<OsString> = vec!["undo".into(), operation_id.into(), "--yes".into()];
+    let args = with_native_injector(args, allow_native_injector);
+    with_executables(args, executables)
 }
 
 pub(super) fn history(game_id: &str) -> Vec<OsString> {

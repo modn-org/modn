@@ -139,7 +139,7 @@ fn progress_payload_uses_the_contract_shape() {
 #[test]
 fn a_cancel_that_arrives_during_the_checks_refuses_the_write() {
     let runs = Arc::new(Runs::default());
-    let run = runs.start("run-1");
+    let run = runs.start("run-1").expect("first start");
     ensure_not_cancelled(&run).expect("a fresh run may write");
 
     // The archive review or catalog lookup runs while the guard is held.

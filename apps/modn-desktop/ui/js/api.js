@@ -1,6 +1,8 @@
 /**
  * The only module that touches the Tauri global. Every wrapper returns the
- * backend JSON unchanged; failures reject with `{code, message}`.
+ * backend JSON unchanged; failures reject with `{code, message, approval?}`.
+ * The optional `approval` names the capabilities a refusal left uncovered, so
+ * the ask flow can resend them as `allowNativeInjector` and `allowExecutables`.
  * @typedef {Object} Game
  * @property {string} game_id
  * @property {string} path
@@ -53,6 +55,15 @@
  * @typedef {Object} Approval
  * @property {boolean} required
  * @property {{native_injector: boolean, executables: string[]}} uncovered
+ *
+ * @typedef {Object} ApprovalRequest
+ * @property {boolean} nativeInjector
+ * @property {string[]} executables
+ *
+ * @typedef {Object} CommandError
+ * @property {string} code
+ * @property {string} message
+ * @property {ApprovalRequest} [approval]
  *
  * @typedef {Object} InstallPlan
  * @property {string} archive_sha256
@@ -218,12 +229,25 @@ export async function history({ gameId }) {
 }
 
 /**
- * Undo one operation. Implemented by a later task.
- * @param {{operationId: string, runId: string}} args
+ * Undo one operation.
+ * @param {{operationId: string, allowNativeInjector?: boolean,
+ *   allowExecutables?: string[], runId: string}} args
  * @returns {Promise<{kind: string, installed: Object[], removed: string[], undo: string}>}
+ *   Rejects with `CommandError`; an approval refusal fills `approval` with the
+ *   native injector and executable paths the ask must send back.
  */
-export async function undo({ operationId, runId }) {
-  return invoke('undo', { operationId, runId });
+export async function undo({
+  operationId,
+  allowNativeInjector = false,
+  allowExecutables = [],
+  runId,
+}) {
+  return invoke('undo', {
+    operationId,
+    allowNativeInjector,
+    allowExecutables,
+    runId,
+  });
 }
 
 /**
