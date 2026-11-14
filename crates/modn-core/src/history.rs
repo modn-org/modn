@@ -11,9 +11,7 @@ use crate::transactions::{CatalogReference, ReleaseDeclarations};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 mod persist;
 mod release;
@@ -235,14 +233,6 @@ pub(crate) struct FileSpec {
     pub root: String,
     pub destination: String,
     pub digest: String,
-}
-
-/// Compute the `blake3:<hex>` digest of `path`.
-pub(crate) fn digest_blake3(path: &Path) -> Result<String> {
-    let mut file = File::open(path)?;
-    let mut hasher = blake3::Hasher::new();
-    io::copy(&mut file, &mut hasher)?;
-    Ok(format!("blake3:{}", hasher.finalize().to_hex()))
 }
 
 impl Store {

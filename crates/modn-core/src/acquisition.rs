@@ -21,7 +21,7 @@ mod index;
 mod nexus;
 mod provider;
 use digest::{copy_blake3, file_blake3, file_has_blake3};
-use entry_name::{component, extension, parse_entry_name};
+use entry_name::{component, extension, parse_entry_name, parse_retired_entry_name};
 pub use git::{GitAcquired, GitCacheKey, GitSource};
 use index::{ArchiveIndex, ArchivePin};
 pub use nexus::{
@@ -105,6 +105,10 @@ pub struct CacheEntry {
     pub version: String,
     pub bytes: u64,
     pub path: PathBuf,
+    /// True for a `git-<commit>-<sha256>.zip` name from an earlier build.
+    ///
+    /// Retired entries are listed and removed, but never used for an install.
+    pub retired: bool,
 }
 
 #[expect(missing_docs, reason = "The name states the item's meaning")]
@@ -181,8 +185,14 @@ impl ArchiveCache {
     }
 
     /// Hash each listed entry once and return the first whose bytes match.
+    ///
+    /// Retired names are skipped: their digest is SHA-256, so their name never
+    /// proves the BLAKE3 pin.
     fn scan_for(&self, blake3: &str) -> Result<Option<PathBuf>> {
         for entry in self.entries(None)? {
+            if entry.retired {
+                continue;
+            }
             let Ok(digest) = file_blake3(&entry.path) else {
                 continue;
             };
@@ -191,6 +201,50 @@ impl ArchiveCache {
             }
         }
         Ok(None)
+    }
+
+    /// List cache entries, optionally only those of one mod, sorted by name.
+    ///
+    /// Entries named by an earlier build as `git-<commit>-<sha256>.zip` are
+    /// listed with `retired` set so `modn cache rm` can reclaim their space.
+    pub fn entries(&self, mod_id: Option<&str>) -> Result<Vec<CacheEntry>> {
+        let reader = match fs::read_dir(&self.root) {
+            Ok(reader) => reader,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(err.into()),
+        };
+        let mut entries = Vec::new();
+        for item in reader {
+            let item = item?;
+            let metadata = item.metadata()?;
+            let name = item.file_name().to_string_lossy().into_owned();
+            let (game_id, entry_mod, version, retired) = match parse_entry_name(&name) {
+                Some([game_id, entry_mod, version]) => (game_id, entry_mod, version, false),
+                None => {
+                    let Some([game_id, entry_mod, version]) = parse_retired_entry_name(&name)
+                    else {
+                        continue;
+                    };
+                    (game_id, entry_mod, version, true)
+                }
+            };
+            if !metadata.is_file() {
+                continue;
+            }
+            if mod_id.is_some_and(|wanted| component(wanted) != *entry_mod) {
+                continue;
+            }
+            entries.push(CacheEntry {
+                game_id: game_id.to_owned(),
+                mod_id: entry_mod.to_owned(),
+                version: version.to_owned(),
+                bytes: metadata.len(),
+                path: item.path(),
+                retired,
+            });
+        }
+        entries.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(entries)
     }
 
     /// Return a verified archive for `key`, downloading it when needed.
@@ -293,39 +347,6 @@ impl ArchiveCache {
             path,
             origin: Origin::Download,
         })
-    }
-
-    /// List cache entries, optionally only those of one mod, sorted by name.
-    pub fn entries(&self, mod_id: Option<&str>) -> Result<Vec<CacheEntry>> {
-        let reader = match fs::read_dir(&self.root) {
-            Ok(reader) => reader,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(err) => return Err(err.into()),
-        };
-        let mut entries = Vec::new();
-        for item in reader {
-            let item = item?;
-            let metadata = item.metadata()?;
-            let name = item.file_name().to_string_lossy().into_owned();
-            let Some([game_id, entry_mod, version]) = parse_entry_name(&name) else {
-                continue;
-            };
-            if !metadata.is_file() {
-                continue;
-            }
-            if mod_id.is_some_and(|wanted| component(wanted) != *entry_mod) {
-                continue;
-            }
-            entries.push(CacheEntry {
-                game_id: game_id.to_owned(),
-                mod_id: entry_mod.to_owned(),
-                version: version.to_owned(),
-                bytes: metadata.len(),
-                path: item.path(),
-            });
-        }
-        entries.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok(entries)
     }
 
     /// Remove the entries [`ArchiveCache::entries`] lists for the same filter.

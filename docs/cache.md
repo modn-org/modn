@@ -26,6 +26,9 @@ supplied, then asks once for the whole stack.
 - `modn cache rm <mod>` or `modn cache rm --all` removes entries. A file
   counts as an entry only if its whole name matches the entry format. Other
   files, including partial downloads, are left alone.
+  `modn cache show` marks an entry named `git-<commit>-<sha256>.zip` as
+  retired. An earlier build wrote that name form and its digest is SHA-256.
+  Modn lists and removes retired entries, but never uses one for an install.
 
 ## Digest-based reuse
 

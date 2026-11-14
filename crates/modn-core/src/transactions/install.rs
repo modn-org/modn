@@ -208,11 +208,10 @@ impl Store {
             bail!("manager state must be separate from every installation root");
         }
         let inspection = inspect(archive)?;
-        let archive_blake3 = if self.history.is_some() {
-            Some(crate::history::digest_blake3(archive)?)
-        } else {
-            None
-        };
+        let archive_blake3 = self
+            .history
+            .is_some()
+            .then(|| format!("blake3:{}", inspection.blake3));
         validate_execution_plan(&inspection, &roots, proposal, approved)?;
         validate_ownership(self, &game, proposal, replaced_package)?;
         let directories = exclusive_roots(&game, proposal)?;
