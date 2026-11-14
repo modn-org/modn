@@ -1,35 +1,43 @@
 # Process lifecycle
 
-Users can observe progress while the fixed CLI backend runs outside the UI thread.
+The window stays responsive while the backend runs, refuses to close during
+the commit phase, and never shows raw backend output.
 
-## Sub-features
+## What to check
 
-- P1: remain responsive during backend work.
-- P2: refuse busy close and disable active-operation cancellation.
-- P3: bound backend runtime and output, then reap the child.
-- P4: show backend refusal and invalid-JSON failures.
-- P5: distinguish completed writes from a failed inventory refresh.
+- P1: the commit phase disables the operation button.
+- P2: closing during the commit shows the native `Modn is still working…`
+  dialog and the window stays open.
+- P3: stdout noise (`invalid fixture response`) and stderr text
+  (`fixture refusal`, `fixture stderr noise…`) never appear in the window tree.
+- P4: a blocked plan shows the mapped message, not the backend's message.
 
-## How to get to it (user POV)
+## How to drive it
 
-Select an installation to load its owned packages.
-Attempt to close while the operation runs.
-Read the visible message and wait for completion before closing.
+Start the app with the verification backend and a disposable state directory
+holding `test-backend.marker`.
+For P1 and P2, install `hang-after-commit.zip`: the backend emits through
+`commit`, ignores cancel for 1.5 seconds and then records the write.
+Send `WM_CLOSE` to the owned window with `PostMessageW`, read the extra
+top-level window, assert its text, press its `OK` button and wait for the
+write.
 
-## Driving it with agent-desktop
+For P3, set the `mode` file to `invalid-json`, click `Scan this PC for
+supported games`, then set it to `failure` and scan again. Each backend call
+re-reads the mode file.
+The tree is captured after each scan and searched for the sentinel strings.
 
-Run `lifecycle.py` with the exact app and test-backend paths in [SKILL.md](../SKILL.md).
-The explicit fixture backend delays package listing for twelve seconds.
-The driver checks responsive accessibility, disabled cancellation, and busy close refusal.
-It waits for completion and checks the backend PID is gone.
-It then simulates a successful write followed by inventory failure.
-The visible status must state that the write completed and clear the stale package selection.
-It closes the owned window afterward.
-Run the Cargo all-feature tests for the actual 60-second deadline, output overflow, and failure cases.
+## Unreachable paths
 
-## Gotchas
+The native-code ask, the one-click uninstall and both undo paths cannot be
+reached in this app revision:
 
-The slow backend proves process handling; it does not prove an actual install transaction.
-The real-CLI native journey supplies installation and ownership evidence separately.
-Dropping a GPUI task cannot cancel a running child or undo an installation.
-Forced OS termination remains outside graceful-shutdown guarantees.
+- `apps/modn-desktop/src/app/commands/args.rs` `install_mod_commit` has no
+  `--file` argument, so a catalog mod with an offline `manual` source cannot
+  install. Every other source kind needs the network.
+- `apps/modn-desktop/tests/fixtures/backend.rs` has no scenario that emits
+  `APPROVAL_REQUIRED` or `NATIVE_INJECTOR_NOT_ALLOWED`.
+- A locally installed archive is not a catalog mod, so no Library tile or Mod
+  details action offers `Uninstall` for it.
+
+Add one of those hooks before extending the verifier with journey 7.
