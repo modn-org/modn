@@ -1,10 +1,10 @@
 //! Contract tests: the registered handlers, the capability, the build manifest
 //! and the webview API must name the same commands.
 
-use super::{COMMANDS, ensure_not_cancelled, progress_payload};
+use super::{COMMANDS, ensure_not_cancelled, progress_payload, with_operation_id};
 use crate::app::state::Runs;
 use crate::backend::ProgressEvent;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -134,6 +134,31 @@ fn progress_payload_uses_the_contract_shape() {
     assert_eq!(payload["event"]["package"], "main/example/mod");
     assert!(payload["event"].get("bytes").is_none());
     assert!(payload["event"].get("outcome").is_none());
+}
+
+#[test]
+fn a_write_result_carries_the_operation_id_it_committed() {
+    let first = with_operation_id(json!({
+        "installed": {"id": "txn-first"},
+        "operation_id": "txn-first",
+    }));
+    // A later write on the same package commits its own record. It must not
+    // change the toast that the first write already bound.
+    let later = with_operation_id(json!({"operation_id": "txn-later"}));
+    assert_eq!(first["operationId"], "txn-first");
+    assert_eq!(later["operationId"], "txn-later");
+    assert_eq!(first["operation_id"], "txn-first");
+    assert_eq!(first["installed"]["id"], "txn-first");
+}
+
+#[test]
+fn a_write_result_without_an_operation_id_does_not_guess_one() {
+    let result = with_operation_id(json!({"installed": {"id": "txn-first"}}));
+    assert!(result.get("operationId").is_none());
+    assert_eq!(
+        with_operation_id(json!(["not", "an", "object"])),
+        json!(["not", "an", "object"])
+    );
 }
 
 #[test]

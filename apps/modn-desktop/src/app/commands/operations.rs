@@ -147,14 +147,18 @@ async fn archive_plan(
 /// The executable paths an archive plan still needs the user to approve.
 ///
 /// Only `EXECUTABLE_PAYLOAD` blockers whose path the CLI accepts as a tool
-/// executable are approvable. A blocker of another code, an unsafe path, or an
-/// already approved path keeps the plan blocked.
+/// executable are approvable. `NO_INSTALLABLE_FILES` is derived from the
+/// payload blockers, so it may accompany them; approving the executables
+/// removes both. A blocker of another code, an unsafe path, or an already
+/// approved path keeps the plan blocked.
 fn executable_approval(plan: &Value, approved: &[String]) -> Option<Vec<String>> {
     let blockers = plan["blockers"].as_array()?;
     let mut candidates = BTreeSet::new();
     for blocker in blockers {
-        if blocker["code"].as_str() != Some("EXECUTABLE_PAYLOAD") {
-            return None;
+        match blocker["code"].as_str()? {
+            "EXECUTABLE_PAYLOAD" => {}
+            "NO_INSTALLABLE_FILES" => continue,
+            _ => return None,
         }
         let path = executable_path(blocker["message"].as_str()?)?;
         if approved.iter().any(|approved| approved == path) {
@@ -304,6 +308,34 @@ mod tests {
         assert_eq!(
             executable_approval(&blocked("Executable target: mods/tools/run.exe"), &[]),
             Some(vec!["mods/tools/run.exe".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_derived_no_installable_files_blocker_keeps_the_executable_approval() {
+        let plan = json!({
+            "status": "blocked",
+            "metadata_only": true,
+            "operations": [],
+            "blockers": [
+                {"code": "EXECUTABLE_PAYLOAD", "message": "Executable payload: tools/helper.exe"},
+                {"code": "NO_INSTALLABLE_FILES", "message": "No files selected"},
+            ],
+        });
+        assert_eq!(
+            executable_approval(&plan, &[]),
+            Some(vec!["tools/helper.exe".to_string()])
+        );
+        let derived_only = json!({
+            "status": "blocked",
+            "metadata_only": true,
+            "operations": [],
+            "blockers": [{"code": "NO_INSTALLABLE_FILES", "message": "No files selected"}],
+        });
+        assert_eq!(
+            executable_approval(&derived_only, &[]),
+            None,
+            "a plan with no executable path offers nothing to approve"
         );
     }
 
