@@ -138,16 +138,24 @@ impl Backend {
     /// and never kills the process for that reason.
     ///
     /// Before the commit event, inactivity for the configured timeout sends
-    /// `cancel`, waits 15 seconds and then kills the process. After the commit
-    /// event there is no inactivity kill, because a committed write must be
-    /// allowed to finish or roll back.
+    /// `cancel`, waits 15 seconds and then kills the process. The deadline
+    /// stays armed after a cancel, so a step that stalls instead of stopping
+    /// cannot block the call or window close. After the commit event there is
+    /// no inactivity kill, because a committed write must be allowed to finish
+    /// or roll back.
+    ///
+    /// Output that exceeds the bound before the commit event fails the call.
+    /// Output that exceeds it after the commit event is drained, the writer is
+    /// not killed, and the error code is
+    /// `BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT`: the files are installed, so
+    /// callers refresh instead of reporting a failed write.
     ///
     /// # Errors
     ///
     /// Returns [`BackendError`] when the CLI refuses, the operation is
     /// cancelled before the commit point, output is invalid or exceeds its
-    /// bound, the process cannot start, or inactivity expires before the
-    /// commit point.
+    /// bound before the commit point, the process cannot start, or inactivity
+    /// expires before the commit point.
     pub fn call_with_progress(
         &self,
         args: &[OsString],

@@ -14,6 +14,10 @@
 //!   It writes nothing.
 //! - `hang-after-commit`: emits through `commit`, ignores `cancel`, waits 1.5
 //!   seconds, records the write and succeeds.
+//! - `stall-after-cancel`: emits through `stage`, then ignores `cancel` and
+//!   stalls for 30 seconds before exiting 2 without a write.
+//! - `oversized-after-commit`: commits, records the write, writes 2 MiB on
+//!   stdout, records that it survived that write, then exits 0.
 //! - `slow`: emits each phase 250 ms apart, checks for `cancel` before the
 //!   commit, then records the write and succeeds.
 //! - `refuse`: emits plain stderr text and a `PLAN_BLOCKED` envelope, then
@@ -162,6 +166,16 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
         }
         exit_cancelled();
     }
+    if scenario == "stall-after-cancel" {
+        // A step that started before the cancel cannot act on it. The desktop
+        // must still end the call; this deadline only bounds the test.
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        emit(json!({"error":"FIXTURE_TIMEOUT","message":"the stalled cancel was never killed"}));
+        std::process::exit(2);
+    }
     sleep_if_slow(scenario);
     if scenario == "slow" && cancel.load(Ordering::SeqCst) {
         exit_cancelled();
@@ -175,13 +189,27 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
     }
     record_write(args, state)?;
     emit(json!({"phase":"result","outcome":"succeeded"}));
+    if scenario == "oversized-after-commit" {
+        let filler = vec![b'x'; 2 * 1024 * 1024];
+        io::stdout().write_all(&filler)?;
+        io::stdout().flush()?;
+        fs::write(state.join("survived-after-output"), b"not killed")?;
+        return Ok(());
+    }
     println!("{}", json!({"id":"owned-package"}));
     Ok(())
 }
 
 fn scenario(args: &[OsString]) -> &'static str {
     let tail = args.get(3..).unwrap_or_default();
-    for name in ["hang-before-commit", "hang-after-commit", "refuse", "slow"] {
+    for name in [
+        "hang-before-commit",
+        "hang-after-commit",
+        "stall-after-cancel",
+        "oversized-after-commit",
+        "refuse",
+        "slow",
+    ] {
         if tail.iter().any(|arg| arg.to_string_lossy().contains(name)) {
             return name;
         }

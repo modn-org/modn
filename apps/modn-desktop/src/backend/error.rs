@@ -55,6 +55,19 @@ impl BackendError {
         }
     }
 
+    /// The write committed, but its result exceeded the output bound.
+    ///
+    /// The call never kills a writer after the commit event, so the installed
+    /// files stay in place. Callers treat this code as success-with-stale-view
+    /// and refresh rather than reporting a failed write.
+    pub(super) fn output_after_commit() -> Self {
+        Self {
+            kind: BackendErrorKind::Committed,
+            code: Some("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT".into()),
+            message: "Backend committed the operation but its result exceeded the output bound; refresh to see the result".into(),
+        }
+    }
+
     pub(super) fn spawn(error: io::Error) -> Self {
         Self {
             kind: BackendErrorKind::Spawn,
@@ -114,6 +127,11 @@ pub(crate) enum BackendErrorKind {
     Refused,
     /// A stream exceeded its bound or could not be read.
     Output,
+    /// The write committed, but its result could not be read within the bound.
+    ///
+    /// The operation committed; callers refresh their view instead of
+    /// reporting a failed write.
+    Committed,
     /// The configured executable could not start.
     Spawn,
     /// The CLI exited successfully but stdout was not one JSON value.
