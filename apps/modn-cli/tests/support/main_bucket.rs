@@ -130,9 +130,7 @@ pub fn to_contract_v2(root: &Path) {
                     .expect("fixture module");
                 continue;
             }
-            if path
-                .file_name()
-                .is_some_and(|name| name == "module.lua")
+            if path.file_name().is_some_and(|name| name == "module.lua")
                 || path.extension().is_none_or(|extension| extension != "json")
             {
                 continue;
