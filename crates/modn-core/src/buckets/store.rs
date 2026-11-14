@@ -386,7 +386,12 @@ impl BucketStore {
         let (info, _) = self.official()?;
         let games = info.path.context("main bucket path missing")?.join("games");
         let mut ids = Vec::new();
-        for entry in fs::read_dir(games)? {
+        let entries = match fs::read_dir(games) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
+            Err(error) => return Err(error.into()),
+            Ok(entries) => entries,
+        };
+        for entry in entries {
             let entry = entry?;
             if entry.path().join(MODULE_MANIFEST).is_file() {
                 ids.push(entry.file_name().to_string_lossy().into_owned());

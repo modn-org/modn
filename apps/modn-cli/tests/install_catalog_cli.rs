@@ -161,18 +161,18 @@ fn incorrect_hash_and_unresolved_dependencies_do_not_touch_game() {
         .output()
         .expect("bad hash");
     assert!(!bad_hash.status.success());
-    assert!(error(&bad_hash).contains("SHA-256"));
+    assert!(error(&bad_hash).contains("BLAKE3"));
     assert!(!fixture.state.join("state.sqlite").exists());
     assert!(!fixture.game.join("addons").exists());
 
     fixture.bucket("deps", "test-game", "dependent", &digest, &["base"]);
     let base = json!({
-        "schema_version":1, "id":"base","game":"test-game","name":"Base",
-        "version":"1.0","archive_format":"zip","sha256":"3".repeat(64),
-        "source":{"kind":"manual","filename":"fixture.zip"}, "dependencies":[]
+        "schema_version":2, "id":"base","game":"test-game","name":"Base",
+        "version":"1.0","archive_format":"zip","blake3":"3".repeat(64),
+        "sources":[{"kind":"manual","filename":"fixture.zip"}], "dependencies":[]
     });
     fs::write(
-        fixture.temp.path().join("deps/games/test-game/base.json"),
+        fixture.temp.path().join("deps/mods/test-game/base.json"),
         serde_json::to_vec(&base).expect("JSON"),
     )
     .expect("dependency");

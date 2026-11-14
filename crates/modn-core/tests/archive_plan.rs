@@ -58,7 +58,7 @@ fn zip_inspection_and_legacy_plan_are_read_only() {
         );
         let inspection = inspect(&archive).unwrap();
         assert_eq!(inspection.format, ArchiveFormat::Zip);
-        assert_eq!(inspection.sha256.len(), 64);
+        assert_eq!(inspection.blake3.len(), 64);
         assert_eq!(inspection.files.len(), 2);
         let report = plan(&inspection, &game);
         assert_eq!(

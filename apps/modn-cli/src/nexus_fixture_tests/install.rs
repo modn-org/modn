@@ -133,7 +133,7 @@ fn a_pin_mismatch_from_the_cdn_is_refused() {
             &nxm_link(FILE_ID, expires),
         ]))
     });
-    assert!(message.contains("hash check failed"), "{message}");
+    assert!(message.contains("BLAKE3 check failed"), "{message}");
     assert_no_secrets(&message);
     assert!(!fixture.game.join("addons").exists());
 }

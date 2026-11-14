@@ -52,9 +52,9 @@ fn supplied_archive(file: &Path, target: &BucketPackage) -> Result<PathBuf> {
     }
     let inspected = inspect(file)?;
     let reference = reference_of(target);
-    if target.package.pin() != Some(inspected.sha256.as_str()) {
+    if target.package.pin() != Some(inspected.blake3.as_str()) {
         bail!(
-            "{}: archive SHA-256 does not match {reference} {}",
+            "{}: archive BLAKE3 does not match {reference} {}",
             file.display(),
             target.package.version
         );

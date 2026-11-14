@@ -50,7 +50,7 @@ fn base_with_dependent() -> Installed {
             CatalogRelease::new(reference("base"), Vec::new()),
         )
         .unwrap();
-    let needs_base = CatalogDependency::new(reference("base"), inspect(&old_base).unwrap().sha256);
+    let needs_base = CatalogDependency::new(reference("base"), inspect(&old_base).unwrap().blake3);
     let top = fixture
         .install_release(
             &top,

@@ -205,7 +205,7 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
             }
             let answer = lua.create_table()?;
             answer.set("format", report.format.as_str())?;
-            answer.set("sha256", report.sha256)?;
+            answer.set("blake3", report.blake3)?;
             answer.set("total_uncompressed_bytes", report.total_uncompressed_bytes)?;
             answer.set("metadata_only", true)?;
             let files = lua.create_table()?;

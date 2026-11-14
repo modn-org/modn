@@ -25,7 +25,7 @@ fn manual_redmod_adoption_claims_files_without_unknown_descendants() {
         assert!(package.directories.is_empty());
         assert_eq!(
             package.archive_sha256,
-            crate::archive::inspect(&archive).unwrap().sha256
+            crate::archive::inspect(&archive).unwrap().blake3
         );
         fixture.store.uninstall(&fixture.game, &package.id).unwrap();
         assert_eq!(

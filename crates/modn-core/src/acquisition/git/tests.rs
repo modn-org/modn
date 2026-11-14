@@ -94,7 +94,7 @@ fn pinned_commit_is_fetched_packed_and_cached() {
         .acquire_url(&url, &cache, &key, CacheUse::Reuse)
         .unwrap();
     assert_eq!(first.origin, Origin::Download);
-    assert_eq!(first.sha256.len(), 64);
+    assert_eq!(first.blake3.len(), 64);
     assert!(first.path.is_file());
     assert!(
         first
@@ -102,9 +102,17 @@ fn pinned_commit_is_fetched_packed_and_cached() {
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .contains(&format!("#git-{pinned}-")),
+            .contains(&format!("#git-{pinned}-blake3-")),
         "{}",
         first.path.display()
+    );
+    let bytes = fs::read(&first.path).unwrap();
+    assert_eq!(first.blake3, blake3::hash(&bytes).to_hex().to_string());
+    let name = first.path.file_name().unwrap().to_string_lossy();
+    assert_eq!(
+        super::super::entry_name::parse_entry_name(&name),
+        Some(["test-game", "fixture", "1.0"]),
+        "the cache entry name parses back to the same pin components"
     );
     let entries = zip_entries(&first.path);
     let names: Vec<&str> = entries.iter().map(|(name, _)| name.as_str()).collect();
@@ -116,13 +124,13 @@ fn pinned_commit_is_fetched_packed_and_cached() {
         .unwrap();
     assert_eq!(second.origin, Origin::Cache);
     assert_eq!(second.path, first.path);
-    assert_eq!(second.sha256, first.sha256);
+    assert_eq!(second.blake3, first.blake3);
 
     let refreshed = source
         .acquire_url(&url, &cache, &key, CacheUse::Refresh)
         .unwrap();
     assert_eq!(refreshed.origin, Origin::Download);
-    assert_eq!(refreshed.sha256, first.sha256);
+    assert_eq!(refreshed.blake3, first.blake3);
 
     let staging = root.path().join("staging-one");
     fs::create_dir_all(&staging).unwrap();
@@ -131,7 +139,7 @@ fn pinned_commit_is_fetched_packed_and_cached() {
     fs::create_dir_all(&staging).unwrap();
     let two = source.pack_url(&file_url(&bare), &staging).unwrap();
     assert_eq!(fs::read(&one.path).unwrap(), fs::read(&two.path).unwrap());
-    assert_eq!(one.sha256, two.sha256);
+    assert_eq!(one.blake3, two.blake3);
 }
 
 #[test]

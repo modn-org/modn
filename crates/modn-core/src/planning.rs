@@ -447,7 +447,7 @@ pub(crate) fn resolve_with_permissions(
         issue(&mut blockers, "NO_INSTALLABLE_FILES", "No files selected");
     }
     if crate::archive::inspect(&inspection.archive)
-        .map_or(true, |current| current.sha256 != inspection.sha256)
+        .map_or(true, |current| current.blake3 != inspection.blake3)
     {
         issue(
             &mut blockers,
@@ -456,7 +456,7 @@ pub(crate) fn resolve_with_permissions(
         );
     }
     Ok(InstallPlan {
-        archive_sha256: inspection.sha256.clone(),
+        archive_sha256: inspection.blake3.clone(),
         game_installation: game,
         status: if blockers.is_empty() {
             PlanStatus::Reviewable

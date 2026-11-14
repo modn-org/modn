@@ -218,13 +218,13 @@ impl Store {
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories, replaced_package)?;
         let release = catalog.map(|catalog| catalog.release);
-        let mut conflicts = self.conflicting_packages(&game, release, &inspection.sha256)?;
+        let mut conflicts = self.conflicting_packages(&game, release, &inspection.blake3)?;
         if let Some(replaced) = replaced_package {
             conflicts.retain(|label| label.split(' ').next() != Some(replaced));
         }
         if !conflicts.is_empty() {
             let subject = release.map_or_else(
-                || format!("archive {}", inspection.sha256),
+                || format!("archive {}", inspection.blake3),
                 |release| release.reference.to_string(),
             );
             bail!(
@@ -255,7 +255,7 @@ impl Store {
             .context("missing transaction id")?
             .to_string_lossy()
             .to_string();
-        self.begin_staging(&id, &game, &inspection.sha256, replaced_journal)?;
+        self.begin_staging(&id, &game, &inspection.blake3, replaced_journal)?;
         self.ensure_content_root(&id, &roots, proposal.content_base.as_deref())?;
         let staged = (|| -> Result<Vec<JournalFile>> {
             if inspection.format == crate::archive::ArchiveFormat::SevenZ {
@@ -266,7 +266,7 @@ impl Store {
                     staging.path(),
                     &control,
                 )?;
-                if inspect(archive)?.sha256 != inspection.sha256 {
+                if inspect(archive)?.blake3 != inspection.blake3 {
                     bail!("archive changed between inspection and extraction");
                 }
                 return Ok(files);
@@ -313,7 +313,7 @@ impl Store {
                 });
             }
             drop(zip);
-            if inspect(archive)?.sha256 != inspection.sha256 {
+            if inspect(archive)?.blake3 != inspection.blake3 {
                 bail!("archive changed between inspection and extraction");
             }
             Ok(files)
@@ -411,7 +411,7 @@ impl Store {
             self.commit_install(
                 &id,
                 &game,
-                &inspection.sha256,
+                &inspection.blake3,
                 &files,
                 &journal_directories,
                 roots.content.as_deref(),
@@ -445,7 +445,7 @@ impl Store {
             id,
             pinned: false,
             game_installation: game,
-            archive_sha256: inspection.sha256,
+            archive_sha256: inspection.blake3,
             directories,
             catalog: catalog.as_ref().map(|c| c.release.reference.clone()),
             mod_id: metadata.as_ref().map(|metadata| metadata.mod_id.clone()),
