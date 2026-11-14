@@ -46,7 +46,58 @@ signer. `--revision` is refused with a ZIP source.
 A failed download, an invalid signature or invalid contents keep the previous
 registration and catalog files byte for byte and remove staging.
 `modn bucket list --json` reports `source_kind` as `git` or `zip` for a
-registered catalog. It keeps the existing keys.
+registered catalog. It keeps the existing keys. It also reports `primary`, the
+registered source as a tagged value, and `mirrors`, the ordered mirror list.
+
+### Mirrors and relocation
+
+A signed catalog may hold two optional root files. The pinned catalog signature
+covers both, because the catalog digest covers every root file except
+`catalog.sig` and `catalog.pub`.
+
+`mirrors.json` lists other hosts of the same catalog:
+
+```json
+{
+  "schema_version": 1,
+  "mirrors": [
+    {"kind": "zip", "url": "https://mirror.example/catalog.zip"},
+    {"kind": "git", "remote": "https://git.example/catalog.git", "revision": "main"}
+  ]
+}
+```
+
+Modn refuses a mirror list with more than 8 entries, a duplicate, a plain
+`http://` URL, a local path, a URL with credentials, or a source kind that
+differs from the registered primary. A Git remote or revision follows the same
+rules as a Git catalog source.
+
+`relocation.json` names the new primary host:
+
+```json
+{
+  "schema_version": 1,
+  "primary": {"kind": "zip", "url": "https://new.example/catalog.zip"}
+}
+```
+
+Sync tries the registered primary first and then the stored mirrors in order.
+A transport failure moves to the next source. A connection error, a network
+error, an HTTP error, a truncated or malformed ZIP and a Git failure are
+transport failures. A missing signature, a signature from another key, tampered
+content and a digest mismatch are trust failures: sync stops, tries no further
+source, and keeps the previous registration and catalog byte for byte. If every
+source fails, one error lists each source and its reason.
+When a mirror serves the revision, the registration keeps the registered
+primary and the output names the failed primary and the serving mirror.
+Every verified revision replaces the stored mirror list with its own list.
+
+After a revision verifies with the pinned key, a `relocation.json` whose primary
+differs from the registered primary publishes the catalog and updates the
+registration's primary in one atomic registration write. The output says
+`catalog <name> moved from <old> to <new>`. Sync follows at most one relocation,
+and a relocation to the same primary is ignored. The next sync contacts the new
+primary first.
 
 ### Main catalog signature
 

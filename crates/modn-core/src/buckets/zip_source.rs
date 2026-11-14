@@ -6,11 +6,14 @@
 use super::git::{validate_tree, verify_catalog_tree, CatalogSigner};
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
+use super::mirrors::{
+    check_mirror_kinds, read_mirrors, read_relocation, CatalogHost, CatalogSyncTrace,
+};
 use super::store::{bounded_json, BucketStore, Registration};
 use super::trust::ModuleTrustState;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
 use crate::{archive, bucket_digest};
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
@@ -42,7 +45,8 @@ impl ZipCatalogSource {
     pub fn selects(text: &str) -> bool {
         text.to_ascii_lowercase().ends_with(".zip")
     }
-    fn validate(&self) -> Result<()> {
+    /// Validate this source before any network call.
+    pub(super) fn validate(&self) -> Result<()> {
         if self.url.starts_with("http://") {
             bail!("catalog ZIP source must use https://; plain HTTP is refused");
         }
@@ -87,6 +91,8 @@ pub struct ZipCatalogSync {
     pub pinned: bool,
     /// Game module releases imported or ignored during this sync.
     pub modules: CatalogModuleReport,
+    /// The primary, the source that served the revision and any failures.
+    pub trace: CatalogSyncTrace,
 }
 /// Stored ZIP revision. The signer is always present for ZIP catalogs.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -201,7 +207,7 @@ impl BucketStore {
         &self,
         name: &str,
         source: Option<ZipCatalogSource>,
-        open: impl FnOnce(&ZipCatalogSource) -> Result<Box<dyn Read>>,
+        mut open: impl FnMut(&ZipCatalogSource) -> Result<Box<dyn Read>>,
     ) -> Result<ZipCatalogSync> {
         self.check_registry_root()?;
         if !valid_id(name) || name == "main" {
@@ -234,24 +240,79 @@ impl BucketStore {
             }
         };
         source.validate()?;
+        let primary = CatalogHost::from(&source);
+        let mut candidates = vec![source.clone()];
+        if previous.is_some() {
+            for mirror in self.stored_mirrors(name)? {
+                let Some(candidate) = mirror.zip_source() else {
+                    continue;
+                };
+                if !candidates.contains(&candidate) {
+                    candidates.push(candidate);
+                }
+            }
+        }
         let stage = tempfile::Builder::new()
             .prefix("zip-catalog-")
             .tempdir_in(&self.root)?;
-        let zip_path = stage.path().join("catalog.zip");
-        download_to(&zip_path, open(&source)?)?;
-        let catalog = stage.path().join("catalog");
-        extract_catalog(&zip_path, &catalog)?;
-        let label = format!("ZIP catalog {name} at {}", source.label());
+        let mut failed_sources = Vec::new();
+        let mut served = None;
+        for (index, candidate) in candidates.iter().enumerate() {
+            let attempt = stage.path().join(format!("source-{index}"));
+            fs::create_dir_all(&attempt)?;
+            let zip_path = attempt.join("catalog.zip");
+            let catalog = attempt.join("catalog");
+            let fetched = open(candidate)
+                .and_then(|reader| download_to(&zip_path, reader))
+                .and_then(|()| extract_catalog(&zip_path, &catalog));
+            match fetched {
+                Ok(()) => {
+                    fs::remove_file(&zip_path).ok();
+                    served = Some((catalog, candidate.clone()));
+                    break;
+                }
+                Err(error) => {
+                    let _ = fs::remove_dir_all(&attempt);
+                    failed_sources.push(format!(
+                        "{}: {error:#}",
+                        CatalogHost::from(candidate).label()
+                    ));
+                }
+            }
+        }
+        let Some((catalog, served_source)) = served else {
+            bail!(
+                "catalog {name} could not be fetched from any source:\n{}",
+                failed_sources.join("\n")
+            );
+        };
+        let served_by = CatalogHost::from(&served_source);
+        let label = format!("ZIP catalog {name} at {}", served_source.label());
         let signer = verify_catalog_tree(
             &catalog,
             name,
             &label,
             previous.as_ref().map(|revision| &revision.signer),
-        )?;
-        validate_tree(&catalog, &catalog, trust)?;
+        )
+        .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        validate_tree(&catalog, &catalog, trust)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let mirrors = read_mirrors(&catalog)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        check_mirror_kinds(name, &served_by, &mirrors)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let relocation = read_relocation(&catalog, &served_by)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let moved_to = relocation.filter(|primary_host| primary_host != &primary);
+        let published_source = match &moved_to {
+            Some(host) => host
+                .zip_source()
+                .context("relocation must name a ZIP source")?,
+            None => source,
+        };
         let pinned = previous.is_none();
         let revision = ZipCatalogRevision {
-            source,
+            source: published_source,
             digest: bucket_digest::catalog_digest(&catalog)?.to_string(),
             signer,
         };
@@ -269,17 +330,23 @@ impl BucketStore {
             Some(staged) => staged.ignored().to_vec(),
             None => ignored_catalog_modules(&catalog)?,
         };
-        self.publish_zip(name, catalog, revision.clone())?;
+        self.publish_zip(name, catalog, revision.clone(), mirrors.clone())?;
         let imported = match staged {
             Some(staged) => staged.commit()?,
             None => Vec::new(),
         };
-        fs::remove_file(&zip_path)?;
         let _retained = stage.keep();
         Ok(ZipCatalogSync {
             revision,
             pinned,
             modules: CatalogModuleReport { imported, ignored },
+            trace: CatalogSyncTrace {
+                primary: primary.clone(),
+                served_by,
+                failed_sources,
+                moved_from: moved_to.as_ref().map(|_| primary),
+                moved_to,
+            },
         })
     }
     pub(super) fn publish_zip(
@@ -287,6 +354,7 @@ impl BucketStore {
         name: &str,
         path: PathBuf,
         zip: super::ZipCatalogRevision,
+        mirrors: Vec<CatalogHost>,
     ) -> Result<()> {
         let signer_key_id = zip.signer.key_id.clone();
         let module_trust = self
@@ -307,6 +375,7 @@ impl BucketStore {
                 git: None,
                 zip: Some(zip.into()),
                 module_trust,
+                mirrors: Some(mirrors),
             },
         )
     }

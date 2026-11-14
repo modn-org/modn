@@ -195,6 +195,42 @@ catalog ZIP holds records, not archives.
 A plain `http://` URL is refused. An absolute local ZIP path also works, for
 offline testing.
 
+## Publish mirrors and move a catalog
+
+Add `mirrors.json` at the catalog root to name other hosts of the same signed
+catalog. Each mirror must use the same source kind as the registered primary.
+A ZIP mirror needs an `https://` URL that ends in `.zip`. A Git mirror needs an
+`https://` remote and a revision.
+
+```json
+{
+  "schema_version": 1,
+  "mirrors": [{"kind": "zip", "url": "https://mirror.example/catalog.zip"}]
+}
+```
+
+List at most 8 mirrors with no duplicates. Then re-sign the catalog and upload
+the new ZIP or commit to the primary. A sync tries the primary first and then
+the listed mirrors in order. Users do not re-register.
+
+To move a catalog to a new host, copy the signed catalog there first. Then add
+`relocation.json` at the catalog root of the old host:
+
+```json
+{
+  "schema_version": 1,
+  "primary": {"kind": "zip", "url": "https://new.example/catalog.zip"}
+}
+```
+
+Re-sign the catalog and publish it at the old host before the old host goes
+away. The next sync verifies the revision with the pinned key, follows the
+record and registers the new primary. Tell users the new URL. A relocation to
+the same primary does nothing.
+
+A mirror list, a relocation record or a catalog revision that another key
+signed is refused. Modn keeps the previous registration and catalog.
+
 ## Host archives at stable HTTPS URLs
 
 Serve each archive at an HTTPS URL that keeps its bytes for as long as the record
@@ -231,7 +267,6 @@ A user checks the release with `modn bucket sync community` and
 
 These capabilities are planned and not available:
 
-- mirrors and catalog relocation (#120);
 - signer key rotation and offline revocation (#122).
 
 The commands on this page do not implement them. They do not fetch, mirror or

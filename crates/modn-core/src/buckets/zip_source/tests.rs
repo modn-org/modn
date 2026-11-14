@@ -58,7 +58,7 @@ fn truncated_download_is_refused_without_state() {
     let truncated = bytes[..bytes.len() / 2].to_vec();
     let error = store
         .sync_zip_with_signer("community", Some(source(&zip)), move |_| {
-            Ok(Box::new(Cursor::new(truncated)) as Box<dyn Read>)
+            Ok(Box::new(Cursor::new(truncated.clone())) as Box<dyn Read>)
         })
         .expect_err("truncated ZIP must fail");
     assert!(error.to_string().contains("invalid ZIP"), "{error}");

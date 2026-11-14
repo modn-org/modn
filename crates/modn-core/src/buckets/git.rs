@@ -1,5 +1,8 @@
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
+use super::mirrors::{
+    check_mirror_kinds, read_mirrors, read_relocation, CatalogHost, CatalogSyncTrace,
+};
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
 use super::store::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use super::trust::ModuleTrustState;
@@ -76,6 +79,8 @@ pub struct GitCatalogSync {
     pub pinned: bool,
     /// Game module releases imported or ignored during this sync.
     pub modules: CatalogModuleReport,
+    /// The primary, the source that served the revision and any failures.
+    pub trace: CatalogSyncTrace,
 }
 
 /// Stored form that can still read a registration written before signing.
@@ -113,7 +118,7 @@ impl From<GitCatalogRevision> for StoredGitCatalogRevision {
     }
 }
 
-fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
+pub(super) fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
     let hooks = crate::git::empty_hooks()?;
     crate::git::run(
         &crate::git::GitEnvironment {
@@ -257,7 +262,7 @@ impl GitCatalogSource {
         Self { remote, reference }
     }
 
-    fn validate(&self) -> Result<()> {
+    pub(super) fn validate(&self) -> Result<()> {
         let local = PathBuf::from(&self.remote);
         let https = self.remote.strip_prefix("https://").is_some_and(|rest| {
             let host = rest.split('/').next().unwrap_or_default();
@@ -334,29 +339,70 @@ impl BucketStore {
             }
         };
         source.validate()?;
+        let primary = CatalogHost::from(&source);
+        let mut candidates = vec![source.clone()];
+        if previous.is_some() {
+            for mirror in self.stored_mirrors(name)? {
+                let Some(candidate) = mirror.git_source() else {
+                    continue;
+                };
+                if !candidates.contains(&candidate) {
+                    candidates.push(candidate);
+                }
+            }
+        }
         let stage = tempfile::Builder::new()
             .prefix("git-catalog-")
             .tempdir_in(&self.root)?;
-        git(
-            stage.path(),
-            &[
-                "clone",
-                "--no-local",
-                "--no-checkout",
-                "--",
-                &source.remote,
-                "catalog",
-            ],
-        )?;
-        let catalog = stage.path().join("catalog");
-        git(&catalog, &["checkout", "--detach", &source.reference, "--"])?;
-        let commit = git(&catalog, &["rev-parse", "--verify", "HEAD"])?;
-        fs::remove_dir_all(catalog.join(".git"))?;
-        let signer = verify_revision(&catalog, name, &source.reference, previous.as_ref())?;
-        validate_tree(&catalog, &catalog, trust)?;
+        let mut failed_sources = Vec::new();
+        let mut served = None;
+        for (index, candidate) in candidates.iter().enumerate() {
+            let attempt = stage.path().join(format!("source-{index}"));
+            fs::create_dir_all(&attempt)?;
+            let fetched = clone_catalog(&attempt, candidate);
+            match fetched {
+                Ok((catalog, commit)) => {
+                    served = Some((catalog, commit, candidate.clone()));
+                    break;
+                }
+                Err(error) => {
+                    let _ = fs::remove_dir_all(&attempt);
+                    failed_sources.push(format!(
+                        "{}: {error:#}",
+                        CatalogHost::from(candidate).label()
+                    ));
+                }
+            }
+        }
+        let Some((catalog, commit, served_source)) = served else {
+            bail!(
+                "catalog {name} could not be fetched from any source:\n{}",
+                failed_sources.join("\n")
+            );
+        };
+        let served_by = CatalogHost::from(&served_source);
+        let signer = verify_revision(&catalog, name, &served_source.reference, previous.as_ref())
+            .map_err(|error| {
+            anyhow!("catalog source {} failed: {error:#}", served_by.label())
+        })?;
+        validate_tree(&catalog, &catalog, trust)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let mirrors = read_mirrors(&catalog)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        check_mirror_kinds(name, &served_by, &mirrors)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let relocation = read_relocation(&catalog, &served_by)
+            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let moved_to = relocation.filter(|primary_host| primary_host != &primary);
+        let published_source = match &moved_to {
+            Some(host) => host
+                .git_source()
+                .context("relocation must name a Git source")?,
+            None => source,
+        };
         let pinned = previous.is_none();
         let revision = GitCatalogRevision {
-            source,
+            source: published_source,
             commit,
             signer,
         };
@@ -374,7 +420,7 @@ impl BucketStore {
             Some(staged) => staged.ignored().to_vec(),
             None => ignored_catalog_modules(&catalog)?,
         };
-        self.publish_git(name, catalog, revision.clone())?;
+        self.publish_git(name, catalog, revision.clone(), mirrors.clone())?;
         let imported = match staged {
             Some(staged) => staged.commit()?,
             None => Vec::new(),
@@ -384,8 +430,34 @@ impl BucketStore {
             revision,
             pinned,
             modules: CatalogModuleReport { imported, ignored },
+            trace: CatalogSyncTrace {
+                primary: primary.clone(),
+                served_by,
+                failed_sources,
+                moved_from: moved_to.as_ref().map(|_| primary),
+                moved_to,
+            },
         })
     }
+}
+
+fn clone_catalog(attempt: &Path, source: &GitCatalogSource) -> Result<(PathBuf, String)> {
+    git(
+        attempt,
+        &[
+            "clone",
+            "--no-local",
+            "--no-checkout",
+            "--",
+            &source.remote,
+            "catalog",
+        ],
+    )?;
+    let catalog = attempt.join("catalog");
+    git(&catalog, &["checkout", "--detach", &source.reference, "--"])?;
+    let commit = git(&catalog, &["rev-parse", "--verify", "HEAD"])?;
+    fs::remove_dir_all(catalog.join(".git"))?;
+    Ok((catalog, commit))
 }
 
 #[cfg(test)]

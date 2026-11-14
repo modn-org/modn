@@ -1,4 +1,5 @@
 mod packages;
+mod registration;
 
 use self::packages::{read_packages, Releases};
 use super::manifest::{valid_id, PackageManifest};
@@ -34,6 +35,11 @@ pub struct BucketInfo {
     /// `git` or `zip` for a registered catalog; omitted for other buckets.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_kind: Option<String>,
+    /// Registered primary host of a signed catalog.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary: Option<super::CatalogHost>,
+    /// Ordered mirror hosts stored with the latest verified revision.
+    pub mirrors: Vec<super::CatalogHost>,
     /// True when this bucket may supply executable game modules.
     pub module_trusted: bool,
 }
@@ -68,6 +74,9 @@ pub(super) struct Registration {
     pub(super) zip: Option<super::zip_source::StoredZipCatalogRevision>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) module_trust: Option<super::trust::ModuleSourceTrust>,
+    /// Mirrors listed by the latest verified revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) mirrors: Option<Vec<super::mirrors::CatalogHost>>,
 }
 
 impl Registration {
@@ -89,6 +98,9 @@ impl Registration {
 /// Catalog registry, separate from game registrations and ownership state.
 pub struct BucketStore {
     pub(super) root: PathBuf,
+    /// Test seam: the next registration write fails before any file changes.
+    #[cfg(test)]
+    pub(super) fail_next_registration_write: std::sync::atomic::AtomicBool,
 }
 
 pub(super) fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
@@ -112,6 +124,8 @@ impl BucketStore {
     pub fn new(state_root: &Path) -> Self {
         Self {
             root: state_root.join("buckets"),
+            #[cfg(test)]
+            fail_next_registration_write: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -222,6 +236,8 @@ impl BucketStore {
                 path: Some(path.to_path_buf()),
                 signer_key_id: None,
                 source_kind: None,
+                primary: None,
+                mirrors: Vec::new(),
                 module_trusted: matches!(trust, ModuleTrustState::Main | ModuleTrustState::Trusted),
             },
             packages,
@@ -302,6 +318,7 @@ impl BucketStore {
                 git: None,
                 zip: None,
                 module_trust: None,
+                mirrors: None,
             },
         )?;
         temp.as_file().sync_all()?;
@@ -315,6 +332,7 @@ impl BucketStore {
         name: &str,
         path: PathBuf,
         git: super::GitCatalogRevision,
+        mirrors: Vec<super::CatalogHost>,
     ) -> Result<()> {
         let signer_key_id = git.signer.key_id.clone();
         let module_trust = self
@@ -335,6 +353,7 @@ impl BucketStore {
                 git: Some(git.into()),
                 zip: None,
                 module_trust,
+                mirrors: Some(mirrors),
             },
         )
     }
@@ -350,34 +369,6 @@ impl BucketStore {
         bounded_json(&self.root.join("registrations").join(format!("{name}.json")))
     }
 
-    /// Atomically replace one bucket registration file.
-    pub(super) fn write_registration(&self, name: &str, registration: &Registration) -> Result<()> {
-        self.check_registry_root()?;
-        let dir = self.root.join("registrations");
-        if let Ok(meta) = fs::symlink_metadata(&dir) {
-            if !meta.is_dir() || meta.file_type().is_symlink() {
-                bail!("unsafe bucket registry");
-            }
-        }
-        fs::create_dir_all(&dir)?;
-        let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        serde_json::to_writer(&mut temp, registration)?;
-        temp.as_file().sync_all()?;
-        temp.persist(dir.join(format!("{name}.json")))?;
-        Ok(())
-    }
-
-    pub(super) fn registered_git(&self, name: &str) -> Result<Option<super::GitCatalogRevision>> {
-        if !self.registrations()?.contains_key(name) {
-            return Ok(None);
-        }
-        let registration: Registration =
-            bounded_json(&self.root.join("registrations").join(format!("{name}.json")))?;
-        registration
-            .revision(name)?
-            .context("bucket is not a Git catalog")
-            .map(Some)
-    }
     /// Forget a registered bucket without touching its source or game files.
     pub fn remove(&self, name: &str) -> Result<()> {
         if !valid_id(name) || name == "main" {
@@ -409,6 +400,8 @@ impl BucketStore {
             let mut info = self.load(&id, &registration.path, trust)?.0;
             info.signer_key_id = signer_key_id;
             info.source_kind = source_kind;
+            info.primary = super::mirrors::registration_primary(&registration);
+            info.mirrors = super::mirrors::registration_mirrors(&registration);
             all.push(info);
         }
         Ok(all)
