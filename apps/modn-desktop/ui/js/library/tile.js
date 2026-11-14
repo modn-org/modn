@@ -1,18 +1,26 @@
 import { history, installMod, planInstall, undo, uninstall, update } from '../api.js';
 import { createOperationButton } from '../op-button.js';
 import { element, detailsHref, initials } from './dom.js';
+import { operationMatches } from './undo-target.js';
 
 /**
- * Shared Undo plumbing: the newest history entry of the game, and the undo
- * command itself. Every operation button uses the same flow.
+ * Shared Undo plumbing: the history entry that matches the finished operation,
+ * and the undo command itself. Every operation button uses the same flow.
  * @param {string} gameId
- * @returns {{newestOperation: () => Promise<Object|null>, runUndo: Function}}
+ * @returns {{newestOperation: (match?: Object) => Promise<Object|null>, runUndo: Function}}
  */
 export function undoHooks(gameId) {
   return {
-    async newestOperation() {
+    async newestOperation(match) {
       const entries = await history({ gameId });
-      return entries.length > 0 ? entries[0] : null;
+      if (!Array.isArray(entries)) {
+        return null;
+      }
+      const target = {
+        packageIds: match && Array.isArray(match.packageIds) ? match.packageIds : [],
+        modIds: match && Array.isArray(match.modIds) ? match.modIds : [],
+      };
+      return entries.find((entry) => operationMatches(entry, target)) || null;
     },
     runUndo: ({ runId, operationId }) => undo({ operationId, runId }),
   };

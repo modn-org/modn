@@ -1,12 +1,9 @@
 import { cancelRun, newRunId, onProgress } from './api.js';
+import { operationIdOf } from './library/undo-target.js';
 import { messageFor } from './messages.js';
 import { showToast } from './toast.js';
 
-/**
- * Codes that describe a blocked plan. The button shows the short reason and
- * stays disabled instead of opening a confirmation.
- * @type {Set<string>}
- */
+/** Codes that describe a blocked plan: the button shows the reason instead. */
 const BLOCKED_CODES = new Set([
   'PLAN_BLOCKED',
   'CONFLICT',
@@ -24,10 +21,7 @@ const BLOCKED_CODES = new Set([
 
 const NO_APPROVAL = { native: false, executables: [] };
 
-/**
- * @param {unknown} error
- * @returns {string}
- */
+/** @param {unknown} error @returns {string} */
 function codeOf(error) {
   if (error && typeof error === 'object') {
     const value = error.code ?? error.error;
@@ -36,11 +30,7 @@ function codeOf(error) {
   return typeof error === 'string' ? error : '';
 }
 
-/**
- * Finds approval details on a refusal or an install plan.
- * @param {unknown} value
- * @returns {{native_injector?: boolean, executables?: string[]}|null}
- */
+/** Finds approval details on a refusal or an install plan. */
 function uncoveredIn(value) {
   if (!value || typeof value !== 'object') {
     return null;
@@ -57,9 +47,8 @@ function uncoveredIn(value) {
 }
 
 /**
- * Reads the exact items a refusal names, or falls back to the read-only
- * install plan when the refusal carried no details. The CLI stores an approval
- * only after a committed write, so a declined ask never passes these.
+ * Reads the items a refusal names, or falls back to the read-only install
+ * plan. The CLI stores an approval only after a committed write.
  * @param {unknown} error
  * @param {string} code
  * @param {(() => Promise<Object|null>)|null} plan
@@ -83,11 +72,7 @@ async function approvalsFrom(error, code, plan) {
   return { native, executables };
 }
 
-/**
- * Shows a toast whose action is labelled Undo and carries the verifier hook.
- * @param {string} message
- * @param {() => void} onUndo
- */
+/** Shows a toast whose action is labelled Undo and carries the verifier hook. */
 function showUndoToast(message, onUndo) {
   showToast(message, { actionLabel: 'Undo', onAction: onUndo });
   const host = document.getElementById('modn-toasts');
@@ -99,13 +84,7 @@ function showUndoToast(message, onUndo) {
   }
 }
 
-/**
- * Renders the one-time native-code ask inside the given host.
- * @param {HTMLElement} host
- * @param {string} question
- * @param {() => void} onAllow
- * @param {() => void} onDecline
- */
+/** Renders the one-time native-code ask inside the given host. */
 function renderAsk(host, question, onAllow, onDecline) {
   host.replaceChildren();
   const ask = document.createElement('div');
@@ -153,7 +132,7 @@ function renderAsk(host, question, onAllow, onDecline) {
  *   prepare?: () => Promise<Object|null>,
  *   plan?: () => Promise<Object|null>,
  *   askHost?: HTMLElement|null,
- *   newestOperation?: () => Promise<{id: string}|null>,
+ *   newestOperation?: (match: Object) => Promise<{id: string}|null>,
  *   runUndo?: (args: {runId: string, operationId: string}) => Promise<unknown>,
  *   onSettled?: () => void|Promise<void>,
  *   onError?: (message: string) => void,
@@ -271,25 +250,19 @@ export function createOperationButton(options) {
     }
   }
 
-  async function undoLatest() {
-    if (!newestOperation || !runUndo || runId) {
-      return;
-    }
-    let newest = null;
-    try {
-      newest = await newestOperation();
-    } catch (error) {
-      showToast(messageFor(error));
-      return;
-    }
-    if (!newest || typeof newest.id !== 'string') {
+  /**
+   * Reverses one committed operation by the ID its toast bound.
+   * @param {string} operationId
+   */
+  async function undoLatest(operationId) {
+    if (!runUndo || runId || !operationId) {
       return;
     }
     await start({
       run: runUndo,
       label: 'Undo',
       action: 'Undo',
-      operationId: newest.id,
+      operationId,
       params: {},
       approvals: { ...NO_APPROVAL },
     });
@@ -308,39 +281,49 @@ export function createOperationButton(options) {
       actionLabel: overrides.action || action,
       operationId: overrides.operationId,
     };
-    let params = overrides.params;
-    if (params === undefined) {
-      if (prepare) {
-        try {
-          params = await prepare();
-        } catch (error) {
-          showToast(messageFor(error));
-          return;
-        }
-        if (params === null || destroyed) {
-          return;
-        }
-      } else {
-        params = {};
-      }
-    }
-    if (destroyed) {
-      return;
-    }
-    lastParams = params;
-    approvals = overrides.approvals ? { ...overrides.approvals } : { ...NO_APPROVAL };
     const id = newRunId();
     const generationAtStart = ++generation;
     runId = id;
     button.dataset.state = 'running';
-    button.disabled = false;
-    button.textContent = 'Cancel';
+    button.disabled = true;
+    button.textContent = 'Preparing…';
+    button.setAttribute('aria-label', `Preparing ${active.idleLabel}`);
     progress.hidden = false;
     setProgress(0);
-    button.setAttribute('aria-label', `Cancel ${active.idleLabel}`);
     try {
-      unlisten = await onProgress(id, (event) => handleEvent(id, event));
-      await active.run({
+      let params = overrides.params;
+      if (params === undefined) {
+        if (!prepare) {
+          params = {};
+        } else {
+          params = await prepare();
+          if (generationAtStart !== generation || destroyed) {
+            return;
+          }
+          if (params === null) {
+            setIdle(active.idleLabel);
+            return;
+          }
+        }
+      }
+      lastParams = params;
+      approvals = overrides.approvals ? { ...overrides.approvals } : { ...NO_APPROVAL };
+      button.disabled = false;
+      button.textContent = 'Cancel';
+      button.setAttribute('aria-label', `Cancel ${active.idleLabel}`);
+      const off = await onProgress(id, (event) => handleEvent(id, event));
+      if (generationAtStart !== generation || destroyed) {
+        if (typeof off === 'function') {
+          try {
+            off();
+          } catch {
+            // The event listener is already gone.
+          }
+        }
+        return;
+      }
+      unlisten = off;
+      const result = await active.run({
         runId: id,
         params,
         approvals: { ...approvals },
@@ -349,10 +332,18 @@ export function createOperationButton(options) {
       if (generationAtStart !== generation || destroyed) {
         return;
       }
+      const committedId = await operationIdOf(result, newestOperation);
+      if (generationAtStart !== generation || destroyed) {
+        return;
+      }
       setIdle(active.idleLabel);
-      showUndoToast(`${active.actionLabel} done`, () => {
-        void undoLatest();
-      });
+      if (committedId) {
+        showUndoToast(`${active.actionLabel} done`, () => {
+          void undoLatest(committedId);
+        });
+      } else {
+        showToast(`${active.actionLabel} done`);
+      }
       if (onSettled) {
         await onSettled();
       }
@@ -364,6 +355,12 @@ export function createOperationButton(options) {
       if (code === 'CANCELLED') {
         setIdle(active.idleLabel);
         showToast('Cancelled. Nothing changed.');
+        if (onSettled) {
+          await onSettled();
+        }
+      } else if (code === 'BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT') {
+        setIdle(active.idleLabel);
+        showToast(messageFor(code));
         if (onSettled) {
           await onSettled();
         }
@@ -450,6 +447,7 @@ export function createOperationButton(options) {
     },
     destroy() {
       destroyed = true;
+      generation += 1;
       runId = null;
       if (unlisten) {
         try {
