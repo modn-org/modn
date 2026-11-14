@@ -13,9 +13,8 @@ repository's v2 packer and signed with an ephemeral test key. **Precondition
 for a Modn release:** `modn-org/main` must publish a contract v2 bucket, and
 this repository must pin that commit. The submodule still points at contract
 v1 today. A Modn release and the restructured, signed `modn-org/main` release
-ship together. Only
-then does the workflow publish the GitHub release with `modn.exe`, its checksum
-and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
+ship together. Only then does the workflow publish the GitHub release with
+`modn.exe`, its checksum and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
 must include `main-bucket.zip.minisig`. The bucket repository's tag release signs
 the v2 catalog with the key built into Modn; `v2026.11.08` was the first signed
 v1 bucket release. A version with a pre-release
