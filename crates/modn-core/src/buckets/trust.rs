@@ -108,10 +108,15 @@ impl BucketStore {
             LOCK_WAIT,
         )?;
         let registration = self.registration(name)?;
-        let Some(revision) = registration.revision(name)? else {
-            bail!("{}", local_bucket_module_refusal(name));
+        let signer = if let Some(zip) = &registration.zip {
+            zip.signer.clone()
+        } else {
+            let Some(revision) = registration.revision(name)? else {
+                bail!("{}", local_bucket_module_refusal(name));
+            };
+            revision.signer
         };
-        let key_id = revision.signer.key_id;
+        let key_id = signer.key_id.clone();
         match ack {
             ModuleTrustAck::NotAcknowledged => bail!(
                 "trusting modules from bucket {name} runs publisher code; acknowledgement is required for signer {key_id}"
@@ -126,7 +131,7 @@ impl BucketStore {
                 }
             }
         }
-        let key = CatalogPublicKey::parse(&revision.signer.public_key)
+        let key = CatalogPublicKey::parse(&signer.public_key)
             .context("pinned catalog signer is invalid")?;
         if key.key_id().to_string() != key_id {
             bail!("pinned catalog signer key ID does not match its public key");
@@ -181,7 +186,7 @@ impl BucketStore {
             LOCK_WAIT,
         )?;
         let registration = self.registration(name)?;
-        if registration.git.is_none() {
+        if registration.git.is_none() && registration.zip.is_none() {
             bail!("{}", local_bucket_module_refusal(name));
         }
         if registration.module_trust.is_none() {
@@ -205,14 +210,15 @@ impl BucketStore {
             bail!("invalid bucket name");
         }
         let registration = self.registration(name)?;
-        let Some(git) = registration.git else {
+        if registration.git.is_none() && registration.zip.is_none() {
             return Ok(ModuleTrustState::Local);
-        };
-        let Some(signer) = git.signer else {
+        }
+        let Some(signer) = registration.catalog_signer() else {
             return Ok(ModuleTrustState::Untrusted);
         };
         let trusted = registration
             .module_trust
+            .as_ref()
             .is_some_and(|trust| trust.signer_key_id == signer.key_id);
         Ok(if trusted {
             ModuleTrustState::Trusted
@@ -237,19 +243,16 @@ impl BucketStore {
     pub fn trusted_module_sources(&self) -> Result<Vec<TrustedModuleSource>> {
         let mut sources = Vec::new();
         for (bucket, registration) in self.registrations()? {
-            let Some(trust) = registration.module_trust else {
+            let Some(trust) = &registration.module_trust else {
                 continue;
             };
-            let Some(git) = registration.git else {
-                continue;
-            };
-            let Some(signer) = git.signer else {
+            let Some(signer) = registration.catalog_signer() else {
                 continue;
             };
             if trust.signer_key_id == signer.key_id {
                 sources.push(TrustedModuleSource {
                     bucket,
-                    signer_key_id: signer.key_id,
+                    signer_key_id: signer.key_id.clone(),
                 });
             }
         }

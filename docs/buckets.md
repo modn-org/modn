@@ -15,18 +15,38 @@ A module whose `api_version` this Modn does not support makes the whole update
 fail. `main` is always a trusted module source, and only `main` can be updated
 with this command. The bucket has its own release cycle, so a catalog change
 needs no Modn release.
-Modn refreshes the copy only when requested. Signed Git catalogs can also supply
+Modn refreshes the copy only when requested. Signed Git and ZIP catalogs can also supply
 game modules after the user trusts them. See [module sources and trust](#module-sources-and-trust).
-Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
+Explicit Git-backed and ZIP-backed community catalog sync is available; see [sources.md](sources.md).
 
 `modn update` with no target refreshes the official bucket and every registered
-Git catalog in one run. It uses the same signed-release path as
+Git or ZIP catalog in one run. It uses the same signed-release path as
 `modn bucket update` and the same pinned-signer sync as
 `modn bucket sync <name>`. Local folder buckets are skipped, because they have
 nothing to fetch. One failing catalog does not stop the others; the command
 reports each bucket and exits nonzero when any failed. It never writes game
 files or install state. `modn update <target>` still replaces one installed
 catalog mod.
+### Community catalog sources
+`modn bucket sync <name> --source <remote> --revision <reference>` registers a
+Git catalog. `modn bucket sync <name> --source <url>.zip` registers a catalog
+from a signed ZIP. The ZIP root holds the same files as a Git catalog:
+`bucket.json`, `mods/`, optional `games/`, `catalog.sig` and `catalog.pub`.
+The source must be an `https://` URL, or an absolute local ZIP path for offline
+testing. Modn refuses a plain `http://` source before any network call.
+Modn streams the body to a temporary file in staging and caps it at 256 MiB. It
+inspects the archive and refuses traversal, absolute, backslash, symbolic-link,
+duplicate and case-colliding entries. It also refuses more than 20,000 entries,
+an entry above 64 MiB, more than 1 GiB uncompressed in total, and an expansion
+ratio above 200. It extracts only inside staging, verifies the signature and
+then validates the contract v2 layout with the same validator as Git sync.
+The first sync pins the signer from `catalog.pub` and prints its fingerprint.
+Every later sync verifies with the pinned key only and refuses a different
+signer. `--revision` is refused with a ZIP source.
+A failed download, an invalid signature or invalid contents keep the previous
+registration and catalog files byte for byte and remove staging.
+`modn bucket list --json` reports `source_kind` as `git` or `zip` for a
+registered catalog. It keeps the existing keys.
 
 ### Main catalog signature
 
@@ -92,10 +112,10 @@ at its root. A `main` release also uploads the same signature as
 
 ## Module sources and trust
 
-`main` is always a trusted module source. Only a signed Git catalog can become
+`main` is always a trusted module source. Only a signed catalog can become
 another trusted module source. Local folder buckets cannot be module sources.
 An attempt to trust one is refused with an error that names the bucket and
-states that only `main` and the signed Git catalogs the user trusts for modules
+states that only `main` and the signed catalogs the user trusts for modules
 supply game modules.
 
 ```sh
@@ -104,7 +124,7 @@ modn bucket trust-modules community --fingerprint 0E250AD52A3BA2AA --yes
 modn bucket untrust-modules community
 ```
 
-`bucket trust-modules` needs a registered signed Git catalog. It prints the
+`bucket trust-modules` needs a registered signed catalog. It prints the
 pinned signer key ID and refuses without `--yes`. The refusal names the key and
 the `--yes` flag. An optional `--fingerprint <KEY_ID>` must equal the pinned
 signer key ID; a mismatch writes nothing.
@@ -125,7 +145,7 @@ reports no ignored modules. The modules are refused when a module is used. A
 catalog module for a game that `main` provides is ignored with the reason
 `official_priority`.
 
-Only `main` and the signed Git catalogs that the user trusts for modules may
+Only `main` and the signed catalogs that the user trusts for modules may
 contain `games/<game-id>/module.json` and `module.lua`. Those folders may hold
 nothing else. A package manifest or any other entry under `games/` is refused.
 A local folder bucket cannot contain game modules, and `modules/` directories
@@ -184,7 +204,7 @@ Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. A local folder bucket needs no signature, because
 it holds your own files. `catalog.sig` and `catalog.pub` serve distributed
 catalogs. A local folder bucket cannot contain game modules, and `modules/`
-directories are unsupported. Only `main` and a signed Git catalog the user
+directories are unsupported. Only `main` and a signed catalog the user
 trusts for modules may contain modules at `games/<game-id>/module.json` and
 `module.lua`. See
 [bucket contract v2](../buckets/README.md).

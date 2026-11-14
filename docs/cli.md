@@ -106,7 +106,7 @@ operation as it does without one. Close stdin when no cancellation is wanted.
 
 `modn update` without a target refreshes every catalog and changes no game
 files or install state. It first refreshes the official `main` bucket exactly as
-`modn bucket update` does. Then it syncs each registered Git catalog to the
+`modn bucket update` does. Then it syncs each registered Git or ZIP catalog to the
 latest revision of its registered source, exactly as `modn bucket sync <name>`
 does, and verifies the signature against the pinned signer. Local folder
 buckets are skipped because they have nothing to fetch.
@@ -539,6 +539,7 @@ otherwise the command's default code is used. No command reports a generic
 
 - `modn scan --path <game>` and `modn doctor --path <game>` read the game root and an API 2 module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
 - `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key, and later syncs refuse a key change. See [sources.md](sources.md).
+- `modn bucket sync <name> --source <url>.zip` registers a signed ZIP catalog. Modn verifies it in staging before publication, and `--revision` is refused. The source must be `https://`, or an absolute local ZIP path for offline testing. See [buckets.md](buckets.md#community-catalog-sources).
 - `modn adopt <archive> --dry-run` previews manual adoption. Commit requires `--acknowledge --yes`.
 - `modn uninstall <package> --force --yes` approves cleanup of modified owned files.
 

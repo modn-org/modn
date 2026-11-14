@@ -28,9 +28,12 @@ pub struct BucketInfo {
     pub title: String,
     /// Directory of the read-only catalog source.
     pub path: Option<PathBuf>,
-    /// Pinned Git catalog signer key identifier, when the bucket is Git-backed.
+    /// Pinned catalog signer key identifier, when the bucket is a signed catalog.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signer_key_id: Option<String>,
+    /// `git` or `zip` for a registered catalog; omitted for other buckets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<String>,
     /// True when this bucket may supply executable game modules.
     pub module_trusted: bool,
 }
@@ -62,6 +65,8 @@ pub(super) struct Registration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) git: Option<super::git::StoredGitCatalogRevision>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) zip: Option<super::zip_source::StoredZipCatalogRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) module_trust: Option<super::trust::ModuleSourceTrust>,
 }
 
@@ -71,6 +76,13 @@ impl Registration {
             .clone()
             .map(|stored| stored.revision(name))
             .transpose()
+    }
+
+    pub(super) fn catalog_signer(&self) -> Option<&super::CatalogSigner> {
+        self.zip
+            .as_ref()
+            .map(|zip| &zip.signer)
+            .or_else(|| self.git.as_ref().and_then(|git| git.signer.as_ref()))
     }
 }
 
@@ -105,10 +117,10 @@ impl BucketStore {
 
     /// Trust state stored in one registration.
     pub(super) fn stored_module_trust(registration: &Registration) -> ModuleTrustState {
-        let Some(git) = &registration.git else {
+        if registration.git.is_none() && registration.zip.is_none() {
             return ModuleTrustState::Local;
-        };
-        let Some(signer) = &git.signer else {
+        }
+        let Some(signer) = registration.catalog_signer() else {
             return ModuleTrustState::Untrusted;
         };
         let trusted = registration
@@ -209,6 +221,7 @@ impl BucketStore {
                 title: metadata.title,
                 path: Some(path.to_path_buf()),
                 signer_key_id: None,
+                source_kind: None,
                 module_trusted: matches!(trust, ModuleTrustState::Main | ModuleTrustState::Trusted),
             },
             packages,
@@ -231,6 +244,16 @@ impl BucketStore {
 
     pub(super) fn validate_main(&self, path: &Path) -> Result<()> {
         self.load("main", path, ModuleTrustState::Main)?;
+        Ok(())
+    }
+    /// Validate one staged community catalog before publication.
+    pub(super) fn validate_catalog(
+        &self,
+        name: &str,
+        path: &Path,
+        trust: ModuleTrustState,
+    ) -> Result<()> {
+        self.load(name, path, trust)?;
         Ok(())
     }
 
@@ -277,6 +300,7 @@ impl BucketStore {
             &Registration {
                 path,
                 git: None,
+                zip: None,
                 module_trust: None,
             },
         )?;
@@ -309,6 +333,7 @@ impl BucketStore {
             &Registration {
                 path,
                 git: Some(git.into()),
+                zip: None,
                 module_trust,
             },
         )
@@ -350,10 +375,9 @@ impl BucketStore {
             bounded_json(&self.root.join("registrations").join(format!("{name}.json")))?;
         registration
             .revision(name)?
-            .context("bucket is a local source, not a Git catalog")
+            .context("bucket is not a Git catalog")
             .map(Some)
     }
-
     /// Forget a registered bucket without touching its source or game files.
     pub fn remove(&self, name: &str) -> Result<()> {
         if !valid_id(name) || name == "main" {
@@ -373,9 +397,18 @@ impl BucketStore {
         for (id, registration) in self.registrations()? {
             let revision = registration.revision(&id)?;
             let trust = Self::stored_module_trust(&registration);
-            let signer_key_id = revision.map(|revision| revision.signer.key_id);
+            let signer_key_id = match registration.zip.as_ref() {
+                Some(zip) => Some(zip.signer.key_id.clone()),
+                None => revision.map(|revision| revision.signer.key_id),
+            };
+            let source_kind = match (&registration.git, &registration.zip) {
+                (Some(_), None) => Some("git".to_owned()),
+                (None, Some(_)) => Some("zip".to_owned()),
+                _ => None,
+            };
             let mut info = self.load(&id, &registration.path, trust)?.0;
             info.signer_key_id = signer_key_id;
+            info.source_kind = source_kind;
             all.push(info);
         }
         Ok(all)

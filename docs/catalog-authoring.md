@@ -1,7 +1,7 @@
 # Publishing a signed catalog
 
 A catalog is a directory that lists mod packages for Modn users.
-A distributed catalog is signed. Modn refuses an unsigned Git catalog.
+A distributed catalog is signed. Modn refuses an unsigned catalog.
 This page shows how to create a signing key, sign the catalog, verify it and
 publish it. It also shows how to host the archives that the catalog lists.
 
@@ -176,6 +176,25 @@ A revision that names another key is refused. Modn has no key rotation yet
 Git must be installed. The repository may be public or reachable by the user's
 Git credentials.
 
+## Host the catalog as a ZIP
+A static web server or object store can host a signed catalog as one ZIP file.
+Zip the signed catalog directory itself, so the ZIP root holds `bucket.json`,
+`mods/`, optional `games/`, `catalog.sig` and `catalog.pub`. Do not add a
+top-level folder around the catalog files.
+Upload the ZIP and publish its HTTPS URL. A user then registers the catalog once:
+```sh
+modn bucket sync community --source https://example.org/catalog.zip
+```
+The source must end in `.zip`. Modn downloads the ZIP, verifies the signature and
+publishes it with the same validation as a Git catalog. The first sync prints
+the pinned fingerprint. Later syncs verify with the pinned key only.
+`--revision` is refused with a ZIP source, because a ZIP has no Git revision.
+Re-sign and upload the ZIP again after every catalog change. Keep the same URL so
+users refresh it with `modn update`. Host mod archives at separate URLs; the
+catalog ZIP holds records, not archives.
+A plain `http://` URL is refused. An absolute local ZIP path also works, for
+offline testing.
+
 ## Host archives at stable HTTPS URLs
 
 Serve each archive at an HTTPS URL that keeps its bytes for as long as the record
@@ -212,7 +231,6 @@ A user checks the release with `modn bucket sync community` and
 
 These capabilities are planned and not available:
 
-- an HTTPS ZIP catalog source that users download without Git (#119);
 - mirrors and catalog relocation (#120);
 - signer key rotation and offline revocation (#122).
 

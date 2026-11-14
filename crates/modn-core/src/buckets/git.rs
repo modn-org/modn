@@ -35,14 +35,14 @@ pub struct CatalogSigner {
 }
 
 impl CatalogSigner {
-    fn pin(key: &CatalogPublicKey, text: String) -> Self {
+    pub(super) fn pin(key: &CatalogPublicKey, text: String) -> Self {
         Self {
             key_id: key.key_id().to_string(),
             public_key: text,
         }
     }
 
-    fn pinned_key(&self) -> Result<CatalogPublicKey> {
+    pub(super) fn pinned_key(&self) -> Result<CatalogPublicKey> {
         let key = CatalogPublicKey::parse(&self.public_key)
             .context("pinned catalog signer is invalid")?;
         if key.key_id().to_string() != self.key_id {
@@ -125,12 +125,12 @@ fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
     )
 }
 
-fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Result<()> {
+pub(super) fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Result<()> {
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         let kind = entry.file_type()?;
         if kind.is_symlink() || (!kind.is_dir() && !kind.is_file()) {
-            bail!("Git catalog contains a non-regular entry");
+            bail!("catalog contains a non-regular entry");
         }
         let relative = entry.path();
         let relative = relative
@@ -169,8 +169,8 @@ fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Resu
     Ok(())
 }
 
-fn unsigned(name: &str, reference: &str) -> anyhow::Error {
-    anyhow!("Git catalog {name} at {reference} is unsigned; Modn refuses unsigned catalogs.")
+fn unsigned(label: &str) -> anyhow::Error {
+    anyhow!("{label} is unsigned; Modn refuses unsigned catalogs.")
 }
 
 fn has_signature(root: &Path) -> Result<bool> {
@@ -203,23 +203,27 @@ fn read_public_key(root: &Path) -> Result<Option<(CatalogPublicKey, String)>> {
     Ok(Some((key, text)))
 }
 
-fn verify_revision(
+/// Verify one staged catalog tree and return the signer to publish.
+///
+/// The first sync pins the key from `catalog.pub`. A later sync verifies with
+/// the pinned key only and refuses a different `catalog.pub`.
+pub(super) fn verify_catalog_tree(
     root: &Path,
     name: &str,
-    reference: &str,
-    previous: Option<&GitCatalogRevision>,
+    label: &str,
+    previous: Option<&CatalogSigner>,
 ) -> Result<CatalogSigner> {
     if !has_signature(root)? {
-        return Err(unsigned(name, reference));
+        return Err(unsigned(label));
     }
     let Some(previous) = previous else {
         let Some((key, text)) = read_public_key(root)? else {
-            return Err(unsigned(name, reference));
+            return Err(unsigned(label));
         };
         verify_catalog_directory(root, &key)?;
         return Ok(CatalogSigner::pin(&key, text));
     };
-    let pinned = previous.signer.pinned_key()?;
+    let pinned = previous.pinned_key()?;
     if let Some((present, _)) = read_public_key(root)? {
         if present.key_id() != pinned.key_id() {
             bail!(
@@ -230,7 +234,20 @@ fn verify_revision(
         }
     }
     verify_catalog_directory(root, &pinned)?;
-    Ok(previous.signer.clone())
+    Ok(previous.clone())
+}
+fn verify_revision(
+    root: &Path,
+    name: &str,
+    reference: &str,
+    previous: Option<&GitCatalogRevision>,
+) -> Result<CatalogSigner> {
+    verify_catalog_tree(
+        root,
+        name,
+        &format!("Git catalog {name} at {reference}"),
+        previous.map(|revision| &revision.signer),
+    )
 }
 
 impl GitCatalogSource {

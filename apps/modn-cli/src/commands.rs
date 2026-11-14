@@ -216,12 +216,12 @@ pub(super) enum CacheCommand {
 
 #[derive(Subcommand)]
 pub(super) enum BucketCommand {
-    /// Explicitly fetch and validate a community Git catalog snapshot.
+    /// Explicitly fetch and validate a community catalog snapshot.
     Sync {
         name: String,
-        #[arg(long, requires = "revision")]
+        #[arg(long)]
         source: Option<String>,
-        #[arg(long, requires = "source")]
+        #[arg(long)]
         revision: Option<String>,
     },
     /// Download, verify and replace the official main bucket.
