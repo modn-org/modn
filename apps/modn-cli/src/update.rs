@@ -226,7 +226,7 @@ pub(super) fn run(
     }
     let installed_version = installed_versions
         .iter()
-        .find(|(sha256, _)| *sha256 == old.archive_blake3)
+        .find(|(archive_blake3, _)| *archive_blake3 == old.archive_blake3)
         .map(|(_, version)| version.as_str());
     let mut blockers = Vec::new();
     if let Err(error) = catalog.install_order(&target) {
