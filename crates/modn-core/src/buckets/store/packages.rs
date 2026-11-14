@@ -1,7 +1,6 @@
-use super::bounded_json;
+use super::{bounded_json, MODULE_MANIFEST, MODULE_SCRIPT};
 use crate::buckets::manifest::{valid_id, PackageManifest};
 use crate::buckets::trust::ModuleTrustState;
-use crate::buckets::{MODULE_MANIFEST, MODULE_SCRIPT};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;

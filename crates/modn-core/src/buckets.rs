@@ -9,11 +9,6 @@ mod trust;
 mod update;
 mod version;
 
-/// Path constant for one module manifest inside `games/<game>/`.
-pub(crate) const MODULE_MANIFEST: &str = "module.json";
-/// Path constant for one module script inside `games/<game>/`.
-pub(crate) const MODULE_SCRIPT: &str = "module.lua";
-
 pub use crate::bucket_digest::CatalogDigest;
 pub use crate::game_modules::{CatalogModuleReport, IgnoredModule, ModuleIgnoreReason};
 pub use dependencies::install_order;

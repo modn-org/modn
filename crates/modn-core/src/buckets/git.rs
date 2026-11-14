@@ -1,8 +1,8 @@
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
+use super::store::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use super::trust::ModuleTrustState;
-use super::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use crate::game_modules::{stage_catalog_modules_at, CatalogModuleReport};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};

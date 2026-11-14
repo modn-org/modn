@@ -12,6 +12,10 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 const MAX_JSON: u64 = 32 * 1024;
+/// Path constant for one module manifest inside `games/<game>/`.
+pub(super) const MODULE_MANIFEST: &str = "module.json";
+/// Path constant for one module script inside `games/<game>/`.
+pub(super) const MODULE_SCRIPT: &str = "module.lua";
 
 #[expect(
     missing_docs,
@@ -241,7 +245,7 @@ impl BucketStore {
             .context("main bucket path missing")?
             .join("games")
             .join(game);
-        if !path.join(super::MODULE_MANIFEST).is_file() {
+        if !path.join(MODULE_MANIFEST).is_file() {
             bail!(
                 "no first-party game module for {game}; expected {}",
                 path.display()
@@ -384,7 +388,7 @@ impl BucketStore {
         let mut ids = Vec::new();
         for entry in fs::read_dir(games)? {
             let entry = entry?;
-            if entry.path().join(super::MODULE_MANIFEST).is_file() {
+            if entry.path().join(MODULE_MANIFEST).is_file() {
                 ids.push(entry.file_name().to_string_lossy().into_owned());
             }
         }
