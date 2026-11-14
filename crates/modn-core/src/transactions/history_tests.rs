@@ -6,7 +6,7 @@ use crate::buckets::PackageSource;
 use crate::history::{HistoryContext, HistoryKind};
 use crate::progress::{CancellationToken, OperationControl};
 use sha2::{Digest, Sha256};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
