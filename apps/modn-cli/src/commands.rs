@@ -54,6 +54,11 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: BucketCommand,
     },
+    /// Create a signing key pair, sign a catalog, verify one or pin an archive.
+    Catalog {
+        #[command(subcommand)]
+        command: CatalogCommand,
+    },
     /// List manager-owned packages (unmanaged mods are never included).
     List {
         #[arg(long)]
@@ -239,6 +244,46 @@ pub(super) enum BucketCommand {
     List,
     /// Inspect one exact bucket/game/package reference.
     Show { package: String },
+}
+
+#[derive(Subcommand)]
+pub(super) enum CatalogCommand {
+    /// Create a minisign key pair that signs catalogs.
+    Keygen {
+        /// Directory that receives <name>.key and <name>.pub.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        out: PathBuf,
+        /// Base name of the key files.
+        #[arg(long, default_value = "catalog")]
+        name: String,
+        /// Environment variable that holds the password of the secret key.
+        #[arg(long, value_name = "VAR")]
+        password_env: Option<String>,
+    },
+    /// Write catalog.sig and catalog.pub for a catalog directory.
+    Sign {
+        /// Catalog directory to sign.
+        dir: PathBuf,
+        /// Secret key file that `modn catalog keygen` wrote.
+        #[arg(long, value_name = "FILE")]
+        key: PathBuf,
+        /// Environment variable that holds the password of the secret key.
+        #[arg(long, value_name = "VAR")]
+        password_env: Option<String>,
+    },
+    /// Verify a catalog against a public key without registering it.
+    Verify {
+        /// Catalog directory to verify.
+        dir: PathBuf,
+        /// Public key file, such as the catalog's own catalog.pub.
+        #[arg(long, value_name = "FILE")]
+        key: PathBuf,
+    },
+    /// Print the BLAKE3 pin of an archive for its package record.
+    Hash {
+        /// Archive file, such as a ZIP.
+        archive: PathBuf,
+    },
 }
 
 /// Options shared by catalog and standalone archive installation.
