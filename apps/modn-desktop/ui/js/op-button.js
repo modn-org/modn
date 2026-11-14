@@ -144,6 +144,7 @@ function renderAsk(host, question, onAllow, onDecline) {
  *   newestOperation?: (match: Object) => Promise<{id: string}|null>,
  *   runUndo?: (args: {runId: string, operationId: string,
  *     approvals: {native: boolean, executables: string[]}}) => Promise<unknown>,
+ *   launchUndo?: ((operationId: string) => void)|null,
  *   onSettled?: () => void|Promise<void>,
  *   onError?: (message: string) => void,
  *   testId?: string,
@@ -169,6 +170,7 @@ export function createOperationButton(options) {
     askHost = null,
     newestOperation = null,
     runUndo = null,
+    launchUndo = null,
     onSettled = null,
     onError = null,
     testId = 'op-button',
@@ -349,7 +351,11 @@ export function createOperationButton(options) {
       setIdle(active.idleLabel);
       if (committedId) {
         showUndoToast(`${active.actionLabel} done`, () => {
-          void undoLatest(committedId);
+          if (launchUndo) {
+            launchUndo(committedId);
+          } else {
+            void undoLatest(committedId);
+          }
         });
       } else {
         showToast(`${active.actionLabel} done`);
