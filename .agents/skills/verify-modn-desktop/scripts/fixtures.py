@@ -158,11 +158,13 @@ class Fixture:
         require(result.returncode == 0, f"game add failed: {result.stderr}")
         return result
 
-    def zip(self, name, files):
+    def zip(self, name, files, comment=None):
         path = self.archives / name
         with zipfile.ZipFile(path, "w") as archive:
             for inner, content in files.items():
                 archive.writestr(inner, content)
+            if comment is not None:
+                archive.comment = comment.encode() if isinstance(comment, str) else comment
         return path
 
     def remove(self):

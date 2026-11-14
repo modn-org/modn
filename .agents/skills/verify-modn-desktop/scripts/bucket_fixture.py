@@ -52,7 +52,7 @@ def write_bucket(root, name, title, modules=None, packages=None):
         source = Path(source)
         if not source.is_dir():
             raise AssertionError(f"Missing module fixture {source}")
-        shutil.copytree(source, root / "games" / game)
+        shutil.copytree(source, root / "games" / game, dirs_exist_ok=True)
     for game, file_name, record in (packages or PACKAGES):
         folder = root / "mods" / game
         folder.mkdir(parents=True, exist_ok=True)

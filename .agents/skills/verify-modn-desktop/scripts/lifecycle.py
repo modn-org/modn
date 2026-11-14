@@ -4,16 +4,14 @@ The module is imported by `verify.py`. It imports `harness` back only inside a
 journey, after that module has finished loading, to reuse the app driver.
 """
 
-import hashlib
 import json
 import re
 import time
-from pathlib import Path
 
 import uia
-from fixtures import Fixture, run, snapshot, write
+from catalog_fixture import add_catalog_release
+from fixtures import Fixture, snapshot
 
-REPO = Path(__file__).resolve().parents[4]
 GAME_ID = "balatro"
 PICKER_TITLE = "Choose a local ZIP or 7z archive"
 ARCHIVE_NAME = "demo-pack.zip"
@@ -168,36 +166,11 @@ def _expand_details(session):
     uia.auto.Click(*_center(control))
 
 
-def publish(fx, bucket, files, *, version="1.0.0", native=False, name="Fixture Pack", archive=None):
-    """Adds one synthetic catalog release and its verified cache entry."""
-    mod_id = name.lower().replace(" ", "-")
-    archive = archive or fx.zip(f"{mod_id}-{version}.zip", files)
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    url = f"https://fixture.invalid/{mod_id}-{version}.zip"
-    manifest = {
-        "schema_version": 1,
-        "id": mod_id,
-        "game": "balatro",
-        "name": name,
-        "version": version,
-        "archive_format": "zip",
-        "sha256": digest,
-        "source": {"kind": "https", "url": url},
-        "native_injector": native,
-    }
-    write(bucket / "games" / "balatro" / f"{mod_id}.json", json.dumps(manifest))
-    url_hash = hashlib.sha256(url.encode()).hexdigest()[:7]
-    cache = fx.root / "cache"
-    cache.mkdir(exist_ok=True)
-    (cache / f"balatro#{mod_id}#{version}#{url_hash}.zip").write_bytes(archive.read_bytes())
-    return mod_id
-
-
 def journey_lifecycle(runner):
     """5. Local archive one-click lifecycle, both undo paths, history and diagnostics."""
     fx = Fixture()
     runner.cleanup.append(fx.remove)
-    bucket = fx.main_bucket()
+    fx.main_bucket()
     game = fx.root / "game"
     game.mkdir()
     (game / "Balatro.exe").write_bytes(b"fixture")
@@ -261,10 +234,10 @@ def journey_lifecycle(runner):
     _assert_clean_ui(runner, session, "lifecycle-3-undo")
 
     # 4. Install the same archive from the catalog, then uninstall it in one click.
-    mod_id = publish(
-        fx, bucket, ARCHIVE_FILES, name="Demo Pack", archive=archive
+    release = add_catalog_release(
+        fx, GAME_ID, "demo-pack", "1.0.0", ARCHIVE_FILES, name="Demo Pack"
     )
-    runner.check(mod_id == "demo-pack", f"Catalog release id is {mod_id!r}")
+    runner.check(release.mod_id == "demo-pack", f"Catalog release id is {release.mod_id!r}")
     _back_home(session)
     _open_game(session, "Balatro")
     session.wait_for(
@@ -364,14 +337,16 @@ def journey_approval(runner):
     """7. The native-code ask, stored approval and a release that adds native code."""
     fx = Fixture()
     runner.cleanup.append(fx.remove)
-    bucket = fx.main_bucket()
+    fx.main_bucket()
     game = fx.root / "game"
     game.mkdir()
     (game / "Balatro.exe").write_bytes(b"fixture")
     registered = _cli(fx, "game", "add", "balatro", "--path", game)
     runner.check(registered.returncode == 0, f"game add failed: {registered.stderr}")
-    publish(fx, bucket, {"winmm.dll": "MZ"}, name="Native Pack", native=True)
-    publish(fx, bucket, {"plain.lua": "return {}"}, name="Plain Pack")
+    add_catalog_release(
+        fx, GAME_ID, "native-pack", "1.0.0", {"winmm.dll": "MZ"}, native_injector=True
+    )
+    add_catalog_release(fx, GAME_ID, "plain-pack", "1.0.0", {"plain.lua": "return {}"})
     app = _app(fx, _cli_path()).launch()
     runner.cleanup.append(app.kill)
     session = app.session
@@ -402,7 +377,9 @@ def journey_approval(runner):
 
     session.click(prefix="Install Plain Pack")
     session.wait_text("Install done", timeout=90)
-    publish(fx, bucket, {"winmm.dll": "MZ"}, version="2.0.0", name="Plain Pack", native=True)
+    add_catalog_release(
+        fx, GAME_ID, "plain-pack", "2.0.0", {"winmm.dll": "MZ"}, native_injector=True
+    )
     _back_home(session)
     _open_game(session, "Balatro")
     session.click(prefix="Update Plain Pack")
