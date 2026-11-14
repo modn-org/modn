@@ -8,7 +8,7 @@ import json
 import time
 
 import uia
-from fixtures import Fixture, snapshot
+from fixtures import PLAY_SOURCE, Fixture, image_pids, signed_copy, snapshot, stop_pid
 from harness import BINARIES, App, cli, click_until, test_backend_state
 
 
@@ -224,33 +224,75 @@ def journey_no_cli_output(runner):
 
 
 def journey_play(runner):
-    """9. Play runs the fixture executable, and details expose plan and history."""
+    """9. Play starts the fixture executable, and details expose plan and history."""
     fx = Fixture()
     runner.cleanup.append(fx.remove)
     fx.main_bucket()
     game = fx.root / "game"
     game.mkdir(parents=True, exist_ok=True)
-    fx.marker_exe(game / "Balatro.exe")
+    exe = signed_copy(game / "Balatro.exe", PLAY_SOURCE)
     result = cli(fx, "game", "add", "balatro", "--path", game)
     runner.check(result.returncode == 0, f"game add failed: {result.stderr}")
     before = snapshot(game)
     app = App(fx, BINARIES.cli).launch()
     runner.cleanup.append(app.kill)
-    session = app.session
-    session.activate(session.wait_cards("Open Balatro at"))
-    session.wait_for(lambda s: s.find_all(name="Play balatro"), "Play button")
-    session.click(name="Play balatro")
-    deadline = time.monotonic() + 30
-    marker = game / "play-marker.txt"
-    while time.monotonic() < deadline and not marker.exists():
-        time.sleep(0.2)
-    runner.check(marker.exists(), "Play did not start the fixture executable")
-    runner.check(snapshot(game).keys() - before.keys() == {"play-marker.txt"}, "Play changed other files")
-    session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
-    session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
-    runner.check(session.exists(name="Operation history"), "History section is missing")
-    toast = click_until(session, "Copy diagnostics", ("Diagnostics copied.", "Something went wrong"))
-    runner.check(True, f"Copy diagnostics reported: {toast}")
-    (fx.evidence / "diagnostics-toast.txt").write_text(toast, encoding="utf-8")
-    runner.check(True, "Copy diagnostics confirmed in the UI")
-    app.close()
+    started = []
+    try:
+        session = app.session
+        session.activate(session.wait_cards("Open Balatro at"))
+        session.wait_for(lambda s: s.find_all(name="Play balatro"), "Play button")
+        clicked = time.monotonic()
+        session.click(name="Play balatro")
+        deadline = clicked + 60
+        while time.monotonic() < deadline and not started:
+            started = image_pids(exe)
+            if not started:
+                time.sleep(0.2)
+        seen_after = time.monotonic() - clicked
+        (fx.evidence / "journey-play.json").write_text(
+            json.dumps(
+                {
+                    "image": str(exe),
+                    "started_pids": started,
+                    "first_seen_seconds": round(seen_after, 2),
+                    "ui_text_tail": session.text()[-2000:],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        runner.check(bool(started), f"Play did not start {exe}")
+        for pid in started:
+            stop_pid(pid)
+        deadline = time.monotonic() + 15
+        remaining = image_pids(exe)
+        while time.monotonic() < deadline and remaining:
+            time.sleep(0.2)
+            remaining = image_pids(exe)
+        runner.check(not remaining, f"Play process outlived its stop: {remaining}")
+        runner.check(snapshot(game) == before, "Play changed the fixture game folder")
+        (fx.evidence / "journey-play.json").write_text(
+            json.dumps(
+                {
+                    "image": str(exe),
+                    "started_pids": started,
+                    "first_seen_seconds": round(seen_after, 2),
+                    "stopped_pids": started,
+                    "remaining_pids": remaining,
+                    "snapshot_unchanged": snapshot(game) == before,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
+        session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
+        runner.check(session.exists(name="Operation history"), "History section is missing")
+        toast = click_until(session, "Copy diagnostics", ("Diagnostics copied.", "Something went wrong"))
+        runner.check(True, f"Copy diagnostics reported: {toast}")
+        (fx.evidence / "diagnostics-toast.txt").write_text(toast, encoding="utf-8")
+        runner.check(True, "Copy diagnostics confirmed in the UI")
+        app.close()
+    finally:
+        for pid in image_pids(exe):
+            stop_pid(pid)

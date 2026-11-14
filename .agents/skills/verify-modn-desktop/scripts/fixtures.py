@@ -15,6 +15,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+
+# Signed Microsoft binaries used as fixture game files. Nothing is compiled, so
+# no unsigned executable exists for Defender to quarantine. `where.exe` is only
+# a marker file that detection and removal journeys never start. `mstsc.exe`
+# stays alive for more than three seconds when started with no arguments and no
+# console input, which the play journey proves by process image path.
+MARKER_SOURCE = "where.exe"
+PLAY_SOURCE = "mstsc.exe"
 
 
 def require(condition, message):
@@ -49,6 +58,41 @@ def snapshot(folder):
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def signed_copy(target, source):
+    """Copies one signed Microsoft binary to `target` without compiling anything."""
+    origin = SYSTEM32 / source
+    require(origin.is_file(), f"Missing signed Microsoft binary {origin}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(origin, target)
+    return target
+
+
+def image_pids(image):
+    """Process ids whose full image path equals `image`, queried through CIM."""
+    env = dict(os.environ)
+    env["MODN_PROCESS_IMAGE"] = str(image)
+    result = run(
+        [
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            "@(Get-CimInstance Win32_Process | Where-Object "
+            "{ $_.ExecutablePath -ieq $env:MODN_PROCESS_IMAGE }).ProcessId",
+        ],
+        env=env,
+    )
+    require(result.returncode == 0, f"Process lookup failed: {result.stderr.strip()}")
+    return [int(line) for line in result.stdout.split() if line.strip().isdigit()]
+
+
+def stop_pid(pid):
+    """Stops exactly one process id, never a name or image-path match.
+
+    A process can exit between the lookup and the stop. Callers prove the
+    outcome by looking the image path up again, so a missing pid is not an
+    error here.
+    """
+    run(["taskkill", "/PID", str(pid), "/F"])
 
 
 class Fixture:
@@ -88,7 +132,7 @@ class Fixture:
         shutil.copytree(source, target)
         return target
 
-    def steam_library(self, app_id, folder, marker):
+    def steam_library(self, app_id, folder, marker, source=MARKER_SOURCE):
         """Writes a fake Steam root that lists one installed game."""
         apps = self.steam / "steamapps"
         apps.mkdir(parents=True, exist_ok=True)
@@ -105,7 +149,7 @@ class Fixture:
         )
         game = apps / "common" / folder
         game.mkdir(parents=True, exist_ok=True)
-        (game / marker).write_bytes(b"fixture-game")
+        signed_copy(game / marker, source)
         return game
 
     def register(self, cli, game_id, game, env=None):
@@ -122,22 +166,6 @@ class Fixture:
             for inner, content in files.items():
                 archive.writestr(inner, content)
         return path
-
-    def marker_exe(self, target):
-        """Compiles a tiny PE that writes `play-marker.txt` beside itself."""
-        source = self.root / "play-marker.rs"
-        write(
-            source,
-            "fn main() {\n"
-            "    let exe = std::env::current_exe().expect(\"path\");\n"
-            "    let marker = exe.parent().expect(\"dir\").join(\"play-marker.txt\");\n"
-            "    std::fs::write(marker, b\"played\").expect(\"marker\");\n"
-            "}\n",
-        )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        result = run(["rustc", "-o", target, source])
-        require(result.returncode == 0, f"rustc failed: {result.stderr}")
-        return target
 
     def remove(self):
         require(
