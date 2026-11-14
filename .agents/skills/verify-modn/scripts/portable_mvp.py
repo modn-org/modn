@@ -32,6 +32,8 @@ def snapshot(root):
             for p in root.rglob("*") if p.is_file()}
 
 
+PROXY_VARIABLES = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"}
+
 class Run:
     def __init__(self, binary, bucket_binary):
         self.root = Path(tempfile.mkdtemp(prefix="modn-portable-fixture-"))
@@ -42,8 +44,9 @@ class Run:
         shutil.copy2(bucket_binary, self.bucket_binary)
         self.env = dict(os.environ)
         for key in list(self.env):
-            if key.startswith("MODN_"):
+            if key.startswith("MODN_") or key.upper() in PROXY_VARIABLES:
                 del self.env[key]
+        self.env["NO_PROXY"] = self.env["no_proxy"] = "127.0.0.1,localhost,::1"
         self.env.update(LOCALAPPDATA=str(self.root / "data"),
                         MODN_CACHE=str(self.root / "cache"))
         self.env["PATH"] = os.pathsep.join(
