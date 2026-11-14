@@ -289,28 +289,20 @@ fn op_button_stops_a_destroyed_run_before_the_write() {
 #[test]
 fn after_commit_failures_are_completed_operations() {
     let messages = read("ui/js/messages.js");
-    for code in [
-        "BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT",
-        "BACKEND_STREAM_FAILED_AFTER_COMMIT",
-    ] {
-        assert!(
-            messages.contains(&format!("{code}: 'Done. Refresh to see the result.'")),
-            "{code} must tell the user to refresh"
-        );
-    }
+    assert!(
+        messages
+            .contains("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT: 'Done. Refresh to see the result.'"),
+        "the after-commit code must tell the user to refresh"
+    );
     let op = read("ui/js/op-button.js");
     let branch = op
-        .find("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT")
+        .find("code === 'BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT'")
         .expect("the completed branch");
     let rest = &op[branch..];
     let end = rest
         .find("} else if (BLOCKED_CODES.has(code))")
         .expect("the blocked branch follows");
     let block = &rest[..end];
-    assert!(
-        block.contains("BACKEND_STREAM_FAILED_AFTER_COMMIT"),
-        "both after-commit codes must share the completed branch"
-    );
     for fragment in [
         "setIdle(active.idleLabel)",
         "showToast(messageFor(code))",

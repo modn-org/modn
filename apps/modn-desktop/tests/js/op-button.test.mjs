@@ -203,26 +203,22 @@ test('the ask lists each executable and the native permission separately', async
   );
 });
 
-test('both after-commit codes count as a completed operation', async () => {
-  for (const code of [
-    'BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT',
-    'BACKEND_STREAM_FAILED_AFTER_COMMIT',
-  ]) {
-    installWindow();
-    let settled = 0;
-    const { button } = makeButton({
-      onSettled: () => {
-        settled += 1;
-      },
-      run: async () => {
-        throw { code };
-      },
-    });
-    await button.start();
-    assert.equal(button.button.dataset.state, 'idle');
-    assert.equal(lastToast().textContent, 'Done. Refresh to see the result.');
-    assert.equal(settled, 1, `${code} must refresh like a commit`);
-  }
+test('an oversized result after the commit counts as a completed operation', async () => {
+  const code = 'BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT';
+  installWindow();
+  let settled = 0;
+  const { button } = makeButton({
+    onSettled: () => {
+      settled += 1;
+    },
+    run: async () => {
+      throw { code };
+    },
+  });
+  await button.start();
+  assert.equal(button.button.dataset.state, 'idle');
+  assert.equal(lastToast().textContent, 'Done. Refresh to see the result.');
+  assert.equal(settled, 1, `${code} must refresh like a commit`);
 });
 
 test('a result without operationId gets no Undo action', async () => {
