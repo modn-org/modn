@@ -1,6 +1,7 @@
 mod adoption;
 mod assets;
 mod buckets;
+mod catalog;
 mod catalog_approval;
 mod catalog_install;
 mod commands;
@@ -51,6 +52,9 @@ fn run(mut cli: Cli, progress: &Progress) -> Result<()> {
     }
     if let Command::Auth { command } = &cli.command {
         return nexus_auth::run(command, cli.json);
+    }
+    if let Command::Catalog { command } = &cli.command {
+        return catalog::run(command, cli.json);
     }
     prepare_nxm(&mut cli.command)?;
     let state_path = database_path(cli.state_dir.as_deref())?;
@@ -112,6 +116,7 @@ fn run_cli(cli: Cli, state_path: &Path, progress: &Progress) -> Result<()> {
         Command::Recover { yes } => managed::recover(yes, state_path, requested, json),
         Command::Scan { path } => inventory::scan(path, state_path, requested, json),
         Command::Doctor { path } => inventory::doctor(path, state_path, requested, json),
+        Command::Catalog { command } => catalog::run(&command, json),
     }
 }
 
@@ -143,6 +148,7 @@ fn default_code(command: &Command) -> ErrorCode {
         Command::Search { .. } => ErrorCode::SearchFailed,
         Command::Cache { .. } => ErrorCode::CacheFailed,
         Command::Bucket { .. } => ErrorCode::BucketFailed,
+        Command::Catalog { .. } => ErrorCode::BucketFailed,
         Command::List { .. } => ErrorCode::ListFailed,
         Command::History => ErrorCode::HistoryFailed,
         Command::Uninstall(_) => ErrorCode::UninstallFailed,
