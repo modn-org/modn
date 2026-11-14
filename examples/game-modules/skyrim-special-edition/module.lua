@@ -1,7 +1,7 @@
 local fs = mods_host.fs
 local directory = mods_host.directory
 local policy = {
-    game_id = "skyrim-special-edition", version = "0.1.0", api_version=3,
+    game_id = "skyrim-special-edition", version = "0.1.0", api_version = 3,
     marker = "SkyrimSE.exe", common_paths = {},
 }
 

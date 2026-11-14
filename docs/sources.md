@@ -69,9 +69,11 @@ A corrupt entry is never a hit. A subsequent download can supply verified bytes.
 Refresh still fetches explicitly and verifies the pinned digest.
 A missing, unreadable, or unknown-format index triggers a scan.
 The scan finds the verified entry in memory and writes nothing.
-Only storing a downloaded entry writes the index, so a preflight or a cancelled or refused operation leaves every cache file unchanged.
+A successful archive download stores its entry file and records the pin in the digest index.
+A Git source stores a packed `git-<commit>-blake3-<digest>.zip` entry and writes no index.
+A cancelled or refused operation leaves every cache file unchanged.
+A preflight changes the cache only when it downloads: `install --dry-run --download`, `update --dry-run --download`, and an undo that misses the cache.
 The index is never authority: only re-verified bytes are returned.
-A successful download adds its entry to the index.
 Index writes use a temporary file in the cache root and an atomic rename.
 A crash therefore leaves the previous index or none.
 Modn is pre-alpha, so an index in an unknown format is corrupt and is never migrated.

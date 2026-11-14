@@ -54,7 +54,7 @@ the release publishes no copy of it.
 
 Both milestone gate scripts target contract v1 and stay unchanged as closed-milestone evidence; do not run them against a v2 bucket.
 
-After a release, run the gate against its published assets:
+The closed gate ran after a release against its published assets:
 
 ```powershell
 pwsh -File .github/scripts/milestone1-gate.ps1 -Tag v0.2.0
@@ -80,28 +80,26 @@ authorization.
 
 ## Milestone 2 exit gate
 
-Run the gate against published release assets:
+This gate closed Milestone 2, and its results stay as evidence.
+`.github/scripts/milestone2-gate.ps1` and `milestone1-gate.ps1` target contract
+v1 and cannot run against a v2 bucket. Do not run them for a current release.
+The results below are the record of the closed milestone.
+
+These checks replace the gate for current releases:
 
 ```powershell
-pwsh -File .github/scripts/milestone2-gate.ps1 -Tag v0.3.0
+python .agents/skills/verify-modn/scripts/verify.py --build
+cargo test --workspace --locked
 ```
 
-Before release, build the static executable and checksum with the smoke-test
-commands above. Then run:
+`verify.py --build` builds the CLI and checks the bucket, module, install and
+undo flows against disposable fixtures.
+The cargo tests cover the transaction, ownership and module suites.
+`python .agents/skills/verify-modn/scripts/portable_mvp.py` checks the portable
+release build; it needs `target/release/modn` and the `test-main-key` smoke
+build.
 
-```powershell
-pwsh -File .github/scripts/milestone2-gate.ps1 `
-  -Binary target/release/modn.exe -Checksum target/release/modn.exe.sha256 `
-  -VerifierBinaries target/release
-```
-
-The gate verifies the checksum and calls the existing Milestone 1 gate.
-The local mode bootstraps the bucket directly with the selected executable.
-It cannot test an installer from an unpublished release.
-The tag mode retains the released installer check.
-Both modes download the previous release for the Milestone 1 state-compatibility check.
-
-The additional checks use disposable game installations:
+The closed gate ran these checks against disposable game installations:
 
 1. Sync a local Git catalog twice and resolve its package.
 2. Install pinned redscript bytes through a `github-release` source, then uninstall them.
@@ -121,7 +119,7 @@ Tag mode requires an authenticated `gh` CLI with Actions read access.
 It selects a successful Release workflow run for the tag and checks its commit against the tag commit.
 It downloads that run's verifier artifact and verifies all four SHA-256 files before execution.
 It does not use local build directories.
-Run the gate before the artifact expires.
+Tag mode checks the artifact before it expires.
 If the artifact is unavailable, tag mode fails.
 
 Local mode requires an explicit `-VerifierBinaries <directory>` argument.
@@ -164,7 +162,8 @@ Remove that printed directory after inspecting the evidence.
 It compares the original Modn roots before and after the run.
 Each check prints `PASS` or `FAIL`. Any failure produces a nonzero exit.
 These fixture checks do not establish real-game compatibility or REDmod activation.
-The gate must pass against published assets after tagging; local proof alone does not close issue #87.
+The closed gate passed against published assets after tagging for v0.3.0 and v0.5.0.
+Those runs are its record and the evidence for issue #87.
 
 ### Result for v0.3.0
 

@@ -156,8 +156,8 @@ History lives in `state.sqlite`:
 
 These tables are additive and add no schema version of their own. A writable
 open creates them when they are missing, and it also creates the approvals
-table, so the manager schema version of state that this build writes is 6.
-A state database written by an earlier schema version is refused at read-write
+table, so the manager schema version of state that this build writes is 7.
+A state database with any other schema version is refused at read-write
 and read-only open with one message; Modn does not read or change it.
 Move the file aside to start a new state; the files Modn installed stay on
 disk but are no longer tracked. See [the data model](data-model.md). The `catalog` and `declarations` columns were added

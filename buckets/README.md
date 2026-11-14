@@ -21,14 +21,19 @@ the catalog statement, and `catalog.pub` holds the signer public key. A local
 folder bucket needs no signature. See
 [Signing a catalog](../docs/buckets.md#signing-a-catalog).
 Each package manifest declares `schema_version` (integer 2), `id`, `game`,
-`name`, `version`, `archive_format`, `blake3`, `sources`, and optional
-`redistributable`, `upstream_sha256`, `dependencies`, `homepage`, `executables`
-and `native_injector`. `blake3` is the archive pin: 64 lowercase hex characters.
+`name`, `version` and `sources`, and optional `redistributable`,
+`upstream_sha256`, `dependencies`, `homepage`, `executables` and
+`native_injector`.
 `sources` is an ordered, non-empty list of artifact sources. Modn uses only the
 first entry today; fallback to the later entries (issue #118) is not shipped yet.
-A record lists either `git` sources or archive sources, never both. A `git`
-record has no `blake3` pin, because its commit is the pin. One archive pin
-cannot cover a packed Git archive, so Modn refuses a mixed record. `redistributable` is a boolean that defaults to `false` and
+A record lists either `git` sources or archive sources, never both. A mixed
+record is refused, because one archive pin cannot cover a packed Git archive.
+An archive record declares `blake3`, the archive pin of 64 lowercase hex
+characters. A `manual`, `https` or `nexus` archive record also declares
+`archive_format` (`zip` or `7z`).
+A `git` record declares no `blake3`, because its pinned commit is the integrity
+pin. Its `archive_format` is optional and must be `zip` when present.
+`redistributable` is a boolean that defaults to `false` and
 states that the author allows anyone to redistribute the archive.
 `upstream_sha256`, when known, is provenance only; Modn validates its shape,
 stores it and never verifies an archive against it.
