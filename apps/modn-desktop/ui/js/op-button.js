@@ -76,7 +76,7 @@ function showUndoToast(message, onUndo) {
  *   launchUndo?: ((operationId: string) => void)|null,
  *   onSettled?: () => void|Promise<void>,
  *   onError?: (message: string) => void,
- *   onBlocked?: () => void,
+ *   onBlocked?: (reason: string) => void,
  *   onDeclined?: () => void,
  *   testId?: string,
  *   ariaLabel?: string,
@@ -336,13 +336,22 @@ export function createOperationButton(options) {
           await onSettled();
         }
       } else if (code === 'APPROVAL_REQUIRED' || code === 'NATIVE_INJECTOR_NOT_ALLOWED') {
-        approvals = mergeApprovals(
-          approvals,
-          await approvalsFrom(error, code, askHost && !active.operationId ? plan : null),
+        const previous = approvals;
+        const refused = await approvalsFrom(
+          error,
+          code,
+          askHost && !active.operationId ? plan : null,
         );
         if (generationAtStart !== generation || destroyed) {
           return;
         }
+        const added = {
+          native: refused.native && !previous.native,
+          executables: refused.executables.filter(
+            (path) => !previous.executables.includes(path),
+          ),
+        };
+        approvals = mergeApprovals(previous, refused);
         setIdle(active.idleLabel);
         if (askHost) {
           const granted = {
@@ -351,7 +360,7 @@ export function createOperationButton(options) {
           };
           renderAsk(
             askHost,
-            granted,
+            added,
             () => {
               void start({
                 run: active.run,
@@ -382,7 +391,7 @@ export function createOperationButton(options) {
         progress.hidden = true;
         setProgress(0);
         if (onBlocked) {
-          onBlocked();
+          onBlocked(reason);
         }
       } else {
         setIdle(active.idleLabel);

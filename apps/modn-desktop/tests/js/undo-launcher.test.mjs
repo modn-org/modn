@@ -84,7 +84,7 @@ test('toast A undoes operation A after operation B commits on the same package',
   );
 });
 
-test('a blocked toast Undo removes its temporary row', async () => {
+test('a blocked toast Undo shows its reason then removes its temporary row', async () => {
   installWindow();
   const calls = [];
   const { host, launch } = makeLauncher(async (args) => {
@@ -96,6 +96,13 @@ test('a blocked toast Undo removes its temporary row', async () => {
   await flush();
 
   assert.equal(calls.length, 1);
+  const toast = lastToast();
+  assert.ok(toast, 'a blocked Undo reports its reason');
+  assert.equal(
+    toast.textContent,
+    'Another package owns these files.',
+    'the short reason stays after the temporary row leaves',
+  );
   assert.equal(
     host.childElementCount,
     0,
