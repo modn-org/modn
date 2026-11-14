@@ -2,7 +2,6 @@
 mod main_bucket;
 
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -78,8 +77,6 @@ impl Fixture {
         let modules = temp.path().join("modules");
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         for (source, name) in [
-            ("buckets/main/games/cyberpunk-2077", "cyberpunk-2077"),
-            ("buckets/main/games/balatro", "balatro"),
             ("tests/fixtures/test-game", "test-game"),
             (
                 "apps/modn-cli/tests/fixtures/native-injector-game",
@@ -88,12 +85,18 @@ impl Fixture {
         ] {
             copy_module(&repo.join(source), &modules.join(name));
         }
+        for (source, name) in [
+            ("buckets/main/games/cyberpunk-2077", "cyberpunk-2077"),
+            ("buckets/main/games/balatro", "balatro"),
+        ] {
+            main_bucket::copy_main_module(&repo.join(source), &modules.join(name));
+        }
         let module = modules.join(GAME);
         fs::create_dir_all(&module).expect("module directory");
         fs::write(
             module.join("module.json"),
             format!(
-                r#"{{"game_id":"{GAME}","version":"0.1.0","api_version":1,"entrypoint":"main.lua"}}"#
+                r#"{{"game_id":"{GAME}","version":"0.1.0","api_version":3,"entrypoint":"main.lua"}}"#
             ),
         )
         .expect("module metadata");
@@ -143,22 +146,24 @@ impl Fixture {
 
     fn write_bucket(&self, version: &str, archive: &Path, executables: &[&str]) {
         let root = self.temp.path().join("tools");
-        let games = root.join("games").join(GAME);
-        fs::create_dir_all(&games).expect("bucket directories");
+        let records = root.join("mods").join(GAME);
+        fs::create_dir_all(&records).expect("bucket directories");
         fs::write(
             root.join("bucket.json"),
-            r#"{"schema_version":1,"name":"tools","title":"Tools"}"#,
+            r#"{"schema_version":2,"name":"tools","title":"Tools"}"#,
         )
         .expect("bucket metadata");
-        let sha256 = format!("{:x}", Sha256::digest(fs::read(archive).expect("archive")));
+        let pin = blake3::hash(&fs::read(archive).expect("archive"))
+            .to_hex()
+            .to_string();
         let manifest = json!({
-            "schema_version": 1, "id": MOD, "game": GAME, "name": "Tool Mod",
-            "version": version, "archive_format": "zip", "sha256": sha256,
-            "source": {"kind": "manual", "filename": "tool.zip"},
+            "schema_version": 2, "id": MOD, "game": GAME, "name": "Tool Mod",
+            "version": version, "archive_format": "zip", "blake3": pin,
+            "sources": [{"kind": "manual", "filename": "tool.zip"}],
             "executables": executables,
         });
         fs::write(
-            games.join(format!("{MOD}.json")),
+            records.join(format!("{MOD}.json")),
             serde_json::to_vec(&manifest).expect("manifest JSON"),
         )
         .expect("manifest");

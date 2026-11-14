@@ -1,0 +1,470 @@
+local fs = mods_host.fs
+local dir = mods_host.directory
+local policy = {
+    game_id = "cyberpunk-2077",
+    api_version = mods_host.api_version,
+    marker = "bin/x64/Cyberpunk2077.exe",
+}
+local function metadata(relative)
+    local ok, value = pcall(fs.metadata, 1, relative)
+    if ok then return value end
+    return nil
+end
+local function present(relative, kind)
+    local item = metadata(relative)
+    return item ~= nil and item.kind == kind
+end
+function policy.validate()
+    return present(policy.marker, "file")
+end
+local function listing(folder, required, max_items)
+    local ok, response = pcall(dir.list, 1, folder, max_items)
+    if ok then return response end
+    if required then return { items = {}, incomplete = true } end
+    return nil
+end
+function policy.scan(limit)
+    local mods = {}
+    local signals = {}
+    local remaining = limit
+    local framework_remaining = 256
+    local incomplete = false
+    local issues = {}
+    local function mark_limit()
+        incomplete = true
+        issues.SCAN_INCOMPLETE = true
+    end
+    local function note_listing(response, folder)
+        if not response.incomplete then return end
+        for _, entry in ipairs(response.unsafe_names or {}) do
+            local name = entry.name
+            if entry.file_symlink and string.match(folder, "^red4ext/plugins/[^/]+$") and string.match(string.lower(name), "%.log$") then
+                issues.SCAN_IGNORED_GENERATED_LOG = true
+            else
+                incomplete = true
+                issues.SCAN_UNSAFE_ENTRY = true
+            end
+        end
+        if response.truncated then mark_limit() end
+        if response.unreadable or response.truncated == nil then
+            incomplete = true
+            issues.SCAN_UNREADABLE_ENTRY = true
+        end
+    end
+    local function push(relative, kind)
+        table.insert(mods, { relative_path = relative, kind = kind })
+    end
+    local function consume(framework)
+        if remaining <= 0 or (framework and framework_remaining <= 0) then
+            mark_limit()
+            return false
+        end
+        remaining = remaining - 1
+        if framework then framework_remaining = framework_remaining - 1 end
+        return true
+    end
+    local function collect_files(folder, extensions, kind, required_root)
+        local framework = kind == "cet-mod" or kind == "red4ext-plugin"
+            or kind == "redscript" or kind == "redscript-hint" or kind == "tweak" or kind == "input-xml"
+        local stack = { folder }
+        local empty_peeks = 0
+        while #stack > 0 do
+            local current = table.remove(stack)
+            if framework and framework_remaining <= 0 then
+                empty_peeks = empty_peeks + 1
+                if empty_peeks > 32 then
+                    mark_limit()
+                    return
+                end
+                local peek = listing(current, current ~= folder or required_root, 1)
+                if peek ~= nil and (peek.incomplete or #peek.items > 0) then
+                    note_listing(peek, current)
+                    mark_limit()
+                    return
+                end
+            else
+                local max_items = framework and framework_remaining or nil
+                local response = listing(current, current ~= folder or required_root, max_items)
+                if response ~= nil then
+                    note_listing(response, current)
+                    for _, entry in ipairs(response.items) do
+                        if not consume(framework) then return end
+                        local relative = current .. "/" .. entry.name
+                        if entry.kind == "directory" then
+                            if kind ~= "input-xml" then table.insert(stack, relative) end
+                        elseif entry.kind == "file" then
+                            local ext = string.match(entry.name, "%.([^%.]+)$")
+                            if extensions == nil or (ext ~= nil and extensions[string.lower(ext)]) then
+                                push(relative, kind == "legacy-archive" and string.lower(ext) == "xl"
+                                and "archive-xl" or kind)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local function collect_directories(folder, kind, scan_files)
+        local exhausted = scan_files and framework_remaining <= 0
+        local max_items = scan_files and math.max(framework_remaining, 1) or nil
+        local response = listing(folder, nil, max_items)
+        if response == nil then return end
+        if exhausted then
+            if response.incomplete or #response.items > 0 then
+                note_listing(response, folder)
+                mark_limit()
+            end
+            return
+        end
+        note_listing(response, folder)
+        for _, entry in ipairs(response.items) do
+            if not consume(scan_files) then return end
+            if entry.kind == "directory" then
+                local subfolder = folder .. "/" .. entry.name
+                if scan_files then
+                    local start = #mods
+                    collect_files(subfolder, nil, kind, true)
+                    if #mods == start and framework_remaining > 0 then
+                        push(subfolder, kind)
+                    end
+                else
+                    push(subfolder, kind)
+                end
+            end
+        end
+    end
+    collect_files("archive/pc/mod", { archive = true, xl = true }, "legacy-archive")
+    collect_files("r6/scripts", { reds = true }, "redscript")
+    collect_files("r6/config/redsUserHints", { toml = true }, "redscript-hint")
+    collect_files("r6/tweaks", { yaml = true, yml = true }, "tweak")
+    collect_files("r6/input", { xml = true }, "input-xml")
+    collect_directories("mods", "redmod-directory", false)
+    collect_directories("red4ext/plugins", "red4ext-plugin", true)
+    collect_directories("bin/x64/plugins/cyber_engine_tweaks/mods", "cet-mod", true)
+    table.sort(mods, function(a,b) return a.relative_path < b.relative_path end)
+    local candidates = {
+        { "CET", "bin/x64/plugins/cyber_engine_tweaks.asi", "file" },
+        { "CET", "bin/x64/plugins/cyber_engine_tweaks", "directory" },
+        { "RED4ext", "red4ext/RED4ext.dll", "file" },
+        { "RED4ext", "red4ext/plugins", "directory" },
+        { "redscript", "r6/scripts", "directory" },
+        { "ArchiveXL", "red4ext/plugins/ArchiveXL/ArchiveXL.dll", "file" },
+        { "ArchiveXL", "red4ext/plugins/ArchiveXL", "directory" },
+        { "redscript compiler", "engine/tools/scc.exe", "file" },
+        { "TweakXL", "red4ext/plugins/TweakXL/TweakXL.dll", "file" }, { "Input Loader", "red4ext/plugins/input_loader/input_loader.dll", "file" },
+    }
+    for _, entry in ipairs(candidates) do
+        if present(entry[2], entry[3]) then
+            table.insert(signals, {
+                name = entry[1], relative_path = entry[2], kind = entry[3]
+            })
+        end
+    end
+    table.sort(signals, function(a,b)
+        if a.name == b.name then return a.relative_path < b.relative_path end
+        return a.name < b.name
+    end)
+    local scan_issues = {}
+    for code in pairs(issues) do table.insert(scan_issues, code) end
+    table.sort(scan_issues)
+    return {
+        mods = mods, framework_signals = signals, incomplete = incomplete,
+        scan_issues = scan_issues,
+        redmod_available = present("tools/redmod/bin/redMod.exe", "file")
+    }
+end
+function policy.doctor(report)
+    local findings = {}
+    local function add(code, severity, message, action)
+        table.insert(findings, {code = code, severity = severity, message = message, action = action})
+    end
+    for _, code in ipairs(report.scan_issues or {}) do
+        if code == "SCAN_INCOMPLETE" then
+            add(code, "warning", "Inventory truncated by the scan entry limit.")
+        elseif code == "SCAN_UNSAFE_ENTRY" then
+            add(code, "warning", "Unsafe or linked directory entries were skipped.")
+        elseif code == "SCAN_UNREADABLE_ENTRY" then
+            add(code, "warning", "Unreadable directory entries were skipped.")
+        elseif code == "SCAN_IGNORED_GENERATED_LOG" then
+            add(code, "info", "Generated RED4ext plugin log link was ignored.")
+        end
+    end
+    if report.incomplete and #(report.scan_issues or {}) == 0 then
+        add("SCAN_INCOMPLETE", "warning", "Inventory is incomplete; some content was not inspected.")
+    end
+    if not report.redmod_available then
+        add("REDMOD_NOT_FOUND", "info", "REDmod tools were not detected. REDmod deployment is unavailable.")
+    end
+    local unmanaged = false
+    local redmod_content = false
+    local needs_redscript, needs_archivexl, needs_tweakxl = false, false, false
+    local needs_input_loader = false
+    for _, item in ipairs(report.mods) do
+        if item.kind == "input-xml" then needs_input_loader = true end
+        if item.kind == "redscript" or item.kind == "redscript-hint" then
+            needs_redscript = true
+        elseif item.kind == "archive-xl" then
+            needs_archivexl = true
+        elseif item.kind == "tweak" then
+            needs_tweakxl = true
+        end
+        if not item.managed then unmanaged = true end
+        if item.kind == "redmod-directory" then redmod_content = true end
+    end
+    local function has_signal(relative)
+        for _, signal in ipairs(report.framework_signals) do
+            if signal.relative_path == relative then return true end
+        end
+        return false
+    end
+    if needs_input_loader and not has_signal("red4ext/plugins/input_loader/input_loader.dll") then
+        add("INPUT_LOADER_NOT_INSTALLED", "warning", "Input Loader is required for r6/input XML.")
+    end
+    if needs_redscript and not has_signal("engine/tools/scc.exe") then add("REDSCRIPT_NOT_INSTALLED", "warning", "REDscript compiler not detected; script loading is not verified.") end
+    if needs_archivexl and not has_signal("red4ext/plugins/ArchiveXL/ArchiveXL.dll") then add("ARCHIVEXL_NOT_INSTALLED", "warning", "ArchiveXL plugin not detected; XL content loading is not verified.") end
+    if needs_tweakxl and not has_signal("red4ext/plugins/TweakXL/TweakXL.dll") then add("TWEAKXL_NOT_INSTALLED", "warning", "TweakXL plugin not detected; tweak loading is not verified.") end
+    if not report.redmod_available and redmod_content then add("REDMOD_CONTENT_WITHOUT_TOOLS", "warning", "REDmod-style directories exist, but redMod.exe was not found.") end
+    if unmanaged then add("UNMANAGED_CONTENT", "warning", "Some detected mods are not owned by this manager; no changes will be made.", "Inspect the listed paths and follow their original uninstall instructions before a clean install.") end
+    local actions = {
+        missing = "Inspect `modn scan` ownership details and back up the current file, if present, before restoring the original package files from the installation archive.",
+        modified = "Inspect `modn scan` ownership details and back up the current file, if present, before restoring the original package files from the installation archive.",
+        unsafe = "Inspect `modn scan` ownership details and resolve the unsafe path or redirect manually before retrying.",
+        unreadable = "Inspect `modn scan` ownership details, restore access to the path, then run `modn doctor` again.",
+    }
+    for _, status in ipairs({"missing", "modified", "unsafe", "unreadable"}) do
+        local count = 0
+        for _, file in ipairs(report.owned_files) do
+            if file.status == status then count = count + 1 end
+        end
+        if count > 0 then
+            add("OWNED_FILE_" .. string.upper(status), "warning",
+                string.format("%d manager-owned file(s) are %s; inspect scan ownership details.", count, status), actions[status])
+        end
+    end
+    return findings
+end
+function policy.plan(files)
+    local operations = {}
+    local blockers = {}
+    local ignored_generated = {}
+    local redmods = {}
+    local sources = {}
+    for _, file in ipairs(files) do sources[file.source] = true end
+    local bootstrap = {}
+    for path in pairs(sources) do
+        for _, marker in ipairs({
+            { "bin/x64/version.dll", "bin/x64/plugins/cyber_engine_tweaks.asi", "cet-runtime" }, { "red4ext/RED4ext.dll", "bin/x64/winmm.dll", "red4ext-runtime" }, { "engine/tools/scc.exe", "engine/tools/scc_lib.dll", "redscript-runtime" },
+        }) do
+            local prefix = string.sub(path, 1, #path - #marker[1])
+            if string.sub(path, -#marker[1]) == marker[1] and (prefix == "" or string.sub(prefix, -1) == "/") and sources[prefix .. marker[2]] then
+                bootstrap[string.sub(prefix, 1, -2)] = marker[3]
+            end
+        end
+    end
+    local generated = { ["engine/config/platform/pc/input_loader.ini"] = true, ["r6/cache/inputContexts.xml"] = true, ["r6/cache/inputUserMappings.xml"] = true }
+    local function block(code, message)
+        table.insert(blockers, { code = code, message = message })
+    end
+    local function kind_of(parts, i)
+        local count = #parts - i + 1
+        local a = string.lower(parts[i] or "")
+        local b = string.lower(parts[i + 1] or "")
+        local c = string.lower(parts[i + 2] or "")
+        local d = string.lower(parts[i + 3] or "")
+        local e = string.lower(parts[i + 4] or "")
+        local filename = string.lower(parts[#parts] or "")
+        local framework = bootstrap[table.concat(parts, "/", 1, i - 1)]; local relative = table.concat(parts, "/", i)
+        if framework == "cet-runtime" and (
+            relative == "bin/x64/version.dll" or relative == "bin/x64/global.ini" or relative == "bin/x64/LICENSE" or relative == "bin/x64/plugins/cyber_engine_tweaks.asi" or relative == "bin/x64/plugins/cyber_engine_tweaks/ThirdParty_LICENSES"
+            or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/fonts/[^/]+$") or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/tweakdb/[^/]+$") or string.match(relative, "^bin/x64/plugins/cyber_engine_tweaks/scripts/.+")) then
+            return framework
+        end
+        if framework == "red4ext-runtime" and (relative == "bin/x64/winmm.dll" or relative == "red4ext/RED4ext.dll"
+            or relative == "red4ext/LICENSE.txt" or relative == "red4ext/THIRD_PARTY_LICENSES.txt") then return framework end
+        if framework == "redscript-runtime" and (relative == "engine/tools/scc.exe" or relative == "engine/tools/scc_lib.dll"
+            or relative == "engine/config/base/scripts.ini" or relative == "r6/config/cybercmd/scc.toml") then return framework end
+        if count == 4 and a == "archive" and b == "pc" and c == "mod" then
+            if string.sub(filename, -8) == ".archive" then return "legacy-archive" end
+            return "archive-xl"
+        end
+        if count >= 3 and a == "mods" and b ~= "" then return "redmod" end
+        if count >= 3 and a == "r6" and b == "scripts" then return "redscript" end
+        if count >= 3 and a == "r6" and b == "tweaks" then return "tweak" end
+        if count == 3 and a == "r6" and b == "input" then return "input-xml" end
+        if count == 4 and a == "r6" and b == "config" and c == "redsuserhints" then
+            return "redscript-hint"
+        end
+        if count >= 7 and a == "bin" and b == "x64" and c == "plugins"
+            and d == "cyber_engine_tweaks" and e == "mods"
+            and parts[i + 5] ~= "" then return "cet" end
+        if count >= 4 and a == "red4ext" and b == "plugins"
+            and c ~= "" then return "red4ext" end
+        return nil
+    end
+    local function is_documentation(path)
+        local name = string.lower(string.match(path, "[^/]+$") or "")
+        local stem = string.match(name, "^([^%.]+)") or name
+        if name == "license" or name == "copying"
+            or name == "readme" or name == "changelog"
+            or name == "description.txt" then return true end
+        local ext = string.match(name, "%.([^%.]+)$") or ""
+        return (ext == "txt" or ext == "md" or ext == "rst")
+            and (string.sub(stem, 1, 6) == "readme"
+                or string.sub(stem, 1, 7) == "license"
+                or string.sub(stem, 1, 9) == "changelog")
+    end
+    local canonical_framework_prefixes = {
+        redmod = { "mods" },
+        cet = { "bin", "x64", "plugins", "cyber_engine_tweaks", "mods" },
+        red4ext = { "red4ext", "plugins" },
+        redscript = { "r6", "scripts" },
+        tweak = { "r6", "tweaks" },
+        ["redscript-hint"] = { "r6", "config", "redsUserHints" },
+        ["input-xml"] = { "r6", "input" },
+        ["legacy-archive"] = { "archive", "pc", "mod" },
+        ["archive-xl"] = { "archive", "pc", "mod" },
+        ["cet-runtime"] = { "bin", "x64" },
+    }
+    local allowed_extensions = {
+        redscript = { reds = true },
+        ["input-xml"] = { xml = true },
+        tweak = { yaml = true, yml = true },
+        ["redscript-hint"] = { toml = true },
+        ["archive-xl"] = { xl = true },
+    }
+    local loader_roots = {}
+    for _, file in ipairs(files) do
+        local parts = {}
+        for part in string.gmatch(file.source, "[^/]+") do table.insert(parts, part) end
+        for i = 1, #parts do
+            local kind = kind_of(parts, i)
+            if kind ~= nil then
+                if kind == "red4ext" and string.lower(table.concat(parts, "/", i))
+                    == "red4ext/plugins/input_loader/input_loader.dll" then
+                    loader_roots[table.concat(parts, "/", 1, i - 1)] = true
+                end
+                break
+            end
+        end
+    end
+    local required = {
+        ["cet-runtime"] = { "bin/x64/version.dll", "bin/x64/plugins/cyber_engine_tweaks.asi", "bin/x64/global.ini", "bin/x64/plugins/cyber_engine_tweaks/scripts/json/json.lua", "bin/x64/plugins/cyber_engine_tweaks/tweakdb/tweakdbstr.kark" },
+        ["red4ext-runtime"] = { "bin/x64/winmm.dll", "red4ext/RED4ext.dll", "red4ext/LICENSE.txt", "red4ext/THIRD_PARTY_LICENSES.txt" },
+        ["redscript-runtime"] = { "engine/tools/scc.exe", "engine/tools/scc_lib.dll", "engine/config/base/scripts.ini", "r6/config/cybercmd/scc.toml" },
+    }
+    for wrapper, framework in pairs(bootstrap) do
+        for _, member in ipairs(required[framework]) do
+            local prefix = wrapper == "" and "" or wrapper .. "/"
+            if not sources[prefix .. member] then block("INCOMPLETE_FRAMEWORK", "Missing framework ZIP member: " .. member) end
+        end
+    end
+    local package_framework
+    for _, framework in pairs(bootstrap) do
+        if package_framework and package_framework ~= framework then block("MIXED_FRAMEWORKS", "Mixed framework packages are not supported") end
+        package_framework = framework
+    end
+    local needs_redscript, needs_archivexl, needs_tweakxl = false, false, false
+    local needs_input_loader = false
+    for _, file in ipairs(files) do
+        local parts = {}
+        for item in string.gmatch(file.source, "[^/]+") do
+            table.insert(parts, item)
+        end
+        local mapped = false
+        for wrapper in pairs(loader_roots) do
+            local prefix = wrapper == "" and "" or wrapper .. "/"
+            if string.sub(file.source, 1, #prefix) == prefix
+                and generated[string.sub(file.source, #prefix + 1)] then
+                table.insert(ignored_generated, file.source)
+                mapped = true
+                break
+            end
+        end
+        if not mapped then for i = 1, #parts do
+            local kind = kind_of(parts, i)
+            if kind ~= nil then
+                if is_documentation(file.source) and not string.match(kind, "%-runtime$") then
+                    mapped = true
+                    break
+                end
+                if package_framework and kind ~= package_framework then block("MIXED_FRAMEWORKS", "Framework ZIP also contains a mod") end
+                local expected = canonical_framework_prefixes[kind]
+                if expected ~= nil then
+                    for offset, component in ipairs(expected) do
+                        if parts[i + offset - 1] ~= component then
+                            block("NONCANONICAL_LAYOUT",
+                                "Framework directory casing differs: " .. file.source)
+                            break
+                        end
+                    end
+                end
+                local wrapper = table.concat(parts, "/", 1, i - 1)
+                local target = table.concat(parts, "/", i)
+                local depth = kind == "red4ext" and 2 or kind == "cet" and 5 or (kind == "redscript" and #parts - i + 1 >= 4 and 2)
+                local exclusive
+                if depth then
+                    local root = table.concat(parts, "/", i, i + depth)
+                    local parent = string.match(root, "^(.*)/[^/]+$")
+                    if parent and present(parent, "directory") and not present(root, "directory") then exclusive = root end
+                end
+                table.insert(operations, {
+                    source = file.source, destination = target, kind = kind,
+                    package_root = wrapper, owned_directory = exclusive,
+                })
+                local allowed = allowed_extensions[kind]
+                local extension = string.match(string.lower(parts[#parts]), "%.([^%.]+)$") or ""
+                if allowed ~= nil and not allowed[extension] then
+                    block("UNSUPPORTED_CONTENT", "Unsupported file in " .. kind .. ": " .. file.source)
+                end
+                if kind == "input-xml" then needs_input_loader = true end
+                if kind == "redscript" or kind == "redscript-hint" then needs_redscript = true
+                elseif kind == "archive-xl" then needs_archivexl = true
+                elseif kind == "tweak" then needs_tweakxl = true end
+                if kind == "redmod" then
+                    local name = parts[i + 1]
+                    if redmods[name] == nil then redmods[name] = false end
+                    if #parts - i + 1 == 3
+                        and parts[i + 2] == "info.json" and file.bytes > 0 and file.bytes <= 65536 then
+                        redmods[name] = true; operations[#operations].kind = "json-object"
+                    elseif not (parts[i + 2] == "archives" or parts[i + 2] == "scripts" or parts[i + 2] == "tweaks") then
+                        block("REDMOD_INVALID_CONTENT", "Unsupported REDmod member: " .. file.source)
+                    end
+                end
+                mapped = true
+                break
+            end
+        end end
+        if not mapped and not is_documentation(file.source) then
+            block("UNRECOGNIZED_LAYOUT", "Unknown mod layout: " .. file.source)
+        end
+    end
+    if needs_input_loader and next(loader_roots) == nil
+        and not present("red4ext/plugins/input_loader/input_loader.dll", "file") then
+        block("INPUT_LOADER_NOT_INSTALLED", "Input Loader plugin is required for r6/input XML")
+    end
+    if needs_redscript and package_framework ~= "redscript-runtime"
+        and not present("engine/tools/scc.exe", "file") then
+        block("REDSCRIPT_NOT_INSTALLED", "REDscript compiler was not detected (engine/tools/scc.exe)")
+    end
+    if needs_archivexl and not present("red4ext/plugins/ArchiveXL/ArchiveXL.dll", "file") then
+        block("ARCHIVEXL_NOT_INSTALLED", "ArchiveXL plugin was not detected")
+    end
+    if needs_tweakxl and not present("red4ext/plugins/TweakXL/TweakXL.dll", "file") then
+        block("TWEAKXL_NOT_INSTALLED", "TweakXL plugin was not detected")
+    end
+    local redmod_count = 0
+    for name, has_info in pairs(redmods) do
+        redmod_count = redmod_count + 1
+        if not has_info then block("REDMOD_INFO_MISSING", "REDmod has no bounded info.json: " .. name) end
+        if metadata("mods/" .. name) then block("REDMOD_DESTINATION_OCCUPIED", "REDmod directory already exists: " .. name) end
+    end
+    if redmod_count > 1 then block("REDMOD_AMBIGUOUS", "Only one REDmod name per package is supported") end
+    if redmod_count > 0 then
+        for _, operation in ipairs(operations) do
+            if operation.kind ~= "redmod" and operation.kind ~= "json-object" then block("NOT_INSTALLABLE", "REDmod cannot be mixed with other layouts") break end
+        end
+    end
+    return { schema_version = 1, operations = operations, blockers = blockers,
+        skipped_generated_files = ignored_generated }
+end
+return policy

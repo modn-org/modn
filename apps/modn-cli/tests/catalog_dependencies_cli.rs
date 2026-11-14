@@ -4,7 +4,6 @@ mod support;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use support::{error, Fixture};
 use zip::write::SimpleFileOptions;
@@ -25,21 +24,20 @@ fn deleted_managed_dependency_cannot_authorize_dependent_install() {
     .expect("entry");
     zip.write_all(b"dependent-content").expect("payload");
     zip.finish().expect("finish");
-    let dependent_hash = format!(
-        "{:x}",
-        Sha256::digest(fs::read(&dependent_archive).expect("bytes"))
-    );
+    let dependent_hash = blake3::hash(&fs::read(&dependent_archive).expect("bytes"))
+        .to_hex()
+        .to_string();
     let manifest = json!({
-        "schema_version":1, "id":"dependent", "game":"test-game",
+        "schema_version":2, "id":"dependent", "game":"test-game",
         "name":"Dependent", "version":"1.0", "archive_format":"zip",
-        "sha256":dependent_hash, "source":{"kind":"manual","filename":"dependent.zip"},
+        "blake3":dependent_hash, "sources":[{"kind":"manual","filename":"dependent.zip"}],
         "dependencies":["base"]
     });
     fs::write(
         fixture
             .temp
             .path()
-            .join("deps/games/test-game/dependent.json"),
+            .join("deps/mods/test-game/dependent.json"),
         serde_json::to_vec(&manifest).expect("JSON"),
     )
     .expect("manifest");
@@ -88,16 +86,16 @@ fn exclusive_directory_dependency_requires_original_payload_bytes() {
     let (archive, hash) = fixture.archive();
     fixture.bucket("deps", "test-game", "base", &hash, &[]);
     let dependent = json!({
-        "schema_version":1, "id":"dependent", "game":"test-game",
+        "schema_version":2, "id":"dependent", "game":"test-game",
         "name":"Dependent", "version":"1.0", "archive_format":"zip",
-        "sha256":hash, "source":{"kind":"manual", "filename":"fixture.zip"},
+        "blake3":hash, "sources":[{"kind":"manual", "filename":"fixture.zip"}],
         "dependencies":["base"]
     });
     fs::write(
         fixture
             .temp
             .path()
-            .join("deps/games/test-game/dependent.json"),
+            .join("deps/mods/test-game/dependent.json"),
         serde_json::to_vec(&dependent).expect("JSON"),
     )
     .expect("dependent manifest");
@@ -178,19 +176,18 @@ fn recorded_dependency_cannot_be_uninstalled_while_dependent_is_managed() {
     .expect("entry");
     zip.write_all(b"dependent-content").expect("payload");
     zip.finish().expect("finish");
-    let dependent_hash = format!(
-        "{:x}",
-        Sha256::digest(fs::read(&dependent_archive).expect("bytes"))
-    );
+    let dependent_hash = blake3::hash(&fs::read(&dependent_archive).expect("bytes"))
+        .to_hex()
+        .to_string();
     fs::write(
         fixture
             .temp
             .path()
-            .join("deps/games/test-game/dependent.json"),
+            .join("deps/mods/test-game/dependent.json"),
         serde_json::to_vec(&json!({
-            "schema_version":1, "id":"dependent", "game":"test-game",
+            "schema_version":2, "id":"dependent", "game":"test-game",
             "name":"Dependent", "version":"1.0", "archive_format":"zip",
-            "sha256":dependent_hash, "source":{"kind":"manual","filename":"dependent.zip"},
+            "blake3":dependent_hash, "sources":[{"kind":"manual","filename":"dependent.zip"}],
             "dependencies":["base"]
         }))
         .expect("JSON"),

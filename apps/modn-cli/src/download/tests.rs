@@ -4,7 +4,6 @@ use clap::Parser;
 use modn_core::data_dir;
 use modn_core::game_modules::with_module_source;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -34,35 +33,35 @@ fn archive(root: &Path) -> (Vec<u8>, String) {
     zip.write_all(b"cached-release").expect("payload");
     zip.finish().expect("finish");
     let bytes = fs::read(&path).expect("archive bytes");
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = blake3::hash(&bytes).to_hex().to_string();
     (bytes, digest)
 }
 
 fn seed_bucket(root: &Path, digest: &str) {
     let bucket = root.join("buckets/main");
-    let game = bucket.join("games/test-game");
+    let game = bucket.join("mods/test-game");
     fs::create_dir_all(&game).expect("bucket directory");
     fs::write(
         bucket.join("bucket.json"),
-        br#"{"schema_version":1,"name":"main","title":"Fixture"}"#,
+        br#"{"schema_version":2,"name":"main","title":"Fixture"}"#,
     )
     .expect("bucket metadata");
     fs::write(
         game.join("example.json"),
         serde_json::to_vec(&json!({
-            "schema_version": 1,
+            "schema_version": 2,
             "id": "example",
             "game": "test-game",
             "name": "Example",
             "version": "1.0",
             "archive_format": "zip",
-            "sha256": digest,
-            "source": {
+            "blake3": digest,
+            "sources": [{
                 "kind": "github-release",
                 "repository": "fixture/project",
                 "tag": "v1",
                 "asset": "example.zip",
-            },
+            }],
         }))
         .expect("manifest JSON"),
     )
@@ -72,7 +71,7 @@ fn seed_bucket(root: &Path, digest: &str) {
 fn seed_cache(root: &Path, bytes: &[u8]) {
     let cache = root.join("cache");
     fs::create_dir_all(&cache).expect("cache directory");
-    let hash = format!("{:x}", Sha256::digest(URL.as_bytes()));
+    let hash = blake3::hash(URL.as_bytes()).to_hex().to_string();
     fs::write(
         cache.join(format!("test-game#example#1.0#{}.zip", &hash[..7])),
         bytes,

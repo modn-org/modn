@@ -4,7 +4,6 @@ use clap::Parser;
 use modn_core::data_dir;
 use modn_core::game_modules::with_module_source;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -15,10 +14,10 @@ fn provider_commands_fetch_only_after_consent_and_reject_changed_evidence() {
     let fixture = tempfile::tempdir().unwrap();
     let manager = fixture.path().join("manager");
     let root = manager.as_path();
-    fs::create_dir_all(root.join("buckets/main/games")).unwrap();
+    fs::create_dir_all(root.join("buckets/main/mods")).unwrap();
     fs::write(
         root.join("buckets/main/bucket.json"),
-        r#"{"schema_version":1,"name":"main","title":"Fixture"}"#,
+        r#"{"schema_version":2,"name":"main","title":"Fixture"}"#,
     )
     .unwrap();
     let game = fixture.path().join("game");
@@ -34,17 +33,17 @@ fn provider_commands_fetch_only_after_consent_and_reject_changed_evidence() {
     zip.write_all(b"verified fixture").unwrap();
     zip.finish().unwrap();
     let bytes = fs::read(archive).unwrap();
-    let hash = format!("{:x}", Sha256::digest(&bytes));
+    let hash = blake3::hash(&bytes).to_hex().to_string();
     let catalog = root.join("catalog");
-    fs::create_dir_all(catalog.join("games/test-game")).unwrap();
+    fs::create_dir_all(catalog.join("mods/test-game")).unwrap();
     fs::write(
         catalog.join("bucket.json"),
-        r#"{"schema_version":1,"name":"fixture","title":"Fixture"}"#,
+        r#"{"schema_version":2,"name":"fixture","title":"Fixture"}"#,
     )
     .unwrap();
-    let manifest = catalog.join("games/test-game/provider.json");
-    let mut package = json!({"schema_version":1,"game":"test-game","id":"provider","name":"Provider","version":"1","archive_format":"zip","sha256":hash,
-        "source":{"kind":"github-release","repository":"fixture/project","tag":"v1","asset":"mod.zip"}});
+    let manifest = catalog.join("mods/test-game/provider.json");
+    let mut package = json!({"schema_version":2,"game":"test-game","id":"provider","name":"Provider","version":"1","archive_format":"zip","blake3":hash,
+        "sources":[{"kind":"github-release","repository":"fixture/project","tag":"v1","asset":"mod.zip"}]});
     fs::write(&manifest, serde_json::to_vec(&package).unwrap()).unwrap();
     let metadata_url = "https://api.github.com/repos/fixture/project/releases/tags/v1";
     let asset_url = "https://github.com/fixture/project/releases/download/v1/mod.zip";
@@ -112,7 +111,7 @@ fn provider_commands_fetch_only_after_consent_and_reject_changed_evidence() {
                     serde_json::to_vec(&metadata).unwrap(),
                 )
             });
-            package["sha256"] = json!("0".repeat(64));
+            package["blake3"] = json!("0".repeat(64));
             fs::write(&manifest, serde_json::to_vec(&package).unwrap()).unwrap();
             assert!(command(&[
                 "install",
@@ -123,7 +122,7 @@ fn provider_commands_fetch_only_after_consent_and_reject_changed_evidence() {
             ])
             .is_err());
             assert!(!game.join("addons").exists());
-            package["sha256"] = json!(hash);
+            package["blake3"] = json!(hash);
             fs::write(&manifest, serde_json::to_vec(&package).unwrap()).unwrap();
             command(&[
                 "install",

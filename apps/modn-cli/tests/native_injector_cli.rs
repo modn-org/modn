@@ -8,7 +8,6 @@ mod main_bucket;
 #[allow(dead_code, reason = "this test crate uses only the snapshot helper")]
 mod tree;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -39,8 +38,10 @@ fn plugin_archive(fixture: &Fixture, name: &str, contents: &str) -> (PathBuf, St
     .expect("entry");
     zip.write_all(contents.as_bytes()).expect("payload");
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn write_manifest(
@@ -53,14 +54,14 @@ fn write_manifest(
     native: bool,
 ) {
     let manifest = json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "id": id,
         "game": "native-injector-game",
         "name": "Injector",
         "version": version,
         "archive_format": "zip",
-        "sha256": hash,
-        "source": {"kind": "manual", "filename": format!("{id}-{version}.zip")},
+        "blake3": hash,
+        "sources": [{"kind": "manual", "filename": format!("{id}-{version}.zip")}],
         "dependencies": dependencies,
         "native_injector": native,
     });
@@ -68,7 +69,7 @@ fn write_manifest(
         .temp
         .path()
         .join(bucket)
-        .join("games/native-injector-game");
+        .join("mods/native-injector-game");
     fs::create_dir_all(&folder).expect("bucket folder");
     fs::write(
         folder.join(format!("{id}.json")),

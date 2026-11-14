@@ -63,7 +63,7 @@ impl Fixture {
             "cyberpunk-2077",
             &self.game,
             archive,
-            &plan.archive_sha256,
+            &plan.archive_blake3,
             approval,
         )
     }
@@ -289,7 +289,7 @@ fn adoption_refuses_a_changed_reviewed_archive() {
                 "cyberpunk-2077",
                 &fixture.game,
                 &archive,
-                &preview.archive_sha256,
+                &preview.archive_blake3,
                 AdoptionApproval::Acknowledged
             )
             .is_err());

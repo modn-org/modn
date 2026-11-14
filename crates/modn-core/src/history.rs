@@ -11,9 +11,7 @@ use crate::transactions::{CatalogReference, ReleaseDeclarations};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 mod persist;
 mod release;
@@ -155,10 +153,7 @@ pub struct HistoryRelease {
     /// Descriptor that can download the archive again.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<PackageSource>,
-    /// Archive SHA-256, the current cache key.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub archive_sha256: Option<String>,
-    /// Archive BLAKE3 digest as `blake3:<hex>`.
+    /// Archive BLAKE3 pin (hex), when recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archive_blake3: Option<String>,
 }
@@ -238,14 +233,6 @@ pub(crate) struct FileSpec {
     pub root: String,
     pub destination: String,
     pub digest: String,
-}
-
-/// Compute the `blake3:<hex>` digest of `path`.
-pub(crate) fn digest_blake3(path: &Path) -> Result<String> {
-    let mut file = File::open(path)?;
-    let mut hasher = blake3::Hasher::new();
-    io::copy(&mut file, &mut hasher)?;
-    Ok(format!("blake3:{}", hasher.finalize().to_hex()))
 }
 
 impl Store {

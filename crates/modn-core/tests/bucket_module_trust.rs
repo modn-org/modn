@@ -1,83 +1,17 @@
+#[path = "support/catalog_git.rs"]
+mod support;
+
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use minisign::KeyPair;
 use modn_core::buckets::{
-    catalog_statement, BucketStore, CatalogPublicKey, GitCatalogRevision, GitCatalogSource,
-    ModuleTrustAck, ModuleTrustState,
+    BucketStore, CatalogPublicKey, GitCatalogRevision, GitCatalogSource, ModuleTrustAck,
+    ModuleTrustState,
 };
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-
-fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
-        .args([
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-        ])
-        .args(arguments)
-        .current_dir(root)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env(
-            "GIT_CONFIG_GLOBAL",
-            if cfg!(windows) { "NUL" } else { "/dev/null" },
-        )
-        .output()
-        .expect("run git");
-    assert!(
-        output.status.success(),
-        "git {arguments:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
-
-fn commit(root: &Path, message: &str) {
-    git(root, &["add", "."]);
-    git(root, &["commit", "-m", message]);
-}
-
-fn package() -> String {
-    json!({"schema_version":1,"id":"mod","game":"test-game","name":"Mod","version":"1",
-        "archive_format":"zip","sha256":"0".repeat(64),
-        "source":{"kind":"manual","filename":"mod.zip"}})
-    .to_string()
-}
-
-fn copy_tree(source: &Path, target: &Path) {
-    fs::create_dir_all(target).expect("copy directory");
-    for entry in fs::read_dir(source).expect("copy entries") {
-        let entry = entry.expect("entry");
-        if entry.file_name() == ".git" {
-            continue;
-        }
-        let target = target.join(entry.file_name());
-        if entry.file_type().expect("file type").is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), target).expect("copy file");
-        }
-    }
-}
-
-fn write_signature(root: &Path, pair: &KeyPair, public_text: &str) {
-    let staging = tempfile::tempdir().expect("staging");
-    copy_tree(root, staging.path());
-    let statement = catalog_statement(staging.path()).expect("catalog statement");
-    let signature = minisign::sign(
-        Some(&pair.pk),
-        &pair.sk,
-        Cursor::new(statement.as_bytes()),
-        Some("catalog test"),
-        Some("catalog test signature"),
-    )
-    .expect("sign")
-    .into_string();
-    fs::write(root.join("catalog.pub"), public_text).expect("public key");
-    fs::write(root.join("catalog.sig"), signature).expect("signature");
-}
+use support::{commit, git, package, registration, write_signature};
 
 struct TestRemote {
     directory: tempfile::TempDir,
@@ -90,11 +24,11 @@ impl TestRemote {
         git(directory.path(), &["init", "--initial-branch=fixture"]);
         fs::write(
             directory.path().join("bucket.json"),
-            r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+            r#"{"schema_version":2,"name":"community","title":"Community"}"#,
         )
         .expect("metadata");
-        fs::create_dir_all(directory.path().join("games/test-game")).expect("games");
-        fs::write(directory.path().join("games/test-game/mod.json"), package()).expect("package");
+        fs::create_dir_all(directory.path().join("mods/test-game")).expect("games");
+        fs::write(directory.path().join("mods/test-game/mod.json"), package()).expect("package");
         let pair = KeyPair::generate_unencrypted_keypair().expect("key");
         let public_text = pair.pk.to_box().expect("public key").into_string();
         let key_id = CatalogPublicKey::parse(&public_text)
@@ -134,16 +68,12 @@ fn fixture() -> (
     (state, store, remote, revision)
 }
 
-fn registration(state: &Path) -> PathBuf {
-    state.join("buckets/registrations/community.json")
-}
-
 fn local_bucket(root: &Path) -> PathBuf {
     let bucket = root.join("local-bucket");
     fs::create_dir_all(bucket.join("games/test-game")).expect("games");
     fs::write(
         bucket.join("bucket.json"),
-        json!({"schema_version": 1, "name": "local", "title": "Local"}).to_string(),
+        json!({"schema_version": 2, "name": "local", "title": "Local"}).to_string(),
     )
     .expect("metadata");
     bucket
@@ -240,9 +170,15 @@ fn local_folder_buckets_cannot_be_module_sources() {
         )
         .expect_err("refuse local trust")
         .to_string();
-    assert_eq!(
-        error,
-        "local folder buckets cannot be module sources: local"
+    assert!(
+        error.contains("local folder bucket local cannot supply game modules"),
+        "{error}"
+    );
+    assert!(
+        error.contains(
+            "only the official main bucket and signed Git catalogs the user trusts for modules supply game modules"
+        ),
+        "{error}"
     );
     assert_eq!(fs::read(&path).expect("registration"), before);
     assert_eq!(
@@ -429,12 +365,34 @@ fn later_sync_keeps_trust_for_the_same_pinned_signer() {
 }
 
 #[test]
+fn a_mod_named_module_is_a_package_not_a_game_module() {
+    main_bucket::seeded(|| {
+        let state = tempfile::tempdir().expect("state");
+        let source = tempfile::tempdir().expect("source");
+        let bucket = local_bucket(source.path());
+        fs::create_dir_all(bucket.join("mods/test-game")).expect("mods");
+        fs::write(
+            bucket.join("mods/test-game/module.json"),
+            package().replace("\"id\":\"mod\"", "\"id\":\"module\""),
+        )
+        .expect("package named module");
+        fs::write(bucket.join("games/test-game/module.lua"), "return {}").expect("ignored script");
+        let store = BucketStore::new(state.path());
+        store.add("local", &bucket).expect("register");
+        let packages = store.packages(Some("test-game")).expect("packages");
+        assert!(packages
+            .iter()
+            .any(|package| package.package.id == "module"));
+    });
+}
+
+#[test]
 fn bucket_listing_reports_module_trust() {
     let temp = tempfile::tempdir().expect("state");
     fs::create_dir_all(temp.path().join("buckets/main")).expect("main");
     fs::write(
         temp.path().join("buckets/main/bucket.json"),
-        json!({"schema_version": 1, "name": "main", "title": "Main"}).to_string(),
+        json!({"schema_version": 2, "name": "main", "title": "Main"}).to_string(),
     )
     .expect("metadata");
     let remote = TestRemote::new();

@@ -1,3 +1,5 @@
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
@@ -72,9 +74,11 @@ fn trusted_registry_copies_checks_and_removes_runtime_snapshot() {
     );
     let official =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
+    let copy = temp.path().join("official-module");
+    main_bucket::copy_main_module(&official, &copy);
     assert!(!cli(
         temp.path(),
-        &["module", "register", official.to_str().unwrap(), "--trust"]
+        &["module", "register", copy.to_str().unwrap(), "--trust"]
     )
     .status
     .success());
@@ -90,7 +94,7 @@ fn git_sync_reports_revision_and_preserves_catalog_on_invalid_update() {
         &repo,
     );
     let git = |args: &[&str]| {
-        let out = Command::new("git")
+        let out = git_command::git_command()
             .arg("-C")
             .arg(&repo)
             .args(args)

@@ -136,6 +136,12 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
     main_bucket::seeded(|| {
         let (_root, mut store, game, archive) = fixture();
         install_zip(&mut store, &game, &archive);
+        let installed = store.installed(&game).unwrap();
+        assert_eq!(
+            installed[0].files[0].blake3,
+            blake3::hash(b"expected").to_hex().to_string(),
+            "ownership must record the BLAKE3 digest of the installed bytes"
+        );
         let file = game.join("archive/pc/mod/managed.archive");
         fs::write(&file, b"changed!").unwrap();
         let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();

@@ -1,7 +1,6 @@
 use super::catalog_tests::{plan, Fixture};
 use crate::history::HistoryFile;
 use crate::progress::{CancellationToken, OperationControl};
-use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
@@ -17,7 +16,7 @@ fn expected(destination: &str, contents: &[u8]) -> Vec<HistoryFile> {
     vec![HistoryFile {
         root: "game".into(),
         destination: destination.into(),
-        digest_before: Some(format!("{:x}", Sha256::digest(contents))),
+        digest_before: Some(blake3::hash(contents).to_hex().to_string()),
         digest_after: None,
     }]
 }

@@ -154,7 +154,7 @@ impl Store {
                 release.reference
             );
         }
-        if old.archive_sha256 == proposal.archive_sha256 {
+        if old.archive_blake3 == proposal.archive_blake3 {
             bail!(
                 "{} is already installed from this archive",
                 release.reference

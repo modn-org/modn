@@ -72,7 +72,7 @@ pub(crate) async fn install_archive(
     )?;
 
     // `docs/desktop.md`: check the plan and the digest again before the write.
-    // The plan carries the archive SHA-256 in `archive_sha256`.
+    // The plan carries the archive BLAKE3 pin in `archive_blake3`.
     let fresh = run_review(&state.busy, &backend, &game, &source).await?;
     ensure_not_cancelled(&run)?;
     ensure_review_unchanged(&review.plan, &fresh.plan)?;
@@ -183,11 +183,11 @@ fn executable_path(message: &str) -> Option<&str> {
 }
 
 /// Refuses a write when the archive digest or its approved plan changed after
-/// the review. The CLI plan carries the archive SHA-256 in `archive_sha256`.
+/// the review. The CLI plan carries the archive BLAKE3 pin in `archive_blake3`.
 fn ensure_review_unchanged(reviewed: &Value, fresh: &Value) -> Result<(), CommandError> {
     match (
-        reviewed["archive_sha256"].as_str(),
-        fresh["archive_sha256"].as_str(),
+        reviewed["archive_blake3"].as_str(),
+        fresh["archive_blake3"].as_str(),
     ) {
         (Some(reviewed), Some(fresh)) if reviewed == fresh => {}
         _ => return Err(CommandError::digest_mismatch()),
@@ -296,7 +296,7 @@ mod tests {
     }
 
     fn reviewed(digest: &str, status: &str) -> Value {
-        json!({"status": status, "archive_sha256": digest})
+        json!({"status": status, "archive_blake3": digest})
     }
 
     #[test]
@@ -386,6 +386,41 @@ mod tests {
                 &["tools/helper.exe".to_string()]
             ),
             None
+        );
+    }
+
+    #[test]
+    fn the_review_recheck_requires_the_archive_blake3_pin_in_both_plans() {
+        let pin = "a".repeat(64);
+        let other = "b".repeat(64);
+        let plan = reviewed(&pin, "reviewable");
+        ensure_review_unchanged(&plan, &reviewed(&pin, "reviewable"))
+            .expect("the same BLAKE3 pin may write");
+        assert_eq!(
+            ensure_review_unchanged(&plan, &reviewed(&other, "reviewable"))
+                .expect_err("a changed BLAKE3 pin is refused")
+                .code,
+            "DIGEST_MISMATCH"
+        );
+        let without_pin = json!({"status": "reviewable"});
+        assert_eq!(
+            ensure_review_unchanged(&plan, &without_pin)
+                .expect_err("a fresh plan without the pin is refused")
+                .code,
+            "DIGEST_MISMATCH"
+        );
+        assert_eq!(
+            ensure_review_unchanged(&without_pin, &plan)
+                .expect_err("a reviewed plan without the pin is refused")
+                .code,
+            "DIGEST_MISMATCH"
+        );
+        let numeric_pin = json!({"status": "reviewable", "archive_blake3": 7});
+        assert_eq!(
+            ensure_review_unchanged(&plan, &numeric_pin)
+                .expect_err("a non-string pin is refused")
+                .code,
+            "DIGEST_MISMATCH"
         );
     }
 

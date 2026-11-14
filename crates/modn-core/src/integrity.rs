@@ -1,7 +1,6 @@
 use crate::scan::{IntegrityStatus, OwnedFileCheck, ScanRoot};
 use crate::state::Store;
 use crate::transactions::ManagedPackage;
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -100,13 +99,13 @@ fn verify_owned(
         Ok(file) => file,
         Err(_) => return IntegrityStatus::Unreadable,
     };
-    let mut hasher = Sha256::new();
+    let mut hasher = blake3::Hasher::new();
     match io::copy(
         &mut input.take(expected_bytes.saturating_add(1)),
         &mut hasher,
     ) {
         Ok(read) if read == expected_bytes => {
-            if format!("{:x}", hasher.finalize()) == expected_sha {
+            if hasher.finalize().to_hex().to_string() == expected_sha {
                 IntegrityStatus::Intact
             } else {
                 IntegrityStatus::Modified
@@ -169,7 +168,7 @@ pub(crate) fn owned_file_checks(
                 Some(ScanRoot::Content) => {
                     let status = match roots.content {
                         Some(content) => {
-                            verify_owned(content, &file.destination, file.bytes, &file.sha256)
+                            verify_owned(content, &file.destination, file.bytes, &file.blake3)
                         }
                         None => roots.content_unavailable,
                     };
@@ -179,7 +178,7 @@ pub(crate) fn owned_file_checks(
                     let status = match covering_root(&game_roots, &file.destination) {
                         Some(check) => check.status,
                         None => {
-                            verify_owned(roots.game, &file.destination, file.bytes, &file.sha256)
+                            verify_owned(roots.game, &file.destination, file.bytes, &file.blake3)
                         }
                     };
                     (ScanRoot::Game, status)
@@ -191,7 +190,7 @@ pub(crate) fn owned_file_checks(
                 root,
                 relative_path: file.destination,
                 status,
-                expected_sha256: file.sha256,
+                expected_blake3: file.blake3,
                 expected_bytes: file.bytes,
             });
         }
@@ -206,7 +205,7 @@ pub(crate) fn package_intact(store: &Store, game: &Path, package: &ManagedPackag
         && package.files.iter().all(|file| {
             covering_root(&roots, &file.destination)
                 .is_none_or(|check| check.status == IntegrityStatus::Present)
-                && verify_owned(game, &file.destination, file.bytes, &file.sha256)
+                && verify_owned(game, &file.destination, file.bytes, &file.blake3)
                     == IntegrityStatus::Intact
         })
 }

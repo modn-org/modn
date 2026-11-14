@@ -4,7 +4,6 @@ mod support;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -16,8 +15,8 @@ fn url(name: &str) -> String {
     format!("https://127.0.0.1:9/releases/{name}-1.0.zip")
 }
 
-fn sha(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+fn pin(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
 }
 
 fn plugin_archive(fixture: &Fixture, name: &str) -> (PathBuf, String) {
@@ -30,21 +29,21 @@ fn plugin_archive(fixture: &Fixture, name: &str) -> (PathBuf, String) {
     .expect("entry");
     zip.write_all(name.as_bytes()).expect("payload");
     zip.finish().expect("finish");
-    let digest = sha(&fs::read(&path).expect("bytes"));
+    let digest = pin(&fs::read(&path).expect("bytes"));
     (path, digest)
 }
 
 fn https_manifest(fixture: &Fixture, id: &str, hash: &str, dependencies: &[&str]) {
     let manifest = json!({
-        "schema_version":1, "id":id, "game":"test-game", "name":id,
-        "version":"1.0", "archive_format":"zip", "sha256":hash,
-        "source":{"kind":"https","url":url(id)}, "dependencies":dependencies
+        "schema_version":2, "id":id, "game":"test-game", "name":id,
+        "version":"1.0", "archive_format":"zip", "blake3":hash,
+        "sources":[{"kind":"https","url":url(id)}], "dependencies":dependencies
     });
     fs::write(
         fixture
             .temp
             .path()
-            .join(format!("deps/games/test-game/{id}.json")),
+            .join(format!("deps/mods/test-game/{id}.json")),
         serde_json::to_vec(&manifest).expect("JSON"),
     )
     .expect("manifest");
@@ -55,7 +54,7 @@ fn cache_dir(fixture: &Fixture) -> PathBuf {
 }
 
 fn cache_entry(fixture: &Fixture, id: &str) -> PathBuf {
-    let url_hash = &sha(url(id).as_bytes())[..7];
+    let url_hash = &pin(url(id).as_bytes())[..7];
     cache_dir(fixture).join(format!("test-game#{id}#1.0#{url_hash}.zip"))
 }
 
@@ -196,14 +195,14 @@ fn a_nexus_source_needs_a_valid_api_key_without_a_supplied_file() {
     let (archive, hash) = plugin_archive(&fixture, "nexus");
     fixture.bucket("deps", "test-game", "nexus", &hash, &[]);
     let manifest = json!({
-        "schema_version":1, "id":"nexus", "game":"test-game", "name":"nexus",
-        "version":"1.0", "archive_format":"zip", "sha256":hash,
-        "source":{"kind":"nexus", "game_domain":"cyberpunk2077", "mod_id":6945,
-            "file_id":123456, "file_name":"Equipment-EX-1.2.10.zip"},
+        "schema_version":2, "id":"nexus", "game":"test-game", "name":"nexus",
+        "version":"1.0", "archive_format":"zip", "blake3":hash,
+        "sources":[{"kind":"nexus", "game_domain":"cyberpunk2077", "mod_id":6945,
+            "file_id":123456, "file_name":"Equipment-EX-1.2.10.zip"}],
         "dependencies":[]
     });
     fs::write(
-        fixture.temp.path().join("deps/games/test-game/nexus.json"),
+        fixture.temp.path().join("deps/mods/test-game/nexus.json"),
         serde_json::to_vec(&manifest).expect("JSON"),
     )
     .expect("manifest");
@@ -394,9 +393,9 @@ fn provider_preview_is_offline_and_aliases_reuse_verified_bytes() {
     let manifest = fixture
         .temp
         .path()
-        .join("deps/games/test-game/provider.json");
+        .join("deps/mods/test-game/provider.json");
     let mut value: Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
-    value["source"] = json!({"kind":"github-release", "repository":"fixture/project", "tag":"v1", "asset":"mod.zip"});
+    value["sources"] = json!([{"kind":"github-release", "repository":"fixture/project", "tag":"v1", "asset":"mod.zip"}]);
     fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
     let preview = modn(
         &fixture,
@@ -426,16 +425,16 @@ fn provider_preview_is_offline_and_aliases_reuse_verified_bytes() {
     let entries = archive_entry_count(&fixture);
     assert_eq!(entries, 1, "digest alias reuse adds no second entry");
     assert!(
-        cache_dir(&fixture).join(".digest-index.json").is_file(),
-        "the digest index is written beside the archive entry"
+        !cache_dir(&fixture).join(".digest-index.json").exists(),
+        "reusing a verified entry by scan writes no index"
     );
     assert!(modn(&fixture, &["uninstall", "provider", "--yes"])
         .status
         .success());
     value["id"] = json!("alias");
-    value["source"] = json!({"kind":"https","url": "https://127.0.0.1:9/another-source.zip"});
+    value["sources"] = json!([{"kind":"https","url": "https://127.0.0.1:9/another-source.zip"}]);
     fs::write(
-        fixture.temp.path().join("deps/games/test-game/alias.json"),
+        fixture.temp.path().join("deps/mods/test-game/alias.json"),
         serde_json::to_vec(&value).unwrap(),
     )
     .unwrap();

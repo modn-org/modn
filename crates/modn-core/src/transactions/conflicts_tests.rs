@@ -47,7 +47,7 @@ fn declared_conflicts_block_installation_in_either_order() {
 fn a_conflict_also_matches_the_conflicting_release_by_digest() {
     let mut fixture = Fixture::new();
     let shared = fixture.archive("shared");
-    let digest = crate::archive::inspect(&shared).unwrap().sha256;
+    let digest = crate::archive::inspect(&shared).unwrap().blake3;
     let rival = fixture.archive("rival");
     let b = || CatalogConflict::new(reference("b"), Some(digest.clone()));
     let installed = fixture
@@ -85,7 +85,7 @@ fn a_conflict_also_matches_the_conflicting_release_by_digest() {
 fn legacy_read_only_state_still_matches_conflicts_by_digest() {
     let mut fixture = Fixture::new();
     let shared = fixture.archive("shared");
-    let digest = crate::archive::inspect(&shared).unwrap().sha256;
+    let digest = crate::archive::inspect(&shared).unwrap().blake3;
     let installed = fixture
         .install_release(&shared, CatalogRelease::new(reference("a"), Vec::new()))
         .unwrap();
@@ -107,7 +107,7 @@ fn legacy_read_only_state_still_matches_conflicts_by_digest() {
         found,
         [format!(
             "{} (archive {})",
-            installed.id, installed.archive_sha256
+            installed.id, installed.archive_blake3
         )]
     );
 }

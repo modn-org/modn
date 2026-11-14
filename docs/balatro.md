@@ -25,7 +25,7 @@ modn play balatro --path "<game-root>"
 The game root is the Steam installation folder that contains `Balatro.exe`.
 Balatro loads mods from `%APPDATA%\Balatro\Mods`.
 That folder is outside the game root.
-The API 2 game module declares it as a content root:
+The game module declares it as a content root:
 
 ```json
 {"content_root":{"base":"appdata","path":"Balatro/Mods"}}

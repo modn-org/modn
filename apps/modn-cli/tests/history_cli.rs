@@ -3,7 +3,6 @@ mod main_bucket;
 #[path = "support/catalog.rs"]
 mod support;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -21,19 +20,21 @@ fn archive(fixture: &Fixture, name: &str, contents: &str) -> (PathBuf, String) {
     .expect("entry");
     zip.write_all(contents.as_bytes()).expect("payload");
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn manifest(fixture: &Fixture, id: &str, version: &str, hash: &str, filename: &str) {
-    let folder = fixture.temp.path().join("deps/games/test-game");
+    let folder = fixture.temp.path().join("deps/mods/test-game");
     fs::create_dir_all(&folder).expect("bucket folder");
     fs::write(
         folder.join(format!("{id}.json")),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "id": id, "game": "test-game", "name": id,
-            "version": version, "archive_format": "zip", "sha256": hash,
-            "source": {"kind": "manual", "filename": filename}
+            "schema_version": 2, "id": id, "game": "test-game", "name": id,
+            "version": version, "archive_format": "zip", "blake3": hash,
+            "sources": [{"kind": "manual", "filename": filename}]
         }))
         .expect("manifest JSON"),
     )
@@ -83,10 +84,7 @@ fn install_update_and_uninstall_each_record_one_operation() {
     assert_eq!(install["game_id"], "test-game");
     assert_eq!(install["packages"][0]["mod_id"], "example");
     assert_eq!(release(install, "release_after")["version"], "1.0");
-    assert!(release(install, "release_after")["archive_blake3"]
-        .as_str()
-        .expect("blake3")
-        .starts_with("blake3:"));
+    assert_eq!(release(install, "release_after")["archive_blake3"], v1_hash);
     assert_eq!(
         install["packages"][0]["files"][0]["digest_before"],
         Value::Null

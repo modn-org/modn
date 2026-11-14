@@ -1,3 +1,5 @@
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use serde_json::Value;
@@ -7,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tempfile::TempDir;
 
-const SIGNED_KEY: &str = "40C666AA387404CE";
+const SIGNED_KEY: &str = "2A7E5A370638B878";
 const LOCAL_SKIP: &str = "local folder bucket has nothing to fetch";
 
 fn pack(source: &Path, zip: &Path) {
@@ -83,7 +85,7 @@ fn replace_catalog(repo: &Path, name: &str) {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = git_command::git_command()
         .current_dir(directory)
         .args(arguments)
         .output()
@@ -135,6 +137,7 @@ impl Fixture {
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main"),
             &tree,
         );
+        main_bucket::to_contract_v2(&tree);
         let main_zip = temp.path().join("main.zip");
         pack(&tree, &main_zip);
         main_bucket::write_signature(&tree, &main_zip);
@@ -147,7 +150,7 @@ impl Fixture {
         fs::create_dir_all(&local).expect("local bucket directory");
         fs::write(
             local.join("bucket.json"),
-            r#"{"schema_version":1,"name":"local","title":"Local fixture"}"#,
+            r#"{"schema_version":2,"name":"local","title":"Local fixture"}"#,
         )
         .expect("local bucket metadata");
         Self {

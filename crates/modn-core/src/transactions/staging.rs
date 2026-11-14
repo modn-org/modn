@@ -121,13 +121,13 @@ pub(super) fn stage_7z(
                     format!("7z extraction size mismatch: {}", op.source),
                 ));
             }
-            let sha256 = digest(&stage).map_err(io::Error::other)?;
+            let blake3 = digest(&stage).map_err(io::Error::other)?;
             Ok(JournalFile {
                 ordinal,
                 root: crate::state::RootKind::from_label(&op.root)
                     .unwrap_or(crate::state::RootKind::Game),
                 destination: op.destination.clone(),
-                sha256,
+                blake3,
                 bytes: copied,
             })
         })()

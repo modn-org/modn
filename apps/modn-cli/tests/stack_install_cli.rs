@@ -4,7 +4,6 @@ mod support;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -21,15 +20,17 @@ fn plugin_archive(fixture: &Fixture, name: &str) -> (PathBuf, String) {
     .expect("entry");
     zip.write_all(name.as_bytes()).expect("payload");
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn manifest(fixture: &Fixture, id: &str, hash: &str, dependencies: &[&str], extra: Value) {
     let mut manifest = json!({
-        "schema_version":1, "id":id, "game":"test-game", "name":id,
-        "version":"1.0", "archive_format":"zip", "sha256":hash,
-        "source":{"kind":"manual","filename":format!("{id}.zip")},
+        "schema_version":2, "id":id, "game":"test-game", "name":id,
+        "version":"1.0", "archive_format":"zip", "blake3":hash,
+        "sources":[{"kind":"manual","filename":format!("{id}.zip")}],
         "dependencies":dependencies
     });
     if let (Some(manifest), Value::Object(extra)) = (manifest.as_object_mut(), extra) {
@@ -39,7 +40,7 @@ fn manifest(fixture: &Fixture, id: &str, hash: &str, dependencies: &[&str], extr
         fixture
             .temp
             .path()
-            .join(format!("deps/games/test-game/{id}.json")),
+            .join(format!("deps/mods/test-game/{id}.json")),
         serde_json::to_vec(&manifest).expect("JSON"),
     )
     .expect("manifest");

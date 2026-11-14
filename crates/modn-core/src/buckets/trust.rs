@@ -3,13 +3,24 @@
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
-use super::store::Registration;
+use super::store::{validate_module_source_games, Registration};
 use super::BucketStore;
 use crate::game_modules::ImportReport;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+
+/// Refusal text for a local folder bucket used as a module source.
+///
+/// Only the official `main` bucket and signed Git catalogs the user trusts for
+/// modules supply game modules.
+#[must_use]
+pub fn local_bucket_module_refusal(name: &str) -> String {
+    format!(
+        "local folder bucket {name} cannot supply game modules; only the official main bucket and signed Git catalogs the user trusts for modules supply game modules"
+    )
+}
 
 /// Stored acknowledgement that one bucket may supply executable game modules.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,7 +109,7 @@ impl BucketStore {
         )?;
         let registration = self.registration(name)?;
         let Some(revision) = registration.revision(name)? else {
-            bail!("local folder buckets cannot be module sources: {name}");
+            bail!("{}", local_bucket_module_refusal(name));
         };
         let key_id = revision.signer.key_id;
         match ack {
@@ -123,6 +134,11 @@ impl BucketStore {
         verify_catalog_directory(&registration.path, &key).with_context(|| {
             format!(
                 "cannot trust modules from bucket {name}; the published catalog does not verify"
+            )
+        })?;
+        validate_module_source_games(&registration.path).with_context(|| {
+            format!(
+                "cannot trust modules from bucket {name}; the catalog does not follow the trusted games/<game-id>/ layout"
             )
         })?;
         let staged = crate::game_modules::stage_catalog_modules_at(
@@ -171,7 +187,7 @@ impl BucketStore {
         )?;
         let registration = self.registration(name)?;
         if registration.git.is_none() {
-            bail!("local folder buckets cannot be module sources: {name}");
+            bail!("{}", local_bucket_module_refusal(name));
         }
         if registration.module_trust.is_none() {
             return Ok(());
