@@ -15,7 +15,7 @@ From the repository root run:
 python .agents/skills/verify-modn/scripts/verify.py --build
 ```
 
-Use `python3` on Linux. Requires Python 3.10+, Rust and Cargo. Or omit `--build` for an already built `target/debug/modn[.exe]`, or pass `--binary <path>`. It uses OS-temporary `modn-verify-fixture-*` and `modn-verify-evidence-*` directories. Each CLI command terminates; no service remains running. Modules are copied to the disposable `modules/` root, selected via the production `MODN_GAME_MODULES_DIR` environment override.
+Use `python3` on Linux. Requires Python 3.10+, Rust and Cargo. Or omit `--build` for an already built `target/debug/modn[.exe]`, or pass `--binary <path>`. It uses OS-temporary `modn-verify-fixture-*` and `modn-verify-evidence-*` directories. Each CLI command terminates; no service remains running. A disposable contract v2 bucket, signed with a throwaway key, supplies the Cyberpunk module and a pinned test package. Modules are copied to the disposable `modules/` root, selected via the production `MODN_GAME_MODULES_DIR` environment override. The driver never reads the `buckets/main` submodule.
 
 ## Doctor
 

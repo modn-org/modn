@@ -13,6 +13,12 @@ A versioned catalog of mod package manifests under a named source. The official
 bucket also contains first-party game modules.
 _Avoid_: Mod repository, provider, registry (when referring to a bucket)
 
+**Bucket contract v2**:
+The bucket layout and record schema that Modn reads: `bucket.json` with
+`schema_version: 2`, package manifests under `mods/<game-id>/`, and game
+modules under `games/<game-id>/`.
+_Avoid_: Legacy bucket, mixed `games/` folder
+
 **Official bucket**:
 The Modn-maintained `main` catalog and first-party game modules. Modn uses a
 local copy installed by `modn bucket update`. The install script runs that command.
@@ -148,6 +154,11 @@ _Avoid_: Game module, downloaded archive
 **Archive**:
 The original ZIP or 7z file containing content offered for installation.
 _Avoid_: Installed mod, package manifest
+
+**Archive pin**:
+The BLAKE3 digest in a package manifest that fixes the archive bytes. Modn
+verifies a downloaded or supplied archive against it.
+_Avoid_: Archive checksum, upstream SHA-256
 
 **Artifact source**:
 The declared location or manual-acquisition instruction for an archive.

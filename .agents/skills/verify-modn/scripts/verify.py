@@ -11,6 +11,7 @@ import sys
 import tempfile
 import zipfile
 
+import bucket_fixture
 from undo_checks import verify_undo_history
 
 REPO = Path(__file__).resolve().parents[4]
@@ -75,10 +76,6 @@ def write_zip(path, members):
 def verify(driver):
     root = driver.root
     modules = root / "modules"
-    shutil.copytree(FIXTURE, modules / "test-game")
-    shutil.copytree(REPO / "buckets/main", root / "data/modn/buckets/main")
-    shutil.copytree(REPO / "buckets/main/games/cyberpunk-2077",
-                    modules / "cyberpunk-2077")
     game = root / "test-game"
     cyberpunk = root / "cyberpunk-fixture"
     (game / "bin").mkdir(parents=True)
@@ -92,6 +89,28 @@ def verify(driver):
     write_zip(test_zip, {"Demo/package/plugins/example.plugin": b"fixture-plugin"})
     cyber_zip = root / "legacy.zip"
     write_zip(cyber_zip, {"archive/pc/mod/managed.archive": PAYLOAD})
+    sources = {
+        "test-game": FIXTURE,
+        "cyberpunk-2077": bucket_fixture.FIXTURES / "cyberpunk-2077",
+    }
+    for name, source in sources.items():
+        shutil.copytree(source, modules / name)
+    bucket_modules = {
+        "cyberpunk-2077": bucket_fixture.FIXTURES / "cyberpunk-2077",
+    }
+    example = {
+        "schema_version": 2, "id": "example", "game": "test-game",
+        "name": "Example", "version": "1.0", "archive_format": "zip",
+        "blake3": bucket_fixture.archive_pin(driver.binary, test_zip),
+        "sources": [{"kind": "manual", "filename": test_zip.name}],
+    }
+    fixture_bucket = bucket_fixture.write_bucket(
+        root / "fixture-bucket", "main", "Disposable contract v2 bucket",
+        [("test-game", "example.json", example)])
+    bucket_fixture.copy_modules(fixture_bucket, bucket_modules)
+    bucket_fixture.sign_tree(fixture_bucket, fixture_bucket / "catalog.sig",
+                             fixture_bucket / "catalog.pub")
+    shutil.copytree(fixture_bucket, root / "data/modn/buckets/main")
     before = snapshot(game)
     manual_mtime = unmanaged.stat().st_mtime_ns
     driver.run("adoption-command-unavailable",

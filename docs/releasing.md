@@ -7,14 +7,18 @@ test runs from an empty directory, with no repository and no `cargo` or `rustc`
 on `PATH`. It checks the checksum, the absence of C runtime DLL imports,
 `search`, `install --dry-run` for a catalog mod and for a local archive, and
 `doctor` on a fake game. It also checks that the fake game's files and their
-contents are unchanged. The smoke test installs the pinned `buckets/main`
-submodule, packed with that repository's `pack.py` and signed with an
-ephemeral test key. Only
+contents are unchanged. The smoke test needs a contract v2 `main` bucket. It
+installs the pinned `buckets/main` submodule, packed with the bucket
+repository's v2 packer and signed with an ephemeral test key. **Precondition
+for a Modn release:** `modn-org/main` must publish a contract v2 bucket, and
+this repository must pin that commit. The submodule still points at contract
+v1 today. A Modn release and the restructured, signed `modn-org/main` release
+ship together. Only
 then does the workflow publish the GitHub release with `modn.exe`, its checksum
 and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
 must include `main-bucket.zip.minisig`. The bucket repository's tag release signs
-the catalog with the key built into Modn; `v2026.11.08` is the first signed
-bucket release. A version with a pre-release
+the v2 catalog with the key built into Modn; `v2026.11.08` was the first signed
+v1 bucket release. A version with a pre-release
 suffix, such as `0.2.0-alpha.1`, becomes a GitHub pre-release. Pull requests
 that change the workflow or the smoke script run the build and smoke jobs, but
 they never publish.
@@ -48,6 +52,8 @@ the release publishes no copy of it.
 `main-bucket.zip.minisig` beside it.
 
 ## Milestone 1 exit gate
+
+Both milestone gate scripts target contract v1 and stay unchanged as closed-milestone evidence; do not run them against a v2 bucket.
 
 After a release, run the gate against its published assets:
 
@@ -225,7 +231,10 @@ Expect the two hashes to match, in any case, and a full commit SHA.
 Record the tag, the commit and the SHA-256. Install Python 3, Git, `gh` and 7-Zip on `PATH`.
 
 **Bucket release.** `modn bucket update` installs the latest `modn-org/main` release, not the bucket commit that `$tag` pins.
+The release must use contract v2: `bucket.json` with `schema_version: 2`, package manifests under `mods/<game-id>/` and game modules under `games/<game-id>/`.
+This Modn refuses a contract v1 bucket.
 The release must include `main-bucket.zip.minisig`, signed by the key built into Modn.
+This repository's submodule still pins contract v1 until the maintainer republishes `main`; a Modn release and that v2 bucket release ship together.
 Confirm that the bucket release contains that commit:
 
 ```powershell
@@ -337,18 +346,19 @@ Add 1.28.5 to a local bucket:
 
 ```powershell
 $bucket = "$live\bucket"
-$main = "<data dir>\buckets\main"  # the official bucket copy; see buckets.md
-New-Item -ItemType Directory -Force "$bucket\games\cyberpunk-2077" | Out-Null
-'{"schema_version":1,"name":"live","title":"Live validation"}' | Set-Content "$bucket\bucket.json"
+$main = "<data dir>\buckets\main"  # the contract v2 official bucket copy; see buckets.md
+New-Item -ItemType Directory -Force "$bucket\mods\cyberpunk-2077" | Out-Null
+'{"schema_version":2,"name":"live","title":"Live validation"}' | Set-Content "$bucket\bucket.json"
 'archivexl','red4ext','redscript' | ForEach-Object {
-  Copy-Item "$main\games\cyberpunk-2077\$_.json" "$bucket\games\cyberpunk-2077\"
+  Copy-Item "$main\mods\cyberpunk-2077\$_.json" "$bucket\mods\cyberpunk-2077\"
 }
 $url = 'https://github.com/psiberx/cp2077-archive-xl/releases/download/v1.28.5/ArchiveXL-1.28.5.zip'
 Invoke-WebRequest $url -OutFile "$live\ArchiveXL-1.28.5.zip"
-$old = Get-Content "$bucket\games\cyberpunk-2077\archivexl.json" -Raw | ConvertFrom-Json
-$old.version = '1.28.5'; $old.source.url = $url
-$old.sha256 = (Get-FileHash "$live\ArchiveXL-1.28.5.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-$old | ConvertTo-Json -Depth 5 | Set-Content "$bucket\games\cyberpunk-2077\archivexl@1.28.5.json"
+$old = Get-Content "$bucket\mods\cyberpunk-2077\archivexl.json" -Raw | ConvertFrom-Json
+$old.version = '1.28.5'
+$old.sources = @(@{kind = 'https'; url = $url})
+$old.blake3 = (modn --json inspect "$live\ArchiveXL-1.28.5.zip" | ConvertFrom-Json).blake3
+$old | ConvertTo-Json -Depth 5 | Set-Content "$bucket\mods\cyberpunk-2077\archivexl@1.28.5.json"
 modn bucket add live $bucket
 ```
 
@@ -540,8 +550,7 @@ Differences from fixture results
 This run records the first live check of the Balatro packages.
 It covers a native injector, a Git source and an AppData content root.
 Use Modn 0.5.0 or later, from [Before any live step](#before-any-live-step). Record its commit and SHA-256.
-Run `modn bucket update` first. The `main` bucket release must be `v2026.11.07.1` or later,
-which contains the two Balatro packages.
+Run `modn bucket update` first. The `main` bucket release must use contract v2 and contain the two Balatro packages.
 Every command and flag below exists in the built CLI. Check one with `modn <command> --help`.
 
 Set these values once. Reuse `$live` and `$game` from [Before any live step](#before-any-live-step).
