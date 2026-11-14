@@ -93,6 +93,9 @@ pub struct ZipCatalogSync {
     /// Accepted rotation or revocation, when this revision carried one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key_change: Option<CatalogKeyChange>,
+    /// Published key statements that added no trust to this pin.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignored_key_statements: Vec<String>,
     /// Game module releases imported or ignored during this sync.
     pub modules: CatalogModuleReport,
     /// The primary, the source that served the revision and any failures.
@@ -355,6 +358,7 @@ impl BucketStore {
             revision,
             pinned,
             key_change,
+            ignored_key_statements: verification.ignored_key_statements,
             modules: CatalogModuleReport { imported, ignored },
             trace: CatalogSyncTrace {
                 primary: primary.clone(),
@@ -401,5 +405,7 @@ impl BucketStore {
         Ok(registration.zip.map(|stored| stored.revision()))
     }
 }
+#[cfg(test)]
+mod key_tests;
 #[cfg(test)]
 mod tests;

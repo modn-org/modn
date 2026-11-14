@@ -150,6 +150,8 @@ pub(in crate::buckets) struct CatalogVerification {
     pub(in crate::buckets) pinned: bool,
     /// An accepted rotation or revocation, when this revision carries one.
     pub(in crate::buckets) key_change: Option<CatalogKeyChange>,
+    /// Published key statements that added no trust to this pin.
+    pub(in crate::buckets) ignored_key_statements: Vec<String>,
 }
 
 /// Verify one staged catalog tree and return the signer to publish.
@@ -182,6 +184,7 @@ pub(in crate::buckets) fn verify_catalog_tree(
             signer: CatalogSigner::pin(&key, text, revocation_public),
             pinned: true,
             key_change: None,
+            ignored_key_statements: Vec::new(),
         });
     };
     let pinned = previous.pinned_key()?;
@@ -216,6 +219,7 @@ pub(in crate::buckets) fn verify_catalog_tree(
             signer: previous.clone(),
             pinned: false,
             key_change: None,
+            ignored_key_statements: Vec::new(),
         });
     };
     verify_catalog_directory(root, &change.new_key)?;
@@ -230,6 +234,7 @@ pub(in crate::buckets) fn verify_catalog_tree(
         signer,
         pinned: false,
         key_change: Some(change.report()),
+        ignored_key_statements: Vec::new(),
     })
 }
 
