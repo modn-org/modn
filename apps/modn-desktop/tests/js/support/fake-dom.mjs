@@ -43,6 +43,9 @@ export class FakeNode {
   }
 
   set textContent(value) {
+    for (const child of this.children) {
+      child.parentNode = null;
+    }
     this.children = [];
     this._text = value === null || value === undefined ? '' : String(value);
   }
@@ -140,6 +143,9 @@ export class FakeNode {
   }
 
   click() {
+    if (this.disabled) {
+      return;
+    }
     const event = { type: 'click', target: this };
     for (const listener of [...(this.listeners.get('click') || [])]) {
       listener.call(this, event);

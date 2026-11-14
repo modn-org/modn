@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createUndoLauncher } from '../../ui/js/library/tile.js';
+import { createTile, createUndoLauncher } from '../../ui/js/library/tile.js';
 import {
   findByTestId,
   flush,
   installDom,
   installWindow,
   lastToast,
+  toastHost,
 } from './support/fake-dom.mjs';
 
 /**
@@ -22,6 +23,66 @@ function makeLauncher(runUndo, onSettled = () => {}) {
   const launch = createUndoLauncher({ host, runUndo, onSettled });
   return { host, launch };
 }
+
+test('toast A undoes operation A after operation B commits on the same package', async () => {
+  installDom();
+  const undoHost = document.createElement('div');
+  document.body.append(undoHost);
+  const undone = [];
+  let commits = 0;
+  installWindow({
+    invoke: async (command, args) => {
+      if (command === 'undo') {
+        undone.push(args);
+        return {};
+      }
+      if (command === 'uninstall') {
+        commits += 1;
+        return { operationId: `op-${commits}` };
+      }
+      return {};
+    },
+  });
+  const pkg = {
+    id: 'pkg-1',
+    version: '1.0.0',
+    catalog: { bucket: 'main', mod_id: 'demo' },
+  };
+  const model = {
+    key: 'package-pkg-1',
+    modId: 'demo',
+    name: 'Demo Mod',
+    version: '1.0.0',
+    bucket: 'main',
+    nativeInjector: false,
+    hasUpdate: false,
+    installedPackage: pkg,
+  };
+  const tile = createTile(
+    model,
+    { gameId: 'demo', path: 'C:/game' },
+    { onChanged: () => {}, operations: new Map(), undoHost },
+  );
+  document.body.append(tile);
+  const button = findByTestId(tile, 'op-button');
+  button.click();
+  await flush();
+  button.click();
+  await flush();
+  assert.equal(commits, 2, 'two operations commit on one package');
+  const toasts = toastHost().children;
+  assert.equal(toasts.length, 2, 'each commit keeps its own toast');
+
+  findByTestId(toasts[0], 'toast-undo').click();
+  await flush();
+
+  assert.equal(undone.length, 1);
+  assert.equal(
+    undone[0].operationId,
+    'op-1',
+    'toast A must undo operation A, not the newer operation B',
+  );
+});
 
 test('a blocked toast Undo removes its temporary row', async () => {
   installWindow();

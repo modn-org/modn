@@ -46,6 +46,18 @@ function operationEntry(operations, key, build) {
 }
 
 /**
+ * Returns the identity of one action on one mod. The installed package owns the
+ * mod once Modn installs it, so a running button is found under either the
+ * catalog entry or the package row that replaces it.
+ * @param {import('./data.js').LibraryModel} model
+ * @returns {string}
+ */
+function operationSubject(model) {
+  const installed = model.installedPackage;
+  return installed ? `package-${installed.id}` : `${model.bucket}:${model.modId}`;
+}
+
+/**
  * @param {import('./data.js').LibraryModel} model
  * @param {{gameId: string, path: string}} ctx
  * @param {{
@@ -106,10 +118,11 @@ export function createTile(model, ctx, { onChanged, operations, undoHost = null 
   };
   /** @type {Array<{button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} */
   const buttons = [];
+  const subject = operationSubject(model);
 
   if (installed) {
     buttons.push(
-      operationEntry(operations, `uninstall:${model.key}`, (askHost) =>
+      operationEntry(operations, `uninstall:${subject}`, (askHost) =>
         createOperationButton({
           ...settings,
           askHost,
@@ -128,7 +141,7 @@ export function createTile(model, ctx, { onChanged, operations, undoHost = null 
     );
     if (model.hasUpdate) {
       buttons.push(
-        operationEntry(operations, `update:${model.key}`, (askHost) =>
+        operationEntry(operations, `update:${subject}`, (askHost) =>
           createOperationButton({
             ...settings,
             askHost,
@@ -156,7 +169,7 @@ export function createTile(model, ctx, { onChanged, operations, undoHost = null 
     }
   } else {
     buttons.push(
-      operationEntry(operations, `install:${model.key}`, (askHost) =>
+      operationEntry(operations, `install:${subject}`, (askHost) =>
         createOperationButton({
           ...settings,
           askHost,
