@@ -62,6 +62,8 @@ function showUndoToast(message, onUndo) {
  *   launchUndo?: ((operationId: string) => void)|null,
  *   onSettled?: () => void|Promise<void>,
  *   onError?: (message: string) => void,
+ *   onBlocked?: () => void,
+ *   onDeclined?: () => void,
  *   testId?: string,
  *   ariaLabel?: string,
  *   disabled?: boolean,
@@ -87,6 +89,8 @@ export function createOperationButton(options) {
     launchUndo = null,
     onSettled = null,
     onError = null,
+    onBlocked = null,
+    onDeclined = null,
     testId = 'op-button',
     ariaLabel = label,
     disabled = false,
@@ -311,10 +315,7 @@ export function createOperationButton(options) {
         if (onSettled) {
           await onSettled();
         }
-      } else if (
-        code === 'BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT'
-        || code === 'BACKEND_STREAM_FAILED_AFTER_COMMIT'
-      ) {
+      } else if (code === 'BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT') {
         setIdle(active.idleLabel);
         showToast(messageFor(code));
         if (onSettled) {
@@ -341,7 +342,12 @@ export function createOperationButton(options) {
                 approvals: uncovered,
               });
             },
-            () => setIdle(active.idleLabel),
+            () => {
+              setIdle(active.idleLabel);
+              if (onDeclined) {
+                onDeclined();
+              }
+            },
           );
         } else {
           showToast(messageFor(error));
@@ -355,6 +361,9 @@ export function createOperationButton(options) {
         button.setAttribute('aria-label', reason);
         progress.hidden = true;
         setProgress(0);
+        if (onBlocked) {
+          onBlocked();
+        }
       } else {
         setIdle(active.idleLabel);
         showToast(messageFor(error));
