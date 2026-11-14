@@ -2,9 +2,9 @@ use crate::commands::BucketCommand;
 use crate::state_access::{validate_state_path, ManagerState};
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{
-    local_bucket_module_refusal, BucketStore, CatalogModuleReport, CatalogSyncTrace,
-    GitCatalogSource, GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck, ModuleTrustState,
-    ZipCatalogSource, ZipCatalogSync,
+    local_bucket_module_refusal, BucketStore, CatalogKeyChange, CatalogModuleReport, CatalogSigner,
+    CatalogSyncTrace, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck,
+    ModuleTrustState, ZipCatalogSource, ZipCatalogSync,
 };
 use modn_core::state::Store;
 use serde_json::Value;
@@ -53,12 +53,8 @@ pub(super) fn sync_catalog(
     json_output: bool,
 ) -> Result<GitCatalogSync> {
     let synced = store.sync_git_with_signer(name, source)?;
-    report_pin(
-        name,
-        &synced.revision.signer.key_id,
-        synced.pinned,
-        json_output,
-    );
+    report_pin(name, &synced.revision.signer, synced.pinned, json_output);
+    report_key_change(synced.key_change.as_ref(), json_output);
     report_trace(name, &synced.trace, json_output);
     Ok(synced)
 }
@@ -70,12 +66,8 @@ pub(super) fn sync_zip_catalog(
     json_output: bool,
 ) -> Result<ZipCatalogSync> {
     let synced = store.sync_zip_with_signer(name, source, open_zip_source)?;
-    report_pin(
-        name,
-        &synced.revision.signer.key_id,
-        synced.pinned,
-        json_output,
-    );
+    report_pin(name, &synced.revision.signer, synced.pinned, json_output);
+    report_key_change(synced.key_change.as_ref(), json_output);
     report_trace(name, &synced.trace, json_output);
     Ok(synced)
 }
@@ -85,13 +77,29 @@ fn open_zip_source(source: &ZipCatalogSource) -> Result<Box<dyn Read>> {
     }
     Ok(Box::new(File::open(&source.url)?))
 }
-fn report_pin(name: &str, key_id: &str, pinned: bool, json_output: bool) {
+fn report_pin(name: &str, signer: &CatalogSigner, pinned: bool, json_output: bool) {
     if !pinned {
         return;
     }
     let line = format!(
-        "Pinned signer key {key_id} for bucket {name}; compare this fingerprint with the catalog author."
+        "Pinned signer key {} for bucket {name}; compare this fingerprint with the catalog author.",
+        signer.key_id
     );
+    emit_report(&line, json_output);
+    if let Some(key_id) = &signer.revocation_key_id {
+        let line = format!(
+            "Pinned revocation key {key_id} for bucket {name}; compare this fingerprint with the catalog author."
+        );
+        emit_report(&line, json_output);
+    }
+}
+/// Report an accepted rotation or revocation with both fingerprints.
+fn report_key_change(change: Option<&CatalogKeyChange>, json_output: bool) {
+    if let Some(change) = change {
+        emit_report(&change.line(), json_output);
+    }
+}
+fn emit_report(line: &str, json_output: bool) {
     if json_output {
         eprintln!("{line}");
     } else {

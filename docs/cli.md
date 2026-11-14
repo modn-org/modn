@@ -130,7 +130,9 @@ that an author distributes. It needs no manager state and registers nothing.
 
 ```sh
 modn catalog keygen [--out <dir>] [--name <name>] [--password-env <VAR>]
-modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>]
+modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>] [--revocation-public-key <file>]
+modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--password-env <VAR>]
+modn catalog revoke <dir> --revocation-key <secret-key-file> --revoked <key-id> --replacement-public-key <file> [--password-env <VAR>]
 modn catalog verify <dir> --key <public-key-file>
 modn catalog hash <archive> [--json]
 ```
@@ -146,7 +148,14 @@ environment variable.
 fingerprint and the digest. It replaces `catalog.sig` atomically, so a failed run
 keeps the previous signature. It refuses a secret key inside the catalog, a path
 that is not a directory, an encrypted key without `--password-env`, and a wrong
-password. A refusal writes nothing.
+password. A refusal writes nothing. `--revocation-public-key` copies the named
+public key to `revocation.pub` before signing, so the digest covers it.
+`rotate` writes `rotation.json` and `rotation.sig` with the current signing key.
+`revoke` writes `revocation.json` and `revocation.sig` with the offline
+revocation key. Both refuse a secret key inside the catalog and write nothing on
+refusal. After either command, run `modn catalog sign` with the successor key.
+Sync prints both fingerprints and explains how trust changes. See
+[catalog authoring](catalog-authoring.md#rotate-or-revoke-a-signing-key).
 
 `verify` checks a catalog against a public key and registers nothing. It exits 0
 and prints the fingerprint on success. A wrong key names the signature key and
@@ -550,7 +559,7 @@ otherwise the command's default code is used. No command reports a generic
 - `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key, and later syncs refuse a key change. See [sources.md](sources.md).
 - `modn bucket sync <name> --source <url>.zip` registers a signed ZIP catalog. Modn verifies it in staging before publication, and `--revision` is refused. The source must be `https://`, or an absolute local ZIP path for offline testing. See [buckets.md](buckets.md#community-catalog-sources).
 - `modn bucket sync` and `modn update` try the registered primary and then the mirrors that the latest verified revision lists. A signed `relocation.json` moves the registered primary. See [buckets.md](buckets.md#mirrors-and-relocation).
-- `modn bucket list --json` reports `primary` as `{"kind":"git","remote":...,"revision":...}` or `{"kind":"zip","url":...}`, and `mirrors` as the ordered tagged list. Text output shows the primary and the mirror count. The existing keys stay.
+- `modn bucket list --json` reports `primary` as `{"kind":"git","remote":...,"revision":...}` or `{"kind":"zip","url":...}`, and `mirrors` as the ordered tagged list. Text output shows the primary and the mirror count. The existing keys stay. A signed catalog also reports `revocation_key_id` when it pinned an offline revocation key, plus `previous_signers` and `revoked_signers` arrays when non-empty.
 - `modn adopt <archive> --dry-run` previews manual adoption. Commit requires `--acknowledge --yes`.
 - `modn uninstall <package> --force --yes` approves cleanup of modified owned files.
 

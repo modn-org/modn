@@ -3,6 +3,7 @@ mod git;
 mod lock;
 mod manifest;
 mod mirrors;
+mod rotation;
 mod signature;
 mod snapshot;
 mod store;
@@ -17,6 +18,9 @@ pub use dependencies::install_order;
 pub use git::{CatalogSigner, GitCatalogRevision, GitCatalogSource, GitCatalogSync};
 pub use manifest::{ArchiveFormat, PackageManifest, PackageSource};
 pub use mirrors::{CatalogHost, CatalogSyncTrace, MAX_CATALOG_MIRRORS};
+pub use rotation::{
+    key_statement_bytes, revocation_statement, rotation_statement, CatalogKeyChange, KeyChangeKind,
+};
 pub use signature::{
     catalog_statement, verify_catalog, verify_catalog_directory, CatalogKeyId, CatalogPublicKey,
     CatalogStatement, VerifiedCatalog,

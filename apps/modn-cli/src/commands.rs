@@ -270,6 +270,40 @@ pub(super) enum CatalogCommand {
         /// Environment variable that holds the password of the secret key.
         #[arg(long, value_name = "VAR")]
         password_env: Option<String>,
+        /// Public key file to publish as the offline revocation key.
+        #[arg(long, value_name = "FILE")]
+        revocation_public_key: Option<PathBuf>,
+    },
+    /// Write rotation.json and rotation.sig, signed by the current signing key.
+    Rotate {
+        /// Catalog directory to update.
+        dir: PathBuf,
+        /// Current signing secret key file, which must live outside the catalog.
+        #[arg(long, value_name = "FILE")]
+        key: PathBuf,
+        /// Public key file of the successor signing key.
+        #[arg(long, value_name = "FILE")]
+        new_public_key: PathBuf,
+        /// Environment variable that holds the password of the secret key.
+        #[arg(long, value_name = "VAR")]
+        password_env: Option<String>,
+    },
+    /// Write revocation.json and revocation.sig, signed by the offline revocation key.
+    Revoke {
+        /// Catalog directory to update.
+        dir: PathBuf,
+        /// Offline revocation secret key file, which must live outside the catalog.
+        #[arg(long, value_name = "FILE")]
+        revocation_key: PathBuf,
+        /// Fingerprint of the signing key that this statement revokes.
+        #[arg(long, value_name = "KEY_ID")]
+        revoked: String,
+        /// Public key file of the replacement signing key.
+        #[arg(long, value_name = "FILE")]
+        replacement_public_key: PathBuf,
+        /// Environment variable that holds the password of the secret key.
+        #[arg(long, value_name = "VAR")]
+        password_env: Option<String>,
     },
     /// Verify a catalog against a public key without registering it.
     Verify {

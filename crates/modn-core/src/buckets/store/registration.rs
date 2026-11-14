@@ -1,7 +1,10 @@
 //! Registration file reads and the atomic registration write.
-use super::{bounded_json, BucketStore, Registration};
+use super::BucketStore;
 use anyhow::{bail, Context, Result};
-use std::fs;
+use serde::{Deserialize, Serialize};
+use std::fs::{self, File};
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 impl BucketStore {
     /// Atomically replace one bucket registration file.
@@ -35,7 +38,7 @@ impl BucketStore {
     pub(in crate::buckets) fn registered_git(
         &self,
         name: &str,
-    ) -> Result<Option<super::super::GitCatalogRevision>> {
+    ) -> Result<Option<crate::buckets::GitCatalogRevision>> {
         if !self.registrations()?.contains_key(name) {
             return Ok(None);
         }
@@ -46,4 +49,55 @@ impl BucketStore {
             .context("bucket is not a Git catalog")
             .map(Some)
     }
+}
+
+const MAX_JSON: u64 = 32 * 1024;
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::buckets) struct Registration {
+    pub(in crate::buckets) path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::buckets) git: Option<crate::buckets::git::StoredGitCatalogRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::buckets) zip: Option<crate::buckets::zip_source::StoredZipCatalogRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::buckets) module_trust: Option<crate::buckets::trust::ModuleSourceTrust>,
+    /// Mirrors listed by the latest verified revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::buckets) mirrors: Option<Vec<crate::buckets::mirrors::CatalogHost>>,
+}
+
+impl Registration {
+    pub(in crate::buckets) fn revision(
+        &self,
+        name: &str,
+    ) -> Result<Option<crate::buckets::GitCatalogRevision>> {
+        self.git
+            .clone()
+            .map(|stored| stored.revision(name))
+            .transpose()
+    }
+
+    pub(in crate::buckets) fn catalog_signer(&self) -> Option<&crate::buckets::CatalogSigner> {
+        self.zip
+            .as_ref()
+            .map(|zip| &zip.signer)
+            .or_else(|| self.git.as_ref().and_then(|git| git.signer.as_ref()))
+    }
+}
+
+pub(in crate::buckets) fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
+    if !fs::symlink_metadata(path)?.file_type().is_file() {
+        bail!("bucket metadata must be a regular file: {}", path.display());
+    }
+    let mut bytes = Vec::new();
+    File::open(path)?
+        .take(MAX_JSON + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_JSON {
+        bail!("bucket metadata exceeds size limit");
+    }
+    serde_json::from_slice(&bytes)
+        .with_context(|| format!("invalid bucket JSON {}", path.display()))
 }

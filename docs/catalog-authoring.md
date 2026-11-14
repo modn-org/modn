@@ -115,6 +115,9 @@ modn catalog sign . --key ../author-keys/catalog.key
 It writes `catalog.sig` and `catalog.pub` at the catalog root, prints the
 fingerprint and the digest, and exits 0. It replaces an older `catalog.sig`
 atomically, so a failed run keeps the previous signature.
+Pass `--revocation-public-key <file>` to copy an offline revocation public key
+to `revocation.pub` before signing. The copied file is part of the signed
+digest, so sign again after any change to it.
 
 `modn catalog sign` refuses these inputs and writes nothing:
 
@@ -146,6 +149,46 @@ exit nonzero with a message that names the current digest.
 
 Run this command after `modn catalog sign` and before you push.
 
+## Rotate or revoke a signing key
+
+Create the successor key and the offline revocation key outside the catalog.
+Keep the revocation secret key offline; it signs no catalog revision.
+
+At the first publish, name the revocation key so users pin it:
+
+```sh
+modn catalog sign . --key ../author-keys/catalog.key --revocation-public-key ../author-keys/revocation.pub
+```
+
+To hand the catalog to a successor, rotate with the current signing key:
+
+```sh
+modn catalog rotate . --key ../author-keys/catalog.key --new-public-key ../author-keys/next.pub
+modn catalog sign . --key ../author-keys/next.key
+```
+
+If the current signing key leaked, revoke it with the offline key instead:
+
+```sh
+modn catalog revoke . --revocation-key ../author-keys/revocation.key --revoked <OLD_KEY_ID> --replacement-public-key ../author-keys/next.pub
+modn catalog sign . --key ../author-keys/next.key
+```
+
+`rotate` writes `rotation.json` and `rotation.sig`. `revoke` writes
+`revocation.json` and `revocation.sig`. Both commands refuse a secret key inside
+the catalog directory. A refusal writes nothing. Commit the statement files, the
+new signature and `catalog.pub` together.
+
+A rotation keeps module trust because the old key vouched for the new key. A
+revocation clears it, so users run `modn bucket trust-modules` again. Sync output
+names both fingerprints. Remove the old statement before a different key change
+unless the statement was already accepted; sync treats an accepted statement as
+history.
+
+A pinned `revocation.pub` cannot change in place. If the revocation key leaks,
+each user must remove the bucket and sync it again to pin a new revocation key.
+See [bucket key rotation](buckets.md#catalog-key-rotation-and-revocation).
+
 ## Host the catalog in a Git repository
 
 Put the catalog files at the root of a repository, sign them in place and commit
@@ -170,8 +213,9 @@ The first sync prints
 Tell users the fingerprint that `modn catalog keygen` printed, so each user can
 compare it.
 Later syncs verify the revision with the pinned key. They may omit `catalog.pub`.
-A revision that names another key is refused. Modn has no key rotation yet
-(#122), so a lost or leaked key needs a new catalog name.
+A revision that names another key needs a signed rotation or revocation
+statement; see [rotate or revoke a signing key](#rotate-or-revoke-a-signing-key).
+A changed key without that statement is refused.
 
 Git must be installed. The repository may be public or reachable by the user's
 Git credentials.
@@ -265,9 +309,4 @@ A user checks the release with `modn bucket sync community` and
 
 ## What later work adds
 
-These capabilities are planned and not available:
-
-- signer key rotation and offline revocation (#122).
-
-The commands on this page do not implement them. They do not fetch, mirror or
-rotate anything, and a catalog with a changed signer key is refused.
+No catalog authoring capability named on this page is planned for later work.
