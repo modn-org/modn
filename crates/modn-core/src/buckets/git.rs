@@ -3,7 +3,7 @@ use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
 use super::store::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use super::trust::ModuleTrustState;
-use crate::game_modules::{stage_catalog_modules_at, CatalogModuleReport};
+use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
@@ -355,7 +355,7 @@ impl BucketStore {
         };
         let ignored = match &staged {
             Some(staged) => staged.ignored().to_vec(),
-            None => Vec::new(),
+            None => ignored_catalog_modules(&catalog)?,
         };
         self.publish_git(name, catalog, revision.clone())?;
         let imported = match staged {

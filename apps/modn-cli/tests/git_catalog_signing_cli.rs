@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tempfile::TempDir;
 
-const SIGNED_KEY: &str = "40C666AA387404CE";
-const REKEYED_KEY: &str = "EF1D3A7516E0AA02";
+const SIGNED_KEY: &str = "2A7E5A370638B878";
+const REKEYED_KEY: &str = "DC69368386F82F95";
 
 fn run(state: &Path, args: &[&str]) -> Output {
     main_bucket::command(env!("CARGO_BIN_EXE_modn"))
@@ -205,7 +205,7 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
     let pointer: serde_json::Value =
         serde_json::from_slice(&before_registration).expect("registration JSON");
     let published = Path::new(pointer["path"].as_str().expect("published path"));
-    let package = published.join("games/test-game/example.json");
+    let package = published.join("mods/test-game/example.json");
     let before_package = fs::read(&package).expect("published package");
 
     replace_catalog(&repo, "v2-rekeyed");
@@ -250,7 +250,7 @@ fn unsigned_and_invalid_revisions_are_refused_at_first_and_later_sync() {
     assert!(!registration.exists());
 
     replace_catalog(&repo, "v1");
-    let manifest = repo.join("games/test-game/example.json");
+    let manifest = repo.join("mods/test-game/example.json");
     let mut value: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest).expect("manifest")).expect("manifest JSON");
     value["version"] = serde_json::json!("9.0");
@@ -273,7 +273,7 @@ fn unsigned_and_invalid_revisions_are_refused_at_first_and_later_sync() {
     let pointer: serde_json::Value =
         serde_json::from_slice(&before_registration).expect("registration JSON");
     let published = Path::new(pointer["path"].as_str().expect("published path"));
-    let package = published.join("games/test-game/example.json");
+    let package = published.join("mods/test-game/example.json");
     let before_package = fs::read(&package).expect("published package");
 
     fs::remove_file(repo.join("catalog.pub")).expect("remove public key");

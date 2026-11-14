@@ -4,7 +4,6 @@
 )]
 use crate::main_bucket;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -128,30 +127,30 @@ impl Fixture {
         extra: Value,
     ) {
         let root = self.temp.path().join(name);
-        let manifest_dir = root.join("games").join(game);
-        fs::create_dir_all(&manifest_dir).expect("bucket dirs");
+        let record_dir = root.join("mods").join(game);
+        fs::create_dir_all(&record_dir).expect("bucket dirs");
         fs::write(
             root.join("bucket.json"),
             serde_json::to_vec(&json!({
-                "schema_version": 1, "name":name, "title":"Fixture"
+                "schema_version": 2, "name":name, "title":"Fixture"
             }))
             .expect("JSON"),
         )
         .expect("bucket metadata");
         let mut manifest = json!({
-            "schema_version": 1, "id":id, "game":game, "name":"Fixture",
-            "version":"1.0", "archive_format":"zip", "sha256":hash,
-            "source":{"kind":"manual","filename":"fixture.zip"},
+            "schema_version": 2, "id":id, "game":game, "name":"Fixture",
+            "version":"1.0", "archive_format":"zip", "blake3":hash,
+            "sources":[{"kind":"manual","filename":"fixture.zip"}],
             "dependencies":dependencies
         });
         if let (Some(manifest), Value::Object(extra)) = (manifest.as_object_mut(), extra) {
             manifest.extend(extra);
         }
         fs::write(
-            manifest_dir.join(format!("{id}.json")),
+            record_dir.join(format!("{id}.json")),
             serde_json::to_vec(&manifest).expect("JSON"),
         )
-        .expect("manifest");
+        .expect("record");
         let result = self.run_paths(&["bucket", "add", name], &[&root]);
         assert!(result.status.success(), "{}", error(&result));
     }
@@ -168,8 +167,8 @@ impl Fixture {
         .expect("entry");
         zip.write_all(b"installed-by-modn").expect("payload");
         zip.finish().expect("zip finish");
-        let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-        (path, format!("{digest:x}"))
+        let pin = blake3_pin(&path);
+        (path, pin)
     }
 
     pub fn native_archive(&self) -> (PathBuf, String) {
@@ -181,9 +180,15 @@ impl Fixture {
             .expect("entry");
         zip.write_all(b"native-injector-payload").expect("payload");
         zip.finish().expect("zip finish");
-        let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-        (path, format!("{digest:x}"))
+        let pin = blake3_pin(&path);
+        (path, pin)
     }
+}
+
+fn blake3_pin(path: &Path) -> String {
+    blake3::hash(&fs::read(path).expect("archive bytes"))
+        .to_hex()
+        .to_string()
 }
 
 pub fn error(output: &Output) -> String {

@@ -45,11 +45,11 @@ fn catalog_search(state: &Path) -> Output {
 }
 
 fn seed(root: &Path, body: &str) {
-    let directory = root.join("games/test-game");
+    let directory = root.join("mods/test-game");
     fs::create_dir_all(&directory).expect("test fixture invariant");
     fs::write(
         root.join("bucket.json"),
-        r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+        r#"{"schema_version":2,"name":"community","title":"Community"}"#,
     )
     .expect("test fixture invariant");
     fs::write(directory.join("example.json"), body).expect("test fixture invariant");
@@ -57,10 +57,10 @@ fn seed(root: &Path, body: &str) {
 
 fn valid_manifest() -> String {
     serde_json::json!({
-        "schema_version":1,"id":"example","game":"test-game","name":"Example",
+        "schema_version":2,"id":"example","game":"test-game","name":"Example",
         "version":"1.0","archive_format":"zip",
-        "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "source":{"kind":"manual","filename":"example.zip"},"dependencies":[]
+        "blake3":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sources":[{"kind":"manual","filename":"example.zip"}],"dependencies":[]
     })
     .to_string()
 }
@@ -85,7 +85,7 @@ fn bundled_main_is_available_without_mutating_state() {
     let entry: serde_json::Value =
         serde_json::from_slice(&result.stdout).expect("test fixture invariant");
     assert_eq!(entry["version"], "1.31.0");
-    assert_eq!(entry["source"]["kind"], "https");
+    assert_eq!(entry["sources"][0]["kind"], "https");
     assert!(!temp.path().join("state.sqlite").exists());
 }
 
@@ -153,6 +153,32 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
 }
 
 #[test]
+fn bucket_json_contract_v1_is_refused_before_registration() {
+    let temp = TempDir::new().expect("test fixture invariant");
+    let bucket = temp.path().join("source");
+    seed(&bucket, &valid_manifest());
+    fs::write(
+        bucket.join("bucket.json"),
+        r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+    )
+    .expect("v1 metadata");
+    let state = temp.path().join("state");
+    let result = run(
+        &state,
+        &["add", "community", bucket.to_str().expect("path")],
+    );
+    assert!(!result.status.success(), "v1 bucket must be refused");
+    let message = output(&result);
+    assert!(message.contains("schema_version 1"), "{message}");
+    assert!(message.contains("bucket contract v2"), "{message}");
+    assert!(
+        !state.join("buckets").exists(),
+        "a refused registration must not write the registry"
+    );
+    assert!(!state.join("state.sqlite").exists());
+}
+
+#[test]
 fn malformed_packages_are_rejected_before_registration() {
     let temp = TempDir::new().expect("test fixture invariant");
     let bucket = temp.path().join("source");
@@ -160,14 +186,15 @@ fn malformed_packages_are_rejected_before_registration() {
     let mut manifest: serde_json::Value =
         serde_json::from_str(&valid_manifest()).expect("test fixture invariant");
     for (field, value) in [
-        ("sha256", serde_json::json!("bad")),
+        ("blake3", serde_json::json!("bad")),
         ("id", serde_json::json!("../escape")),
         ("dependencies", serde_json::json!(["example"])),
         (
-            "source",
-            serde_json::json!({"kind":"manual","filename":"../bad.zip"}),
+            "sources",
+            serde_json::json!([{"kind":"manual","filename":"../bad.zip"}]),
         ),
-        ("schema_version", serde_json::json!(2)),
+        ("schema_version", serde_json::json!(1)),
+        ("sources", serde_json::json!([])),
     ] {
         let original = manifest[field].clone();
         manifest[field] = value;
@@ -202,8 +229,7 @@ fn registered_bucket_corruption_never_silently_falls_back() {
     )
     .status
     .success());
-    fs::write(bucket.join("games/test-game/example.json"), b"{bad")
-        .expect("test fixture invariant");
+    fs::write(bucket.join("mods/test-game/example.json"), b"{bad").expect("test fixture invariant");
     let failed = catalog_search(&state);
     assert!(!failed.status.success());
     assert!(output(&failed).contains("invalid bucket JSON"));
@@ -217,7 +243,7 @@ fn linked_manifest_is_refused() {
     let temp = TempDir::new().expect("test fixture invariant");
     let bucket = temp.path().join("source");
     seed(&bucket, &valid_manifest());
-    let manifest = bucket.join("games/test-game/example.json");
+    let manifest = bucket.join("mods/test-game/example.json");
     let other = temp.path().join("outside.json");
     fs::rename(&manifest, &other).expect("test fixture invariant");
     symlink(&other, &manifest).expect("test fixture invariant");
@@ -339,7 +365,7 @@ fn named_pipe_metadata_is_rejected_without_opening_it() {
     let temp = TempDir::new().expect("test fixture invariant");
     let bucket = temp.path().join("source");
     seed(&bucket, &valid_manifest());
-    let path = bucket.join("games/test-game/example.json");
+    let path = bucket.join("mods/test-game/example.json");
     fs::remove_file(&path).expect("remove fixture");
     let creation = Command::new("mkfifo").arg(&path).output().expect("mkfifo");
     assert!(
@@ -389,7 +415,7 @@ fn bucket_title_control_characters_are_rejected() {
     seed(&bucket, &valid_manifest());
     fs::write(
         bucket.join("bucket.json"),
-        r#"{"schema_version":1,"name":"community","title":"Community\u001b[2J"}"#,
+        r#"{"schema_version":2,"name":"community","title":"Community\u001b[2J"}"#,
     )
     .expect("metadata");
     let state = temp.path().join("state");

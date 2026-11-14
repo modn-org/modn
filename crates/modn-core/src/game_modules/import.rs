@@ -297,6 +297,20 @@ fn restore(
     }
 }
 
+/// Modules an untrusted catalog offers but cannot import.
+///
+/// Only directory names are read. The module manifests and scripts are never
+/// parsed or executed for an untrusted source.
+pub(crate) fn ignored_catalog_modules(catalog: &Path) -> Result<Vec<IgnoredModule>> {
+    Ok(module_directories(catalog)?
+        .into_iter()
+        .map(|(game_id, _)| IgnoredModule {
+            game_id,
+            reason: ModuleIgnoreReason::UntrustedSource,
+        })
+        .collect())
+}
+
 fn module_directories(catalog: &Path) -> Result<Vec<(String, PathBuf)>> {
     let games = catalog.join("games");
     match fs::symlink_metadata(&games) {
