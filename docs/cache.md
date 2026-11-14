@@ -6,7 +6,7 @@ Each entry is named `<game>#<mod>#<version>#<url hash><extension>`. Modn
 downloads only over HTTPS, and redirects must stay on HTTPS. A download
 fails if the server sends nothing for 60 seconds. Each attempt writes its own
 `<entry>.<random>.download` file, so concurrent downloads never share bytes.
-Modn checks the manifest's SHA-256 and a 4 GiB size limit, then atomically
+Modn checks the manifest's BLAKE3 pin and a 4 GiB size limit, then atomically
 renames the file into place. A failed check removes that attempt's partial
 file and prints the URL with the expected and actual digests. A cancelled
 download also removes its partial file, so the cache keeps only complete,
@@ -29,6 +29,9 @@ supplied, then asks once for the whole stack.
 
 ## Digest-based reuse
 
-Cache lookup can reuse verified payloads across package or source aliases with the same pinned SHA-256.
-Every hit verifies bytes. Reuse creates no alias file and never deduplicates mutable game files.
+Cache lookup can reuse verified payloads across package or source aliases with the same pinned BLAKE3 digest.
+Every hit verifies bytes again before use. Reuse creates no alias file and never deduplicates mutable game files.
+The cache index maps a `blake3:<hex>` pin to one entry name.
+An index that still holds `sha256:` entries is unknown, so Modn ignores it and rebuilds the index from the cache files.
+The rebuild hashes each cache file with BLAKE3 and re-verifies it before use.
 See [sources.md](sources.md) for removal behavior and provider acquisition.
