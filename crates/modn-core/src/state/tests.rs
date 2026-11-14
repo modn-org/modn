@@ -21,7 +21,7 @@ fn ownership_key_migration_rewrites_old_keys_and_reopening_is_a_noop() {
         "created_directories",
     ] {
         let extra = match table {
-            "managed_files" => ",package_id,sha256,bytes",
+            "managed_files" => ",package_id,blake3,bytes",
             "managed_directories" => ",package_id",
             _ => "",
         };
@@ -76,7 +76,7 @@ fn ownership_key_migration_collision_preserves_every_row() {
             "INSERT INTO managed_packages(id,game_path,archive_blake3) VALUES ('pkg','game','hash');"
         ).expect("package");
         let (extra, values) = match table {
-            "managed_files" => (",package_id,sha256,bytes", ",'pkg','digest',7"),
+            "managed_files" => (",package_id,blake3,bytes", ",'pkg','digest',7"),
             "managed_directories" => (",package_id", ",'pkg'"),
             _ => ("", ""),
         };
@@ -144,7 +144,7 @@ fn managed_ownership_migration_preserves_exact_keys_without_writes() {
             [package],
         ).expect("package");
         store.connection.execute(
-            "INSERT INTO managed_files(game_path,path_key,relative_path,package_id,sha256,bytes)
+            "INSERT INTO managed_files(game_path,path_key,relative_path,package_id,blake3,bytes)
              VALUES ('game',?1,?1,?2,'digest',7)",
             rusqlite::params![path, package],
         ).expect("case-distinct file");
@@ -389,7 +389,7 @@ fn pre_adoption_archive_schema_is_rejected_even_with_identical_columns() {
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         INSERT INTO managed_packages(id,game_path,archive_blake3)
-        VALUES ('old','/game','sha256');",
+        VALUES ('old','/game','blake3');",
     )
     .unwrap();
     drop(conn);

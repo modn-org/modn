@@ -107,7 +107,7 @@ fn print_module(value: &serde_json::Value) {
         module["version"].as_str().unwrap_or(""),
         module["api_version"]
     );
-    if let Some(digest) = value.get("sha256").and_then(serde_json::Value::as_str) {
-        println!("SHA-256: {digest}");
+    if let Some(digest) = value.get("blake3").and_then(serde_json::Value::as_str) {
+        println!("BLAKE3: {digest}");
     }
 }

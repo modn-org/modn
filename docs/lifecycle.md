@@ -40,7 +40,7 @@ Call this API after explicit acknowledgement:
 
 ```text
 Store::adopt_archive(
-    game_id, game, archive, reviewed_sha256,
+    game_id, game, archive, reviewed_blake3,
     transactions::AdoptionApproval::Acknowledged,
 )
 ```
@@ -48,7 +48,7 @@ Store::adopt_archive(
 `AdoptionApproval::Denied` refuses without recording ownership.
 The API regenerates the current module proposal under the manager lock.
 It rejects changed archives, blocked proposals, missing files, unsafe paths, ownership collisions, and recorded conflicts.
-Every selected target must match its archive member by byte size and SHA-256.
+Every selected target must match its archive member by byte size and BLAKE3 digest.
 Rust records individual file claims and archive provenance in one SQLite transaction.
 It creates no game file, directory claim, or claim over unknown descendants.
 Normal install continues to reject existing files.

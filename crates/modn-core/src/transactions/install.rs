@@ -308,7 +308,7 @@ impl Store {
                     root: crate::state::RootKind::from_label(&op.root)
                         .context("plan operation has an unknown root")?,
                     destination: op.destination.clone(),
-                    sha256: digest(&stage)?,
+                    blake3: digest(&stage)?,
                     bytes: copied,
                 });
             }
@@ -391,7 +391,7 @@ impl Store {
                 }
                 output.sync_all()?;
                 drop(output);
-                if digest(&temp)? != f.sha256 {
+                if digest(&temp)? != f.blake3 {
                     bail!("staging digest mismatch");
                 }
                 self.connection.execute(
@@ -461,7 +461,7 @@ impl Store {
                 .map(|f| OwnedFile {
                     root: f.root.label().to_owned(),
                     destination: f.destination,
-                    sha256: f.sha256,
+                    blake3: f.blake3,
                     bytes: f.bytes,
                 })
                 .collect(),

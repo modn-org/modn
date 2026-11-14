@@ -69,6 +69,77 @@ fn refuses_duplicate_and_tampered_snapshot() {
 }
 
 #[test]
+fn new_module_release_identity_is_blake3() {
+    main_bucket::seeded(|| {
+        let root = tempfile::tempdir().unwrap();
+        let source = source(root.path(), "fixture-game", 1, "fixture-game");
+        let registry = ModuleRegistry::new(&data_dir::data_directory().unwrap());
+        let registered = registry
+            .register(&source, ModuleTrust::Acknowledged)
+            .unwrap();
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&fs::read(source.join("module.json")).unwrap());
+        hasher.update(&fs::read(source.join("main.lua")).unwrap());
+        assert_eq!(
+            registered.blake3,
+            hasher.finalize().to_hex().to_string(),
+            "the release identity must be the BLAKE3 digest of manifest and entrypoint"
+        );
+    });
+}
+
+#[test]
+fn a_receipt_with_the_retired_sha256_digest_is_refused_without_panic() {
+    main_bucket::seeded(|| {
+        let root = tempfile::tempdir().unwrap();
+        let data = data_dir::data_directory().unwrap();
+        let registry = ModuleRegistry::new(&data);
+        registry
+            .register(
+                &source(root.path(), "fixture-game", 1, "fixture-game"),
+                ModuleTrust::Acknowledged,
+            )
+            .unwrap();
+        let receipt = data.join("game-modules/fixture-game/versions/1/registration.json");
+        let text = fs::read_to_string(&receipt).unwrap();
+        let retired = text.replace("\"blake3\"", "\"sha256\"");
+        assert_ne!(retired, text, "fixture record names blake3");
+        fs::write(&receipt, retired).unwrap();
+        let error = registry.list().expect_err("retired record must fail");
+        let message = format!("{error:#}");
+        assert!(message.contains("retired SHA-256"), "{message}");
+        assert!(message.contains("register the module again"), "{message}");
+    });
+}
+
+#[test]
+fn a_pin_with_the_retired_sha256_digest_is_refused_without_panic() {
+    main_bucket::seeded(|| {
+        let root = tempfile::tempdir().unwrap();
+        let data = data_dir::data_directory().unwrap();
+        let registry = ModuleRegistry::new(&data);
+        registry
+            .register(
+                &source(root.path(), "fixture-game", 1, "fixture-game"),
+                ModuleTrust::Acknowledged,
+            )
+            .unwrap();
+        registry.pin("fixture-game").unwrap();
+        let pin = data.join("game-modules/fixture-game/pin.json");
+        let text = fs::read_to_string(&pin).unwrap();
+        let retired = text.replace("\"blake3\"", "\"sha256\"");
+        assert_ne!(retired, text, "fixture pin names blake3");
+        fs::write(&pin, retired).unwrap();
+        let error = registry
+            .pin_status("fixture-game")
+            .expect_err("retired pin must fail");
+        let message = format!("{error:#}");
+        assert!(message.contains("retired SHA-256"), "{message}");
+        assert!(message.contains("remove the pin"), "{message}");
+    });
+}
+
+#[test]
 fn copies_trusted_module_and_removes_only_registration() {
     main_bucket::seeded(|| {
         let root = tempfile::tempdir().unwrap();

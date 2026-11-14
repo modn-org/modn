@@ -1,4 +1,3 @@
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -16,7 +15,9 @@ pub fn snapshot(root: &Path) -> BTreeMap<String, String> {
                 files.insert(format!("{relative}/"), DIR.to_owned());
                 walk(root, &path, files);
             } else {
-                let digest = format!("{:x}", Sha256::digest(fs::read(&path).expect("file")));
+                let digest = blake3::hash(&fs::read(&path).expect("file"))
+                    .to_hex()
+                    .to_string();
                 files.insert(relative, digest);
             }
         }
@@ -33,5 +34,7 @@ pub fn file_count(snapshot: &BTreeMap<String, String>) -> usize {
 }
 
 pub fn sha(path: &Path) -> String {
-    format!("{:x}", Sha256::digest(fs::read(path).expect("archive")))
+    blake3::hash(&fs::read(path).expect("archive"))
+        .to_hex()
+        .to_string()
 }

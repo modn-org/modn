@@ -58,8 +58,8 @@ impl ModuleSource {
 pub struct RegisteredModule {
     /// Validated manifest and Lua identity.
     pub module: GameModuleInfo,
-    /// SHA-256 of the exact manifest bytes followed by the entrypoint bytes.
-    pub sha256: String,
+    /// BLAKE3 digest of the exact manifest bytes followed by the entrypoint bytes.
+    pub blake3: String,
     /// Source bucket and signer recorded for the release.
     pub source: ModuleSource,
     /// Whether this release is the game's current release.
@@ -92,8 +92,8 @@ pub struct ImportReport {
     pub game_id: String,
     /// Version of the inspected release.
     pub version: String,
-    /// SHA-256 of the inspected manifest followed by the entrypoint.
-    pub sha256: String,
+    /// BLAKE3 digest of the inspected manifest followed by the entrypoint.
+    pub blake3: String,
     /// What the import did with the release.
     pub outcome: ReleaseOutcome,
 }
@@ -192,9 +192,9 @@ impl ModuleRegistry {
         let root = source.canonicalize()?;
         let manifest_bytes =
             loader::bounded_file(&root.join("module.json"), &root, loader::MAX_MANIFEST_BYTES)?;
-        let sha256 = layout::digest(&manifest_bytes, script.as_bytes());
+        let blake3 = layout::digest(&manifest_bytes, script.as_bytes());
         let _lock = self.lock()?;
-        self.import_verified(&manifest, &script, &manifest_bytes, sha256, origin)
+        self.import_verified(&manifest, &script, &manifest_bytes, blake3, origin)
     }
 
     fn import_verified(
@@ -202,7 +202,7 @@ impl ModuleRegistry {
         manifest: &VerifiedModule,
         script: &str,
         manifest_bytes: &[u8],
-        sha256: String,
+        blake3: String,
         origin: ModuleSource,
     ) -> Result<ImportReport> {
         let game = manifest.game_id.as_str();
@@ -215,8 +215,8 @@ impl ModuleRegistry {
         match fs::symlink_metadata(&version_directory) {
             Ok(_) => {
                 let existing = layout::read_release(&directory, game, &manifest.version)?;
-                if existing.sha256 == sha256 {
-                    return Ok(report(game, manifest, sha256, ReleaseOutcome::Unchanged));
+                if existing.blake3 == blake3 {
+                    return Ok(report(game, manifest, blake3, ReleaseOutcome::Unchanged));
                 }
                 bail!(
                     "module {game} version {} is already retained with a different digest (existing source: {}; incoming source: {}); remove and register the module again",
@@ -229,7 +229,7 @@ impl ModuleRegistry {
             Err(error) => return Err(error.into()),
         }
         if ModulePin::read(&directory, game)?.is_some() {
-            return Ok(report(game, manifest, sha256, ReleaseOutcome::Pinned));
+            return Ok(report(game, manifest, blake3, ReleaseOutcome::Pinned));
         }
         let staging = tempfile::Builder::new()
             .prefix(".staging-")
@@ -247,7 +247,7 @@ impl ModuleRegistry {
             game_id: checked.game_id.clone(),
             version: checked.version.clone(),
             api_version: checked.api_version,
-            sha256: sha256.clone(),
+            blake3: blake3.clone(),
             bucket: origin.bucket,
             signer_key_id: origin.signer_key_id,
         };
@@ -269,7 +269,7 @@ impl ModuleRegistry {
         } else {
             ReleaseOutcome::NotNewer
         };
-        Ok(report(game, manifest, sha256, outcome))
+        Ok(report(game, manifest, blake3, outcome))
     }
 
     /// Inspect the active release of one game without executing its Lua.
@@ -314,7 +314,7 @@ impl ModuleRegistry {
             &release.source,
             &release.info.game_id,
             &release.info.version,
-            &release.sha256,
+            &release.blake3,
         );
         ModulePin::write(&directory, &pin)?;
         Ok(pin)
@@ -485,13 +485,13 @@ fn validate_source(origin: &ModuleSource) -> Result<()> {
 fn report(
     game_id: &str,
     manifest: &VerifiedModule,
-    sha256: String,
+    blake3: String,
     outcome: ReleaseOutcome,
 ) -> ImportReport {
     ImportReport {
         game_id: game_id.to_owned(),
         version: manifest.version.clone(),
-        sha256,
+        blake3,
         outcome,
     }
 }

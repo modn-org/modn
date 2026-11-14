@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 pub(super) struct PlannedDependency {
     reference: String,
     version: String,
-    sha256: String,
+    blake3: String,
     source: PackageSource,
     state: DependencyState,
     archive: Option<PathBuf>,
@@ -23,7 +23,7 @@ impl PlannedDependency {
         let mut record = serde_json::json!({
             "reference": self.reference,
             "version": self.version,
-            "sha256": self.sha256,
+            "blake3": self.blake3,
             "source": self.source,
             "archive": self.archive,
         });
@@ -96,7 +96,7 @@ pub(super) fn plan(
                 archive: archives.get(&reference).cloned(),
                 reference,
                 version: release.package.version.clone(),
-                sha256: download::digest(release, digests)
+                blake3: download::digest(release, digests)
                     .unwrap_or_default()
                     .to_owned(),
                 source: release.package.primary_source().clone(),

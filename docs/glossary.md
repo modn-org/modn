@@ -76,7 +76,7 @@ A Lua 5.4 integration owned by Modn and distributed in the official bucket.
 _Avoid_: Independently installed game plugin
 
 **Module release**:
-A versioned game-module release: the required `version` plus the SHA-256 digest
+A versioned game-module release: the required `version` plus the BLAKE3 digest
 of `module.json` and its entrypoint. The registry retains releases and activates
 one; pin and rollback change which one future plans use.
 _Avoid_: Catalog revision, unversioned snapshot
@@ -176,7 +176,7 @@ An archive whose bytes match the digest pinned by its package manifest.
 _Avoid_: Safe mod, trusted publisher
 
 **Verified archive reuse**:
-Reuse of an immutable cache payload after its bytes match another package or source alias's pinned SHA-256.
+Reuse of an immutable cache payload after its bytes match another package or source alias's pinned BLAKE3 digest.
 It grants no ownership and never deduplicates mutable game files.
 _Avoid_: Game-file deduplication, trusted publisher
 
@@ -252,7 +252,7 @@ Only an explicit `bucket sync` fetches this source.
 _Avoid_: Automatically refreshed catalog
 
 **Verified archive reuse**:
-Reuse of an immutable cache payload after its bytes match another package or source alias's pinned SHA-256.
+Reuse of an immutable cache payload after its bytes match another package or source alias's pinned BLAKE3 digest.
 It grants no ownership and never deduplicates mutable game files.
 _Avoid_: Game-file deduplication, trusted publisher
 

@@ -351,7 +351,7 @@ impl Store {
                     root: file.root.clone(),
                     destination: file.destination.clone(),
                     digest_before: None,
-                    digest_after: Some(file.sha256.clone()),
+                    digest_after: Some(file.blake3.clone()),
                 })
                 .collect();
             files.sort_by(|a, b| (&a.root, &a.destination).cmp(&(&b.root, &b.destination)));
@@ -405,7 +405,7 @@ fn restored_digests(package: &ManagedPackage) -> BTreeMap<(String, String), Stri
         .map(|file| {
             (
                 (file.root.clone(), file.destination.clone()),
-                file.sha256.clone(),
+                file.blake3.clone(),
             )
         })
         .collect()

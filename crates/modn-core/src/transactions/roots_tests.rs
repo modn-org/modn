@@ -86,7 +86,7 @@ fn schema_version(store: &Store) -> i64 {
 #[test]
 fn interrupted_install_under_v3_recovers() {
     let mut lab = Lab::new();
-    assert_eq!(schema_version(&lab.store), 6);
+    assert_eq!(schema_version(&lab.store), 7);
     let archive = lab.archive("crash");
     lab.crash_install(&archive);
     assert!(lab.game.join("data/mods/crash-1.bin").exists());

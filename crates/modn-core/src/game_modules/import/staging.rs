@@ -40,7 +40,7 @@ pub(super) fn stage_one(
         &root,
         loader::MAX_MANIFEST_BYTES,
     )?;
-    let sha256 = layout::digest(&manifest_bytes, script.as_bytes());
+    let blake3 = layout::digest(&manifest_bytes, script.as_bytes());
     let directory = registry.directory(game)?;
     let current = layout::open_game(&directory, game)?;
     if let Some(active) = current.as_deref() {
@@ -50,8 +50,8 @@ pub(super) fn stage_one(
     match fs::symlink_metadata(&version_directory) {
         Ok(_) => {
             let existing = layout::read_release(&directory, game, &manifest.version)?;
-            if existing.sha256 == sha256 {
-                reports.push(report(&manifest, sha256, ReleaseOutcome::Unchanged));
+            if existing.blake3 == blake3 {
+                reports.push(report(&manifest, blake3, ReleaseOutcome::Unchanged));
                 return Ok(());
             }
             bail!(
@@ -63,7 +63,7 @@ pub(super) fn stage_one(
         Err(error) => return Err(error.into()),
     }
     if ModulePin::read(&directory, game)?.is_some() {
-        reports.push(report(&manifest, sha256, ReleaseOutcome::Pinned));
+        reports.push(report(&manifest, blake3, ReleaseOutcome::Pinned));
         return Ok(());
     }
     let staged_directory = staging.join(game);
@@ -89,7 +89,7 @@ pub(super) fn stage_one(
         game_id: checked.game_id,
         version: checked.version,
         api_version: checked.api_version,
-        sha256: sha256.clone(),
+        blake3: blake3.clone(),
         bucket: Some(bucket.to_owned()),
         signer_key_id: Some(signer_key_id.to_owned()),
     };
@@ -103,7 +103,7 @@ pub(super) fn stage_one(
     staged.push(StagedRelease {
         game_id: game.to_owned(),
         version: manifest.version.clone(),
-        sha256,
+        blake3,
         directory: staged_directory,
         newer,
         current,
@@ -111,11 +111,11 @@ pub(super) fn stage_one(
     Ok(())
 }
 
-fn report(manifest: &VerifiedModule, sha256: String, outcome: ReleaseOutcome) -> ImportReport {
+fn report(manifest: &VerifiedModule, blake3: String, outcome: ReleaseOutcome) -> ImportReport {
     ImportReport {
         game_id: manifest.game_id.clone(),
         version: manifest.version.clone(),
-        sha256,
+        blake3,
         outcome,
     }
 }

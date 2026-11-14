@@ -25,7 +25,6 @@ modn-core = { path = "../../crates/modn-core", features = ["test-instruction-bud
 minisign = "0.10"
 proptest = { version = "1", default-features = false, features = ["std"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
-sha2 = "0.10"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
 same-file = "1"
 tempfile = "3"

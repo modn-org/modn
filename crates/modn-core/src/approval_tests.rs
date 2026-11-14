@@ -92,7 +92,7 @@ fn schema_step_records_the_current_version_and_reopening_keeps_approvals() {
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("version");
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     drop(store);
 
     let reopened = Store::open_readonly(&db).expect("read-only state");

@@ -1,6 +1,5 @@
 use super::journal::{target_path, temp_path, JournalFile};
 use crate::state::Store;
-use sha2::{Digest, Sha256};
 #[cfg(windows)]
 use std::fs::OpenOptions;
 use std::fs::{self, File};
@@ -39,13 +38,13 @@ fn archive(root: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
 }
 
 fn prepared_file(dest: &str, data: &[u8]) -> JournalFile {
-    let mut hasher = Sha256::new();
+    let mut hasher = blake3::Hasher::new();
     hasher.update(data);
     JournalFile {
         root: crate::state::RootKind::Game,
         ordinal: 0,
         destination: dest.into(),
-        sha256: format!("{:x}", hasher.finalize()),
+        blake3: hasher.finalize().to_hex().to_string(),
         bytes: data.len() as u64,
     }
 }

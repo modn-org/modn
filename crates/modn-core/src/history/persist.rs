@@ -19,7 +19,7 @@ pub(crate) fn package_snapshot(
     )?;
     let metadata = package_metadata(connection, package_id)?;
     let mut statement = connection.prepare(
-        "SELECT root, relative_path, sha256 FROM managed_files
+        "SELECT root, relative_path, blake3 FROM managed_files
          WHERE package_id=?1 ORDER BY root, path_key",
     )?;
     let files = statement
@@ -160,7 +160,7 @@ pub(crate) fn stack_operation(
                     root: file.root.clone(),
                     destination: file.destination.clone(),
                     digest_before: None,
-                    digest_after: Some(file.sha256.clone()),
+                    digest_after: Some(file.blake3.clone()),
                 })
                 .collect();
             files.sort_by(|a, b| (&a.root, &a.destination).cmp(&(&b.root, &b.destination)));

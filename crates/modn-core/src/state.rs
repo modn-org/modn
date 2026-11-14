@@ -81,7 +81,7 @@ impl Store {
                 path_key TEXT NOT NULL,
                 relative_path TEXT NOT NULL,
                 package_id TEXT NOT NULL REFERENCES managed_packages(id),
-                sha256 TEXT NOT NULL,
+                blake3 TEXT NOT NULL,
                 bytes INTEGER NOT NULL,
                 PRIMARY KEY(game_path, root, path_key)
             );
@@ -118,7 +118,7 @@ impl Store {
                 ord INTEGER NOT NULL,
                 root TEXT NOT NULL DEFAULT 'game',
                 relative_path TEXT NOT NULL,
-                sha256 TEXT NOT NULL,
+                blake3 TEXT NOT NULL,
                 bytes INTEGER NOT NULL,
                 PRIMARY KEY(transaction_id, ord)
             );

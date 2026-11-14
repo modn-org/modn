@@ -20,10 +20,10 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         packages.into_iter().map(|(id, archive_blake3)| {
             let mut statement = self.connection.prepare(
-                "SELECT root, relative_path, sha256, bytes FROM managed_files WHERE package_id=?1 ORDER BY root, relative_path")?;
+                "SELECT root, relative_path, blake3, bytes FROM managed_files WHERE package_id=?1 ORDER BY root, relative_path")?;
             let files = statement.query_map([&id], |row| Ok(OwnedFile {
                 root: row.get(0)?,
-                destination: row.get(1)?, sha256: row.get(2)?, bytes: row.get::<_,i64>(3)? as u64
+                destination: row.get(1)?, blake3: row.get(2)?, bytes: row.get::<_,i64>(3)? as u64
             }))?.collect::<rusqlite::Result<Vec<_>>>()?;
             let mut query = self.connection.prepare(
                 "SELECT relative_path FROM managed_directories WHERE package_id=?1 ORDER BY relative_path",

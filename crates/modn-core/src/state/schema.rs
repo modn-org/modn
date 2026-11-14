@@ -9,15 +9,38 @@ pub(super) fn validate_package_schema(connection: &Connection, path: &Path) -> R
     if version != required_schema_version() {
         return Err(schema_refusal(path, version, ""));
     }
-    let (archive_required, manual_origin): (Option<i64>, bool) = connection.query_row(
+    let (archive_required, manual_origin, file_digest, pending_digest, retired_digest): (
+        Option<i64>,
+        bool,
+        Option<i64>,
+        Option<i64>,
+        bool,
+    ) = connection.query_row(
         r#"SELECT
             (SELECT "notnull" FROM pragma_table_info('managed_packages')
              WHERE name='archive_blake3'),
-            EXISTS(SELECT 1 FROM pragma_table_info('managed_packages') WHERE name='origin')"#,
+            EXISTS(SELECT 1 FROM pragma_table_info('managed_packages') WHERE name='origin'),
+            (SELECT "notnull" FROM pragma_table_info('managed_files') WHERE name='blake3'),
+            (SELECT "notnull" FROM pragma_table_info('pending_files') WHERE name='blake3'),
+            EXISTS(SELECT 1 FROM pragma_table_info('managed_files') WHERE name='sha256')
+                OR EXISTS(SELECT 1 FROM pragma_table_info('pending_files') WHERE name='sha256')"#,
         [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        },
     )?;
-    if archive_required != Some(1) || manual_origin {
+    if archive_required != Some(1)
+        || manual_origin
+        || file_digest != Some(1)
+        || pending_digest != Some(1)
+        || retired_digest
+    {
         return Err(schema_refusal(
             path,
             version,

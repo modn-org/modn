@@ -116,7 +116,7 @@ fn adoption_requires_both_approvals_and_commits_exact_file_claims() {
             .iter()
             .find(|file| file["destination"] == name)
             .unwrap();
-        assert_eq!(owned["sha256"], tree::sha(&game.join(name)));
+        assert_eq!(owned["blake3"], tree::sha(&game.join(name)));
         assert_eq!(owned["bytes"], bytes.len());
     }
     assert!(package["directories"].as_array().unwrap().is_empty());

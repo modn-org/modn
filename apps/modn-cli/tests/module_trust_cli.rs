@@ -215,7 +215,7 @@ fn pin_blocks_update_and_rollback_and_list_marks_retained_releases() {
     assert_eq!(first["source_trusted"], true);
     assert_eq!(first["source"]["bucket"], "community");
     assert_eq!(
-        first["sha256"].as_str().expect("digest").len(),
+        first["blake3"].as_str().expect("digest").len(),
         64,
         "release digest"
     );
@@ -227,7 +227,7 @@ fn pin_blocks_update_and_rollback_and_list_marks_retained_releases() {
     assert_eq!(pinned["game_id"], "fixture-game");
     assert_eq!(pinned["pinned"]["bucket"], "community");
     assert_eq!(pinned["pinned"]["version"], "1.0.0");
-    assert_eq!(pinned["pinned"]["sha256"], first["sha256"]);
+    assert_eq!(pinned["pinned"]["blake3"], first["blake3"]);
 
     catalog.write_module("fixture-game", "2.0.0", &identity_lua("fixture-game"));
     catalog.sign_and_commit("module v2");

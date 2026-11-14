@@ -5,7 +5,6 @@ use crate::archive::inspect;
 use crate::buckets::PackageSource;
 use crate::history::{HistoryContext, HistoryKind};
 use crate::progress::{CancellationToken, OperationControl};
-use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -32,8 +31,8 @@ fn archive_with(directory: &Path, name: &str, contents: &[u8]) -> PathBuf {
     path
 }
 
-fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+fn digest(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
 }
 
 #[test]
@@ -117,8 +116,8 @@ fn update_records_both_releases_and_both_file_digests() {
     let package = fixture
         .install_release(&v1, release_v1)
         .expect("install v1");
-    let before_digest = sha256(b"one");
-    let after_digest = sha256(b"two");
+    let before_digest = digest(b"one");
+    let after_digest = digest(b"two");
 
     fixture
         .store
