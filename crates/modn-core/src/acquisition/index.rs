@@ -26,8 +26,8 @@ const INDEX_VERSION: u32 = 1;
 ///
 /// A pin is the `blake3:` tag plus 64 lowercase hex characters. The cache
 /// index is keyed by this type. An index written for SHA-256 pins holds
-/// `sha256:` keys, which decode to nothing, so the whole index is rebuilt
-/// from a scan and its entries are re-verified before use.
+/// `sha256:` keys, which decode to nothing, so Modn ignores the index and
+/// scans the cache in memory. Every scanned entry is re-verified before use.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ArchivePin {
     hex: String,
@@ -52,7 +52,7 @@ impl ArchivePin {
 }
 
 /// Persisted index content. `deny_unknown_fields` and the version check make
-/// any future format fail to parse, which triggers a scan and rebuild.
+/// any future format fail to parse, which triggers a read-only scan.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct IndexFile {
