@@ -1,27 +1,14 @@
-import { history, installMod, planInstall, undo, uninstall, update } from '../api.js';
+import { installMod, planInstall, undo, uninstall, update } from '../api.js';
 import { createOperationButton } from '../op-button.js';
 import { element, detailsHref, initials } from './dom.js';
-import { operationMatches } from './undo-target.js';
 
 /**
- * Shared Undo plumbing: the history entry that matches the finished operation,
- * and the undo command itself. Every operation button uses the same flow.
+ * Shared Undo plumbing: the undo command every operation button uses.
  * @param {string} gameId
- * @returns {{newestOperation: (match?: Object) => Promise<Object|null>, runUndo: Function}}
+ * @returns {{runUndo: Function}}
  */
 export function undoHooks(gameId) {
   return {
-    async newestOperation(match) {
-      const entries = await history({ gameId });
-      if (!Array.isArray(entries)) {
-        return null;
-      }
-      const target = {
-        packageIds: match && Array.isArray(match.packageIds) ? match.packageIds : [],
-        modIds: match && Array.isArray(match.modIds) ? match.modIds : [],
-      };
-      return entries.find((entry) => operationMatches(entry, target)) || null;
-    },
     runUndo: ({ runId, operationId, approvals }) =>
       undo({
         operationId,
@@ -114,7 +101,6 @@ export function createTile(model, ctx, { onChanged, operations, undoHost = null 
     : null;
   const settings = {
     onSettled: onChanged,
-    newestOperation: hooks.newestOperation,
     runUndo: hooks.runUndo,
     launchUndo: undoToast,
   };
@@ -213,12 +199,11 @@ export function createTile(model, ctx, { onChanged, operations, undoHost = null 
  * @param {{
  *   host: HTMLElement,
  *   runUndo: (args: Object) => Promise<unknown>,
- *   newestOperation: (match?: Object) => Promise<Object|null>,
  *   onSettled: () => void|Promise<void>,
  * }} options
  * @returns {(operationId: string) => void}
  */
-export function createUndoLauncher({ host, runUndo, newestOperation, onSettled }) {
+export function createUndoLauncher({ host, runUndo, onSettled }) {
   const launch = (operationId) => {
     if (!operationId) {
       return;
@@ -232,7 +217,6 @@ export function createUndoLauncher({ host, runUndo, newestOperation, onSettled }
       testId: 'toast-undo-button',
       ariaLabel: 'Undo the last operation',
       askHost,
-      newestOperation,
       runUndo,
       launchUndo: launch,
       onSettled: async () => {

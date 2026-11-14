@@ -16,34 +16,77 @@
  */
 
 /**
+ * @param {Object[]} candidates
+ * @param {string} bucket
+ * @returns {Object|null}
+ */
+function pickPackage(candidates, bucket) {
+  if (candidates.length === 0) {
+    return null;
+  }
+  const exact = candidates.find(
+    (pkg) => pkg.catalog && typeof pkg.catalog === 'object' && pkg.catalog.bucket === bucket,
+  );
+  return exact || candidates[0];
+}
+
+/**
+ * @param {Object} pkg
+ * @param {string} modId
+ * @returns {LibraryModel}
+ */
+function packageModel(pkg, modId) {
+  const catalog = pkg.catalog && typeof pkg.catalog === 'object' ? pkg.catalog : null;
+  return {
+    key: `package-${pkg.id}`,
+    modId,
+    name: modId,
+    version: pkg.version || '',
+    bucket: catalog ? catalog.bucket : '',
+    nativeInjector: false,
+    hasUpdate: false,
+    installedPackage: pkg,
+  };
+}
+
+/**
  * @param {Object[]} entries catalog entries
  * @param {Object[]} packages owned packages
  * @returns {LibraryModel[]}
  */
 export function mergeLibrary(entries, packages) {
-  /** @type {Map<string, Object>} */
+  /** @type {Map<string, Object[]>} */
   const installed = new Map();
   /** @type {Object[]} */
   const manual = [];
   for (const pkg of packages) {
     const catalogMod = pkg.catalog && typeof pkg.catalog === 'object' ? pkg.catalog.mod_id : null;
     const modId = catalogMod || pkg.mod_id;
-    if (modId) {
-      installed.set(modId, pkg);
-    } else {
+    if (!modId) {
       manual.push(pkg);
+      continue;
+    }
+    const list = installed.get(modId);
+    if (list) {
+      list.push(pkg);
+    } else {
+      installed.set(modId, [pkg]);
     }
   }
-  /** @type {Set<string>} */
+  /** @type {Set<Object>} */
   const matched = new Set();
   /** @type {LibraryModel[]} */
   const models = entries.map((entry) => {
-    const pkg = installed.get(entry.id) || null;
+    const bucket = entry.bucket || 'main';
+    const candidates = (installed.get(entry.id) || []).filter((pkg) => !matched.has(pkg));
+    const pkg = pickPackage(candidates, bucket);
     if (pkg) {
-      matched.add(entry.id);
+      matched.add(pkg);
     }
     return {
-      key: `catalog-${entry.bucket || 'main'}-${entry.id}`,
+      key: pkg
+        ? `catalog-${bucket}-${entry.id}-${pkg.id}`
+        : `catalog-${bucket}-${entry.id}`,
       modId: entry.id,
       name: entry.name || entry.id,
       version: entry.version || '',
@@ -53,21 +96,12 @@ export function mergeLibrary(entries, packages) {
       installedPackage: pkg,
     };
   });
-  for (const [modId, pkg] of installed) {
-    if (matched.has(modId)) {
-      continue;
+  for (const [modId, list] of installed) {
+    for (const pkg of list) {
+      if (!matched.has(pkg)) {
+        models.push(packageModel(pkg, modId));
+      }
     }
-    const catalog = pkg.catalog && typeof pkg.catalog === 'object' ? pkg.catalog : null;
-    models.push({
-      key: `package-${pkg.id}`,
-      modId,
-      name: modId,
-      version: pkg.version || '',
-      bucket: catalog ? catalog.bucket : '',
-      nativeInjector: false,
-      hasUpdate: false,
-      installedPackage: pkg,
-    });
   }
   for (const pkg of manual) {
     models.push({

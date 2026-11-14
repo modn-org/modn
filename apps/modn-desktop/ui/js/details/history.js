@@ -5,17 +5,12 @@ import { element } from './dom.js';
 import { formatWhen, historyForMod, undoLabel } from './model.js';
 
 /**
- * Undo plumbing shared with the operation buttons: the newest history entry
- * of the game, and the undo command itself.
+ * Undo plumbing shared with the operation buttons: the undo command itself.
  * @param {string} gameId
- * @returns {{newestOperation: () => Promise<Object|null>, runUndo: Function}}
+ * @returns {{runUndo: Function}}
  */
 export function undoHooks(gameId) {
   return {
-    async newestOperation() {
-      const entries = await history({ gameId });
-      return Array.isArray(entries) && entries.length > 0 ? entries[0] : null;
-    },
     runUndo: ({ runId, operationId, approvals }) =>
       undo({
         operationId,

@@ -1,4 +1,6 @@
 import { cancelRun, newRunId, onProgress } from './api.js';
+import { approvalsFrom } from './library/approvals.js';
+import { renderAsk } from './library/ask.js';
 import { operationIdOf } from './library/undo-target.js';
 import { messageFor } from './messages.js';
 import { showToast } from './toast.js';
@@ -30,57 +32,6 @@ function codeOf(error) {
   return typeof error === 'string' ? error : '';
 }
 
-/** Finds approval details on a refusal or an install plan. */
-function uncoveredIn(value) {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-  const direct = value.uncovered;
-  if (direct && typeof direct === 'object') {
-    return direct;
-  }
-  const approval = value.approval;
-  if (approval && typeof approval === 'object' && approval.uncovered) {
-    return approval.uncovered;
-  }
-  return null;
-}
-
-/**
- * Reads the capabilities a refusal leaves uncovered. A domain error names them
- * directly in `err.approval`; a read-only install plan names them under
- * `approval.uncovered`. The CLI stores an approval only after a committed
- * write.
- * @param {unknown} err
- * @param {string} code
- * @param {(() => Promise<Object|null>)|null} plan
- * @returns {Promise<{native: boolean, executables: string[]}>}
- */
-async function approvalsFrom(err, code, plan) {
-  let uncovered = uncoveredIn(err);
-  const refusal = err && typeof err === 'object' ? err.approval : null;
-  if (!uncovered && refusal && typeof refusal === 'object') {
-    uncovered = {
-      native_injector: refusal.nativeInjector === true,
-      executables: Array.isArray(refusal.executables) ? refusal.executables : [],
-    };
-  }
-  if (!uncovered && plan) {
-    try {
-      uncovered = uncoveredIn(await plan());
-    } catch {
-      uncovered = null;
-    }
-  }
-  const executables =
-    uncovered && Array.isArray(uncovered.executables)
-      ? uncovered.executables.filter((path) => typeof path === 'string' && path.length > 0)
-      : [];
-  const native = Boolean(uncovered && uncovered.native_injector)
-    || code === 'NATIVE_INJECTOR_NOT_ALLOWED';
-  return { native, executables };
-}
-
 /** Shows a toast whose action is labelled Undo and carries the verifier hook. */
 function showUndoToast(message, onUndo) {
   showToast(message, { actionLabel: 'Undo', onAction: onUndo });
@@ -93,44 +44,9 @@ function showUndoToast(message, onUndo) {
   }
 }
 
-/** Renders the one-time native-code ask inside the given host. */
-function renderAsk(host, question, onAllow, onDecline) {
-  host.replaceChildren();
-  const ask = document.createElement('div');
-  ask.className = 'modn-ask';
-  ask.setAttribute('role', 'group');
-  ask.setAttribute('aria-label', 'Native code approval');
-  const text = document.createElement('p');
-  text.className = 'modn-ask__question';
-  text.textContent = question;
-  const actions = document.createElement('div');
-  actions.className = 'modn-ask__actions';
-  const allow = document.createElement('button');
-  allow.type = 'button';
-  allow.className = 'modn-button';
-  allow.textContent = 'Allow';
-  allow.dataset.testid = 'ask-allow';
-  const decline = document.createElement('button');
-  decline.type = 'button';
-  decline.className = 'modn-button modn-button--quiet';
-  decline.textContent = 'Decline';
-  decline.dataset.testid = 'ask-decline';
-  allow.addEventListener('click', () => {
-    host.replaceChildren();
-    onAllow();
-  });
-  decline.addEventListener('click', () => {
-    host.replaceChildren();
-    onDecline();
-  });
-  actions.append(allow, decline);
-  ask.append(text, actions);
-  host.append(ask);
-}
-
 /**
  * Creates a one-click operation button with cancel, progress, Finishing...,
- * blocked reasons and a remembered native-code ask. Mod details reuses it.
+ * blocked reasons and a remembered approval ask. Mod details reuses it.
  *
  * @param {{
  *   label: string,
@@ -141,7 +57,6 @@ function renderAsk(host, question, onAllow, onDecline) {
  *   prepare?: () => Promise<Object|null>,
  *   plan?: () => Promise<Object|null>,
  *   askHost?: HTMLElement|null,
- *   newestOperation?: (match: Object) => Promise<{id: string}|null>,
  *   runUndo?: (args: {runId: string, operationId: string,
  *     approvals: {native: boolean, executables: string[]}}) => Promise<unknown>,
  *   launchUndo?: ((operationId: string) => void)|null,
@@ -168,7 +83,6 @@ export function createOperationButton(options) {
     prepare = null,
     plan = null,
     askHost = null,
-    newestOperation = null,
     runUndo = null,
     launchUndo = null,
     onSettled = null,
@@ -202,6 +116,9 @@ export function createOperationButton(options) {
   let approvals = { ...NO_APPROVAL };
   let lastParams = {};
   let destroyed = false;
+  let cancelRequested = false;
+  let writeStarted = false;
+  let settled = false;
 
   /** @param {number} percent */
   function setProgress(percent) {
@@ -245,17 +162,25 @@ export function createOperationButton(options) {
     }
   }
 
+  /**
+   * Records the click at once. Before the write starts, start() skips it and
+   * reports Cancelled. Once the write is running, the backend is told.
+   */
   async function requestCancel() {
-    if (!runId) {
+    if (!runId || settled) {
       return;
     }
     const id = runId;
+    cancelRequested = true;
     button.disabled = true;
     button.textContent = 'Cancelling…';
+    if (!writeStarted) {
+      return;
+    }
     try {
       await cancelRun({ runId: id });
     } catch {
-      if (id === runId) {
+      if (id === runId && !settled) {
         button.disabled = false;
         button.textContent = 'Cancel';
       }
@@ -296,6 +221,9 @@ export function createOperationButton(options) {
     const id = newRunId();
     const generationAtStart = ++generation;
     runId = id;
+    cancelRequested = false;
+    writeStarted = false;
+    settled = false;
     button.dataset.state = 'running';
     button.disabled = true;
     button.textContent = 'Preparing…';
@@ -335,6 +263,16 @@ export function createOperationButton(options) {
         return;
       }
       unlisten = off;
+      if (cancelRequested) {
+        settled = true;
+        setIdle(active.idleLabel);
+        showToast('Cancelled. Nothing changed.');
+        if (onSettled) {
+          await onSettled();
+        }
+        return;
+      }
+      writeStarted = true;
       const result = await active.run({
         runId: id,
         params,
@@ -344,10 +282,8 @@ export function createOperationButton(options) {
       if (generationAtStart !== generation || destroyed) {
         return;
       }
-      const committedId = await operationIdOf(result, newestOperation);
-      if (generationAtStart !== generation || destroyed) {
-        return;
-      }
+      settled = true;
+      const committedId = operationIdOf(result);
       setIdle(active.idleLabel);
       if (committedId) {
         showUndoToast(`${active.actionLabel} done`, () => {
@@ -367,6 +303,7 @@ export function createOperationButton(options) {
       if (generationAtStart !== generation || destroyed) {
         return;
       }
+      settled = true;
       const code = codeOf(error);
       if (code === 'CANCELLED') {
         setIdle(active.idleLabel);
@@ -374,7 +311,10 @@ export function createOperationButton(options) {
         if (onSettled) {
           await onSettled();
         }
-      } else if (code === 'BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT') {
+      } else if (
+        code === 'BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT'
+        || code === 'BACKEND_STREAM_FAILED_AFTER_COMMIT'
+      ) {
         setIdle(active.idleLabel);
         showToast(messageFor(code));
         if (onSettled) {
@@ -390,7 +330,7 @@ export function createOperationButton(options) {
           const uncovered = { ...approvals };
           renderAsk(
             askHost,
-            'This mod runs native code. Allow it?',
+            uncovered,
             () => {
               void start({
                 run: active.run,
@@ -425,6 +365,9 @@ export function createOperationButton(options) {
     } finally {
       if (runId === id) {
         runId = null;
+        cancelRequested = false;
+        writeStarted = false;
+        settled = false;
       }
       if (unlisten) {
         const off = unlisten;

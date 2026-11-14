@@ -53,6 +53,20 @@ export function createRecentMenu({ gameId, onChanged, undoHost = null }) {
   menu.hidden = true;
   wrapper.append(button, menu);
 
+  /** One ask host per operation, so a reload reattaches a pending prompt. */
+  /** @type {Map<string, HTMLElement>} */
+  const askHosts = new Map();
+
+  /** @param {string} operationId @returns {HTMLElement} */
+  function askHostFor(operationId) {
+    let host = askHosts.get(operationId);
+    if (!host) {
+      host = element('div', 'modn-recent__ask');
+      askHosts.set(operationId, host);
+    }
+    return host;
+  }
+
   async function load() {
     menu.replaceChildren();
     menu.append(element('p', 'modn-muted', 'Loading operations…'));
@@ -71,7 +85,7 @@ export function createRecentMenu({ gameId, onChanged, undoHost = null }) {
     for (const entry of entries) {
       const item = element('div', 'modn-recent__item');
       const row = element('div', 'modn-recent__entry');
-      const askHost = element('div', 'modn-recent__ask');
+      const askHost = askHostFor(typeof entry.id === 'string' ? entry.id : '');
       row.append(element('span', 'modn-recent__text', entryLabel(entry)));
       row.append(
         createOperationButton({
