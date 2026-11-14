@@ -7,7 +7,7 @@ fn fixture() -> (TempDir, PathBuf) {
     let root = tempfile::tempdir().expect("create fixture");
     let directory = root.path().join("integration");
     fs::create_dir(&directory).expect("create module directory");
-    write_manifest(&directory, "fixture-game", 1, "main.lua");
+    write_manifest(&directory, "fixture-game", 3, "main.lua");
     write_script(
         &directory,
         "return { game_id = 'fixture-game', api_version = mods_host.api_version }",
@@ -39,14 +39,14 @@ fn local_fixture_is_loaded_without_host_rebuild() {
     let first = check_module(&directory).expect("initial module loads");
     assert_eq!(first.game_id, "fixture-game");
     assert_eq!(first.version, "1.2.3");
-    assert_eq!(first.api_version, 1);
+    assert_eq!(first.api_version, 3);
 
     write_script(
         &directory,
         "return {game_id='other-game', api_version=mods_host.api_version}",
     );
     assert!(format!("{:#}", check_module(&directory).unwrap_err()).contains("identity"));
-    write_manifest(&directory, "other-game", 1, "main.lua");
+    write_manifest(&directory, "other-game", 3, "main.lua");
     let updated = check_module(&directory).expect("updated module loads without recompile");
     assert_eq!(updated.game_id, "other-game");
 }
@@ -72,11 +72,11 @@ fn standard_lua54_syntax_loads_and_luau_assignment_is_rejected() {
 #[test]
 fn incompatible_manifest_or_script_fails_closed() {
     let (_root, directory) = fixture();
-    write_manifest(&directory, "fixture-game", 3, "main.lua");
+    write_manifest(&directory, "fixture-game", 4, "main.lua");
     assert!(
         format!("{:#}", check_module(&directory).unwrap_err()).contains("incompatible host API")
     );
-    write_manifest(&directory, "fixture-game", 1, "main.lua");
+    write_manifest(&directory, "fixture-game", 3, "main.lua");
     write_script(
         &directory,
         "return {game_id='fixture-game', api_version=999}",
@@ -131,11 +131,11 @@ fn loops_and_memory_exhaustion_return_explicit_errors() {
 #[test]
 fn malformed_manifests_and_untrusted_entrypoints_are_rejected() {
     let (_root, directory) = fixture();
-    write_manifest(&directory, "fixture-game", 1, "../outside.lua");
+    write_manifest(&directory, "fixture-game", 3, "../outside.lua");
     assert!(format!("{:#}", check_module(&directory).unwrap_err()).contains("entrypoint"));
-    write_manifest(&directory, "fixture-game", 1, "subdir/main.lua");
+    write_manifest(&directory, "fixture-game", 3, "subdir/main.lua");
     assert!(check_module(&directory).is_err());
-    write_manifest(&directory, "Invalid Game", 1, "main.lua");
+    write_manifest(&directory, "Invalid Game", 3, "main.lua");
     assert!(check_module(&directory).is_err());
     fs::write(directory.join("module.json"), "{broken").expect("overwrite manifest");
     assert!(format!("{:#}", check_module(&directory).unwrap_err()).contains("invalid module.json"));
@@ -157,7 +157,7 @@ fn oversized_manifest_and_script_are_rejected() {
     let (_root, directory) = fixture();
     write_script(&directory, &" ".repeat(256 * 1024 + 1));
     assert!(format!("{:#}", check_module(&directory).unwrap_err()).contains("no larger"));
-    write_script(&directory, "return {game_id='fixture-game',api_version=1}");
+    write_script(&directory, "return {game_id='fixture-game',api_version=3}");
     fs::write(directory.join("module.json"), " ".repeat(16 * 1024 + 1))
         .expect("write large manifest");
     assert!(check_module(&directory).is_err());

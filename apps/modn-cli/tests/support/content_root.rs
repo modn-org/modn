@@ -26,7 +26,7 @@ const SCRIPT: &str = r#"
 local fs = mods_host.fs
 
 return {
-    game_id = "content-game", api_version = 2, version = "1.0.0",
+    game_id = "content-game", api_version=3, version = "1.0.0",
     marker = "ContentGame.exe", common_paths = {},
     validate = function()
         local ok, info = pcall(fs.metadata, 1, "ContentGame.exe")
@@ -93,7 +93,7 @@ impl Fixture {
         fs::write(
             module.join("module.json"),
             format!(
-                r#"{{"game_id":"{GAME_ID}","version":"1.0.0","api_version":2,"entrypoint":"module.lua","content_root":{{"base":"appdata","path":"{CONTENT_RELATIVE}"}}}}"#
+                r#"{{"game_id":"{GAME_ID}","version":"1.0.0","api_version":3,"entrypoint":"module.lua","content_root":{{"base":"appdata","path":"{CONTENT_RELATIVE}"}}}}"#
             ),
         )
         .expect("manifest");

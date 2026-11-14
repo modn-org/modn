@@ -12,7 +12,7 @@ fn fixture() -> (TempDir, PathBuf, PathBuf) {
     fs::create_dir(&game).expect("game");
     fs::write(
         module.join("module.json"),
-        r#"{"game_id":"example-game","version":"1.0","api_version":1,"entrypoint":"main.lua"}"#,
+        r#"{"game_id":"example-game","version":"1.0","api_version":3,"entrypoint":"main.lua"}"#,
     )
     .expect("manifest");
     fs::write(game.join("game.marker"), b"abc").expect("game marker");

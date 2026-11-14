@@ -482,6 +482,121 @@ fn signed_remote(layout: impl FnOnce(&Path)) -> SignedRemote {
     }
 }
 
+fn write_module_files(root: &Path, game: &str, api: u32) {
+    let directory = root.join("games").join(game);
+    fs::create_dir_all(&directory).expect("game module directory");
+    fs::write(
+        directory.join("module.json"),
+        serde_json::json!({
+            "game_id": game,
+            "version": "1",
+            "api_version": api,
+            "entrypoint": "module.lua",
+        })
+        .to_string(),
+    )
+    .expect("module manifest");
+    fs::write(
+        directory.join("module.lua"),
+        format!("return {{game_id='{game}', api_version={api}}}"),
+    )
+    .expect("module script");
+}
+
+#[test]
+fn trust_refuses_an_invalid_trusted_games_layout_and_records_no_trust() {
+    main_bucket::seeded(|| {
+        let invalid: [(&str, bool); 3] = [
+            ("games/test-game/notes.md", false),
+            ("games/loose.md", false),
+            ("games/test-game/nested", true),
+        ];
+        for (relative, directory) in invalid {
+            let remote = signed_remote(|root| {
+                let offending = root.join(relative);
+                if directory {
+                    fs::create_dir_all(&offending).expect("directory entry");
+                    fs::write(offending.join("file.txt"), "extra").expect("nested file");
+                } else {
+                    fs::create_dir_all(offending.parent().expect("parent")).expect("parent");
+                    fs::write(&offending, "extra").expect("file entry");
+                }
+            });
+            let state = tempfile::tempdir().expect("state");
+            let store = BucketStore::new(state.path());
+            store
+                .sync_git_with_signer("community", Some(remote.source()))
+                .expect("first sync ignores untrusted games");
+            let registration_path = registration(state.path());
+            let before = fs::read(&registration_path).expect("registration");
+            let published = relative.replace('/', std::path::MAIN_SEPARATOR_STR);
+            let error = store
+                .trust_modules(
+                    "community",
+                    ModuleTrustAck::Acknowledged {
+                        expected_fingerprint: None,
+                    },
+                )
+                .expect_err("invalid trusted layout");
+            let message = format!("{error:#}");
+            assert!(message.contains("bucket community"), "{message}");
+            assert!(message.contains(&published), "{message}");
+            assert_eq!(
+                fs::read(&registration_path).expect("registration"),
+                before,
+                "refusal writes no registration"
+            );
+            assert_eq!(
+                store.module_trust("community").expect("trust state"),
+                ModuleTrustState::Untrusted
+            );
+            assert!(
+                !store
+                    .list()
+                    .expect("list")
+                    .iter()
+                    .find(|bucket| bucket.name == "community")
+                    .expect("community")
+                    .module_trusted
+            );
+        }
+    });
+}
+
+#[test]
+fn trust_accepts_a_valid_games_layout() {
+    main_bucket::seeded(|| {
+        let remote = signed_remote(|root| write_module_files(root, "test-game", 3));
+        let state = tempfile::tempdir().expect("state");
+        let store = BucketStore::new(state.path());
+        store
+            .sync_git_with_signer("community", Some(remote.source()))
+            .expect("first sync");
+        let outcome = store
+            .trust_modules(
+                "community",
+                ModuleTrustAck::Acknowledged {
+                    expected_fingerprint: None,
+                },
+            )
+            .expect("valid layout is trusted");
+        assert_eq!(outcome.imported.len(), 1);
+        assert_eq!(
+            store.module_trust("community").expect("trust state"),
+            ModuleTrustState::Trusted
+        );
+        assert!(
+            store
+                .list()
+                .expect("list")
+                .iter()
+                .find(|bucket| bucket.name == "community")
+                .expect("community")
+                .module_trusted
+        );
+    });
+}
+
 #[test]
 fn trusted_catalogs_refuse_a_package_manifest_under_games() {
     for (relative, contents) in [
@@ -548,7 +663,7 @@ fn untrusted_catalogs_ignore_games_and_stay_untrusted() {
             fs::create_dir_all(root.join("games/test-game")).expect("games");
             fs::write(
             root.join("games/test-game/module.json"),
-            r#"{"game_id":"test-game","version":"1","api_version":1,"entrypoint":"module.lua"}"#,
+            r#"{"game_id":"test-game","version":"1","api_version":3,"entrypoint":"module.lua"}"#,
         )
         .expect("module manifest");
             fs::write(root.join("games/test-game/module.lua"), "return {}").expect("module script");

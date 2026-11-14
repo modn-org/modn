@@ -117,7 +117,7 @@ impl Catalog {
             json!({
                 "game_id": game,
                 "version": version,
-                "api_version": 1,
+                "api_version":3,
                 "entrypoint": "module.lua",
             })
             .to_string(),
@@ -125,7 +125,7 @@ impl Catalog {
         .expect("manifest");
         fs::write(
             directory.join("module.lua"),
-            format!("return {{game_id='{game}', api_version=1, version='{version}'}}"),
+            format!("return {{game_id='{game}', api_version=3, version='{version}'}}"),
         )
         .expect("Lua");
     }

@@ -121,9 +121,16 @@ pub fn to_contract_v2(root: &Path) {
         for record in fs::read_dir(game.path()).expect("fixture records") {
             let record = record.expect("fixture record");
             let path = record.path();
-            if path
-                .file_name()
-                .is_some_and(|name| name == "module.json" || name == "module.lua")
+            if path.file_name().is_some_and(|name| name == "module.json") {
+                let mut manifest: serde_json::Value =
+                    serde_json::from_slice(&fs::read(&path).expect("fixture module"))
+                        .expect("module JSON");
+                manifest["api_version"] = serde_json::json!(3);
+                fs::write(&path, serde_json::to_vec(&manifest).expect("JSON"))
+                    .expect("fixture module");
+                continue;
+            }
+            if path.file_name().is_some_and(|name| name == "module.lua")
                 || path.extension().is_none_or(|extension| extension != "json")
             {
                 continue;

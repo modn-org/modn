@@ -39,7 +39,7 @@ shipped behavior.
 - [`data-model.md`](data-model.md): entities, trust, selection and ownership
   boundaries, and their mapping to persistence.
 - [`game-modules.md`](game-modules.md): Lua game modules, module releases,
-  pin, update and rollback, trusted sources, `modn module check`, host API v1
+  pin, update and rollback, trusted sources, `modn module check`, host API v3
   and v2, and development overrides.
 - [`transactions.md`](transactions.md): transactional install, exclusive
   folders, created directories and recovery.

@@ -72,7 +72,7 @@ fn write_module(directory: &Path, game: &str, version: &str, marker: &str) {
         json!({
             "game_id": game,
             "version": version,
-            "api_version": 1,
+            "api_version":3,
             "entrypoint": "module.lua",
         })
         .to_string(),

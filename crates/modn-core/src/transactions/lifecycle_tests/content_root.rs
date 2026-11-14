@@ -18,13 +18,13 @@ fn content_root_rollback_and_recovery_remove_only_created_state() {
     fs::create_dir_all(&module).unwrap();
     fs::write(
         module.join("module.json"),
-        r#"{"game_id":"content-game","version":"1.0.0","api_version":2,"entrypoint":"module.lua","content_root":{"base":"appdata","path":"Fixture/Mods"}}"#,
+        r#"{"game_id":"content-game","version":"1.0.0","api_version":3,"entrypoint":"module.lua","content_root":{"base":"appdata","path":"Fixture/Mods"}}"#,
     )
     .unwrap();
     fs::write(
         module.join("module.lua"),
         r#"return {
-            game_id="content-game", api_version=2, version="1.0.0",
+            game_id="content-game", api_version=3, version="1.0.0",
             marker="ContentGame.exe", common_paths={},
             validate=function() return true end,
             steam_name=function() return "Content Game" end,

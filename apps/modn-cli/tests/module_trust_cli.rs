@@ -313,7 +313,7 @@ fn local_source_update_and_untrusted_bucket_use_fail_with_hints() {
     fs::create_dir_all(&module).expect("local module");
     fs::write(
         module.join("module.json"),
-        r#"{"game_id":"local-game","version":"1.0.0","api_version":1,"entrypoint":"module.lua"}"#,
+        r#"{"game_id":"local-game","version":"1.0.0","api_version":3,"entrypoint":"module.lua"}"#,
     )
     .expect("manifest");
     fs::write(module.join("module.lua"), identity_lua("local-game")).expect("Lua");

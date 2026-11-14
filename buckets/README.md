@@ -71,12 +71,14 @@ snapshot publishes current releases only. See
 [`modn-org/main`](https://github.com/modn-org/main) for examples.
 
 Each `module.json` declares `api_version`, the host API version that its module
-needs. Modn refuses a bucket with a module whose `api_version` it does not
-support.
+needs. Bucket contract v2 uses host API version 3. Modn refuses a bucket with a
+module that declares an earlier version and tells the publisher to republish the
+module for contract v2.
 
 `main` and the signed Git catalogs that the user trusts for modules may contain
 `games/<game-id>/module.json` and `module.lua`. Those folders may hold nothing
-else. Modn refuses a package manifest or any other entry under `games/` in
+else. `modn bucket trust-modules` validates this layout before it records trust,
+so a catalog with an extra entry is refused and stays untrusted. Modn refuses a package manifest or any other entry under `games/` in
 those buckets. Other buckets ignore `games/` at sync without reading it and
 refuse their modules when a module is used. A mod whose ID is `module` is a
 normal package at `mods/<game-id>/module.json`. Modn rejects a `modules/`
