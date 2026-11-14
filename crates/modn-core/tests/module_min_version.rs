@@ -5,7 +5,7 @@ use tempfile::TempDir;
 
 fn module(minimum: Option<&str>) -> TempDir {
     let directory = tempfile::tempdir().expect("create module fixture");
-    let mut manifest = json!({"game_id":"fixture-game", "version":"1.0.0", "api_version":1, "entrypoint":"main.lua"});
+    let mut manifest = json!({"game_id":"fixture-game", "version":"1.0.0", "api_version":3, "entrypoint":"main.lua"});
     if let Some(minimum) = minimum {
         manifest["min_modn_version"] = json!(minimum);
     }
@@ -70,6 +70,7 @@ fn cyberpunk_requiring_release_030_is_refused_by_older_development_build() {
         serde_json::from_slice(&fs::read(source.join("module.json")).expect("valid test fixture"))
             .expect("valid test fixture");
     manifest["min_modn_version"] = json!("0.3.0");
+    manifest["api_version"] = json!(3);
     fs::write(directory.path().join("module.json"), manifest.to_string())
         .expect("valid test fixture");
     fs::copy(

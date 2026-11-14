@@ -12,7 +12,7 @@ fn module(launch: &str, stores: &str) -> TempDir {
     fs::write(
         temp.path().join("module.json"),
         format!(
-            r#"{{"game_id":"launch-game","version":"0.1.0","api_version":1,"entrypoint":"main.lua","stores":{stores},"launch":{launch}}}"#
+            r#"{{"game_id":"launch-game","version":"0.1.0","api_version":3,"entrypoint":"main.lua","stores":{stores},"launch":{launch}}}"#
         ),
     )
     .expect("manifest");

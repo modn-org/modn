@@ -10,7 +10,7 @@ fn command_reports_module_identity_without_opening_state_database() {
     fs::create_dir(&module).expect("module");
     fs::write(
         module.join("module.json"),
-        r#"{"api_version":1,"game_id":"demo-game","version":"1.0.0","entrypoint":"main.lua"}"#,
+        r#"{"api_version":3,"game_id":"demo-game","version":"1.0.0","entrypoint":"main.lua"}"#,
     )
     .expect("manifest");
     fs::write(
@@ -35,7 +35,7 @@ fn command_reports_module_identity_without_opening_state_database() {
     );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON result");
     assert_eq!(report["game_id"], "demo-game");
-    assert_eq!(report["api_version"], 1);
+    assert_eq!(report["api_version"], 3);
     assert_eq!(report["version"], "1.0.0");
     assert!(
         !state.exists(),
@@ -44,7 +44,7 @@ fn command_reports_module_identity_without_opening_state_database() {
 
     fs::write(
         module.join("main.lua"),
-        "print('unexpected stdout'); return {game_id='demo-game',api_version=1}",
+        "print('unexpected stdout'); return {game_id='demo-game',api_version=3}",
     )
     .expect("replace module with printing script");
     let printing = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
@@ -93,7 +93,7 @@ fn scoped_cli_roots_work_without_creating_state_or_writing_to_game() {
     fs::create_dir(&game).expect("game dir");
     fs::write(
         module.join("module.json"),
-        r#"{"api_version":1,"game_id":"demo-game","version":"1.0.0","entrypoint":"main.lua"}"#,
+        r#"{"api_version":3,"game_id":"demo-game","version":"1.0.0","entrypoint":"main.lua"}"#,
     )
     .expect("manifest");
     fs::write(game.join("marker.txt"), b"abc").expect("marker");
@@ -135,7 +135,7 @@ fn scoped_cli_roots_work_without_creating_state_or_writing_to_game() {
     );
     let report: serde_json::Value = serde_json::from_slice(&allowed.stdout).expect("valid JSON");
     assert_eq!(report["game_id"], "demo-game");
-    assert_eq!(report["api_version"], 1);
+    assert_eq!(report["api_version"], 3);
     assert_eq!(
         fs::read(game.join("marker.txt")).expect("marker intact"),
         b"abc"
@@ -156,7 +156,7 @@ fn standalone_module_check_ignores_existing_invalid_manager_state() {
     fs::write(state.join("state.sqlite"), b"not a SQLite database").expect("corrupted state");
     fs::write(
         module.join("module.json"),
-        r#"{"api_version":1,"game_id":"demo-game","version":"1.0.0","entrypoint":"main.lua"}"#,
+        r#"{"api_version":3,"game_id":"demo-game","version":"1.0.0","entrypoint":"main.lua"}"#,
     )
     .expect("manifest");
     fs::write(

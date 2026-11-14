@@ -4,7 +4,7 @@ use crate::stores::{GogRecord, StoreLibraries, Storefront};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const MODULE_JSON: &str = r#"{"game_id":"store-game","version":"0.1.0","api_version":1,"entrypoint":"main.lua","stores":{"steam":"100","gog":"200","epic":"StoreGame"}}"#;
+const MODULE_JSON: &str = r#"{"game_id":"store-game","version":"0.1.0","api_version":3,"entrypoint":"main.lua","stores":{"steam":"100","gog":"200","epic":"StoreGame"}}"#;
 const MODULE_LUA: &str = r#"
 local policy = { game_id = "store-game", api_version = mods_host.api_version, marker = "Game.exe" }
 function policy.validate()

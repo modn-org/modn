@@ -59,7 +59,7 @@ impl ModuleCatalog {
             json!({
                 "game_id": game,
                 "version": version,
-                "api_version": 1,
+                "api_version":3,
                 "entrypoint": "module.lua",
             })
             .to_string(),
@@ -137,7 +137,7 @@ fn commit(root: &Path, message: &str) -> String {
 
 /// Minimal Lua policy that returns a valid module identity.
 pub fn identity_lua(game: &str) -> String {
-    format!("return {{game_id='{game}', api_version=1}}")
+    format!("return {{game_id='{game}', api_version=3}}")
 }
 
 /// Minimal Lua policy that validates a marker file and reports an empty scan.

@@ -43,9 +43,16 @@ pub fn to_contract_v2(root: &std::path::Path) {
         for entry in std::fs::read_dir(game.path()).expect("game entries") {
             let entry = entry.expect("game entry");
             let path = entry.path();
-            if path.file_name().is_some_and(|name| name == "module.json")
-                || path.extension().is_none_or(|extension| extension != "json")
-            {
+            if path.file_name().is_some_and(|name| name == "module.json") {
+                let mut manifest: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(&path).expect("module manifest"))
+                        .expect("module manifest");
+                manifest["api_version"] = serde_json::json!(3);
+                std::fs::write(&path, serde_json::to_vec(&manifest).expect("JSON"))
+                    .expect("module manifest");
+                continue;
+            }
+            if path.extension().is_none_or(|extension| extension != "json") {
                 continue;
             }
             let mut record: serde_json::Value =

@@ -127,7 +127,7 @@ fn a_module_with_a_bad_store_identity_reports_module_store_id_invalid() {
     let module = temp.path().join("bad-store");
     write(
         &module.join("module.json"),
-        br#"{"game_id":"bad-store","version":"0.1.0","api_version":1,"entrypoint":"main.lua","stores":{"steam":"10915a0"}}"#,
+        br#"{"game_id":"bad-store","version":"0.1.0","api_version":3,"entrypoint":"main.lua","stores":{"steam":"10915a0"}}"#,
     );
     write(
         &module.join("main.lua"),

@@ -92,7 +92,7 @@ impl Fixture {
         fs::write(
             module.join("module.json"),
             format!(
-                r#"{{"game_id":"{GAME}","version":"0.1.0","api_version":1,"entrypoint":"main.lua"}}"#
+                r#"{{"game_id":"{GAME}","version":"0.1.0","api_version":3,"entrypoint":"main.lua"}}"#
             ),
         )
         .expect("module metadata");

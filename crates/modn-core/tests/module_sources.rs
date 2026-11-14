@@ -159,7 +159,7 @@ fn policy_lua(game: &str) -> String {
     format!(
         r#"return {{
     game_id = '{game}',
-    api_version = 1,
+    api_version=3,
     marker = 'fixture',
     validate = function() return true end,
     scan = function(limit)
@@ -172,7 +172,7 @@ fn policy_lua(game: &str) -> String {
 }
 
 fn fixture_module(game: &str, version: &str) -> String {
-    format!("return {{game_id='{game}', api_version=1, version='{version}'}}")
+    format!("return {{game_id='{game}', api_version=3, version='{version}'}}")
 }
 
 fn active(data: &Path, game: &str) -> Option<modn_core::game_modules::RegisteredModule> {
@@ -203,7 +203,7 @@ fn trusted_sync_imports_module_as_active_release() {
         catalog.write_module(
             "fixture-game",
             "1.0.0",
-            1,
+            3,
             &fixture_module("fixture-game", "1.0.0"),
             None,
         );
@@ -233,7 +233,7 @@ fn newer_catalog_revision_switches_and_retains_the_old_release() {
         catalog.write_module(
             "fixture-game",
             "1.0.0",
-            1,
+            3,
             &fixture_module("fixture-game", "1.0.0"),
             None,
         );
@@ -242,7 +242,7 @@ fn newer_catalog_revision_switches_and_retains_the_old_release() {
         catalog.write_module(
             "fixture-game",
             "2.0.0",
-            1,
+            3,
             &fixture_module("fixture-game", "2.0.0"),
             None,
         );
@@ -272,13 +272,13 @@ fn staging_failure_leaves_the_previous_release_active() {
         catalog.write_module(
             "fixture-game",
             "1.0.0",
-            1,
+            3,
             &fixture_module("fixture-game", "1.0.0"),
             None,
         );
         catalog.sign_and_commit("v1");
         catalog.sync(&store);
-        catalog.write_module("fixture-game", "2.0.0", 1, "this is not lua", None);
+        catalog.write_module("fixture-game", "2.0.0", 3, "this is not lua", None);
         catalog.sign_and_commit("broken v2");
         let error = format!(
             "{:#}",
@@ -305,7 +305,7 @@ fn untrusted_sync_ignores_modules_and_never_runs_lua() {
         let data = data_dir::data_directory().expect("data");
         let store = BucketStore::new(&data);
         let catalog = Catalog::new();
-        catalog.write_module("fixture-game", "1.0.0", 1, "this is not lua", None);
+        catalog.write_module("fixture-game", "1.0.0", 3, "this is not lua", None);
         catalog.sign_and_commit("broken module");
         let synced = catalog.sync(&store);
         assert!(synced.modules.imported.is_empty());
@@ -331,7 +331,7 @@ fn trust_imports_modules_immediately_and_returns_them() {
         catalog.write_module(
             "fixture-game",
             "1.0.0",
-            1,
+            3,
             &fixture_module("fixture-game", "1.0.0"),
             None,
         );
@@ -363,7 +363,7 @@ fn official_module_priority_hides_a_trusted_catalog_module() {
         catalog.write_module(
             "cyberpunk-2077",
             "9.9.9",
-            2,
+            3,
             "error('hidden module must not run')",
             Some("Community/Mods"),
         );
@@ -416,7 +416,7 @@ fn untrusted_source_is_refused_at_use_and_reported_by_doctor() {
         catalog.write_module(
             "fixture-game",
             "1.0.0",
-            1,
+            3,
             &policy_lua("fixture-game"),
             None,
         );
@@ -476,7 +476,7 @@ fn locally_registered_modules_still_resolve() {
             json!({
                 "game_id": "fixture-game",
                 "version": "1.0.0",
-                "api_version": 1,
+                "api_version":3,
                 "entrypoint": "module.lua",
             })
             .to_string(),
