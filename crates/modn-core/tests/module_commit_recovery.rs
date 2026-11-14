@@ -90,7 +90,7 @@ impl Catalog {
         git(directory.path(), &["init", "--initial-branch=fixture"]);
         fs::write(
             directory.path().join("bucket.json"),
-            json!({"schema_version": 1, "name": "community", "title": "Community"}).to_string(),
+            json!({"schema_version": 2, "name": "community", "title": "Community"}).to_string(),
         )
         .expect("metadata");
         let pair = KeyPair::generate_unencrypted_keypair().expect("key");

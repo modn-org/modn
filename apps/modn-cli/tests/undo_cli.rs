@@ -24,8 +24,10 @@ fn archive(fixture: &Fixture, name: &str, files: &[(&str, &str)]) -> (PathBuf, S
         zip.write_all(contents.as_bytes()).expect("payload");
     }
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn manifest(fixture: &Fixture, id: &str, version: &str, hash: &str, source: Value) {
@@ -40,12 +42,12 @@ fn manifest_extra(
     source: Value,
     extra: Value,
 ) {
-    let folder = fixture.temp.path().join("deps/games/test-game");
+    let folder = fixture.temp.path().join("deps/mods/test-game");
     fs::create_dir_all(&folder).expect("bucket folder");
     let mut manifest = json!({
-        "schema_version": 1, "id": id, "game": "test-game", "name": id,
-        "version": version, "archive_format": "zip", "sha256": hash,
-        "source": source
+        "schema_version": 2, "id": id, "game": "test-game", "name": id,
+        "version": version, "archive_format": "zip", "blake3": hash,
+        "sources": [source]
     });
     if let (Some(manifest), Value::Object(extra)) = (manifest.as_object_mut(), extra) {
         manifest.extend(extra);
