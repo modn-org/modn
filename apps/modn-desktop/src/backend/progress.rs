@@ -287,10 +287,13 @@ pub(super) fn call(
                 }
             }
         }
-        if !cancel_sent && cancel.is_cancelled() {
-            send_cancel(&mut stdin);
-            cancel_sent = true;
+        // A user cancel wins even when the inactivity path sent `cancel` first.
+        if cancel.is_cancelled() {
             user_cancelled = true;
+            if !cancel_sent {
+                send_cancel(&mut stdin);
+                cancel_sent = true;
+            }
         }
         // A cancel stops the CLI from starting new work, but a step already
         // past its last progress event can still stall. Keep the pre-commit

@@ -216,10 +216,11 @@ fn cancel_before_commit_returns_cancelled_and_writes_nothing() {
 fn a_stalled_cancel_keeps_the_pre_commit_inactivity_deadline() {
     let f = Fixture::new();
     let args = f.progress_args("stall-after-cancel");
+    // Long enough that a loaded machine still delivers `stage` before it.
     let backend = f
         .backend
         .clone()
-        .with_inactivity_timeout(Duration::from_millis(200));
+        .with_inactivity_timeout(Duration::from_secs(2));
     let cancel = CancelToken::new();
     let start = Instant::now();
     let error = backend
