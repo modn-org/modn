@@ -175,6 +175,9 @@ and homepage. `blake3` is 64 lowercase hex characters and pins the archive.
 `sources` is an ordered, non-empty list. Modn uses only the first entry; it
 reads the later entries but does not fall back to them until fallback across
 sources (issue #118) ships.
+A record lists either archive sources or `git` sources, never both. A `git`
+record has no `blake3` pin, because its commit is the pin. One archive pin
+cannot cover a packed Git archive, so Modn refuses a mixed record.
 `redistributable` defaults to `false`. `upstream_sha256` is provenance only.
 A `nexus` source
 requires `archive_format` and accepts only `.zip` or `.7z` archives; Modn

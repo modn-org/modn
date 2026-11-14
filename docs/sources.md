@@ -195,6 +195,7 @@ A package manifest can name one Git commit as its artifact source:
 
 The remote is `https://github.com/<owner>/<project>.git`.
 The commit is the integrity pin, so the package has no archive `blake3` pin.
+A `git` record lists Git sources only; Modn refuses a record that mixes a `git` source with archive sources.
 A branch, tag, shortened commit, uppercase commit or extra field is refused.
 `archive_format` may be `zip` when present; no other format is accepted.
 

@@ -209,6 +209,57 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
 }
 
 #[test]
+fn retired_git_entries_are_listed_and_removed_but_never_reused() {
+    let dir = tempdir().unwrap();
+    let cache = ArchiveCache::new(dir.path().join("cache"));
+    fs::create_dir_all(cache.root()).unwrap();
+    let commit = "a".repeat(40);
+    let retired_path = cache.root().join(format!(
+        "test-game#fixture#1.0#git-{commit}-{}.zip",
+        "b".repeat(64)
+    ));
+    fs::write(&retired_path, b"retired git archive").unwrap();
+    let body = b"current archive".to_vec();
+    let digest = pin(&body);
+    let current = cache
+        .acquire(&key(&digest), CacheUse::Reuse, |_| {
+            Ok(Cursor::new(body.clone()))
+        })
+        .unwrap();
+
+    let recovered = cache.entries(Some("fixture")).unwrap();
+    assert_eq!(recovered.len(), 2, "both name forms are listed");
+    let retired = recovered
+        .iter()
+        .find(|entry| entry.retired)
+        .expect("the retired entry is flagged");
+    assert_eq!(retired.path, retired_path);
+    assert_eq!(retired.version, "1.0");
+    assert!(recovered
+        .iter()
+        .any(|entry| !entry.retired && entry.path == current.path));
+
+    // No install lookup trusts a retired name: neither the Git lookup nor a
+    // digest scan accepts its bytes.
+    let git_key = GitCacheKey::new("test-game", "fixture", "1.0", &commit);
+    assert!(cache.git_cached(&git_key).unwrap().is_none());
+    let retired_digest = pin(b"retired git archive");
+    let probe = CacheKey::new(
+        "test-game",
+        "fixture",
+        "9.0",
+        "https://example.invalid/probe.zip",
+        &retired_digest,
+    );
+    assert!(cache.cached(&probe).unwrap().is_none());
+
+    let removed = cache.remove(Some("fixture")).unwrap();
+    assert_eq!(removed.len(), 2);
+    assert!(!retired_path.exists(), "removal reclaims the retired entry");
+    assert!(!current.path.exists());
+}
+
+#[test]
 fn another_attempts_partial_file_is_never_touched() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));

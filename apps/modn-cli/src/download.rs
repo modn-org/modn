@@ -373,8 +373,9 @@ pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Resul
         return Ok(());
     }
     for entry in &entries {
+        let retired = if entry.retired { ", retired" } else { "" };
         println!(
-            "{} {} {} ({} bytes)",
+            "{} {} {} ({} bytes{retired})",
             entry.game_id, entry.mod_id, entry.version, entry.bytes
         );
     }
