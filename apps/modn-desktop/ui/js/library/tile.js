@@ -64,10 +64,11 @@ function operationEntry(operations, key, build) {
  * @param {{
  *   onChanged: () => void|Promise<void>,
  *   operations: Map<string, {button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>,
+ *   undoHost?: HTMLElement|null,
  * }} options
  * @returns {HTMLLIElement}
  */
-export function createTile(model, ctx, { onChanged, operations }) {
+export function createTile(model, ctx, { onChanged, operations, undoHost = null }) {
   const hooks = undoHooks(ctx.gameId);
   const installed = model.installedPackage;
   const tile = element('li', 'modn-card modn-tile');
@@ -108,10 +109,14 @@ export function createTile(model, ctx, { onChanged, operations }) {
   const actions = element('div', 'modn-tile__actions');
   body.append(state, actions);
 
+  const undoToast = undoHost
+    ? createUndoLauncher({ host: undoHost, ...hooks, onSettled: onChanged })
+    : null;
   const settings = {
     onSettled: onChanged,
     newestOperation: hooks.newestOperation,
     runUndo: hooks.runUndo,
+    launchUndo: undoToast,
   };
   /** @type {Array<{button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} */
   const buttons = [];
@@ -198,4 +203,57 @@ export function createTile(model, ctx, { onChanged, operations }) {
 
   tile.append(art, body);
   return tile;
+}
+
+/**
+ * Returns the Undo action a toast offers. Each action owns a fresh operation
+ * button in a stable host, so a grid refresh may replace the button that
+ * showed the toast without making its Undo a no-op. The fresh button offers
+ * the same launcher again, so every later Undo starts from a live button.
+ * @param {{
+ *   host: HTMLElement,
+ *   runUndo: (args: Object) => Promise<unknown>,
+ *   newestOperation: (match?: Object) => Promise<Object|null>,
+ *   onSettled: () => void|Promise<void>,
+ * }} options
+ * @returns {(operationId: string) => void}
+ */
+export function createUndoLauncher({ host, runUndo, newestOperation, onSettled }) {
+  const launch = (operationId) => {
+    if (!operationId) {
+      return;
+    }
+    const row = element('div');
+    const askHost = element('div', 'modn-tile__ask');
+    const runner = createOperationButton({
+      label: 'Undo',
+      action: 'Undo',
+      run: runUndo,
+      testId: 'toast-undo-button',
+      ariaLabel: 'Undo the last operation',
+      askHost,
+      newestOperation,
+      runUndo,
+      launchUndo: launch,
+      onSettled: async () => {
+        try {
+          await onSettled();
+        } finally {
+          row.remove();
+        }
+      },
+      onError: () => row.remove(),
+    });
+    row.append(runner.element, askHost);
+    host.append(row);
+    void runner.start({
+      run: runUndo,
+      label: 'Undo',
+      action: 'Undo',
+      operationId,
+      params: {},
+      approvals: { native: false, executables: [] },
+    });
+  };
+  return launch;
 }

@@ -5,7 +5,7 @@ import { showToast } from './toast.js';
 import { mergeLibrary, visibleModels } from './library/data.js';
 import { element } from './library/dom.js';
 import { createRecentMenu } from './library/recent.js';
-import { createTile, undoHooks } from './library/tile.js';
+import { createTile, createUndoLauncher, undoHooks } from './library/tile.js';
 
 const FILTERS = [
   { id: 'all', label: 'All', testId: 'filter-all' },
@@ -85,8 +85,10 @@ export async function render(root, ctx) {
   status.setAttribute('role', 'status');
   const hooks = undoHooks(ctx.gameId);
   const archiveAsk = element('div', 'modn-library__ask');
+  const undoHost = element('div', 'modn-library__ask');
   const installButton = createOperationButton({
     ...hooks,
+    launchUndo: createUndoLauncher({ ...hooks, host: undoHost, onSettled: refresh }),
     label: 'Install archive',
     action: 'Install',
     testId: 'library-install-archive',
@@ -113,7 +115,7 @@ export async function render(root, ctx) {
     },
   });
   actions.append(playButton, installButton.element);
-  actions.append(createRecentMenu({ gameId: ctx.gameId, onChanged: refresh }));
+  actions.append(createRecentMenu({ gameId: ctx.gameId, onChanged: refresh, undoHost }));
   header.append(titles, actions);
 
   const toolbar = element('div', 'modn-library__toolbar');
@@ -176,7 +178,7 @@ export async function render(root, ctx) {
   back.href = '#/';
   back.dataset.testid = 'back-to-home';
 
-  view.append(header, status, archiveAsk);
+  view.append(header, status, archiveAsk, undoHost);
 
   if (!ctx.path) {
     status.textContent = 'Choose an installation first.';
@@ -224,7 +226,7 @@ export async function render(root, ctx) {
       return;
     }
     for (const model of visible) {
-      grid.append(createTile(model, ctx, { onChanged: refresh, operations }));
+      grid.append(createTile(model, ctx, { onChanged: refresh, operations, undoHost }));
     }
   }
 
