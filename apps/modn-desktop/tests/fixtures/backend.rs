@@ -4,8 +4,8 @@
 //! `invalid-json`, `timeout`, `slow`, `blocked`, `registration-changed`,
 //! `source-changed` and `inventory-failure`.
 //!
-//! A dry run for a local archive returns the archive's SHA-256 as
-//! `archive_sha256`, which the desktop rechecks before the write.
+//! A dry run for a local archive returns the archive's BLAKE3 digest as
+//! `archive_blake3`, which the desktop rechecks before the write.
 //!
 //! When the arguments contain `--progress json` it also speaks the CLI's
 //! progress protocol: one JSON event per line on stderr and `cancel` lines on
@@ -45,10 +45,9 @@
 //! `survived-after-output` after that wait, and then fails the same way.
 
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -148,7 +147,7 @@ fn main() -> anyhow::Result<()> {
             "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}],
             "blockers":if mode == "blocked" {json!([{"message":"blocked"}])} else {json!([])}});
         if let Some(archive) = dry_run_archive(&args) {
-            plan["archive_sha256"] = json!(sha256_hex(archive)?);
+            plan["archive_blake3"] = json!(blake3_hex(archive)?);
         }
         plan
     } else if tail.iter().any(|s| s == "inspect") {
@@ -371,19 +370,11 @@ fn dry_run_archive(args: &[OsString]) -> Option<&Path> {
     .then_some(archive)
 }
 
-/// The lowercase hex SHA-256 the CLI writes as `archive_sha256`.
-fn sha256_hex(path: &Path) -> anyhow::Result<String> {
-    let mut file = fs::File::open(path)?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0; 64 * 1024];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hash.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
+/// The lowercase hex BLAKE3 digest the CLI writes as `archive_blake3`.
+fn blake3_hex(path: &Path) -> anyhow::Result<String> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update_reader(fs::File::open(path)?)?;
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn scenario(args: &[OsString]) -> &'static str {
