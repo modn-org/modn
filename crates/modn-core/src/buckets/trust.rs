@@ -108,8 +108,13 @@ impl BucketStore {
             LOCK_WAIT,
         )?;
         let registration = self.registration(name)?;
-        let Some(signer) = registration.catalog_signer() else {
-            bail!("{}", local_bucket_module_refusal(name));
+        let signer = if let Some(zip) = &registration.zip {
+            zip.signer.clone()
+        } else {
+            let Some(revision) = registration.revision(name)? else {
+                bail!("{}", local_bucket_module_refusal(name));
+            };
+            revision.signer
         };
         let key_id = signer.key_id.clone();
         match ack {

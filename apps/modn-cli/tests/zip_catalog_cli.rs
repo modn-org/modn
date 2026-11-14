@@ -269,3 +269,66 @@ fn contract_v2_violations_are_refused() {
     assert!(!output.status.success());
     assert!(!fixture.registration().exists());
 }
+
+fn sign_with(keys: &std::path::Path, directory: &std::path::Path) {
+    let output = Command::new(main_bucket::modn_binary())
+        .args(["catalog", "sign"])
+        .arg(directory)
+        .arg("--key")
+        .arg(keys.join("catalog.key"))
+        .output()
+        .expect("sign catalog");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn a_module_trusted_zip_catalog_refuses_a_manifest_under_games() {
+    let fixture = Fixture::new();
+    let keys = fixture.temp.path().join("trusted-keys");
+    let keygen = Command::new(main_bucket::modn_binary())
+        .args(["catalog", "keygen", "--out"])
+        .arg(&keys)
+        .output()
+        .expect("keygen");
+    assert!(keygen.status.success(), "{}", stderr(&keygen));
+    let directory = fixture.temp.path().join("trusted-games");
+    zip_catalog::copy_catalog(&zip_catalog::catalog_fixture("v2"), &directory);
+    for stale in ["catalog.sig", "catalog.pub"] {
+        fs::remove_file(directory.join(stale)).expect("remove stale signature");
+    }
+    let game = directory.join("games/test-game");
+    fs::create_dir_all(&game).expect("game module directory");
+    fs::write(
+        game.join("module.json"),
+        r#"{"game_id":"test-game","version":"1.0","api_version":1,"entrypoint":"module.lua"}"#,
+    )
+    .expect("module manifest");
+    fs::write(
+        game.join("module.lua"),
+        "return {game_id='test-game', api_version=1}",
+    )
+    .expect("module script");
+    sign_with(&keys, &directory);
+    let source = fixture.temp.path().join("trusted-games.zip");
+    pack(&directory, &source);
+    let synced = fixture.sync(&source);
+    assert!(synced.status.success(), "{}", stderr(&synced));
+    let trusted = fixture.run(&["bucket", "trust-modules", "community", "--yes"]);
+    assert!(trusted.status.success(), "{}", stderr(&trusted));
+    let before = fixture.state_snapshot();
+    fs::write(game.join("extra.lua"), "return {}").expect("invalid module file");
+    sign_with(&keys, &directory);
+    pack(&directory, &source);
+    let refused = fixture.sync(&source);
+    assert!(!refused.status.success());
+    assert!(
+        stderr(&refused).contains("only supported under games/<game-id>/"),
+        "{}",
+        stderr(&refused)
+    );
+    assert_eq!(before, fixture.state_snapshot());
+}
