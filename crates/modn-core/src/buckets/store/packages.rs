@@ -104,10 +104,15 @@ fn read_releases(root: &Path, canonical: &Path) -> Result<Releases> {
         real_directory(&game.path(), canonical)?;
         for entry in fs::read_dir(game.path())? {
             let path = entry?.path();
-            if !fs::symlink_metadata(&path)?.file_type().is_file()
-                || path.extension().is_none_or(|e| e != "json")
-            {
+            let kind = fs::symlink_metadata(&path)?.file_type();
+            if kind.is_symlink() || path.extension().is_none_or(|e| e != "json") {
                 bail!("unexpected bucket package entry");
+            }
+            if !kind.is_file() {
+                bail!(
+                    "bucket package entry must be a regular file: {}",
+                    path.display()
+                );
             }
             let stem = path
                 .file_stem()
