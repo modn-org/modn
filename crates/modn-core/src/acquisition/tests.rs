@@ -9,7 +9,7 @@ const URL: &str = "https://example.invalid/releases/v1.0/fixture-1.0.zip?raw=1";
 fn aliases_reuse_verified_bytes_and_repair_corruption() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().to_owned());
-    let digest = sha(b"shared bytes");
+    let digest = pin(b"shared bytes");
     let first = cache
         .acquire(&key(&digest), CacheUse::Reuse, |_| {
             Ok(Cursor::new(b"shared bytes"))
@@ -39,12 +39,12 @@ fn aliases_reuse_verified_bytes_and_repair_corruption() {
     assert_eq!(fs::read(repaired.path).unwrap(), b"shared bytes");
 }
 
-fn sha(bytes: &[u8]) -> String {
-    hex(&Sha256::digest(bytes))
+fn pin(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
 }
 
-fn key(sha256: &str) -> CacheKey<'_> {
-    CacheKey::new("test-game", "fixture", "1.0 beta/2", URL, sha256)
+fn key(blake3: &str) -> CacheKey<'_> {
+    CacheKey::new("test-game", "fixture", "1.0 beta/2", URL, blake3)
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn entry_names_follow_the_scoop_layout() {
         .unwrap()
         .to_string_lossy()
         .into_owned();
-    let url_hash = &sha(URL.as_bytes())[..7];
+    let url_hash = &pin(URL.as_bytes())[..7];
     assert_eq!(name, format!("test-game#fixture#1.0_beta_2#{url_hash}.zip"));
 }
 
@@ -65,7 +65,7 @@ fn download_is_verified_then_reused() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let body = b"archive bytes".to_vec();
-    let digest = sha(&body);
+    let digest = pin(&body);
     let fetches = Cell::new(0);
     let fetch = |url: &str| {
         assert_eq!(url, URL);
@@ -103,17 +103,17 @@ fn download_is_verified_then_reused() {
 fn hash_mismatch_leaves_no_cache_entry() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
-    let expected = sha(b"pinned");
+    let expected = pin(b"pinned");
     let error = cache
         .acquire(&key(&expected), CacheUse::Reuse, |_| {
             Ok(Cursor::new(b"other".to_vec()))
         })
         .unwrap_err()
         .to_string();
-    assert!(error.contains("hash check failed"), "{error}");
+    assert!(error.contains("BLAKE3 check failed"), "{error}");
     assert!(error.contains(&format!("Expected: {expected}")), "{error}");
     assert!(
-        error.contains(&format!("Actual:   {}", sha(b"other"))),
+        error.contains(&format!("Actual:   {}", pin(b"other"))),
         "{error}"
     );
     assert!(cache.entries(None).unwrap().is_empty());
@@ -138,7 +138,7 @@ fn a_tampered_entry_is_never_used_and_is_replaced() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let body = b"genuine".to_vec();
-    let digest = sha(&body);
+    let digest = pin(&body);
     let path = cache
         .acquire(&key(&digest), CacheUse::Reuse, |_| {
             Ok(Cursor::new(body.clone()))
@@ -163,7 +163,7 @@ fn oversized_body_is_refused_without_a_cache_entry() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let body = vec![0; 9];
-    let digest = sha(&body);
+    let digest = pin(&body);
     let error = cache
         .acquire_limited(&key(&digest), CacheUse::Reuse, 8, |_| Ok(io::repeat(0)))
         .unwrap_err()
@@ -177,7 +177,7 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     for (mod_id, body) in [("alpha", b"a".as_slice()), ("beta", b"b".as_slice())] {
-        let digest = sha(body);
+        let digest = pin(body);
         let key = CacheKey {
             mod_id,
             ..key(&digest)
@@ -213,7 +213,7 @@ fn another_attempts_partial_file_is_never_touched() {
     let dir = tempdir().unwrap();
     let cache = ArchiveCache::new(dir.path().join("cache"));
     let body = b"verified".to_vec();
-    let digest = sha(&body);
+    let digest = pin(&body);
     fs::create_dir_all(cache.root()).unwrap();
     let entry = cache.path(&key(&digest));
     let other = cache.root().join(format!(
@@ -233,8 +233,43 @@ fn another_attempts_partial_file_is_never_touched() {
             Ok(Cursor::new(b"bad".to_vec()))
         })
         .unwrap_err();
-    assert!(error.to_string().contains("hash check failed"));
+    assert!(error.to_string().contains("BLAKE3 check failed"));
     assert_eq!(fs::read(&other).unwrap(), b"still downloading");
     assert_eq!(fs::read(&acquired.path).unwrap(), body);
     assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 3);
+}
+
+#[test]
+fn a_truncated_copy_leaves_no_partial_file() {
+    struct Truncated {
+        remaining: usize,
+    }
+
+    impl Read for Truncated {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "connection closed",
+                ));
+            }
+            let length = self.remaining.min(buffer.len());
+            buffer[..length].fill(b'x');
+            self.remaining -= length;
+            Ok(length)
+        }
+    }
+
+    let dir = tempdir().unwrap();
+    let cache = ArchiveCache::new(dir.path().join("cache"));
+    let error = cache
+        .acquire(&key(&pin(b"pinned")), CacheUse::Reuse, |_| {
+            Ok(Truncated { remaining: 3 })
+        })
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("download failed"),
+        "{error:#}"
+    );
+    assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 0);
 }

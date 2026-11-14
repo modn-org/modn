@@ -21,6 +21,7 @@ pub use signature::{
 pub use snapshot::BucketSnapshot;
 pub use store::{BucketInfo, BucketPackage, BucketStore};
 pub use trust::{
-    ModuleSourceTrust, ModuleTrustAck, ModuleTrustState, TrustModulesOutcome, TrustedModuleSource,
+    local_bucket_module_refusal, ModuleSourceTrust, ModuleTrustAck, ModuleTrustState,
+    TrustModulesOutcome, TrustedModuleSource,
 };
 pub use version::VersionReq;

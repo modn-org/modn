@@ -13,6 +13,12 @@ A versioned catalog of mod package manifests under a named source. The official
 bucket also contains first-party game modules.
 _Avoid_: Mod repository, provider, registry (when referring to a bucket)
 
+**Bucket contract v2**:
+The bucket layout and record schema that Modn reads: `bucket.json` with
+`schema_version: 2`, package manifests under `mods/<game-id>/`, and game
+modules under `games/<game-id>/`.
+_Avoid_: Legacy bucket, mixed `games/` folder
+
 **Official bucket**:
 The Modn-maintained `main` catalog and first-party game modules. Modn uses a
 local copy installed by `modn bucket update`. The install script runs that command.
@@ -76,7 +82,7 @@ A Lua 5.4 integration owned by Modn and distributed in the official bucket.
 _Avoid_: Independently installed game plugin
 
 **Module release**:
-A versioned game-module release: the required `version` plus the SHA-256 digest
+A versioned game-module release: the required `version` plus the BLAKE3 digest
 of `module.json` and its entrypoint. The registry retains releases and activates
 one; pin and rollback change which one future plans use.
 _Avoid_: Catalog revision, unversioned snapshot
@@ -149,6 +155,11 @@ _Avoid_: Game module, downloaded archive
 The original ZIP or 7z file containing content offered for installation.
 _Avoid_: Installed mod, package manifest
 
+**Archive pin**:
+The BLAKE3 digest in a package manifest that fixes the archive bytes. Modn
+verifies a downloaded or supplied archive against it.
+_Avoid_: Archive checksum, upstream SHA-256
+
 **Artifact source**:
 The declared location or manual-acquisition instruction for an archive.
 _Avoid_: Bucket, install destination
@@ -156,7 +167,7 @@ _Avoid_: Bucket, install destination
 **Nexus source**:
 A package source that pins one Nexus Mods file by game domain, mod ID, file ID
 and file name. Modn downloads it from a validated Nexus CDN host and verifies
-the archive against its SHA-256 pin.
+the archive against its BLAKE3 pin.
 _Avoid_: Manual source, HTTPS source
 
 **nxm link**:
@@ -176,7 +187,7 @@ An archive whose bytes match the digest pinned by its package manifest.
 _Avoid_: Safe mod, trusted publisher
 
 **Verified archive reuse**:
-Reuse of an immutable cache payload after its bytes match another package or source alias's pinned SHA-256.
+Reuse of an immutable cache payload after its bytes match another package or source alias's pinned BLAKE3 digest.
 It grants no ownership and never deduplicates mutable game files.
 _Avoid_: Game-file deduplication, trusted publisher
 
@@ -252,7 +263,7 @@ Only an explicit `bucket sync` fetches this source.
 _Avoid_: Automatically refreshed catalog
 
 **Verified archive reuse**:
-Reuse of an immutable cache payload after its bytes match another package or source alias's pinned SHA-256.
+Reuse of an immutable cache payload after its bytes match another package or source alias's pinned BLAKE3 digest.
 It grants no ownership and never deduplicates mutable game files.
 _Avoid_: Game-file deduplication, trusted publisher
 

@@ -104,7 +104,7 @@ pub(super) fn reference(mod_id: &str) -> CatalogReference {
 }
 
 fn dependency_on(archive: &Path, mod_id: &str) -> CatalogDependency {
-    CatalogDependency::new(reference(mod_id), inspect(archive).unwrap().sha256)
+    CatalogDependency::new(reference(mod_id), inspect(archive).unwrap().blake3)
 }
 
 pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
@@ -113,7 +113,7 @@ pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
 pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> InstallPlan {
     let checked = inspect(archive).unwrap();
     InstallPlan {
-        archive_sha256: checked.sha256,
+        archive_blake3: checked.blake3,
         game_installation: game.to_path_buf(),
         status: crate::planning::PlanStatus::Reviewable,
         metadata_only: true,

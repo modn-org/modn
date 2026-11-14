@@ -1,6 +1,6 @@
 use crate::commands::ModuleCommand;
 use anyhow::{bail, Context, Result};
-use modn_core::buckets::{BucketStore, ModuleTrustState};
+use modn_core::buckets::{local_bucket_module_refusal, BucketStore, ModuleTrustState};
 use modn_core::game_modules::{ModuleRegistry, ModuleSource, ReleaseOutcome};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -22,7 +22,7 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
                     "pinned": {
                         "bucket": pin.bucket,
                         "version": pin.version,
-                        "sha256": pin.sha256,
+                        "blake3": pin.blake3,
                     },
                 }))?;
             } else {
@@ -76,7 +76,7 @@ fn update(
             "game module {game} comes from bucket {bucket}, which is not a trusted module source; run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game}` to remove the module"
         ),
         ModuleTrustState::Local => {
-            bail!("local folder buckets cannot be module sources: {bucket}")
+            bail!("{}", local_bucket_module_refusal(&bucket))
         }
         _ => bail!("unsupported module trust state for bucket {bucket}"),
     }
@@ -160,12 +160,12 @@ pub(super) fn list(data: &Path, state_path: &Path, json_output: bool) -> Result<
         for release in registry.releases(&game)? {
             let source_trusted = source_trusted(&store, &release.source, &mut trust);
             let pinned = pin.as_ref().is_some_and(|pin| {
-                pin.version == release.module.version && pin.sha256 == release.sha256
+                pin.version == release.module.version && pin.blake3 == release.blake3
             });
             if json_output {
                 entries.push(json!({
                     "module": release.module,
-                    "sha256": release.sha256,
+                    "blake3": release.blake3,
                     "source": release.source,
                     "active": release.active,
                     "source_trusted": source_trusted,
@@ -191,7 +191,7 @@ pub(super) fn list(data: &Path, state_path: &Path, json_output: bool) -> Result<
                 release.module.api_version,
                 describe_source(&release.source)
             ));
-            lines.push(format!("SHA-256: {}", release.sha256));
+            lines.push(format!("BLAKE3: {}", release.blake3));
             if !source_trusted {
                 if let Some(bucket) = release.source.bucket.as_deref() {
                     lines.push(format!(

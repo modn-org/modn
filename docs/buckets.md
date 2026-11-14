@@ -94,6 +94,9 @@ at its root. A `main` release also uploads the same signature as
 
 `main` is always a trusted module source. Only a signed Git catalog can become
 another trusted module source. Local folder buckets cannot be module sources.
+An attempt to trust one is refused with an error that names the bucket and
+states that only `main` and the signed Git catalogs the user trusts for modules
+supply game modules.
 
 ```sh
 modn bucket trust-modules community
@@ -116,14 +119,18 @@ registered. Modules retained from that bucket are refused at use. Run
 `trust-modules` again to restore trust.
 
 `bucket sync` imports the modules of a trusted bucket. It reports each release
-as `imported`, `unchanged`, `not_newer` or `pinned`. For an untrusted bucket it
-reports each module as ignored with the reason `untrusted_source`. It neither
-parses nor executes those modules. A catalog module for a game that `main`
-provides is ignored with the reason `official_priority`.
+as `imported`, `unchanged`, `not_newer` or `pinned`. An untrusted bucket's
+`games/` folder is ignored at sync: Modn neither reads nor validates it, and it
+reports no ignored modules. The modules are refused when a module is used. A
+catalog module for a game that `main` provides is ignored with the reason
+`official_priority`.
 
-A local folder bucket cannot contain `module.json` or `module.lua`. Modn refuses
-such a bucket when it validates the registration. A Git catalog may contain
-modules only at `games/<game-id>/module.json` and `module.lua`. See
+Only `main` and the signed Git catalogs that the user trusts for modules may
+contain `games/<game-id>/module.json` and `module.lua`. Those folders may hold
+nothing else. A package manifest or any other entry under `games/` is refused.
+A local folder bucket cannot contain game modules, and `modules/` directories
+are unsupported in every bucket. A mod whose ID is `module` is a normal package
+at `mods/<game-id>/module.json`. See
 [game modules](game-modules.md#trusted-module-sources).
 
 ## Catalog contents
@@ -136,8 +143,9 @@ Store, Autoloot, Clean Voiceovers, Custom Quickslots, Cyberarms Patch,
 Cyberpunk 2077 HD Reworked Project - Balanced, Disclosed Hidden Gems, Drone
 Companions, Hide Read Shards, Limited HUD, Native Settings UI, Native Settings
 UI Side Menu Add-on, Ping, Preem Scanner, Preem Scopes, Virtual Atelier
-Delivery, Virtual Car Dealer and Weather Probability Rebalance. Each SHA-256 was checked
-against the original distribution. GitHub-hosted packages record their release URL as an `https`
+Delivery, Virtual Car Dealer and Weather Probability Rebalance. Each upstream
+SHA-256 was checked against the original distribution; a v2 record keeps it as
+`upstream_sha256` provenance. GitHub-hosted packages record their release URL as an `https`
 source. Manifests can also pin a Nexus Mods file with the `nexus` source kind.
 A manifest with a `nexus` source names the game domain, mod ID, file ID and file name.
 The current `main` snapshot still lists its Nexus packages as `manual` sources naming the original file.
@@ -156,23 +164,32 @@ modn bucket remove community
 
 ## Local bucket format
 
-A local bucket contains `bucket.json` (schema_version: 1, name, title)
-and `games/<game-id>/<package-id>.json` files. Each package record
-has schema_version, id, game, name, version, archive_format (`zip`/`7z`),
-sha256, source (`manual` with filename, `https` with URL, `github-release`,
+A local bucket contains `bucket.json` (schema_version: 2, name, title)
+and `mods/<game-id>/<package-id>.json` files. Each package record
+has schema_version: 2, id, game, name, version, archive_format (`zip`/`7z`),
+blake3, sources (`manual` with filename, `https` with URL, `github-release`,
 `git` with repository and commit, or `nexus` with game_domain, mod_id, file_id
-and file_name), optional dependencies (same-game IDs), dependency_versions,
-conflicts, executables, native_injector and homepage. A `nexus` source
+and file_name), optional redistributable, upstream_sha256, dependencies
+(same-game IDs), dependency_versions, conflicts, executables, native_injector
+and homepage. `blake3` is 64 lowercase hex characters and pins the archive.
+`sources` is an ordered, non-empty list. Modn uses only the first entry; it
+reads the later entries but does not fall back to them until fallback across
+sources (issue #118) ships.
+`redistributable` defaults to `false`. `upstream_sha256` is provenance only.
+A `nexus` source
 requires `archive_format` and accepts only `.zip` or `.7z` archives; Modn
-refuses `.rar`. Unknown fields and unsupported schemas are rejected. See
+refuses `.rar`. Unknown fields and unsupported schemas are rejected. Modn
+refuses a version 1 record or a version 1 `bucket.json` with a message that
+requires the bucket to be republished for Modn contract v2. See
 [`modn-org/main`](https://github.com/modn-org/main) for examples.
 Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. A local folder bucket needs no signature, because
 it holds your own files. `catalog.sig` and `catalog.pub` serve distributed
-catalogs. A local folder bucket cannot contain `module.json` or `module.lua`,
-and `modules/` directories are unsupported. A signed Git catalog may contain
-modules only at `games/<game-id>/module.json` and `module.lua`. See
-[bucket contract v1](../buckets/README.md).
+catalogs. A local folder bucket cannot contain game modules, and `modules/`
+directories are unsupported. Only `main` and a signed Git catalog the user
+trusts for modules may contain modules at `games/<game-id>/module.json` and
+`module.lua`. See
+[bucket contract v2](../buckets/README.md).
 
 `native_injector` is an optional boolean and defaults to `false`. A manifest
 sets it to `true` when the release places a native library that the game process
@@ -184,7 +201,7 @@ happens before any download or game write. See
 
 Bucket registration, listing, searching and manifest inspection are
 **metadata-only** and never modify game files. A catalog entry can be
-installed from a supplied, SHA-256-verified ZIP/7z with an explicit approval;
+installed from a supplied, BLAKE3-verified ZIP/7z with an explicit approval;
 standalone local archives use the same managed transaction engine. A checksum
 proves the bytes match a catalog record, not publisher trust.
 
@@ -207,9 +224,9 @@ recorded conflicts, by its digest. On older state without catalog tables,
 installed packages still match by digest. A shared-archive alias in a stack must declare the same
 dependencies and conflicts as the release that installs the archive.
 Search, dependency resolution and `modn install` use each mod's current
-release, `games/<game-id>/<mod-id>.json`, so Modn checks requirements rather
+release, `mods/<game-id>/<mod-id>.json`, so Modn checks requirements rather
 than choosing between versions. A local bucket may also publish other
-releases as `games/<game-id>/<mod-id>@<version>.json`; only
+releases as `mods/<game-id>/<mod-id>@<version>.json`; only
 `modn update --version` selects them. Installed packages carry no version.
 An `other_release` dependency is not replaced by an install; replace it
 explicitly with `modn update`.

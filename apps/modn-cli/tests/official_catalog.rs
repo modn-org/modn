@@ -37,8 +37,8 @@ fn checkout_copy(destination: &Path) -> PathBuf {
     let bucket = destination.join("checkout");
     for game in fs::read_dir(&source).expect("games directory") {
         let game = game.expect("game entry");
-        let target = bucket.join("games").join(game.file_name());
-        fs::create_dir_all(&target).expect("game directory");
+        let target = bucket.join("mods").join(game.file_name());
+        fs::create_dir_all(&target).expect("record directory");
         for package in fs::read_dir(game.path()).expect("game packages") {
             let package = package.expect("package entry");
             if package.file_name() == "module.json"
@@ -46,12 +46,32 @@ fn checkout_copy(destination: &Path) -> PathBuf {
             {
                 continue;
             }
-            fs::copy(package.path(), target.join(package.file_name())).expect("copy manifest");
+            let mut record: Value =
+                serde_json::from_slice(&fs::read(package.path()).expect("record"))
+                    .expect("record JSON");
+            record["schema_version"] = serde_json::json!(2);
+            if let Some(source) = record
+                .as_object_mut()
+                .and_then(|entry| entry.remove("source"))
+            {
+                record["sources"] = serde_json::json!([source]);
+            }
+            if let Some(pin) = record
+                .as_object_mut()
+                .and_then(|entry| entry.remove("sha256"))
+            {
+                record["blake3"] = pin;
+            }
+            fs::write(
+                target.join(package.file_name()),
+                serde_json::to_vec(&record).expect("record JSON"),
+            )
+            .expect("record");
         }
     }
     fs::write(
         bucket.join("bucket.json"),
-        r#"{"schema_version":1,"name":"checkout","title":"Checked-in main"}"#,
+        r#"{"schema_version":2,"name":"checkout","title":"Checked-in main"}"#,
     )
     .expect("bucket metadata");
     bucket

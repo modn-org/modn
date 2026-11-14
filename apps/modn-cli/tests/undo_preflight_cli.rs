@@ -11,7 +11,6 @@ mod support;
 mod tree;
 
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -28,8 +27,10 @@ fn archive(fixture: &Fixture, name: &str, files: &[(&str, &str)]) -> (PathBuf, S
         zip.write_all(contents.as_bytes()).expect("payload");
     }
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn ensure_bucket(fixture: &Fixture, bucket: &str) {
@@ -38,11 +39,11 @@ fn ensure_bucket(fixture: &Fixture, bucket: &str) {
     if marker.exists() {
         return;
     }
-    fs::create_dir_all(root.join("games")).expect("bucket directories");
+    fs::create_dir_all(root.join("mods")).expect("bucket directories");
     fs::write(
         root.join("bucket.json"),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "name": bucket, "title": "Undo preflight fixture"
+            "schema_version": 2, "name": bucket, "title": "Undo preflight fixture"
         }))
         .expect("bucket JSON"),
     )
@@ -68,14 +69,14 @@ fn write_manifest(
     source: Value,
 ) {
     ensure_bucket(fixture, bucket);
-    let folder = fixture.temp.path().join(bucket).join("games").join(game);
+    let folder = fixture.temp.path().join(bucket).join("mods").join(game);
     fs::create_dir_all(&folder).expect("bucket folder");
     fs::write(
         folder.join(format!("{id}.json")),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "id": id, "game": game, "name": id,
-            "version": version, "archive_format": "zip", "sha256": hash,
-            "source": source, "dependencies": dependencies,
+            "schema_version": 2, "id": id, "game": game, "name": id,
+            "version": version, "archive_format": "zip", "blake3": hash,
+            "sources": [source], "dependencies": dependencies,
             "native_injector": native_injector
         }))
         .expect("manifest JSON"),
@@ -90,7 +91,7 @@ fn https(url: &str) -> Value {
 fn cache(fixture: &Fixture, game: &str, id: &str, version: &str, url: &str, archive: &Path) {
     let root = fixture.state.join("cache");
     fs::create_dir_all(&root).expect("cache");
-    let hash = format!("{:x}", Sha256::digest(url.as_bytes()));
+    let hash = blake3::hash(url.as_bytes()).to_hex().to_string();
     fs::copy(
         archive,
         root.join(format!("{game}#{id}#{version}#{}.zip", &hash[..7])),

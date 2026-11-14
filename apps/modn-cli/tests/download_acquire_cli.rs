@@ -9,7 +9,6 @@ mod support;
 mod tree;
 
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -106,23 +105,23 @@ fn file_url(path: &Path) -> String {
 
 fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
     let bucket = root.join("git-fixture");
-    let game = bucket.join("games/test-game");
-    fs::create_dir_all(&game).expect("bucket directory");
+    let records = bucket.join("mods/test-game");
+    fs::create_dir_all(&records).expect("bucket directory");
     fs::write(
         bucket.join("bucket.json"),
-        br#"{"schema_version":1,"name":"git-fixture","title":"Git fixture"}"#,
+        br#"{"schema_version":2,"name":"git-fixture","title":"Git fixture"}"#,
     )
     .expect("bucket metadata");
     let manifest = serde_json::json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "id": "git-package",
         "game": "test-game",
         "name": "Git Package",
         "version": "1.0",
-        "source": {"kind": "git", "repository": "fixture/project", "commit": commit},
+        "sources": [{"kind": "git", "repository": "fixture/project", "commit": commit}],
     });
     fs::write(
-        game.join("git-package.json"),
+        records.join("git-package.json"),
         serde_json::to_vec(&manifest).expect("manifest JSON"),
     )
     .expect("manifest");
@@ -174,12 +173,12 @@ fn cache_snapshot(fixture: &Fixture) -> BTreeMap<String, Vec<u8>> {
 /// with a different digest than the fetch packs now.
 fn seed_previous_archive(fixture: &Fixture, commit: &str) -> String {
     let bytes = b"packed by an older modn".to_vec();
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = blake3::hash(&bytes).to_hex().to_string();
     let root = fixture.state.join("cache");
     fs::create_dir_all(&root).expect("cache");
     fs::write(
         root.join(format!(
-            "test-game#git-package#1.0#git-{commit}-{digest}.zip"
+            "test-game#git-package#1.0#git-{commit}-blake3-{digest}.zip"
         )),
         &bytes,
     )

@@ -12,6 +12,10 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 const MAX_JSON: u64 = 32 * 1024;
+/// Path constant for one module manifest inside `games/<game>/`.
+pub(super) const MODULE_MANIFEST: &str = "module.json";
+/// Path constant for one module script inside `games/<game>/`.
+pub(super) const MODULE_SCRIPT: &str = "module.lua";
 
 #[expect(
     missing_docs,
@@ -180,13 +184,18 @@ impl BucketStore {
             bail!("linked bucket root refused");
         }
         let metadata: Metadata = bounded_json(&path.join("bucket.json"))?;
-        if metadata.schema_version != 1
-            || metadata.name != name
+        if metadata.schema_version != 2 {
+            bail!(
+                "bucket {name} uses bucket.json schema_version {}; Modn requires bucket contract v2 and does not read v1 buckets. The bucket must be republished for Modn contract v2.",
+                metadata.schema_version
+            );
+        }
+        if metadata.name != name
             || metadata.title.trim().is_empty()
             || metadata.title.len() > 128
             || metadata.title.chars().any(char::is_control)
         {
-            bail!("bucket name or schema mismatch: {name}");
+            bail!("bucket name or metadata mismatch: {name}");
         }
         match fs::symlink_metadata(path.join("modules")) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -236,7 +245,7 @@ impl BucketStore {
             .context("main bucket path missing")?
             .join("games")
             .join(game);
-        if !path.join("module.json").is_file() {
+        if !path.join(MODULE_MANIFEST).is_file() {
             bail!(
                 "no first-party game module for {game}; expected {}",
                 path.display()
@@ -377,9 +386,14 @@ impl BucketStore {
         let (info, _) = self.official()?;
         let games = info.path.context("main bucket path missing")?.join("games");
         let mut ids = Vec::new();
-        for entry in fs::read_dir(games)? {
+        let entries = match fs::read_dir(games) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
+            Err(error) => return Err(error.into()),
+            Ok(entries) => entries,
+        };
+        for entry in entries {
             let entry = entry?;
-            if entry.path().join("module.json").is_file() {
+            if entry.path().join(MODULE_MANIFEST).is_file() {
                 ids.push(entry.file_name().to_string_lossy().into_owned());
             }
         }

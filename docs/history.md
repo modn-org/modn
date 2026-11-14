@@ -15,10 +15,10 @@ UTC timestamp. For each package it holds:
 - the release before and after, with its version and source descriptor;
 - the release's qualified `bucket/game/mod` catalog identity, and its
   declared dependencies, conflicts and native-injector flag, when recorded;
-- the archive SHA-256, the current cache key, and BLAKE3 digest, written as
-  `blake3:<hex>`;
+- the archive BLAKE3 pin, which is also the cache key, written as 64 hex
+  characters;
 - every owned file the operation created, replaced or removed, with its
-  SHA-256 content digest before and after.
+  BLAKE3 content digest before and after.
 
 A source descriptor uses the bucket manifest shape: `manual`, `https`,
 `github-release`, `nexus` or `git`. A standalone archive is a `manual` source.
@@ -44,16 +44,14 @@ snapshot or catalog revision that produced it.
           "catalog": {"bucket": "main", "game_id": "cyberpunk-2077", "mod_id": "red4ext"},
           "declarations": {"dependencies": [], "conflicts": [], "native_injector": true},
           "source": {"kind": "github-release", "repository": "WopsS/RED4ext", "tag": "v1.24.0", "asset": "red4ext-1.24.0.zip"},
-          "archive_sha256": "…",
-          "archive_blake3": "blake3:…"
+          "archive_blake3": "…"
         },
         "release_after": {
           "version": "1.25.0",
           "catalog": {"bucket": "main", "game_id": "cyberpunk-2077", "mod_id": "red4ext"},
           "declarations": {"dependencies": [], "conflicts": [], "native_injector": true},
           "source": {"kind": "github-release", "repository": "WopsS/RED4ext", "tag": "v1.25.0", "asset": "red4ext-1.25.0.zip"},
-          "archive_sha256": "…",
-          "archive_blake3": "blake3:…"
+          "archive_blake3": "…"
         },
         "files": [
           {"root": "game", "destination": "red4ext/Red4ext.dll", "digest_before": "…", "digest_after": "…"}
@@ -110,9 +108,9 @@ archive cache before a later check refuses:
   Nexus download needs a new nxm link. Reinstall the release from the catalog.
   A `github-release` source reuses its verified cached archive without
   contacting GitHub, and downloads again only on a cache miss.
-- A restored archive does not match the recorded SHA-256, or the current game
-  policy maps the release to another root or other files than the record.
-- An update undo or an uninstall undo selects an archive member whose SHA-256
+- A restored archive does not match the recorded BLAKE3 pin, or the current
+  game policy maps the release to another root or other files than the record.
+- An update undo or an uninstall undo selects an archive member whose BLAKE3 digest
   differs from the recorded `digest_before` of a restored file. The undo checks
   the selected members before any game file changes. The error is `UNDO_FAILED`
   and no game file, ownership row or history record changes.
@@ -153,18 +151,20 @@ History lives in `state.sqlite`:
 |---|---|
 | `history_operations` | ID, kind, game ID, installation root, UTC time and the optional `undoes` target; an autoincrement sequence orders records. |
 | `history_packages` | One row per package with before/after package IDs and serialized release descriptors. |
-| `history_files` | One row per owned file with before/after SHA-256 digests. |
+| `history_files` | One row per owned file with before/after BLAKE3 digests. |
 | `managed_package_releases` | Release version, source descriptor, archive BLAKE3, qualified catalog reference and declared dependencies, conflicts and native-injector flag for each installed package, so a later update or uninstall can record the side it removes. |
 
 These tables are additive and add no schema version of their own. A writable
 open creates them when they are missing, and it also creates the approvals
-table, so the manager schema version of state that this build writes is 5 (see
-[the data model](data-model.md#approvals-schema-version-5)). An older Modn
-build refuses that state. The `catalog` and `declarations` columns were added
+table, so the manager schema version of state that this build writes is 6.
+A state database written by an earlier schema version is refused at read-write
+and read-only open with one message; Modn does not read or change it.
+Move the file aside to start a new state; the files Modn installed stay on
+disk but are no longer tracked. See [the data model](data-model.md). The `catalog` and `declarations` columns were added
 to `managed_package_releases` in a later release; a writable open adds them
 only when they are absent, and a read-only open writes nothing. Rows written
 before that change have no values there, like packages installed before the
-table existed: their removal records the archive SHA-256 without version,
+table existed: their removal records the archive BLAKE3 pin without version,
 source or declarations.
 
 The record is inserted in the same SQLite transaction that changes ownership:

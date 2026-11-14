@@ -3,7 +3,6 @@ pub mod assets;
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
@@ -72,7 +71,7 @@ impl fmt::Display for ArchiveFormat {
 pub struct Inspection {
     pub archive: PathBuf,
     pub format: ArchiveFormat,
-    pub sha256: String,
+    pub blake3: String,
     /// Sum of declared uncompressed sizes.
     pub total_uncompressed_bytes: u64,
     pub files: Vec<ArchiveFile>,
@@ -210,9 +209,9 @@ pub fn inspect(path: &Path) -> Result<Inspection> {
         "7z" => ArchiveFormat::SevenZ,
         _ => bail!("unsupported archive format (expected .zip, .jar, or .7z)"),
     };
-    let mut hasher = Sha256::new();
+    let mut hasher = blake3::Hasher::new();
     std::io::copy(&mut File::open(path)?, &mut hasher)?;
-    let sha256 = format!("{:x}", hasher.finalize());
+    let blake3 = hasher.finalize().to_hex().to_string();
 
     let mut files = Vec::new();
     let mut seen = HashSet::new();
@@ -276,9 +275,40 @@ pub fn inspect(path: &Path) -> Result<Inspection> {
     Ok(Inspection {
         archive: path.to_path_buf(),
         format,
-        sha256,
+        blake3,
         total_uncompressed_bytes: total,
         files,
         metadata_only: true,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inspect;
+    use std::fs;
+    use std::io::Write;
+
+    fn zip_fixture(path: &std::path::Path) {
+        let file = fs::File::create(path).expect("archive");
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("Demo/plugin.txt", zip::write::SimpleFileOptions::default())
+            .expect("entry");
+        zip.write_all(b"payload").expect("payload");
+        zip.finish().expect("finish");
+    }
+
+    #[test]
+    fn inspection_returns_the_blake3_digest_of_the_file_bytes() {
+        let dir = tempfile::tempdir().expect("directory");
+        let path = dir.path().join("fixture.zip");
+        zip_fixture(&path);
+        let first = inspect(&path).expect("inspect");
+        let second = inspect(&path).expect("inspect again");
+        assert_eq!(first.blake3, second.blake3, "the digest is stable");
+        assert_eq!(first.blake3.len(), 64);
+        let expected = blake3::hash(&fs::read(&path).expect("bytes"))
+            .to_hex()
+            .to_string();
+        assert_eq!(first.blake3, expected);
+    }
 }

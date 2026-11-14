@@ -1,7 +1,6 @@
 use crate::archive;
 use anyhow::{bail, Context, Result};
 use mlua::{Lua, Table};
-use sha2::{Digest, Sha256};
 use std::cell::Cell;
 use std::fs::{self, File};
 use std::io::Read;
@@ -114,7 +113,7 @@ fn regular_file(metadata: &fs::Metadata) -> Result<()> {
 }
 
 fn file_digest(path: &Path, expected_bytes: u64) -> Result<String> {
-    let mut hasher = Sha256::new();
+    let mut hasher = blake3::Hasher::new();
     let file = File::open(path)?;
     let mut input = file.take(expected_bytes + 1);
     let mut buffer = [0u8; 32 * 1024];
@@ -133,7 +132,7 @@ fn file_digest(path: &Path, expected_bytes: u64) -> Result<String> {
     if total != expected_bytes {
         bail!("file changed size during hashing");
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn metadata_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> mlua::Result<Table> {
@@ -163,7 +162,7 @@ fn metadata_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> m
 fn hashing_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> mlua::Result<Table> {
     let service = lua.create_table()?;
     service.set(
-        "sha256",
+        "blake3",
         lua.create_function(move |_, (id, relative): (u32, String)| {
             let (path, metadata) =
                 authorized_path(&roots, &budget, id, &relative, EmptyPath::Rejected)
@@ -205,7 +204,7 @@ fn archive_service(lua: &Lua, roots: Rc<AllowedRoots>, budget: Rc<Budget>) -> ml
             }
             let answer = lua.create_table()?;
             answer.set("format", report.format.as_str())?;
-            answer.set("sha256", report.sha256)?;
+            answer.set("blake3", report.blake3)?;
             answer.set("total_uncompressed_bytes", report.total_uncompressed_bytes)?;
             answer.set("metadata_only", true)?;
             let files = lua.create_table()?;

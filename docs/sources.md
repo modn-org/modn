@@ -59,22 +59,24 @@ Catalog metadata does not approve executable installation or grant game writes.
 ## Verified archive reuse
 
 Use `modn_core::acquisition::{ArchiveCache, CacheKey, CacheUse}` as before.
-`ArchiveCache::cached` and `acquire` search existing cache entries by SHA-256.
+`ArchiveCache::cached` and `acquire` search existing cache entries by BLAKE3 digest.
 The cache root holds a digest index in `.digest-index.json`.
-The index maps an archive pin to one cache entry file name.
+The index maps a `blake3:<hex>` archive pin to one cache entry file name.
 Two package or source aliases can return the same verified payload path.
 Every hit verifies the actual file bytes against the requested pinned digest.
-A stale index entry, whose file is missing or changed, is dropped.
+A stale index entry, whose file is missing or changed, is never returned and is replaced only when a download writes the index.
 A corrupt entry is never a hit. A subsequent download can supply verified bytes.
 Refresh still fetches explicitly and verifies the pinned digest.
 A missing, unreadable, or unknown-format index triggers a scan.
-The scan finds the verified entry and rebuilds the index.
+The scan finds the verified entry in memory and writes nothing.
+Only storing a downloaded entry writes the index, so a preflight or a cancelled or refused operation leaves every cache file unchanged.
 The index is never authority: only re-verified bytes are returned.
 A successful download adds its entry to the index.
 Index writes use a temporary file in the cache root and an atomic rename.
 A crash therefore leaves the previous index or none.
 Modn is pre-alpha, so an index in an unknown format is corrupt and is never migrated.
-The pin names its hash algorithm, so issue #117 can switch to BLAKE3 by rebuilding the index.
+An index that still holds `sha256:` entries is unknown, so Modn ignores it and does not rewrite it during a lookup.
+The scan re-verifies every entry before it is used.
 
 The existing package and URL filename layout remains compatible.
 It creates no alias file when it reuses another package's payload.
@@ -99,7 +101,7 @@ Resolution requires the exact repository, release tag, and asset name.
 It rejects duplicate asset names and noncanonical download URLs.
 It reads at most one MiB of JSON metadata.
 The result is a canonical HTTPS GitHub release asset URL.
-Build `CacheKey` with that URL and the package's existing SHA-256 pin.
+Build `CacheKey` with that URL and the package's existing BLAKE3 pin.
 Call `ArchiveCache::acquire` to verify the downloaded bytes before use.
 Provider metadata never replaces the artifact pin or executable approval.
 
@@ -109,7 +111,7 @@ Package manifests support this pinned source alongside existing manual and HTTPS
 {"kind":"github-release","repository":"owner/project","tag":"v1.2","asset":"mod.zip"}
 ```
 
-The package still requires its original archive SHA-256 pin.
+The package still requires its original archive BLAKE3 pin.
 Install resolves provider metadata only after explicit download or installation consent.
 `install --dry-run --download` permits metadata and archive acquisition without game writes.
 Ordinary previews derive the canonical asset URL locally and make no network requests.
@@ -133,7 +135,7 @@ A package manifest can pin one Nexus Mods file:
 `game_domain` is the lowercase Nexus domain, such as `cyberpunk2077`.
 `mod_id` and `file_id` are numbers from 1 to 9999999999.
 `file_name` has no path separators, control characters or reserved characters.
-The archive SHA-256 pin and `archive_format` remain required.
+The archive BLAKE3 pin and `archive_format` remain required.
 `archive_format` must match the file name: `.zip` or `.7z`.
 Modn refuses a `.rar` archive.
 The source rejects credential fields such as `key`, `expires`, `user_id` and `apikey`.
@@ -168,7 +170,7 @@ Modn sends the API key only to `api.nexusmods.com`.
 It requests the download link with the `apikey` header and the nxm grant as query values.
 The response must be JSON of at most 1 MiB and must name a Nexus CDN host.
 The download comes from a validated `nexus-cdn.com` or `nexusmods.com` host without the key.
-The file passes through the verified cache and must match its SHA-256 pin.
+The file passes through the verified cache and must match its BLAKE3 pin.
 Secrets never appear in output, state, journals or cache names.
 The cache names the file by `nexus://<game_domain>/mods/<mod_id>/files/<file_id>/<file_name>`.
 
@@ -192,7 +194,7 @@ A package manifest can name one Git commit as its artifact source:
 ```
 
 The remote is `https://github.com/<owner>/<project>.git`.
-The commit is the integrity pin, so the package has no `sha256`.
+The commit is the integrity pin, so the package has no archive `blake3` pin.
 A branch, tag, shortened commit, uppercase commit or extra field is refused.
 `archive_format` may be `zip` when present; no other format is accepted.
 
@@ -209,7 +211,7 @@ Modn reads the tree with `ls-tree` and `cat-file`.
 It does not check out files and does not read attributes.
 It refuses symbolic links, submodules and other non-regular entries with `GIT_SOURCE_UNSUPPORTED_ENTRY`.
 It writes the regular files into a deterministic ZIP.
-The ZIP SHA-256 is the archive digest.
+The ZIP BLAKE3 digest is the archive digest.
 The cache is keyed by the package release, commit and digest.
 A later install of the same release reuses the cached ZIP and makes no Git call.
 

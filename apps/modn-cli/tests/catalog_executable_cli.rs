@@ -78,26 +78,18 @@ impl Fixture {
     }
 
     fn digest(&self, archive: &Path) -> String {
-        let preview = self.json(&[
-            "install",
-            archive.to_str().expect("archive"),
-            "--dry-run",
-            "--path",
-            self.game.to_str().expect("game"),
-        ]);
-        preview["archive_sha256"]
-            .as_str()
-            .expect("digest")
-            .to_owned()
+        blake3::hash(&fs::read(archive).expect("archive bytes"))
+            .to_hex()
+            .to_string()
     }
 
     fn register_bucket(&self, packages: &[Value]) {
         let root = self.temp.path().join("community");
-        let games = root.join("games/cyberpunk-2077");
+        let games = root.join("mods/cyberpunk-2077");
         fs::create_dir_all(&games).expect("bucket directories");
         fs::write(
             root.join("bucket.json"),
-            r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+            r#"{"schema_version":2,"name":"community","title":"Community"}"#,
         )
         .expect("bucket metadata");
         for package in packages {
@@ -125,11 +117,11 @@ impl Fixture {
     }
 }
 
-fn manifest(id: &str, sha256: &str, dependencies: &[&str]) -> Value {
+fn manifest(id: &str, pin: &str, dependencies: &[&str]) -> Value {
     json!({
-        "schema_version": 1, "id": id, "game": "cyberpunk-2077", "name": id,
-        "version": "1.0", "archive_format": "zip", "sha256": sha256,
-        "source": {"kind": "manual", "filename": format!("{id}.zip")},
+        "schema_version": 2, "id": id, "game": "cyberpunk-2077", "name": id,
+        "version": "1.0", "archive_format": "zip", "blake3": pin,
+        "sources": [{"kind": "manual", "filename": format!("{id}.zip")}],
         "dependencies": dependencies,
     })
 }
@@ -436,11 +428,11 @@ fn manifests_cannot_declare_executables_outside_tool_directories() {
     ] {
         let fixture = Fixture::new();
         let root = fixture.temp.path().join("community");
-        let games = root.join("games/cyberpunk-2077");
+        let games = root.join("mods/cyberpunk-2077");
         fs::create_dir_all(&games).expect("bucket directories");
         fs::write(
             root.join("bucket.json"),
-            r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+            r#"{"schema_version":2,"name":"community","title":"Community"}"#,
         )
         .expect("bucket metadata");
         let package = declaring(manifest("tool", &"0".repeat(64), &[]), executables);

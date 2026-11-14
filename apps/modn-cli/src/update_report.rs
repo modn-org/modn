@@ -83,7 +83,7 @@ fn recorded_requirement(
     let updated = reference_of(target);
     if let Some(alias) = recorded
         .iter()
-        .find(|row| row.reference != updated && row.archive_sha256 == old.archive_sha256)
+        .find(|row| row.reference != updated && row.archive_blake3 == old.archive_blake3)
     {
         return Requirement::Alias(alias.reference.to_string());
     }
@@ -105,9 +105,9 @@ fn legacy_requirement(
         .releases(&reference.bucket, &reference.game_id, &reference.mod_id)
         .ok()
         .and_then(|releases| {
-            releases.into_iter().find(|release| {
-                release.package.sha256.as_deref() == Some(dependent.archive_sha256.as_str())
-            })
+            releases
+                .into_iter()
+                .find(|release| release.package.pin() == Some(dependent.archive_blake3.as_str()))
         });
     match installed {
         Some(release)
@@ -222,7 +222,7 @@ pub(super) struct Preview<'a> {
 
 impl Preview<'_> {
     pub(super) fn up_to_date(&self) -> bool {
-        self.target.package.sha256.as_deref() == Some(self.old.archive_sha256.as_str())
+        self.target.package.pin() == Some(self.old.archive_blake3.as_str())
     }
 
     pub(super) fn print(&self, json: bool) -> Result<()> {
@@ -278,13 +278,13 @@ impl Preview<'_> {
             "installed": {
                 "package_id": self.old.id,
                 "version": self.installed_version,
-                "archive_sha256": self.old.archive_sha256,
+                "archive_blake3": self.old.archive_blake3,
                 "exclusive_folders": self.old.directories,
             },
             "target": {
                 "version": self.target.package.version,
-                "archive_sha256": self.target.package.sha256,
-                "source": self.target.package.source,
+                "archive_blake3": self.target.package.pin(),
+                "source": self.target.package.primary_source().clone(),
             },
             "up_to_date": self.up_to_date(),
             "files": self.files.as_ref().map(FileChanges::as_json),

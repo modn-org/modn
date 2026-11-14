@@ -7,7 +7,6 @@ mod support;
 mod main_bucket;
 
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -31,8 +30,10 @@ fn archive(fixture: &Fixture, member: &str, bytes: &[u8]) -> (PathBuf, String) {
         .expect("archive entry");
     zip.write_all(bytes).expect("archive payload");
     zip.finish().expect("archive finish");
-    let digest = Sha256::digest(fs::read(&path).expect("archive bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("archive bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn write(path: &Path, bytes: &[u8]) {
@@ -56,7 +57,7 @@ fn undo_with_a_pending_transaction_reports_pending_transaction() {
     connection
         .execute(
             "INSERT INTO pending_transactions
-             (id, action, status, game_path, package_id, archive_sha256)
+             (id, action, status, game_path, package_id, archive_blake3)
              VALUES ('pending', 'install', 'pending', ?1, 'fixture', NULL)",
             [fixture.game.to_string_lossy().as_ref()],
         )
@@ -89,16 +90,16 @@ fn uninstalling_a_needed_package_reports_package_needed() {
         b"dependent",
     );
     let manifest = json!({
-        "schema_version":1, "id":"dependent", "game":"test-game",
+        "schema_version":2, "id":"dependent", "game":"test-game",
         "name":"Dependent", "version":"1.0", "archive_format":"zip",
-        "sha256":dependent_hash, "source":{"kind":"manual","filename":"dependent.zip"},
+        "blake3":dependent_hash, "sources":[{"kind":"manual","filename":"dependent.zip"}],
         "dependencies":["base"]
     });
     fs::write(
         fixture
             .temp
             .path()
-            .join("deps/games/test-game/dependent.json"),
+            .join("deps/mods/test-game/dependent.json"),
         serde_json::to_vec(&manifest).expect("manifest JSON"),
     )
     .expect("dependent manifest");

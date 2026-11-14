@@ -254,11 +254,11 @@ impl Gate {
 fn synthetic_gate() -> Gate {
     let fixture = Fixture::new();
     let bucket = fixture.temp.path().join("gate");
-    let manifests = bucket.join("games/test-game");
+    let manifests = bucket.join("mods/test-game");
     fs::create_dir_all(&manifests).expect("bucket dirs");
     fs::write(
         bucket.join("bucket.json"),
-        r#"{"schema_version":1,"name":"gate","title":"Milestone gate"}"#,
+        r#"{"schema_version":2,"name":"gate","title":"Milestone gate"}"#,
     )
     .expect("bucket metadata");
     let mut archives = BTreeMap::new();
@@ -284,9 +284,10 @@ fn synthetic_gate() -> Gate {
             .map(|(dependency, requirement)| (dependency.clone(), json!(requirement)))
             .collect();
         let manifest = json!({
-            "schema_version":1, "id":id, "game":"test-game", "name":id,
-            "version":version, "archive_format":"zip", "sha256":sha(&path),
-            "source":{"kind":"manual","filename":format!("{id}.zip")},
+            "schema_version":2, "id":id, "game":"test-game", "name":id,
+            "version":version, "archive_format":"zip",
+            "blake3":blake3::hash(&fs::read(&path).expect("archive")).to_hex().to_string(),
+            "sources":[{"kind":"manual","filename":format!("{id}.zip")}],
             "dependencies":dependencies, "dependency_versions":requirements
         });
         fs::write(

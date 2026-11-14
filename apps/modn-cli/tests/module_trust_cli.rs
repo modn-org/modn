@@ -174,7 +174,7 @@ fn main_and_local_folder_buckets_cannot_be_module_sources() {
     fs::create_dir_all(&local).expect("local bucket");
     fs::write(
         local.join("bucket.json"),
-        r#"{"schema_version":1,"name":"local","title":"Local fixture"}"#,
+        r#"{"schema_version":2,"name":"local","title":"Local fixture"}"#,
     )
     .expect("bucket metadata");
     success(&cli(
@@ -190,7 +190,9 @@ fn main_and_local_folder_buckets_cannot_be_module_sources() {
     let refused = cli(data.path(), &["bucket", "trust-modules", "local", "--yes"]);
     assert!(!refused.status.success());
     assert!(
-        stderr(&refused).contains("local folder buckets cannot be module sources"),
+        stderr(&refused).contains(
+            "only the official main bucket and signed Git catalogs the user trusts for modules supply game modules"
+        ),
         "{}",
         stderr(&refused)
     );
@@ -213,7 +215,7 @@ fn pin_blocks_update_and_rollback_and_list_marks_retained_releases() {
     assert_eq!(first["source_trusted"], true);
     assert_eq!(first["source"]["bucket"], "community");
     assert_eq!(
-        first["sha256"].as_str().expect("digest").len(),
+        first["blake3"].as_str().expect("digest").len(),
         64,
         "release digest"
     );
@@ -225,7 +227,7 @@ fn pin_blocks_update_and_rollback_and_list_marks_retained_releases() {
     assert_eq!(pinned["game_id"], "fixture-game");
     assert_eq!(pinned["pinned"]["bucket"], "community");
     assert_eq!(pinned["pinned"]["version"], "1.0.0");
-    assert_eq!(pinned["pinned"]["sha256"], first["sha256"]);
+    assert_eq!(pinned["pinned"]["blake3"], first["blake3"]);
 
     catalog.write_module("fixture-game", "2.0.0", &identity_lua("fixture-game"));
     catalog.sign_and_commit("module v2");
@@ -389,6 +391,55 @@ fn local_source_update_and_untrusted_bucket_use_fail_with_hints() {
         "{}",
         stderr(&doctor)
     );
+}
+
+#[test]
+fn sync_refuses_contract_v1_catalog_before_registering_it() {
+    let data = tempfile::tempdir().expect("data directory");
+    main_bucket::seed(data.path());
+    let catalog = ModuleCatalog::new("community");
+    fs::write(
+        catalog.repo().join("bucket.json"),
+        r#"{"schema_version":1,"name":"community","title":"Signed fixture"}"#,
+    )
+    .expect("v1 bucket metadata");
+    catalog.sign_and_commit("contract v1 catalog");
+
+    let refused = cli(
+        data.path(),
+        &[
+            "bucket",
+            "sync",
+            "community",
+            "--source",
+            catalog.repo().to_str().expect("repository path"),
+            "--revision",
+            "HEAD",
+        ],
+    );
+    assert!(!refused.status.success());
+    let message = stderr(&refused);
+    assert!(message.contains("schema_version 1"), "{message}");
+    assert!(message.contains("bucket contract v2"), "{message}");
+    assert!(
+        !data
+            .path()
+            .join("modn/buckets/registrations/community.json")
+            .exists(),
+        "a refused sync must not register the bucket"
+    );
+    let leftovers: Vec<String> = fs::read_dir(data.path().join("modn/buckets"))
+        .expect("bucket registry")
+        .map(|entry| {
+            entry
+                .expect("registry entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name != "main" && name != "registrations" && name != ".git-sync.lock")
+        .collect();
+    assert!(leftovers.is_empty(), "a refused sync left {leftovers:?}");
 }
 
 #[test]

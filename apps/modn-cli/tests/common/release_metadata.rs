@@ -7,7 +7,6 @@
 use crate::main_bucket;
 use crate::support::{error, Fixture};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -23,8 +22,8 @@ pub fn archive(fixture: &Fixture, name: &str, files: &[(&str, &str)]) -> (PathBu
         zip.write_all(contents.as_bytes()).expect("payload");
     }
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"));
+    (path, digest.to_hex().to_string())
 }
 
 pub fn ensure_bucket(fixture: &Fixture, bucket: &str) {
@@ -37,7 +36,7 @@ pub fn ensure_bucket(fixture: &Fixture, bucket: &str) {
     fs::write(
         root.join("bucket.json"),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "name": bucket, "title": "Undo fixture"
+            "schema_version": 2, "name": bucket, "title": "Undo fixture"
         }))
         .expect("bucket JSON"),
     )
@@ -64,19 +63,19 @@ pub fn write_manifest(
     source: Value,
 ) {
     ensure_bucket(fixture, bucket);
-    let folder = fixture.temp.path().join(bucket).join("games").join(game);
+    let folder = fixture.temp.path().join(bucket).join("mods").join(game);
     fs::create_dir_all(&folder).expect("bucket folder");
     fs::write(
         folder.join(format!("{id}.json")),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "id": id, "game": game, "name": id,
-            "version": version, "archive_format": "zip", "sha256": hash,
-            "source": source, "dependencies": dependencies,
+            "schema_version": 2, "id": id, "game": game, "name": id,
+            "version": version, "archive_format": "zip", "blake3": hash,
+            "sources": [source], "dependencies": dependencies,
             "executables": executables, "native_injector": native_injector
         }))
-        .expect("manifest JSON"),
+        .expect("record JSON"),
     )
-    .expect("manifest");
+    .expect("record");
 }
 
 pub fn https(url: &str) -> Value {
@@ -94,19 +93,19 @@ pub fn declare_conflicts(
         .temp
         .path()
         .join(bucket)
-        .join("games")
+        .join("mods")
         .join(game)
         .join(format!("{id}.json"));
     let mut manifest: Value =
-        serde_json::from_slice(&fs::read(&path).expect("manifest")).expect("manifest JSON");
+        serde_json::from_slice(&fs::read(&path).expect("record")).expect("record JSON");
     manifest["conflicts"] = json!(conflicts);
-    fs::write(&path, serde_json::to_vec(&manifest).expect("JSON")).expect("manifest");
+    fs::write(&path, serde_json::to_vec(&manifest).expect("JSON")).expect("record");
 }
 
 pub fn cache(fixture: &Fixture, game: &str, id: &str, version: &str, url: &str, archive: &Path) {
     let root = fixture.state.join("cache");
     fs::create_dir_all(&root).expect("cache");
-    let hash = format!("{:x}", Sha256::digest(url.as_bytes()));
+    let hash = blake3::hash(url.as_bytes()).to_hex().to_string();
     fs::copy(
         archive,
         root.join(format!("{game}#{id}#{version}#{}.zip", &hash[..7])),

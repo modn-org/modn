@@ -7,8 +7,7 @@ use crate::game_modules::with_module_source;
 use crate::history::{HistoryContext, HistoryKind};
 use crate::progress::{CancellationToken, OperationControl};
 use crate::state::Store;
-use sha2::{Digest, Sha256};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
@@ -34,16 +33,15 @@ fn archive_with(directory: &Path, name: &str, contents: &[u8]) -> PathBuf {
     path
 }
 
-fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+fn digest(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
 }
 
 #[test]
 fn install_and_uninstall_record_releases_sources_and_digests() {
     let mut fixture = Fixture::new();
     let archive = fixture.archive("mod");
-    let archive_bytes = fs::read(&archive).expect("archive bytes");
-    let expected = inspect(&archive).expect("inspect").sha256;
+    let expected = inspect(&archive).expect("inspect").blake3;
     fixture
         .store
         .set_history_context(context(&fixture, "mod", "mod.zip"));
@@ -76,11 +74,7 @@ fn install_and_uninstall_record_releases_sources_and_digests() {
         after.source,
         Some(PackageSource::Manual { ref filename }) if filename == "mod.zip"
     ));
-    assert_eq!(after.archive_sha256.as_deref(), Some(expected.as_str()));
-    assert_eq!(
-        after.archive_blake3.as_deref(),
-        Some(format!("blake3:{}", blake3::hash(&archive_bytes).to_hex()).as_str())
-    );
+    assert_eq!(after.archive_blake3.as_deref(), Some(expected.as_str()));
     assert_eq!(recorded.files.len(), 1);
     assert!(recorded.files[0].digest_before.is_none());
     assert!(recorded.files[0].digest_after.is_some());
@@ -124,8 +118,8 @@ fn update_records_both_releases_and_both_file_digests() {
     let package = fixture
         .install_release(&v1, release_v1)
         .expect("install v1");
-    let before_digest = sha256(b"one");
-    let after_digest = sha256(b"two");
+    let before_digest = digest(b"one");
+    let after_digest = digest(b"two");
 
     fixture
         .store

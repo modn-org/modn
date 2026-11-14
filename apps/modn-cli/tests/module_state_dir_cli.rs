@@ -121,7 +121,7 @@ fn state_dir_keeps_module_trust_and_releases_in_its_profile() {
     fs::create_dir_all(&local_bucket).expect("local bucket");
     fs::write(
         local_bucket.join("bucket.json"),
-        r#"{"schema_version":1,"name":"local","title":"Local fixture"}"#,
+        r#"{"schema_version":2,"name":"local","title":"Local fixture"}"#,
     )
     .expect("bucket metadata");
     success(&cli(

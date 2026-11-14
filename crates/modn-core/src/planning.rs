@@ -68,7 +68,7 @@ impl fmt::Display for PlanStatus {
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct InstallPlan {
-    pub archive_sha256: String,
+    pub archive_blake3: String,
     pub game_installation: PathBuf,
     pub status: PlanStatus,
     /// True: file contents have not been verified.
@@ -447,7 +447,7 @@ pub(crate) fn resolve_with_permissions(
         issue(&mut blockers, "NO_INSTALLABLE_FILES", "No files selected");
     }
     if crate::archive::inspect(&inspection.archive)
-        .map_or(true, |current| current.sha256 != inspection.sha256)
+        .map_or(true, |current| current.blake3 != inspection.blake3)
     {
         issue(
             &mut blockers,
@@ -456,7 +456,7 @@ pub(crate) fn resolve_with_permissions(
         );
     }
     Ok(InstallPlan {
-        archive_sha256: inspection.sha256.clone(),
+        archive_blake3: inspection.blake3.clone(),
         game_installation: game,
         status: if blockers.is_empty() {
             PlanStatus::Reviewable

@@ -1,5 +1,8 @@
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
+#[path = "support/tree.rs"]
+#[allow(dead_code)]
+mod tree;
 use std::fs;
 use std::process::{Command, Output};
 
@@ -92,29 +95,76 @@ fn official_cyberpunk_module_loads_from_local_main_copy() {
 fn registered_local_bucket_cannot_supply_game_module_files() {
     let data = tempfile::tempdir().expect("fixture invariant");
     main_bucket::seed(data.path());
-    let bucket = data.path().join("community");
+    let source = tempfile::tempdir().expect("fixture bucket");
+    let bucket = source.path().join("community");
     fs::create_dir_all(bucket.join("games/test-game")).expect("fixture invariant");
+    fs::create_dir_all(bucket.join("games/loose")).expect("fixture invariant");
     fs::write(
         bucket.join("bucket.json"),
-        r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+        r#"{"schema_version":2,"name":"community","title":"Community"}"#,
     )
     .expect("fixture invariant");
-    for name in ["module.json", "module.lua"] {
-        fs::write(bucket.join("games/test-game").join(name), b"invalid")
-            .expect("fixture invariant");
-        let result = run(
-            data.path(),
-            &[
-                "bucket",
-                "add",
-                "community",
-                bucket.to_str().expect("fixture invariant"),
-            ],
-        );
-        assert!(!result.status.success());
-        assert!(String::from_utf8_lossy(&result.stderr)
-            .contains("only the official main bucket may contain game modules"));
-        assert!(!data.path().join("modn/buckets/registrations").exists());
-        fs::remove_file(bucket.join("games/test-game").join(name)).expect("fixture invariant");
+    // Invalid module bytes and a loose entry prove registration neither reads
+    // nor validates anything under `games/`.
+    for name in [
+        "games/test-game/module.json",
+        "games/test-game/module.lua",
+        "games/loose/notes.txt",
+    ] {
+        fs::write(bucket.join(name), b"invalid").expect("fixture invariant");
     }
+
+    let added = run(
+        data.path(),
+        &[
+            "bucket",
+            "add",
+            "community",
+            bucket.to_str().expect("fixture invariant"),
+        ],
+    );
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
+    assert!(
+        data.path()
+            .join("modn/buckets/registrations/community.json")
+            .is_file(),
+        "registration succeeds with a games folder present"
+    );
+
+    let listed = run(data.path(), &["--json", "module", "list"]);
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&listed.stdout).expect("module list JSON"),
+        serde_json::json!([]),
+        "no module from the local bucket is registered"
+    );
+    assert!(!data.path().join("modn/game-modules/test-game").exists());
+
+    let before_refusal = tree::snapshot(&data.path().join("modn"));
+    let refused = run(
+        data.path(),
+        &["bucket", "trust-modules", "community", "--yes"],
+    );
+    assert!(!refused.status.success());
+    let error = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        error.contains(
+            "only the official main bucket and signed Git catalogs the user trusts for modules supply game modules"
+        ),
+        "{error}"
+    );
+    assert!(error.contains("community"), "{error}");
+    assert_eq!(
+        tree::snapshot(&data.path().join("modn")),
+        before_refusal,
+        "the refusal writes no manager state"
+    );
 }

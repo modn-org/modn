@@ -315,27 +315,6 @@ pub(crate) fn ensure_schema(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Present a v4 database without an approval table, or a schema-5 database
-/// whose approval table predates bucket keys, as an empty bucket-keyed
-/// approval table on a read-only connection.
-pub(crate) fn attach_missing_view(connection: &Connection) -> Result<()> {
-    let has_bucket: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('mod_approvals')
-         WHERE name='bucket')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_bucket {
-        connection.execute_batch(
-            "CREATE TEMP VIEW mod_approvals AS
-             SELECT '' AS game_path, '' AS bucket, '' AS mod_id,
-                    0 AS native_injector, '[]' AS executables
-             WHERE 0;",
-        )?;
-    }
-    Ok(())
-}
-
 fn normalize(path: &str) -> String {
     path.replace('\\', "/").trim_start_matches('/').to_owned()
 }

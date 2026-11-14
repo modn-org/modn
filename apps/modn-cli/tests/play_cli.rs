@@ -117,7 +117,7 @@ fn refuses_play_while_recovery_is_pending() {
     connection
         .execute(
             "INSERT INTO pending_transactions
-             (id, action, status, game_path, package_id, archive_sha256)
+             (id, action, status, game_path, package_id, archive_blake3)
              VALUES ('pending', 'install', 'pending', ?1, 'fixture', NULL)",
             [game.to_string_lossy().as_ref()],
         )

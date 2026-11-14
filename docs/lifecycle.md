@@ -33,14 +33,14 @@ Tool presence remains a diagnostic hint. Content installation does not require t
 ## Explicit manual adoption
 
 Call `planning::preview_adoption(game_id, game, archive)` for a metadata preview.
-Show the selected files and the archive SHA-256 before requesting acknowledgement.
+Show the selected files and the archive BLAKE3 pin before requesting acknowledgement.
 The preview permits existing targets. It grants no write authority and does not verify target contents.
 
 Call this API after explicit acknowledgement:
 
 ```text
 Store::adopt_archive(
-    game_id, game, archive, reviewed_sha256,
+    game_id, game, archive, reviewed_blake3,
     transactions::AdoptionApproval::Acknowledged,
 )
 ```
@@ -48,13 +48,13 @@ Store::adopt_archive(
 `AdoptionApproval::Denied` refuses without recording ownership.
 The API regenerates the current module proposal under the manager lock.
 It rejects changed archives, blocked proposals, missing files, unsafe paths, ownership collisions, and recorded conflicts.
-Every selected target must match its archive member by byte size and SHA-256.
+Every selected target must match its archive member by byte size and BLAKE3 digest.
 Rust records individual file claims and archive provenance in one SQLite transaction.
 It creates no game file, directory claim, or claim over unknown descendants.
 Normal install continues to reject existing files.
 
 Adoption currently uses local ZIP or 7z archives without catalog identity or dependency registration.
-Archive SHA-256 identifies provenance. The schema does not distinguish adopted packages from installed packages.
+Archive BLAKE3 identifies provenance. The schema does not distinguish adopted packages from installed packages.
 Tool-executable permission grants are unavailable through the adoption API.
 The existing filesystem race limitations still apply when another process changes game paths concurrently.
 

@@ -1,4 +1,4 @@
-untrusted comment: Modn signed catalog fixture
-RUQCquAWdTod7wZWrDPxkDw92001YjYdl5L7DBojgtWe2np+KWsvh7nJPUfUVLlK0CRQ3fNQJx4fDcaOaDu2jjcPKTF1CapLPgM=
-trusted comment: Modn test catalog
-uLg6/4UHDbhclietBDovhlstSjmv6of7yIXAmx+yROtl8rQL9zAZqDTyXuVO7jaNCAdnYgUBZs3Mbc/kl4RHCw==
+untrusted comment: modn smoke test bucket signature
+RUSVL/iGgzZp3P49TcZwNySjTWXXf/LWLkXEl+Ym2zD74jnoyCOBiBhcOl5i1Yr+ISkYAu4esx5X/b4sIE3El4pYJf7IkOtq3QM=
+trusted comment: modn smoke test bucket
+or24v8TlZFupEQd79Yb0xpcpXY+L6L+YLN53bj4tTNViy+Jdw4MFvMfHPg0TbTZzOK6lvH2ozmELRtAxmCdzAQ==

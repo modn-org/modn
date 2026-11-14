@@ -24,7 +24,7 @@ impl ModuleCatalog {
         git(directory.path(), &["init", "--initial-branch=main"]);
         fs::write(
             directory.path().join("bucket.json"),
-            json!({"schema_version": 1, "name": name, "title": "Community fixture"}).to_string(),
+            json!({"schema_version": 2, "name": name, "title": "Community fixture"}).to_string(),
         )
         .expect("bucket metadata");
         let pair = KeyPair::generate_unencrypted_keypair().expect("fixture signing key");

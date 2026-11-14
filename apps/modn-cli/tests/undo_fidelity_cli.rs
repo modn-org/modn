@@ -7,7 +7,6 @@ mod main_bucket;
 
 use catalog::{error, Fixture};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
@@ -24,19 +23,21 @@ fn archive(fixture: &Fixture, name: &str, files: &[(&str, &str)]) -> (PathBuf, S
         zip.write_all(contents.as_bytes()).expect("payload");
     }
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn manifest(fixture: &Fixture, id: &str, version: &str, hash: &str, source: Value) {
-    let folder = fixture.temp.path().join("deps/games/test-game");
+    let folder = fixture.temp.path().join("deps/mods/test-game");
     fs::create_dir_all(&folder).expect("bucket folder");
     fs::write(
         folder.join(format!("{id}.json")),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "id": id, "game": "test-game", "name": id,
-            "version": version, "archive_format": "zip", "sha256": hash,
-            "source": source
+            "schema_version": 2, "id": id, "game": "test-game", "name": id,
+            "version": version, "archive_format": "zip", "blake3": hash,
+            "sources": [source]
         }))
         .expect("manifest JSON"),
     )
@@ -50,7 +51,7 @@ fn https(url: &str) -> Value {
 fn cache(state: &Path, game: &str, id: &str, version: &str, url: &str, archive: &Path) {
     let root = state.join("cache");
     fs::create_dir_all(&root).expect("cache");
-    let hash = format!("{:x}", Sha256::digest(url.as_bytes()));
+    let hash = blake3::hash(url.as_bytes()).to_hex().to_string();
     fs::copy(
         archive,
         root.join(format!("{game}#{id}#{version}#{}.zip", &hash[..7])),
@@ -351,11 +352,11 @@ fn undo_uninstall_restores_below_the_appdata_content_root() {
     let url = "https://example.invalid/content-fixture-1.0.zip";
     let bucket = fixture.temp.path().join("fixture-bucket");
     fs::write(
-        bucket.join("games/content-game/fixture.json"),
+        bucket.join("mods/content-game/fixture.json"),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "id": "fixture", "game": "content-game",
+            "schema_version": 2, "id": "fixture", "game": "content-game",
             "name": "Fixture", "version": "1.0", "archive_format": "zip",
-            "sha256": digest, "source": {"kind": "https", "url": url}
+            "blake3": digest, "sources": [{"kind": "https", "url": url}]
         }))
         .expect("manifest JSON"),
     )

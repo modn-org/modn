@@ -3,20 +3,21 @@ import argparse
 import ctypes
 from contextlib import closing
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-import urllib.request
 import zipfile
+
+import bucket_fixture
 
 REPO = Path(__file__).resolve().parents[4]
 GAME = "cyberpunk-2077"
@@ -105,15 +106,37 @@ class Run:
                 z.writestr(key, value)
         return path
 
+    def pin(self, archive):
+        pin = bucket_fixture.archive_pin(self.binary, archive, self.env)
+        self.save(f"inspect-{archive.stem}.json",
+                  dict(archive=str(archive), blake3=pin))
+        return pin
+
     def manifest(self, folder, name, archive, version="1.0", dependencies=(), extra=None):
-        value = dict(schema_version=1, id=name, game=GAME, name=name,
-                     version=version, archive_format="zip", sha256=sha(archive),
-                     source=dict(kind="manual", filename=archive.name),
+        value = dict(schema_version=2, id=name, game=GAME, name=name,
+                     version=version, archive_format="zip",
+                     blake3=self.pin(archive),
+                     sources=[dict(kind="manual", filename=archive.name)],
                      dependencies=list(dependencies))
         value.update(extra or {})
         folder.mkdir(parents=True, exist_ok=True)
         (folder / f"{name}.json").write_text(json.dumps(value), encoding="utf-8")
         return value
+
+
+def signed_main_bucket(r):
+    """Build and sign a minimal contract v2 main bucket in the fixture root."""
+    tree = r.root / "main-tree"
+    bucket_fixture.write_bucket(tree, "main", "Disposable signed main bucket")
+    bucket_fixture.copy_modules(
+        tree, {GAME: bucket_fixture.FIXTURES / GAME})
+    bucket = bucket_fixture.zip_tree(tree, r.root / "main.zip")
+    signature = Path(f"{bucket}.minisig")
+    public_key = r.root / "main.pub"
+    key_id = bucket_fixture.sign_tree(tree, signature, public_key)
+    r.check(re.fullmatch(r"[0-9A-F]{16}", key_id) is not None,
+            f"ephemeral test key {key_id} signed the fixture main bucket")
+    return bucket, public_key, key_id
 
 
 def lifecycle(r):
@@ -126,27 +149,7 @@ def lifecycle(r):
             not shutil.which("rustc", path=r.env["PATH"]), "Rust tools absent from child PATH")
     r.check(not re.search(rb"(?i)(vcruntime\d+(_\d+)?|msvcp\d+|api-ms-win-crt-[a-z-]+-l1-1-0)\.dll",
                           r.binary.read_bytes()), "no dynamic Visual C++ runtime imports")
-    spec = importlib.util.spec_from_file_location("pack", REPO / "buckets/main/.github/scripts/pack.py")
-    pack = importlib.util.module_from_spec(spec)
-    sys.dont_write_bytecode = True
-    spec.loader.exec_module(pack)
-    bucket = r.root / "main.zip"
-    pack.pack(REPO / "buckets/main", bucket)
-    Path(f"{bucket}.sha256").unlink()
-    tree = r.root / "bucket-tree"
-    with zipfile.ZipFile(bucket) as archive:
-        archive.extractall(tree)
-    signature = Path(f"{bucket}.minisig")
-    public_key = r.root / "main.pub"
-    signer = subprocess.run(
-        ["cargo", "run", "--quiet", "--locked", "-p", "modn-core", "--example",
-         "sign_catalog", "--", str(tree), str(signature), str(public_key)],
-        cwd=REPO, capture_output=True, text=True, encoding="utf-8",
-        errors="replace", timeout=600)
-    r.check(signer.returncode == 0, "sign_catalog signs the extracted main bucket")
-    key_id = signer.stdout.strip()
-    r.check(re.fullmatch(r"[0-9A-F]{16}", key_id) is not None and public_key.is_file(),
-            f"ephemeral test key {key_id} produced a public key and signature")
+    bucket, public_key, key_id = signed_main_bucket(r)
     r.env["MODN_MAIN_BUCKET_SOURCE"] = str(bucket)
     r.save("environment.json", dict(head=subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
@@ -167,10 +170,9 @@ def lifecycle(r):
     r.cli("register", ["game", "add", GAME, "--path", r.game])
     r.cli("doctor-clean", ["doctor", "--path", r.game])
     r.check(snapshot(r.game) == baseline, "registration and doctor preserve fake game")
-    catalog = r.root / "catalog"
-    catalog.mkdir()
-    (catalog / "bucket.json").write_text(json.dumps(dict(schema_version=1, name="fixture", title="Synthetic policy stack")))
-    folder = catalog / "games" / GAME
+    catalog = bucket_fixture.write_bucket(
+        r.root / "catalog", "fixture", "Synthetic policy stack")
+    folder = catalog / "mods" / GAME
     payloads = {
         "red4ext": {p: (p.encode() + b" synthetic\n") * 65536 for p in
                     ["bin/x64/winmm.dll", "red4ext/RED4ext.dll", "red4ext/LICENSE.txt", "red4ext/THIRD_PARTY_LICENSES.txt"]},
@@ -187,15 +189,33 @@ def lifecycle(r):
                          "r6/tweaks/EquipmentEx.yaml": b"synthetic tweak"},
         "top": {"archive/pc/mod/PortableTop.archive": b"synthetic top"},
     }
+    versions = {
+        "red4ext": "1.31.0", "redscript": "0.5.32", "cet": "1.38.1",
+        "archivexl": "1.28.6", "codeware": "1.21.2", "tweakxl": "1.12.0",
+        "equipment-ex": "1.2.10", "top": "1.0",
+    }
+    dependencies = {
+        "red4ext": [], "redscript": ["red4ext"], "cet": ["red4ext"],
+        "archivexl": ["red4ext", "redscript"],
+        "codeware": ["red4ext", "redscript"],
+        "tweakxl": ["red4ext", "redscript"],
+        "equipment-ex": ["archivexl", "tweakxl", "codeware", "redscript"],
+        "top": ["equipment-ex", "cet"],
+    }
+    framework_versions = {"red4ext": ">=1.31.0", "redscript": ">=0.5.32"}
+    extras = {
+        "redscript": {"executables": ["engine/tools/scc.exe"]},
+        "archivexl": {"dependency_versions": framework_versions},
+        "codeware": {"dependency_versions": framework_versions},
+        "tweakxl": {"dependency_versions": framework_versions},
+    }
     archives = {}
     manifests = {}
     for name, files in payloads.items():
         archives[name] = r.archive(name, files)
-        official = REPO / f"buckets/main/games/{GAME}/{name}.json"
-        value = json.loads(official.read_text()) if official.exists() else {}
-        deps = value.get("dependencies", ["equipment-ex", "cet"] if name == "top" else [])
-        extra = {k: value[k] for k in ("executables", "dependency_versions") if k in value}
-        manifests[name] = r.manifest(folder, name, archives[name], value.get("version", "1.0"), deps, extra)
+        manifests[name] = r.manifest(
+            folder, name, archives[name], versions[name], dependencies[name],
+            extras.get(name))
     r.cli("catalog-add", ["bucket", "add", "fixture", catalog])
     args = ["install", "fixture/" + GAME + "/top", "--path", r.game,
             "--allow-executable", "engine/tools/scc.exe"]
@@ -217,8 +237,8 @@ def lifecycle(r):
             f"{expected_edges} dependency edges persisted")
     r.cli("dependency-refusal", ["uninstall", "red4ext", "--yes", "--path", r.game], 1)
     base = next(p for p in listed if p["catalog"]["mod_id"] == "red4ext")
-    v1 = manifests["red4ext"]
-    (folder / "red4ext@1.31.0.json").write_text(json.dumps(v1))
+    previous = manifests["red4ext"]
+    (folder / "red4ext@1.31.0.json").write_text(json.dumps(previous))
     changed = {key: b"version two\n" + value for key, value in payloads["red4ext"].items()}
     v2 = r.archive("red4ext-2", changed)
     r.manifest(folder, "red4ext", v2, "1.32.0")
@@ -250,7 +270,7 @@ def lifecycle(r):
     state = r.idle("updated")
     listed = r.cli("list-updated", ["list", "--path", r.game])
     new = next(p for p in listed if p["catalog"]["mod_id"] == "red4ext")
-    r.check(new["archive_sha256"] == sha(v2) and new["id"] != base["id"], "new package records updated archive identity")
+    r.check(new["archive_blake3"] == r.pin(v2) and new["id"] != base["id"], "new package records updated archive identity")
     r.check(len(state["package_dependencies"]) == expected_edges and
             all(row[1] != base["id"] for row in state["package_dependencies"]) and
             any(row[1] == new["id"] for row in state["package_dependencies"]),
@@ -307,46 +327,42 @@ def rollback(r, update, base, stable):
 
 
 def provider(r, folder):
-    source = dict(kind="github-release", repository="BurntSushi/ripgrep", tag="14.1.1",
-                  asset="ripgrep-14.1.1-x86_64-pc-windows-msvc.zip")
-    url = f'https://github.com/{source["repository"]}/releases/download/{source["tag"]}/{source["asset"]}'
-    try:
-        request = urllib.request.Request(url, headers={"User-Agent": "modn-portable-verification"})
-        with urllib.request.urlopen(request, timeout=60) as response:
-            content = response.read(16 * 1024 * 1024)
-        pin = hashlib.sha256(content).hexdigest()
-        independent = r.evidence / source["asset"]
-        independent.write_bytes(content)
-        placeholder = r.root / "provider-pin.zip"
-        placeholder.write_bytes(content)
-        r.manifest(folder, "provider-probe", placeholder, extra={"source": source})
-        r.check(not list((r.root / "cache").glob("*.zip")), "provider starts with an empty archive cache")
-        before_game, before_db = snapshot(r.game), r.db()
-        result = r.cli("provider-live", ["install", "fixture/" + GAME + "/provider-probe",
-                       "--dry-run", "--download", "--path", r.game])
-        r.save("provider-result.json", result)
-        cached = [p for p in (r.root / "cache").rglob("*") if p.is_file() and sha(p) == pin]
-        r.check(result["plan"]["status"] == "blocked", "provider ZIP layout blocked after acquisition")
-        r.check(len(cached) == 1, "production provider HTTPS acquired exact independently hashed ZIP into cache")
-        r.check(snapshot(r.game) == before_game and r.db() == before_db, "provider download preview preserves game and manager state")
-        r.save("provider-live.json", dict(source=source, sha256=pin, bytes=len(content),
-                                        cache_paths=list(map(str, cached)), status=result.get("plan", {}).get("status")))
-        r.results["provider"] = "live production metadata/HTTPS/cache verified; catalog ZIP compatibility separately blocked"
-    except Exception as error:
-        r.results["provider"] = f"UNVERIFIED: {type(error).__name__}: {error}"
-        r.save("provider-blocker.json", dict(error=str(error), url=url))
+    """Prove an unreachable HTTPS source fails cleanly without network access."""
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    source = dict(kind="https", url=f"https://127.0.0.1:{port}/provider-probe.zip")
+    placeholder = r.archive("provider-pin", {"probe.txt": b"offline provider probe"})
+    r.manifest(folder, "provider-probe", placeholder,
+               extra={"sources": [source]})
+    r.check(not list((r.root / "cache").glob("*.zip")),
+            "provider starts with an empty archive cache")
+    before_game, before_db = snapshot(r.game), r.db()
+    result = r.cli("provider-transport", ["install", "fixture/" + GAME + "/provider-probe",
+                   "--dry-run", "--download", "--path", r.game], 1)
+    r.save("provider-transport.json", dict(source=source, exit=result["exit"],
+                                           stderr=result["stderr"]))
+    r.check("download failed" in result["stderr"],
+            "unreachable HTTPS source reports a download failure")
+    r.check(not list((r.root / "cache").glob("*.zip")),
+            "failed transport leaves the archive cache empty")
+    r.check(snapshot(r.game) == before_game and r.db() == before_db,
+            "provider transport refusal preserves game and manager state")
+    r.results["provider"] = (
+        "offline HTTPS transport refusal preserved game, state and empty cache; "
+        "live acquisition remains a manual release check")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, required=True)
+    parser.add_argument("--binary", type=Path,
+                        default=REPO / "target/release" /
+                        ("modn.exe" if os.name == "nt" else "modn"))
     parser.add_argument("--bucket-binary", type=Path,
+                        default=REPO / "target/smoke/release" /
+                        ("modn.exe" if os.name == "nt" else "modn"),
                         help="test-main-key build used only for bucket update")
     args = parser.parse_args()
-    if args.bucket_binary is None:
-        parser.error("--bucket-binary is required; build it with "
-                     "`cargo build --release --locked -p modn-cli "
-                     "--features modn-core/test-main-key`")
     for path in (args.binary, args.bucket_binary):
         if not path.is_file():
             parser.error(f"no executable at {path}")

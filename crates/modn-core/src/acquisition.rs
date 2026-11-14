@@ -2,7 +2,7 @@
 //!
 //! The layout follows Scoop's download cache: one file per archive, named
 //! `<game>#<mod>#<version>#<url hash><extension>`, kept for reinstalls.
-//! Unlike Scoop, Modn checks the SHA-256 digest pinned by the package manifest
+//! Unlike Scoop, Modn checks the BLAKE3 digest pinned by the package manifest
 //! before a download becomes a cache entry, and again on every cache hit. A
 //! cache entry is therefore always a verified artifact. Fetching is supplied
 //! by the caller, so this module needs no network client.
@@ -10,15 +10,18 @@ use crate::error::{coded, ErrorCode, ResultExt};
 use crate::progress::{DownloadReader, OperationControl};
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
-use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::fs;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
+mod digest;
+mod entry_name;
 mod git;
 mod index;
 mod nexus;
 mod provider;
+use digest::{copy_blake3, file_blake3, file_has_blake3};
+use entry_name::{component, extension, parse_entry_name};
 pub use git::{GitAcquired, GitCacheKey, GitSource};
 use index::{ArchiveIndex, ArchivePin};
 pub use nexus::{
@@ -40,7 +43,8 @@ pub struct CacheKey<'a> {
     pub version: &'a str,
     /// `https` artifact source.
     pub url: &'a str,
-    pub sha256: &'a str,
+    /// BLAKE3 archive pin as 64 lowercase hex characters.
+    pub blake3: &'a str,
 }
 
 #[expect(missing_docs, reason = "Method names state their behavior")]
@@ -51,14 +55,14 @@ impl<'a> CacheKey<'a> {
         mod_id: &'a str,
         version: &'a str,
         url: &'a str,
-        sha256: &'a str,
+        blake3: &'a str,
     ) -> Self {
         Self {
             game_id,
             mod_id,
             version,
             url,
-            sha256,
+            blake3,
         }
     }
 }
@@ -103,12 +107,6 @@ pub struct CacheEntry {
     pub path: PathBuf,
 }
 
-/// A scan's verified hit plus the index it built from every entry.
-struct ScannedIndex {
-    index: ArchiveIndex,
-    hit: Option<PathBuf>,
-}
-
 #[expect(missing_docs, reason = "The name states the item's meaning")]
 #[derive(Debug, Clone)]
 pub struct ArchiveCache {
@@ -131,7 +129,7 @@ impl ArchiveCache {
     /// Entry path for `key`: `<game>#<mod>#<version>#<url hash><extension>`.
     #[must_use]
     pub fn path(&self, key: &CacheKey<'_>) -> PathBuf {
-        let url_hash = &hex(&Sha256::digest(key.url.as_bytes()))[..7];
+        let url_hash = &blake3::hash(key.url.as_bytes()).to_hex()[..7];
         self.root.join(format!(
             "{}#{}#{}#{url_hash}{}",
             component(key.game_id),
@@ -153,7 +151,7 @@ impl ArchiveCache {
         if !metadata.is_file() {
             bail!("cache entry is not a regular file: {}", path.display());
         }
-        if file_sha256(&path)? == key.sha256 {
+        if file_blake3(&path)? == key.blake3 {
             return Ok(Some(path));
         }
         self.cached_alias(key)
@@ -162,9 +160,11 @@ impl ArchiveCache {
     /// Find an entry with the requested digest through the on-disk index.
     ///
     /// A recorded entry is used only after its bytes match the pin again. A
-    /// missing, stale or corrupt index falls back to a scan that rebuilds it.
+    /// missing, stale or corrupt index falls back to a scan whose result stays
+    /// in memory. A lookup never writes, so a preflight, a cancelled operation
+    /// or a refused one leaves every cache file unchanged.
     fn cached_alias(&self, key: &CacheKey<'_>) -> Result<Option<PathBuf>> {
-        let Some(pin) = ArchivePin::sha256(key.sha256) else {
+        let Some(pin) = ArchivePin::blake3(key.blake3) else {
             return Ok(None);
         };
         let existing = ArchiveIndex::read(&self.root);
@@ -173,34 +173,24 @@ impl ArchiveCache {
             .and_then(|index| index.file_name(&pin).map(str::to_owned))
         {
             let path = self.root.join(name);
-            if file_has_digest(&path, key.sha256)? {
+            if file_has_blake3(&path, key.blake3)? {
                 return Ok(Some(path));
             }
         }
-        let scanned = self.scan_index(key.sha256)?;
-        let unchanged = existing.as_ref() == Some(&scanned.index);
-        if !unchanged && (existing.is_some() || !scanned.index.is_empty()) {
-            let _ = scanned.index.write(&self.root);
-        }
-        Ok(scanned.hit)
+        self.scan_for(key.blake3)
     }
 
-    /// Hash each listed entry once and index it by its actual digest.
-    fn scan_index(&self, sha256: &str) -> Result<ScannedIndex> {
-        let mut index = ArchiveIndex::default();
-        let mut hit = None;
+    /// Hash each listed entry once and return the first whose bytes match.
+    fn scan_for(&self, blake3: &str) -> Result<Option<PathBuf>> {
         for entry in self.entries(None)? {
-            let Ok(digest) = file_sha256(&entry.path) else {
+            let Ok(digest) = file_blake3(&entry.path) else {
                 continue;
             };
-            if hit.is_none() && digest == sha256 {
-                hit = Some(entry.path.clone());
-            }
-            if let (Some(pin), Some(name)) = (ArchivePin::sha256(&digest), entry.path.file_name()) {
-                index.insert_first(pin, name.to_string_lossy().into_owned());
+            if digest == blake3 {
+                return Ok(Some(entry.path));
             }
         }
-        Ok(ScannedIndex { index, hit })
+        Ok(None)
     }
 
     /// Return a verified archive for `key`, downloading it when needed.
@@ -274,7 +264,7 @@ impl ArchiveCache {
         let body = fetch(key.url)
             .with_context(|| format!("download failed: {}", key.url))
             .code(ErrorCode::DownloadFailed)?;
-        let (bytes, actual) = copy_hashed(body, partial.as_file_mut(), limit)
+        let (bytes, actual) = copy_blake3(body, partial.as_file_mut(), limit)
             .with_context(|| format!("download failed: {}", key.url))
             .code(ErrorCode::DownloadFailed)?;
         if bytes > limit {
@@ -283,12 +273,12 @@ impl ArchiveCache {
                 format!("download exceeds {limit} bytes: {}", key.url),
             ));
         }
-        if actual != key.sha256 {
+        if actual != key.blake3 {
             return Err(coded(
                 ErrorCode::DigestMismatch,
                 format!(
-                    "hash check failed for {}/{} {}\nURL:      {}\nExpected: {}\nActual:   {}",
-                    key.game_id, key.mod_id, key.version, key.url, key.sha256, actual
+                    "BLAKE3 check failed for {}/{} {}\nURL:      {}\nExpected: {}\nActual:   {}",
+                    key.game_id, key.mod_id, key.version, key.url, key.blake3, actual
                 ),
             ));
         }
@@ -296,7 +286,7 @@ impl ArchiveCache {
         partial
             .persist(&path)
             .with_context(|| format!("cannot store cache entry {}", path.display()))?;
-        if let (Some(pin), Some(name)) = (ArchivePin::sha256(key.sha256), path.file_name()) {
+        if let (Some(pin), Some(name)) = (ArchivePin::blake3(key.blake3), path.file_name()) {
             ArchiveIndex::record(&self.root, pin, name.to_string_lossy().into_owned());
         }
         Ok(Acquired {
@@ -347,106 +337,6 @@ impl ArchiveCache {
         }
         Ok(entries)
     }
-}
-
-fn component(value: &str) -> String {
-    value
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-fn extension(url: &str) -> String {
-    let path = url.split(['?', '#']).next().unwrap_or_default();
-    let name = path.rsplit('/').next().unwrap_or_default();
-    match name.rsplit_once('.') {
-        Some((_, ext)) if (1..=8).contains(&ext.len()) => format!(".{}", component(ext)),
-        _ => String::new(),
-    }
-}
-
-fn parse_entry_name(name: &str) -> Option<[&str; 3]> {
-    let parts: Vec<&str> = name.split('#').collect();
-    let [game_id, mod_id, version, rest] = parts.as_slice() else {
-        return None;
-    };
-    let named = |value: &str| {
-        !value.is_empty()
-            && value
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
-    };
-    let hex = |value: &str, len: usize| {
-        value.len() == len
-            && value
-                .bytes()
-                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-    };
-    let length_and_extension = |ext: &str| {
-        ext.is_empty()
-            || ext.strip_prefix('.').is_some_and(|ext| {
-                (1..=8).contains(&ext.len())
-                    && ext
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-            })
-    };
-    let rest = *rest;
-    let valid_rest = if let Some(git) = rest.strip_prefix("git-") {
-        git.split_once('-').is_some_and(|(commit, archive)| {
-            hex(commit, 40)
-                && archive
-                    .strip_suffix(".zip")
-                    .is_some_and(|digest| hex(digest, 64))
-        })
-    } else {
-        rest.split_at_checked(7)
-            .is_some_and(|(url_hash, ext)| hex(url_hash, 7) && length_and_extension(ext))
-    };
-    (named(game_id) && named(mod_id) && named(version) && valid_rest)
-        .then_some([*game_id, *mod_id, *version])
-}
-
-fn copy_hashed(body: impl Read, output: &mut File, limit: u64) -> Result<(u64, String)> {
-    let mut reader = body.take(limit + 1);
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0; 64 * 1024];
-    let mut total = 0;
-    loop {
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-        output.write_all(&buffer[..read])?;
-        total += read as u64;
-    }
-    Ok((total, hex(&hasher.finalize())))
-}
-
-fn file_sha256(path: &Path) -> Result<String> {
-    let mut file = File::open(path)?;
-    let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher)?;
-    Ok(hex(&hasher.finalize()))
-}
-
-/// Whether `path` is a regular file whose bytes still match `sha256`.
-fn file_has_digest(path: &Path, sha256: &str) -> Result<bool> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() => Ok(file_sha256(path)? == sha256),
-        _ => Ok(false),
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

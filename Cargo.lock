@@ -2592,6 +2592,7 @@ name = "modn-cli"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
  "keyring",
  "minisign",
@@ -2601,7 +2602,6 @@ dependencies = [
  "same-file",
  "serde_json",
  "sevenz-rust2",
- "sha2 0.10.9",
  "tempfile",
  "ureq",
  "zip",
@@ -2626,7 +2626,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sevenz-rust2",
- "sha2 0.10.9",
  "tempfile",
  "winapi-util",
  "windows-registry",
