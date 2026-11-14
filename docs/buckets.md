@@ -94,6 +94,9 @@ at its root. A `main` release also uploads the same signature as
 
 `main` is always a trusted module source. Only a signed Git catalog can become
 another trusted module source. Local folder buckets cannot be module sources.
+An attempt to trust one is refused with an error that names the bucket and
+states that only `main` and the signed Git catalogs the user trusts for modules
+supply game modules.
 
 ```sh
 modn bucket trust-modules community

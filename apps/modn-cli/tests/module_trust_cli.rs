@@ -190,7 +190,9 @@ fn main_and_local_folder_buckets_cannot_be_module_sources() {
     let refused = cli(data.path(), &["bucket", "trust-modules", "local", "--yes"]);
     assert!(!refused.status.success());
     assert!(
-        stderr(&refused).contains("local folder buckets cannot be module sources"),
+        stderr(&refused).contains(
+            "only the official main bucket and signed Git catalogs the user trusts for modules supply game modules"
+        ),
         "{}",
         stderr(&refused)
     );

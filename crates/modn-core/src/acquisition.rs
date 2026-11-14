@@ -107,12 +107,6 @@ pub struct CacheEntry {
     pub path: PathBuf,
 }
 
-/// A scan's verified hit plus the index it built from every entry.
-struct ScannedIndex {
-    index: ArchiveIndex,
-    hit: Option<PathBuf>,
-}
-
 #[expect(missing_docs, reason = "The name states the item's meaning")]
 #[derive(Debug, Clone)]
 pub struct ArchiveCache {
@@ -166,7 +160,9 @@ impl ArchiveCache {
     /// Find an entry with the requested digest through the on-disk index.
     ///
     /// A recorded entry is used only after its bytes match the pin again. A
-    /// missing, stale or corrupt index falls back to a scan that rebuilds it.
+    /// missing, stale or corrupt index falls back to a scan whose result stays
+    /// in memory. A lookup never writes, so a preflight, a cancelled operation
+    /// or a refused one leaves every cache file unchanged.
     fn cached_alias(&self, key: &CacheKey<'_>) -> Result<Option<PathBuf>> {
         let Some(pin) = ArchivePin::blake3(key.blake3) else {
             return Ok(None);
@@ -181,30 +177,20 @@ impl ArchiveCache {
                 return Ok(Some(path));
             }
         }
-        let scanned = self.scan_index(key.blake3)?;
-        let unchanged = existing.as_ref() == Some(&scanned.index);
-        if !unchanged && (existing.is_some() || !scanned.index.is_empty()) {
-            let _ = scanned.index.write(&self.root);
-        }
-        Ok(scanned.hit)
+        self.scan_for(key.blake3)
     }
 
-    /// Hash each listed entry once and index it by its actual digest.
-    fn scan_index(&self, blake3: &str) -> Result<ScannedIndex> {
-        let mut index = ArchiveIndex::default();
-        let mut hit = None;
+    /// Hash each listed entry once and return the first whose bytes match.
+    fn scan_for(&self, blake3: &str) -> Result<Option<PathBuf>> {
         for entry in self.entries(None)? {
             let Ok(digest) = file_blake3(&entry.path) else {
                 continue;
             };
-            if hit.is_none() && digest == blake3 {
-                hit = Some(entry.path.clone());
-            }
-            if let (Some(pin), Some(name)) = (ArchivePin::blake3(&digest), entry.path.file_name()) {
-                index.insert_first(pin, name.to_string_lossy().into_owned());
+            if digest == blake3 {
+                return Ok(Some(entry.path));
             }
         }
-        Ok(ScannedIndex { index, hit })
+        Ok(None)
     }
 
     /// Return a verified archive for `key`, downloading it when needed.

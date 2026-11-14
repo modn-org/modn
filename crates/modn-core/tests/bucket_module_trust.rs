@@ -242,9 +242,15 @@ fn local_folder_buckets_cannot_be_module_sources() {
         )
         .expect_err("refuse local trust")
         .to_string();
-    assert_eq!(
-        error,
-        "local folder buckets cannot be module sources: local"
+    assert!(
+        error.contains("local folder bucket local cannot supply game modules"),
+        "{error}"
+    );
+    assert!(
+        error.contains(
+            "only the official main bucket and signed Git catalogs the user trusts for modules supply game modules"
+        ),
+        "{error}"
     );
     assert_eq!(fs::read(&path).expect("registration"), before);
     assert_eq!(
