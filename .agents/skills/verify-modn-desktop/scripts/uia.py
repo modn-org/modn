@@ -331,8 +331,59 @@ def _find_by_id(dialog, automation_id):
     return matches[0]
 
 
+# Canonical answers for a native message dialog. Win32 message boxes expose the
+# button's control id as its automation id, so these ids resolve the answer even
+# when Windows localizes the visible label (for example "Sim" and "Não").
+DIALOG_BUTTON_IDS = {"OK": "1", "Cancel": "2", "Yes": "6", "No": "7"}
+DIALOG_BUTTON_NAMES = {
+    "OK": ("OK",),
+    "Cancel": ("Cancel", "Cancelar"),
+    "Yes": ("Yes", "Sim"),
+    "No": ("No", "Não"),
+}
+
+
+def _answer_role(control):
+    """The canonical answer name of a dialog button, or None."""
+    try:
+        if control.ControlTypeName != "ButtonControl":
+            return None
+        for role, control_id in DIALOG_BUTTON_IDS.items():
+            if control.AutomationId == control_id:
+                return role
+        for role, names in DIALOG_BUTTON_NAMES.items():
+            if control.Name in names:
+                return role
+    except Exception:
+        return None
+    return None
+
+
+def dialog_buttons(dialog):
+    """The canonical answer names of every button in a native dialog."""
+    return [role for role in (_answer_role(c) for c in _walk(dialog)) if role]
+
+
+def answer_dialog(dialog, session, name, timeout=10):
+    """Clicks the button that answers a native dialog with `name`.
+
+    `name` is one of `DIALOG_BUTTON_IDS`: OK, Cancel, Yes or No. The lookup
+    uses the Win32 control id first, so a localized label still answers the
+    intended button.
+    """
+    require(name in DIALOG_BUTTON_IDS, f"Unknown dialog answer {name!r}")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for control in _walk(dialog):
+            if _answer_role(control) == name:
+                session.activate(control)
+                return control
+        time.sleep(0.1)
+    raise Failure(f"Dialog has no {name} button")
+
+
 def dismiss(dialog, session, name="OK"):
-    session.click(name=name, window=dialog)
+    return answer_dialog(dialog, session, name)
 
 
 def clipboard_text(timeout=10):
