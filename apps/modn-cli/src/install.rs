@@ -87,7 +87,7 @@ fn install_archive(
         }
         return Ok(());
     }
-    let package = {
+    let (package, operation_id) = {
         let filename = archive
             .file_name()
             .and_then(|name| name.to_str())
@@ -105,15 +105,21 @@ fn install_archive(
             .as_mut()
             .expect("approved installation opens writable state");
         store.set_history_context(history);
-        store.install_operations_zip_with_permissions(
+        let package = store.install_operations_zip_with_permissions(
             &game,
             &archive,
             &report,
             &args.allow_executable,
-        )?
+        )?;
+        let operation_id = store.committed_operation_id().map(str::to_owned);
+        (package, operation_id)
     };
     if json {
-        println!("{}", serde_json::to_string_pretty(&package)?);
+        let mut result = serde_json::to_value(&package)?;
+        if let Some(operation_id) = operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id);
+        }
+        println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         println!(
             "Installed {} ({} owned files)",

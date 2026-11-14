@@ -375,7 +375,7 @@ pub(super) fn run(
     let mut store = state.open_writable(&protected)?;
     store.set_control(progress.control().clone());
     store.set_history_context(
-        HistoryContext::new(game_id, game.clone())
+        HistoryContext::new(game_id.clone(), game.clone())
             .with_source(&reference, target.package.primary_source().clone()),
     );
     let package = store.update_catalog_release(
@@ -387,14 +387,16 @@ pub(super) fn run(
         check.policy(),
         &approved,
     )?;
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     install_consent::record(&mut store, &game, &reference, &check.needed)?;
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "package": label, "replaced": old.id, "installed": package,
-            }))?
-        );
+        let mut result = serde_json::json!({
+            "package": label, "replaced": old.id, "installed": package,
+        });
+        if let Some(operation_id) = operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id);
+        }
+        println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         println!(
             "Updated {label} to {} ({} owned files)",

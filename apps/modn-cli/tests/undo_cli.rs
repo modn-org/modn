@@ -310,6 +310,9 @@ fn undo_uninstall_refuses_a_manual_source_before_changes() {
     let refused = fixture.run(&["--json", "undo", &target, "--yes"]);
     assert!(!refused.status.success());
     assert_eq!(error_code(&refused), "UNDO_SOURCE_MANUAL");
+    let message = error(&refused);
+    assert!(message.contains("manual source"), "{message}");
+    assert!(message.contains("install --file"), "{message}");
     assert!(!fixture.game.join("addons/example.plugin").exists());
     assert_eq!(history(&fixture).len(), 2);
 }

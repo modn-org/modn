@@ -1,10 +1,12 @@
-use super::catalog_tests::{plan, reference, Fixture};
+use super::catalog_tests::{module_source, plan, reference, Fixture};
 use super::install::Fault;
 use super::{CatalogRelease, NativeInjectorPolicy, StackMember};
 use crate::archive::inspect;
 use crate::buckets::PackageSource;
+use crate::game_modules::with_module_source;
 use crate::history::{HistoryContext, HistoryKind};
 use crate::progress::{CancellationToken, OperationControl};
+use crate::state::Store;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -414,4 +416,58 @@ fn history_lists_newest_first_and_filters_by_game() {
         .history(Some("other-game"))
         .expect("filtered")
         .is_empty());
+}
+
+#[test]
+fn overlapping_writes_each_report_the_record_they_committed() {
+    let mut fixture = Fixture::new();
+    let first_archive = fixture.archive("first");
+    let second_archive = fixture.archive("second");
+    let game = fixture.game.clone();
+
+    fixture
+        .store
+        .set_history_context(context(&fixture, "first", "first.zip"));
+    let first = with_module_source(Some(&module_source()), || {
+        fixture.store.install_catalog_release(
+            &game,
+            &first_archive,
+            &plan(&game, &first_archive),
+            &CatalogRelease::new(reference("first"), Vec::new()),
+            NativeInjectorPolicy::Refuse,
+        )
+    })
+    .expect("first install");
+
+    // A second write commits before the first caller reads its result. An ID
+    // inferred from history would now see both records and lose the first.
+    let mut second_store = Store::open(&fixture.state_path()).expect("second store");
+    second_store.set_history_context(context(&fixture, "second", "second.zip"));
+    let second = with_module_source(Some(&module_source()), || {
+        second_store.install_catalog_release(
+            &game,
+            &second_archive,
+            &plan(&game, &second_archive),
+            &CatalogRelease::new(reference("second"), Vec::new()),
+            NativeInjectorPolicy::Refuse,
+        )
+    })
+    .expect("second install");
+
+    assert_eq!(
+        fixture.store.committed_operation_id(),
+        Some(first.id.as_str())
+    );
+    assert_eq!(
+        second_store.committed_operation_id(),
+        Some(second.id.as_str())
+    );
+    assert_ne!(first.id, second.id);
+
+    let operations = fixture.store.history(None).expect("history");
+    assert_eq!(operations.len(), 2);
+    assert_eq!(operations[0].id, second.id);
+    assert_eq!(operations[1].id, first.id);
+    assert_eq!(operations[0].packages[0].mod_id, "second");
+    assert_eq!(operations[1].packages[0].mod_id, "first");
 }

@@ -362,9 +362,10 @@ register the module again. Removal leaves game files and ownership intact.
 The local MCP companion fixes its CLI backend, manager state, and approved filesystem roots at startup.
 Server `--allow-writes` and per-request `approved: true` authorize ordinary installation or uninstall.
 It exposes neither adoption nor forced cleanup.
-The GPUI Kit 0.9.0 desktop belongs to the root workspace, with Windows-only GPUI dependencies.
-It reviews local ZIP and 7z archives and confirms ordinary installation or strict uninstall through the CLI.
-Neither surface derives ownership from scan results or grants executable approval.
+The Tauri 2 desktop belongs to the root workspace, with Windows-only Tauri dependencies.
+It runs ordinary installation, update, strict uninstall and undo through the CLI in one click.
+It passes a native-injector or executable approval only after the user allows that mod.
+Neither surface derives ownership from scan results, and the MCP companion grants no executable approval.
 See [MCP scopes](mcp.md) and [desktop configuration](desktop.md).
 
 

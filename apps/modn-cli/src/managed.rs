@@ -128,7 +128,8 @@ pub(super) fn uninstall(
     let mut store = selected.store.expect("write access opens manager state");
     store.set_control(progress.control().clone());
     let game = selected.root;
-    store.set_history_context(HistoryContext::new(selected.game_id, game.clone()));
+    let game_id = selected.game_id;
+    store.set_history_context(HistoryContext::new(game_id.clone(), game.clone()));
     let removed = if args.force {
         let plan = store.plan_uninstall(&game, &args.package, scope)?;
         let id = &plan.first().expect("a removal plan selects one package").id;
@@ -137,11 +138,13 @@ pub(super) fn uninstall(
     } else {
         store.uninstall_with(&game, &args.package, scope)?
     };
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     if json {
-        println!(
-            "{}",
-            serde_json::json!({"uninstalled": args.package, "packages": removed})
-        );
+        let mut result = serde_json::json!({"uninstalled": args.package, "packages": removed});
+        if let Some(operation_id) = operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id);
+        }
+        println!("{}", result);
     } else {
         for id in &removed {
             println!("Uninstalled {id}");

@@ -257,4 +257,15 @@ impl Store {
     pub fn history(&self, game_id: Option<&str>) -> Result<Vec<HistoryOperation>> {
         read(&self.connection, game_id)
     }
+
+    /// The history record that the most recent write committed, if any.
+    ///
+    /// The committing transaction records the ID, so a concurrent write on
+    /// another [`Store`] cannot change what this write reports. A write that
+    /// commits no record reports none. A write that commits several records
+    /// reports the newest one, which `modn undo` without an ID reverses first.
+    #[must_use]
+    pub fn committed_operation_id(&self) -> Option<&str> {
+        self.committed_operation.as_deref()
+    }
 }

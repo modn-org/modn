@@ -70,11 +70,16 @@ fn install_update_and_uninstall_each_record_one_operation() {
         &["--json", "install", "example", "--yes", "--file"],
         &[v1.as_path()],
     );
-    assert!(installed.status.success(), "{}", error(&installed));
+    let installed = json_of(&installed);
+    let install_id = installed["operation_id"]
+        .as_str()
+        .expect("an install names the operation it committed")
+        .to_owned();
 
     let operations = history(&fixture, &[]);
     assert_eq!(operations.len(), 1, "{operations:?}");
     let install = &operations[0];
+    assert_eq!(install["id"], install_id.as_str());
     assert_eq!(install["kind"], "install");
     assert_eq!(install["game_id"], "test-game");
     assert_eq!(install["packages"][0]["mod_id"], "example");
@@ -92,19 +97,30 @@ fn install_update_and_uninstall_each_record_one_operation() {
         &["--json", "update", "example", "--yes", "--file"],
         &[v2.as_path()],
     );
-    assert!(updated.status.success(), "{}", error(&updated));
+    let updated = json_of(&updated);
+    let update_id = updated["operation_id"]
+        .as_str()
+        .expect("an update names the operation it committed")
+        .to_owned();
+    assert_ne!(update_id, install_id);
     let operations = history(&fixture, &[]);
     assert_eq!(operations.len(), 2);
+    assert_eq!(operations[0]["id"], update_id.as_str());
     assert_eq!(operations[0]["kind"], "update");
     assert_eq!(release(&operations[0], "release_before")["version"], "1.0");
     assert_eq!(release(&operations[0], "release_after")["version"], "2.0");
     assert!(operations[0]["packages"][0]["files"][0]["digest_before"].is_string());
     assert!(operations[0]["packages"][0]["files"][0]["digest_after"].is_string());
 
-    let removed = fixture.run(&["uninstall", "example", "--yes"]);
-    assert!(removed.status.success(), "{}", error(&removed));
+    let removed = fixture.run(&["--json", "uninstall", "example", "--yes"]);
+    let removed = json_of(&removed);
+    let uninstall_id = removed["operation_id"]
+        .as_str()
+        .expect("an uninstall names the operation it committed")
+        .to_owned();
     let operations = history(&fixture, &[]);
     assert_eq!(operations.len(), 3);
+    assert_eq!(operations[0]["id"], uninstall_id.as_str());
     assert_eq!(operations[0]["kind"], "uninstall");
     assert_eq!(release(&operations[0], "release_before")["version"], "2.0");
     assert!(release(&operations[0], "release_after").is_null());
@@ -117,6 +133,49 @@ fn install_update_and_uninstall_each_record_one_operation() {
     assert!(text.status.success(), "{}", error(&text));
     let text = String::from_utf8(text.stdout).expect("text");
     assert!(text.contains("ID") && text.contains("KIND") && text.contains("uninstall"));
+}
+
+#[test]
+fn undo_and_archive_install_name_the_operation_history_records() {
+    let fixture = Fixture::new();
+    let (archive, hash) = archive(&fixture, "example", "one");
+    manifest(&fixture, "example", "1.0", &hash, "example.zip");
+    fixture.bucket("deps", "test-game", "example", &hash, &[]);
+    fixture.register();
+
+    let installed = fixture.run_paths(
+        &["--json", "install", "example", "--yes", "--file"],
+        &[archive.as_path()],
+    );
+    let installed = json_of(&installed);
+    let install_id = installed["operation_id"]
+        .as_str()
+        .expect("an install names the operation it committed")
+        .to_owned();
+
+    let undone = fixture.run(&["--json", "undo", &install_id, "--yes"]);
+    let undone = json_of(&undone);
+    let undo_id = undone["operation_id"]
+        .as_str()
+        .expect("an undo names the operation it committed")
+        .to_owned();
+    assert_ne!(undo_id, install_id);
+    let operations = history(&fixture, &[]);
+    assert_eq!(operations[0]["id"], undo_id.as_str());
+    assert_eq!(operations[0]["undoes"], install_id.as_str());
+
+    let archived = fixture.run_paths(
+        &["--json", "install", "--game", "test-game", "--yes"],
+        &[archive.as_path()],
+    );
+    let archived = json_of(&archived);
+    let archive_id = archived["operation_id"]
+        .as_str()
+        .expect("an archive install names the operation it committed")
+        .to_owned();
+    let operations = history(&fixture, &[]);
+    assert_eq!(operations[0]["id"], archive_id.as_str());
+    assert_eq!(operations[0]["kind"], "install");
 }
 
 #[test]

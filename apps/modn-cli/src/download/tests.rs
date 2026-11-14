@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::Path;
 
 const URL: &str = "https://github.com/fixture/project/releases/download/v1/example.zip";
+const METADATA_URL: &str = "https://api.github.com/repos/fixture/project/releases/tags/v1";
 
 fn command(root: &Path, args: &[&str]) -> anyhow::Result<()> {
     let cli = Cli::try_parse_from(std::iter::once("modn").chain(args.iter().copied()))
@@ -122,6 +123,76 @@ fn undo_restores_a_github_release_from_the_cache_without_network() {
                 fs::read(&plugin).expect("restored plugin"),
                 b"cached-release"
             );
+        });
+    });
+    TEST_RESPONSES.with(|responses| responses.replace(None));
+}
+
+#[test]
+fn undo_downloads_a_github_release_again_after_a_cache_miss() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (bytes, digest) = archive(temporary.path());
+    seed_bucket(&root, &digest);
+    seed_cache(&root, &bytes);
+    let game = temporary.path().join("game");
+    fs::create_dir_all(game.join("bin")).expect("game directory");
+    fs::write(game.join("bin/TestGame.exe"), b"game-exe").expect("marker");
+    let module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
+    let game_arg = game.to_str().expect("game path").to_owned();
+
+    data_dir::with_data_directory(&root, || {
+        with_module_source(Some(&module), || {
+            command(&root, &["game", "add", "test-game", "--path", &game_arg])
+                .expect("register game");
+            command(
+                &root,
+                &["--json", "install", "example", "--path", &game_arg, "--yes"],
+            )
+            .expect("install from the seeded cache");
+            let plugin = game.join("addons/example.plugin");
+            assert_eq!(
+                fs::read(&plugin).expect("installed plugin"),
+                b"cached-release"
+            );
+            command(&root, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
+            assert!(!plugin.exists());
+            fs::remove_dir_all(root.join("cache")).expect("clear the archive cache");
+
+            let metadata = json!({
+                "tag_name": "v1",
+                "html_url": "https://github.com/fixture/project/releases/tag/v1",
+                "assets": [{"name": "example.zip", "browser_download_url": URL}],
+            });
+            TEST_RESPONSES.with(|responses| {
+                responses.replace(Some(BTreeMap::from([
+                    (
+                        METADATA_URL.to_owned(),
+                        serde_json::to_vec(&metadata).expect("metadata JSON"),
+                    ),
+                    (URL.to_owned(), bytes.clone()),
+                ])))
+            });
+            TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+            command(&root, &["--json", "undo", "--yes"]).expect("undo downloads again");
+
+            let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
+            assert_eq!(
+                calls,
+                vec![METADATA_URL.to_owned(), URL.to_owned()],
+                "undo did not resolve and download the recorded source"
+            );
+            assert_eq!(
+                fs::read(&plugin).expect("restored plugin"),
+                b"cached-release"
+            );
+            let cached: Vec<_> = fs::read_dir(root.join("cache"))
+                .expect("cache directory")
+                .map(|entry| entry.expect("cache entry").path())
+                .filter(|path| path.extension().is_some_and(|extension| extension == "zip"))
+                .collect();
+            assert_eq!(cached.len(), 1, "undo did not acquire the archive again");
         });
     });
     TEST_RESPONSES.with(|responses| responses.replace(None));

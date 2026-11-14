@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Modn</title>
+    <link rel="stylesheet" href="css/tokens.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/home.css">
+    <link rel="stylesheet" href="css/library.css">
+    <link rel="stylesheet" href="css/details.css">
+    <script type="module" src="js/app.js"></script>
+  </head>
+  <body>
+    <div class="modn-app">
+      <aside class="modn-rail" aria-label="Primary navigation">
+        <a class="modn-rail__link" href="#/" aria-label="Home" data-testid="nav-home">
+          <span aria-hidden="true">M</span>
+        </a>
+      </aside>
+      <main class="modn-main" id="modn-view" tabindex="-1">
+        <p class="modn-status" role="status">Loading Modn…</p>
+      </main>
+    </div>
+    <div class="modn-toasts" id="modn-toasts" aria-live="polite"></div>
+  </body>
+</html>
