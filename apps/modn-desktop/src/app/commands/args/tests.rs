@@ -291,9 +291,47 @@ fn history_uses_the_game_selection() {
 #[test]
 fn undo_names_the_operation_and_confirms() {
     assert_eq!(
-        strings(undo("txn-SmOXgO")),
+        strings(ok(undo("txn-SmOXgO", false, &[]))),
         vec!["undo", "txn-SmOXgO", "--yes"]
     );
+}
+
+#[test]
+fn undo_passes_the_approvals_the_webview_sent() {
+    assert_eq!(
+        strings(ok(undo(
+            "txn-SmOXgO",
+            true,
+            &["tools/helper.exe".to_string()]
+        ))),
+        vec![
+            "undo",
+            "txn-SmOXgO",
+            "--yes",
+            "--allow-native-injector",
+            "--allow-executable",
+            "tools/helper.exe"
+        ]
+    );
+}
+
+#[test]
+fn undo_rejects_unsafe_executable_paths_before_a_process() {
+    for path in [
+        "",
+        r"C:\tools\tool.exe",
+        "C:tool.exe",
+        "/tools/tool.exe",
+        r"\tools\tool.exe",
+        "bin/../tool.exe",
+        r"bin\..\tool.exe",
+        "--allow-native-injector",
+        "-x",
+    ] {
+        let error = undo("txn-SmOXgO", false, &[path.to_string()])
+            .expect_err("unsafe executable path must be rejected");
+        assert_eq!(error.code, "INVALID_EXECUTABLE", "path: {path:?}");
+    }
 }
 
 #[test]
@@ -355,7 +393,7 @@ fn no_write_builder_emits_force_or_adoption_flags() {
     )));
     all.extend(uninstall(&game(), "txn-1"));
     all.extend(ok(update(&game(), &installed(), "txn-1", true, &[])));
-    all.extend(undo("txn-1"));
+    all.extend(ok(undo("txn-1", true, &["bin/tool.exe".to_string()])));
     let text = strings(all);
     for forbidden in ["--force", "--adopt", "--include-deps", "--cascade"] {
         assert!(
