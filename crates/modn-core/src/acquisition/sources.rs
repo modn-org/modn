@@ -281,7 +281,10 @@ impl fmt::Display for SourcesError {
             if count == 1 {
                 writeln!(f, "  download failed: {source}: {reason}")?;
             } else {
-                writeln!(f, "  download failed: {source}: {reason} ({count} attempts)")?;
+                writeln!(
+                    f,
+                    "  download failed: {source}: {reason} ({count} attempts)"
+                )?;
             }
             index = end;
         }
