@@ -246,6 +246,16 @@ impl BucketStore {
         self.load("main", path, ModuleTrustState::Main)?;
         Ok(())
     }
+    /// Validate one staged community catalog before publication.
+    pub(super) fn validate_catalog(
+        &self,
+        name: &str,
+        path: &Path,
+        trust: ModuleTrustState,
+    ) -> Result<()> {
+        self.load(name, path, trust)?;
+        Ok(())
+    }
 
     /// Return the validated first-party module directory for a supported game.
     pub fn official_module(&self, game: &str) -> Result<PathBuf> {
@@ -329,34 +339,6 @@ impl BucketStore {
         )
     }
 
-    pub(super) fn publish_zip(
-        &self,
-        name: &str,
-        path: PathBuf,
-        zip: super::ZipCatalogRevision,
-    ) -> Result<()> {
-        let signer_key_id = zip.signer.key_id.clone();
-        let module_trust = self
-            .registrations()?
-            .remove(name)
-            .and_then(|registration| registration.module_trust)
-            .filter(|trust| trust.signer_key_id == signer_key_id);
-        let trust = if module_trust.is_some() {
-            ModuleTrustState::Trusted
-        } else {
-            ModuleTrustState::Untrusted
-        };
-        self.load(name, &path, trust)?;
-        self.write_registration(
-            name,
-            &Registration {
-                path,
-                git: None,
-                zip: Some(zip.into()),
-                module_trust,
-            },
-        )
-    }
     /// Read one registration without creating registry directories.
     pub(super) fn registration(&self, name: &str) -> Result<Registration> {
         if !valid_id(name) || name == "main" {
@@ -396,15 +378,6 @@ impl BucketStore {
             .context("bucket is not a Git catalog")
             .map(Some)
     }
-    pub(super) fn registered_zip(&self, name: &str) -> Result<Option<super::ZipCatalogRevision>> {
-        if !self.registrations()?.contains_key(name) {
-            return Ok(None);
-        }
-        let registration: Registration =
-            bounded_json(&self.root.join("registrations").join(format!("{name}.json")))?;
-        Ok(registration.zip.map(|stored| stored.revision()))
-    }
-
     /// Forget a registered bucket without touching its source or game files.
     pub fn remove(&self, name: &str) -> Result<()> {
         if !valid_id(name) || name == "main" {

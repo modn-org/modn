@@ -6,7 +6,7 @@
 use super::git::{validate_tree, verify_catalog_tree, CatalogSigner};
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
-use super::store::BucketStore;
+use super::store::{bounded_json, BucketStore, Registration};
 use super::trust::ModuleTrustState;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
 use crate::{archive, bucket_digest};
@@ -281,6 +281,42 @@ impl BucketStore {
             pinned,
             modules: CatalogModuleReport { imported, ignored },
         })
+    }
+    pub(super) fn publish_zip(
+        &self,
+        name: &str,
+        path: PathBuf,
+        zip: super::ZipCatalogRevision,
+    ) -> Result<()> {
+        let signer_key_id = zip.signer.key_id.clone();
+        let module_trust = self
+            .registrations()?
+            .remove(name)
+            .and_then(|registration| registration.module_trust)
+            .filter(|trust| trust.signer_key_id == signer_key_id);
+        let trust = if module_trust.is_some() {
+            ModuleTrustState::Trusted
+        } else {
+            ModuleTrustState::Untrusted
+        };
+        self.validate_catalog(name, &path, trust)?;
+        self.write_registration(
+            name,
+            &Registration {
+                path,
+                git: None,
+                zip: Some(zip.into()),
+                module_trust,
+            },
+        )
+    }
+    pub(super) fn registered_zip(&self, name: &str) -> Result<Option<super::ZipCatalogRevision>> {
+        if !self.registrations()?.contains_key(name) {
+            return Ok(None);
+        }
+        let registration: Registration =
+            bounded_json(&self.root.join("registrations").join(format!("{name}.json")))?;
+        Ok(registration.zip.map(|stored| stored.revision()))
     }
 }
 #[cfg(test)]
