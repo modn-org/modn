@@ -245,6 +245,22 @@ fn details_expose_the_verifier_hooks() {
 }
 
 #[test]
+fn history_undo_sends_the_approvals_the_ask_collected() {
+    let history = read("ui/js/details/history.js");
+    for fragment in [
+        "askHost",
+        "run: ({ runId, approvals })",
+        "allowNativeInjector: approvals.native",
+        "allowExecutables: approvals.executables",
+    ] {
+        assert!(
+            history.contains(fragment),
+            "History Undo must send the approvals via {fragment}"
+        );
+    }
+}
+
+#[test]
 fn details_never_show_raw_cli_output() {
     let all = details_js();
     for raw in ["blocker.message", "error.message", "response.message"] {

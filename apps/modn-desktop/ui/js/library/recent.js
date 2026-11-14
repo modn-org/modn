@@ -58,7 +58,9 @@ export function createRecentMenu({ gameId, onChanged }) {
       return;
     }
     for (const entry of entries) {
+      const item = element('div', 'modn-recent__item');
       const row = element('div', 'modn-recent__entry');
+      const askHost = element('div', 'modn-recent__ask');
       row.append(element('span', 'modn-recent__text', entryLabel(entry)));
       row.append(
         createOperationButton({
@@ -67,15 +69,22 @@ export function createRecentMenu({ gameId, onChanged }) {
           action: 'Undo',
           testId: 'recent-undo',
           ariaLabel: `Undo ${entryLabel(entry)}`,
-          askHost: null,
-          run: ({ runId }) => undo({ operationId: entry.id, runId }),
+          askHost,
+          run: ({ runId, approvals }) =>
+            undo({
+              operationId: entry.id,
+              runId,
+              allowNativeInjector: approvals.native,
+              allowExecutables: approvals.executables,
+            }),
           onSettled: async () => {
             await load();
             await onChanged();
           },
         }).element,
       );
-      menu.append(row);
+      item.append(row, askHost);
+      menu.append(item);
     }
   }
 

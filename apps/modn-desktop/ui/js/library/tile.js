@@ -22,7 +22,13 @@ export function undoHooks(gameId) {
       };
       return entries.find((entry) => operationMatches(entry, target)) || null;
     },
-    runUndo: ({ runId, operationId }) => undo({ operationId, runId }),
+    runUndo: ({ runId, operationId, approvals }) =>
+      undo({
+        operationId,
+        runId,
+        allowNativeInjector: approvals.native,
+        allowExecutables: approvals.executables,
+      }),
   };
 }
 

@@ -181,6 +181,49 @@ fn op_button_binds_undo_to_the_operation_it_committed() {
 }
 
 #[test]
+fn undo_paths_send_the_approvals_the_ask_collected() {
+    let op = read("ui/js/op-button.js");
+    assert!(
+        op.contains("err.approval"),
+        "op-button.js must read the approval a refusal names"
+    );
+    assert!(
+        op.contains("refusal.nativeInjector") && op.contains("refusal.executables"),
+        "a refusal's approval names the native injector and executables directly"
+    );
+    let refusal = op.find("err.approval").expect("refusal approval");
+    let fallback = op[refusal..]
+        .find("await plan()")
+        .map(|offset| refusal + offset)
+        .expect("the plan fallback");
+    assert!(
+        refusal < fallback,
+        "a refusal's approval must win over the plan callback"
+    );
+    assert!(
+        op.contains("askHost && !active.operationId ? plan : null"),
+        "Undo must use only the refusal's approval, never the install plan"
+    );
+    let tile = read("ui/js/library/tile.js");
+    assert!(
+        tile.contains("runUndo: ({ runId, operationId, approvals })")
+            && tile.contains("allowNativeInjector: approvals.native")
+            && tile.contains("allowExecutables: approvals.executables"),
+        "the toast Undo must send the approvals the ask collected"
+    );
+    let recent = read("ui/js/library/recent.js");
+    assert!(
+        recent.contains("allowNativeInjector: approvals.native")
+            && recent.contains("allowExecutables: approvals.executables"),
+        "Recent Undo must send the approvals the ask collected"
+    );
+    assert!(
+        recent.contains("askHost") && !recent.contains("askHost: null"),
+        "Recent Undo must render the approval ask"
+    );
+}
+
+#[test]
 fn library_filter_tabs_support_keyboard_navigation() {
     let library = read("ui/js/library.js");
     for fragment in [
