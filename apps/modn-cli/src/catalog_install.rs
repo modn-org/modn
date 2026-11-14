@@ -127,7 +127,7 @@ fn match_archives(
         let matches: Vec<&BucketPackage> = dependencies
             .iter()
             .chain([selected])
-            .filter(|release| release.package.sha256.as_deref() == Some(inspected.sha256.as_str()))
+            .filter(|release| release.package.pin() == Some(inspected.sha256.as_str()))
             .collect();
         if matches.is_empty() {
             bail!(
@@ -181,7 +181,7 @@ fn install_mod(
         CacheUse::Reuse
     };
     if !archives.contains_key(&reference) && !args.dry_run && !download::downloadable(&selected) {
-        let source = dependency_plan::acquisition(&selected.package.source);
+        let source = dependency_plan::acquisition(selected.package.primary_source());
         bail!("{reference}: {source}, then use modn install {reference} --file <archive>");
     }
     if interactive && !install_consent::can_prompt(json) {
@@ -286,7 +286,7 @@ fn install_mod(
     }
     if !args.dry_run && !archives.contains_key(&reference) {
         if interactive {
-            let source = dependency_plan::acquisition(&selected.package.source);
+            let source = dependency_plan::acquisition(selected.package.primary_source());
             let download = format!("{reference} {}; {source}", selected.package.version);
             if !install_consent::confirm_download(
                 &[download],
@@ -408,7 +408,7 @@ fn install_mod(
     store.set_control(progress.control().clone());
     store.set_history_context(
         HistoryContext::new(game_id, installation.clone())
-            .with_source(&reference_of(&selected), selected.package.source.clone()),
+            .with_source(&reference_of(&selected), selected.package.primary_source().clone()),
     );
     let package = store.install_catalog_release_with_permissions(
         &installation,

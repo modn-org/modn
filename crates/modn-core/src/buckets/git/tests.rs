@@ -27,20 +27,20 @@ fn commit(root: &Path, title: &str) -> String {
 }
 
 fn package(version: &str) -> String {
-    serde_json::json!({"schema_version":1,"id":"mod","game":"test-game","name":"Mod",
-        "version":version,"archive_format":"zip","sha256":"0".repeat(64),
-        "source":{"kind":"manual","filename":"mod.zip"}})
+    serde_json::json!({"schema_version":2,"id":"mod","game":"test-game","name":"Mod",
+        "version":version,"archive_format":"zip","blake3":"0".repeat(64),
+        "sources":[{"kind":"manual","filename":"mod.zip"}]})
     .to_string()
 }
 
 fn seed_catalog(root: &Path, version: &str) {
     fs::write(
         root.join("bucket.json"),
-        r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+        r#"{"schema_version":2,"name":"community","title":"Community"}"#,
     )
     .unwrap();
-    fs::create_dir_all(root.join("games/test-game")).unwrap();
-    fs::write(root.join("games/test-game/mod.json"), package(version)).unwrap();
+    fs::create_dir_all(root.join("mods/test-game")).unwrap();
+    fs::write(root.join("mods/test-game/mod.json"), package(version)).unwrap();
 }
 
 struct TestKey {
@@ -171,10 +171,10 @@ fn signed_sync_pins_signer_and_tracks_later_pinned_revisions() {
     assert_ne!(synced.revision.commit, first.revision.commit);
     assert_eq!(synced.revision.signer.key_id, key_id);
     assert!(published(state.path())
-        .join("games/test-game/mod.json")
+        .join("mods/test-game/mod.json")
         .is_file());
     assert!(
-        fs::read_to_string(published(state.path()).join("games/test-game/mod.json"))
+        fs::read_to_string(published(state.path()).join("mods/test-game/mod.json"))
             .unwrap()
             .contains("\"2\"")
     );
@@ -196,7 +196,7 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
         .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
     let before_package =
-        fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap();
+        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
 
     seed_catalog(remote.directory.path(), "2");
     write_signature(remote.directory.path(), &new_key);
@@ -224,7 +224,7 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
         before_registration
     );
     assert_eq!(
-        fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap(),
+        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap(),
         before_package
     );
     assert_eq!(
@@ -282,7 +282,7 @@ fn first_sync_requires_both_signature_and_public_key() {
 fn invalid_signature_is_refused_at_first_and_later_sync() {
     let tampered = remote("1", test_key());
     fs::write(
-        tampered.directory.path().join("games/test-game/mod.json"),
+        tampered.directory.path().join("mods/test-game/mod.json"),
         package("tampered"),
     )
     .unwrap();
@@ -305,9 +305,9 @@ fn invalid_signature_is_refused_at_first_and_later_sync() {
         .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
     let before_package =
-        fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap();
+        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
     fs::write(
-        valid.directory.path().join("games/test-game/mod.json"),
+        valid.directory.path().join("mods/test-game/mod.json"),
         package("tampered"),
     )
     .unwrap();
@@ -325,7 +325,7 @@ fn invalid_signature_is_refused_at_first_and_later_sync() {
         before_registration
     );
     assert_eq!(
-        fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap(),
+        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap(),
         before_package
     );
     assert_eq!(
@@ -344,7 +344,7 @@ fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
         .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
     let before_package =
-        fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap();
+        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
 
     seed_catalog(remote.directory.path(), "2");
     fs::remove_file(remote.directory.path().join("catalog.sig")).unwrap();
@@ -359,7 +359,7 @@ fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
         before_registration
     );
     assert_eq!(
-        fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap(),
+        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap(),
         before_package
     );
 
@@ -375,7 +375,7 @@ fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
         before_registration
     );
     assert_eq!(
-        fs::read(published(state.path()).join("games/test-game/mod.json")).unwrap(),
+        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap(),
         before_package
     );
     assert_eq!(

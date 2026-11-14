@@ -7,12 +7,12 @@ use std::path::Path;
 
 fn write_release(bucket: &Path, file: &str, id: &str, version: &str) {
     let manifest = json!({
-        "schema_version": 1, "id": id, "game": "test-game", "name": id,
-        "version": version, "archive_format": "zip", "sha256": "a".repeat(64),
-        "source": {"kind": "manual", "filename": format!("{id}-{version}.zip")}
+        "schema_version": 2, "id": id, "game": "test-game", "name": id,
+        "version": version, "archive_format": "zip", "blake3": "a".repeat(64),
+        "sources": [{"kind": "manual", "filename": format!("{id}-{version}.zip")}]
     });
     fs::write(
-        bucket.join("games/test-game").join(file),
+        bucket.join("mods/test-game").join(file),
         serde_json::to_vec(&manifest).expect("JSON"),
     )
     .expect("manifest");
@@ -20,10 +20,10 @@ fn write_release(bucket: &Path, file: &str, id: &str, version: &str) {
 
 fn bucket(temp: &Path, name: &str) -> std::path::PathBuf {
     let root = temp.join(name);
-    fs::create_dir_all(root.join("games/test-game")).expect("bucket");
+    fs::create_dir_all(root.join("mods/test-game")).expect("bucket");
     fs::write(
         root.join("bucket.json"),
-        serde_json::to_vec(&json!({"schema_version": 1, "name": name, "title": "Fixture"}))
+        serde_json::to_vec(&json!({"schema_version": 2, "name": name, "title": "Fixture"}))
             .expect("JSON"),
     )
     .expect("metadata");
@@ -99,7 +99,7 @@ fn snapshot_keeps_selection_and_historical_versions_after_bucket_edits() {
         let snapshot = store.snapshot(Some("test-game")).expect("snapshot");
 
         write_release(&root, "foo.json", "foo", "2.0");
-        fs::write(root.join("games/test-game/foo@1.0.json"), b"invalid JSON")
+        fs::write(root.join("mods/test-game/foo@1.0.json"), b"invalid JSON")
             .expect("edit historical manifest");
 
         for query in ["foo", "test-game/foo", "local/test-game/foo"] {

@@ -109,7 +109,9 @@ impl BucketSnapshot {
                 })?;
                 Ok(CatalogDependency::new(
                     dependency.reference(),
-                    dependency.package.sha256.clone().unwrap_or_default(),
+                    // The v2 BLAKE3 pin has no state-database column until the
+                    // state schema moves from `archive_sha256` to `archive_blake3`.
+                    String::new(),
                 )
                 .with_requirement(selected.package.dependency_versions.get(id).cloned()))
             })
@@ -125,7 +127,8 @@ impl BucketSnapshot {
                         selected.package.game.clone(),
                         id.clone(),
                     ),
-                    published(id).and_then(|candidate| candidate.package.sha256.clone()),
+                    // The v2 BLAKE3 pin has no state-database column yet.
+                    None,
                 )
             })
             .collect();

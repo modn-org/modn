@@ -1,6 +1,7 @@
 use super::bounded_json;
 use crate::buckets::manifest::{valid_id, PackageManifest};
 use crate::buckets::trust::ModuleTrustState;
+use crate::buckets::{MODULE_MANIFEST, MODULE_SCRIPT};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
@@ -23,63 +24,100 @@ fn real_directory(path: &Path, root: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn read_packages(root: &Path, trust: ModuleTrustState) -> Result<Releases> {
-    let canonical = root.canonicalize()?;
-    let games = root.join("games");
-    if !games.exists() {
-        match fs::symlink_metadata(&games) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Releases::default())
-            }
-            Err(error) => return Err(error.into()),
-            Ok(_) => {}
-        }
+/// Validate `games/` for buckets that may publish game modules.
+///
+/// `main` and signed catalogs the user trusts for modules may hold only
+/// `games/<game-id>/module.json` and `module.lua`. Every other bucket ignores
+/// the folder without reading or validating it.
+fn validate_games(root: &Path, canonical: &Path, trust: ModuleTrustState) -> Result<()> {
+    if !matches!(
+        trust,
+        ModuleTrustState::Main | ModuleTrustState::Trusted
+    ) {
+        return Ok(());
     }
-    real_directory(&games, &canonical)?;
-    let mut releases = Releases::default();
-    let mut count = 0;
+    let games = root.join("games");
+    match fs::symlink_metadata(&games) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+        Ok(_) => {}
+    }
+    real_directory(&games, canonical)?;
     for game in fs::read_dir(&games)? {
         let game = game?;
         let game_id = game.file_name().to_string_lossy().into_owned();
         if !valid_id(&game_id) {
             bail!("invalid game directory name");
         }
-        real_directory(&game.path(), &canonical)?;
-        let module = game.path().join("module.json");
-        let script = game.path().join("module.lua");
-        let has_module = fs::symlink_metadata(&module).is_ok();
-        let has_script = fs::symlink_metadata(&script).is_ok();
-        if has_module || has_script {
-            match trust {
-                ModuleTrustState::Main => {
-                    let info = crate::game_modules::check_module(&game.path())?;
-                    if info.game_id != game_id || !has_script {
-                        bail!("official game module identity or module.lua mismatch: {game_id}");
-                    }
-                    let manifest: serde_json::Value = bounded_json(&module)?;
-                    if manifest["entrypoint"] != "module.lua" {
-                        bail!("official game module entrypoint must be module.lua");
-                    }
-                }
-                ModuleTrustState::Trusted | ModuleTrustState::Untrusted => {
-                    // Third-party module files are never packages and are not
-                    // parsed or executed while listing or searching a bucket.
-                }
-                ModuleTrustState::Local => bail!(
-                    "only the official main bucket may contain game modules: {}",
-                    game.path().display()
+        if !game.file_type()?.is_dir() {
+            bail!(
+                "games/ may hold only game module directories: {}",
+                game.path().display()
+            );
+        }
+        real_directory(&game.path(), canonical)?;
+        let mut has_script = false;
+        for entry in fs::read_dir(game.path())? {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if !kind.is_file() {
+                bail!(
+                    "games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}"
+                );
+            }
+            match entry.file_name().to_str() {
+                Some(MODULE_SCRIPT) => has_script = true,
+                Some(MODULE_MANIFEST) => {}
+                _ => bail!(
+                    "games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}"
                 ),
             }
         }
+        if trust == ModuleTrustState::Main {
+            let info = crate::game_modules::check_module(&game.path())?;
+            if info.game_id != game_id || !has_script {
+                bail!(
+                    "official game module identity or {MODULE_SCRIPT} mismatch: {game_id}"
+                );
+            }
+            let manifest: serde_json::Value =
+                bounded_json(&game.path().join(MODULE_MANIFEST))?;
+            if manifest["entrypoint"] != MODULE_SCRIPT {
+                bail!("official game module entrypoint must be {MODULE_SCRIPT}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read `mods/<game-id>/<mod-id>.json` and `mods/<game-id>/<mod-id>@<version>.json`.
+fn read_releases(root: &Path, canonical: &Path) -> Result<Releases> {
+    let mods = root.join("mods");
+    match fs::symlink_metadata(&mods) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Releases::default())
+        }
+        Err(error) => return Err(error.into()),
+        Ok(_) => {}
+    }
+    real_directory(&mods, canonical)?;
+    let mut releases = Releases::default();
+    let mut count = 0;
+    for game in fs::read_dir(&mods)? {
+        let game = game?;
+        let game_id = game.file_name().to_string_lossy().into_owned();
+        if !valid_id(&game_id) {
+            bail!("invalid game directory name");
+        }
+        if !game.file_type()?.is_dir() {
+            bail!("unexpected bucket package entry");
+        }
+        real_directory(&game.path(), canonical)?;
         for entry in fs::read_dir(game.path())? {
             let path = entry?.path();
-            if matches!(
-                path.file_name().and_then(|n| n.to_str()),
-                Some("module.json" | "module.lua")
-            ) {
-                continue;
-            }
-            if path.extension().is_none_or(|e| e != "json") {
+            if !fs::symlink_metadata(&path)?.file_type().is_file()
+                || path.extension().is_none_or(|e| e != "json")
+            {
                 bail!("unexpected bucket package entry");
             }
             let stem = path
@@ -128,4 +166,10 @@ pub(super) fn read_packages(root: &Path, trust: ModuleTrustState) -> Result<Rele
         }
     }
     Ok(releases)
+}
+
+pub(super) fn read_packages(root: &Path, trust: ModuleTrustState) -> Result<Releases> {
+    let canonical = root.canonicalize()?;
+    validate_games(root, &canonical, trust)?;
+    read_releases(root, &canonical)
 }

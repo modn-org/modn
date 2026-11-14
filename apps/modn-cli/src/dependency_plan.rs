@@ -99,7 +99,7 @@ pub(super) fn plan(
                 sha256: download::digest(release, digests)
                     .unwrap_or_default()
                     .to_owned(),
-                source: release.package.source.clone(),
+                source: release.package.primary_source().clone(),
                 state,
             }
         })
@@ -175,11 +175,11 @@ pub(super) fn report(
             serde_json::to_string_pretty(&serde_json::json!({
                 "package": reference,
                 "version": selected.package.version,
-                "source": selected.package.source,
+                "source": selected.package.primary_source().clone(),
                 "plan": archive.as_ref().map(|preview| preview.plan),
                 "archive_needed": archive
                     .is_none()
-                    .then(|| acquisition(&selected.package.source)),
+                    .then(|| acquisition(selected.package.primary_source())),
                 "unapproved_declared_executables":
                     archive.as_ref().map(|preview| preview.unapproved_declared_executables),
                 "dependencies": dependencies
@@ -198,7 +198,7 @@ pub(super) fn report(
         println!("CONFLICT {conflict}");
     }
     let Some(preview) = archive else {
-        let next = match &selected.package.source {
+        let next = match selected.package.primary_source() {
             PackageSource::Https { .. }
             | PackageSource::GithubRelease { .. }
             | PackageSource::Git { .. }
@@ -207,7 +207,7 @@ pub(super) fn report(
         };
         println!(
             "Dry run for {reference}: archive needed; {}, {next}",
-            acquisition(&selected.package.source)
+            acquisition(selected.package.primary_source())
         );
         return Ok(());
     };

@@ -1,3 +1,5 @@
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 use minisign::KeyPair;
 use modn_core::buckets::{
     catalog_statement, BucketStore, CatalogPublicKey, GitCatalogRevision, GitCatalogSource,
@@ -40,9 +42,9 @@ fn commit(root: &Path, message: &str) {
 }
 
 fn package() -> String {
-    json!({"schema_version":1,"id":"mod","game":"test-game","name":"Mod","version":"1",
-        "archive_format":"zip","sha256":"0".repeat(64),
-        "source":{"kind":"manual","filename":"mod.zip"}})
+    json!({"schema_version":2,"id":"mod","game":"test-game","name":"Mod","version":"1",
+        "archive_format":"zip","blake3":"0".repeat(64),
+        "sources":[{"kind":"manual","filename":"mod.zip"}]})
     .to_string()
 }
 
@@ -90,11 +92,11 @@ impl TestRemote {
         git(directory.path(), &["init", "--initial-branch=fixture"]);
         fs::write(
             directory.path().join("bucket.json"),
-            r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+            r#"{"schema_version":2,"name":"community","title":"Community"}"#,
         )
         .expect("metadata");
-        fs::create_dir_all(directory.path().join("games/test-game")).expect("games");
-        fs::write(directory.path().join("games/test-game/mod.json"), package()).expect("package");
+        fs::create_dir_all(directory.path().join("mods/test-game")).expect("games");
+        fs::write(directory.path().join("mods/test-game/mod.json"), package()).expect("package");
         let pair = KeyPair::generate_unencrypted_keypair().expect("key");
         let public_text = pair.pk.to_box().expect("public key").into_string();
         let key_id = CatalogPublicKey::parse(&public_text)
@@ -143,7 +145,7 @@ fn local_bucket(root: &Path) -> PathBuf {
     fs::create_dir_all(bucket.join("games/test-game")).expect("games");
     fs::write(
         bucket.join("bucket.json"),
-        json!({"schema_version": 1, "name": "local", "title": "Local"}).to_string(),
+        json!({"schema_version": 2, "name": "local", "title": "Local"}).to_string(),
     )
     .expect("metadata");
     bucket
@@ -428,13 +430,170 @@ fn later_sync_keeps_trust_for_the_same_pinned_signer() {
     assert_eq!(store.trusted_module_sources().expect("sources").len(), 1);
 }
 
+struct SignedRemote {
+    directory: tempfile::TempDir,
+    pair: KeyPair,
+    public: String,
+}
+
+impl SignedRemote {
+    fn path(&self) -> &Path {
+        self.directory.path()
+    }
+
+    fn resign(&self, message: &str) {
+        write_signature(self.path(), &self.pair, &self.public);
+        commit(self.path(), message);
+    }
+
+    fn source(&self) -> GitCatalogSource {
+        GitCatalogSource::new(
+            self.path().to_string_lossy().into_owned(),
+            "fixture".to_owned(),
+        )
+    }
+}
+
+fn signed_remote(layout: impl FnOnce(&Path)) -> SignedRemote {
+    let directory = tempfile::tempdir().expect("remote");
+    git(directory.path(), &["init", "--initial-branch=fixture"]);
+    fs::write(
+        directory.path().join("bucket.json"),
+        r#"{"schema_version":2,"name":"community","title":"Community"}"#,
+    )
+    .expect("metadata");
+    fs::create_dir_all(directory.path().join("mods/test-game")).expect("mods");
+    fs::write(directory.path().join("mods/test-game/mod.json"), package()).expect("package");
+    layout(directory.path());
+    let pair = KeyPair::generate_unencrypted_keypair().expect("key");
+    let public = pair.pk.to_box().expect("public key").into_string();
+    write_signature(directory.path(), &pair, &public);
+    commit(directory.path(), "fixture");
+    SignedRemote {
+        directory,
+        pair,
+        public,
+    }
+}
+
+#[test]
+fn trusted_catalogs_refuse_a_package_manifest_under_games() {
+    for (relative, contents) in [
+        ("games/test-game/extra.json", package()),
+        ("games/test-game/notes.txt", "notes".to_owned()),
+        ("games/loose.json", package()),
+    ] {
+        let remote = signed_remote(|_| {});
+        let state = tempfile::tempdir().expect("state");
+        let store = BucketStore::new(state.path());
+        store
+            .sync_git_with_signer("community", Some(remote.source()))
+            .expect("first sync");
+        store
+            .trust_modules(
+                "community",
+                ModuleTrustAck::Acknowledged {
+                    expected_fingerprint: None,
+                },
+            )
+            .expect("trust");
+        fs::create_dir_all(remote.path().join("games/test-game")).expect("games");
+        fs::write(remote.path().join(relative), contents).expect("extra entry");
+        remote.resign(relative);
+        let error = store
+            .sync_git("community", None)
+            .expect_err(relative);
+        let error = format!("{error:#}");
+        assert!(error.contains("games/<game-id>"), "{relative}: {error}");
+        assert_eq!(
+            store.module_trust("community").expect("trust"),
+            ModuleTrustState::Trusted
+        );
+    }
+
+    let remote = signed_remote(|_| {});
+    let state = tempfile::tempdir().expect("state");
+    let store = BucketStore::new(state.path());
+    store
+        .sync_git_with_signer("community", Some(remote.source()))
+        .expect("first sync");
+    store
+        .trust_modules(
+            "community",
+            ModuleTrustAck::Acknowledged {
+                expected_fingerprint: None,
+            },
+        )
+        .expect("trust");
+    fs::create_dir_all(remote.path().join("games/test-game/nested")).expect("nested");
+    fs::write(remote.path().join("games/test-game/nested/file.txt"), "x").expect("nested file");
+    remote.resign("nested");
+    let error = store
+        .sync_git("community", None)
+        .expect_err("nested directory");
+    assert!(format!("{error:#}").contains("games/<game-id>"), "{error:#}");
+}
+
+#[test]
+fn untrusted_catalogs_ignore_games_and_stay_untrusted() {
+    main_bucket::seeded(|| {
+    let remote = signed_remote(|root| {
+        fs::create_dir_all(root.join("games/test-game")).expect("games");
+        fs::write(
+            root.join("games/test-game/module.json"),
+            r#"{"game_id":"test-game","version":"1","api_version":1,"entrypoint":"module.lua"}"#,
+        )
+        .expect("module manifest");
+        fs::write(root.join("games/test-game/module.lua"), "return {}").expect("module script");
+        fs::write(root.join("games/loose.txt"), "ignored").expect("loose entry");
+    });
+    let state = tempfile::tempdir().expect("state");
+    let store = BucketStore::new(state.path());
+    let synced = store
+        .sync_git_with_signer("community", Some(remote.source()))
+        .expect("untrusted games folder is ignored");
+    assert!(synced.modules.ignored.is_empty());
+    assert_eq!(
+        store.module_trust("community").expect("trust"),
+        ModuleTrustState::Untrusted
+    );
+    assert!(store.trusted_module_sources().expect("sources").is_empty());
+    let packages = store.packages(Some("test-game")).expect("packages");
+    assert!(packages.iter().any(|package| package.package.id == "mod"));
+    });
+}
+
+#[test]
+fn a_mod_named_module_is_a_package_not_a_game_module() {
+    main_bucket::seeded(|| {
+    let state = tempfile::tempdir().expect("state");
+    let source = tempfile::tempdir().expect("source");
+    let bucket = local_bucket(source.path());
+    fs::create_dir_all(bucket.join("mods/test-game")).expect("mods");
+    fs::write(
+        bucket.join("mods/test-game/module.json"),
+        package().replace("\"id\":\"mod\"", "\"id\":\"module\""),
+    )
+    .expect("package named module");
+    fs::write(
+        bucket.join("games/test-game/module.lua"),
+        "return {}",
+    )
+    .expect("ignored script");
+    let store = BucketStore::new(state.path());
+    store.add("local", &bucket).expect("register");
+    let packages = store.packages(Some("test-game")).expect("packages");
+    assert!(packages.iter().any(|package| package.package.id == "module"));
+    });
+}
+
 #[test]
 fn bucket_listing_reports_module_trust() {
     let temp = tempfile::tempdir().expect("state");
     fs::create_dir_all(temp.path().join("buckets/main")).expect("main");
     fs::write(
         temp.path().join("buckets/main/bucket.json"),
-        json!({"schema_version": 1, "name": "main", "title": "Main"}).to_string(),
+        json!({"schema_version": 2, "name": "main", "title": "Main"}).to_string(),
     )
     .expect("metadata");
     let remote = TestRemote::new();

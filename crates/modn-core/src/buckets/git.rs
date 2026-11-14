@@ -2,10 +2,8 @@ use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
 use super::trust::ModuleTrustState;
-use super::BucketStore;
-use crate::game_modules::{
-    stage_catalog_modules_at, CatalogModuleReport, IgnoredModule, ModuleIgnoreReason,
-};
+use super::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
+use crate::game_modules::{stage_catalog_modules_at, CatalogModuleReport};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
@@ -127,20 +125,6 @@ fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
     )
 }
 
-fn valid_module_location(relative: &Path) -> bool {
-    let parts: Vec<&OsStr> = relative
-        .components()
-        .filter_map(|component| match component {
-            Component::Normal(name) => Some(name),
-            _ => None,
-        })
-        .collect();
-    parts.len() == 3
-        && parts[0] == OsStr::new("games")
-        && valid_id(&parts[1].to_string_lossy())
-        && matches!(parts[2].to_str(), Some("module.json" | "module.lua"))
-}
-
 fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Result<()> {
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
@@ -148,25 +132,39 @@ fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Resu
         if kind.is_symlink() || (!kind.is_dir() && !kind.is_file()) {
             bail!("Git catalog contains a non-regular entry");
         }
-        if entry.file_name() == "module.json" || entry.file_name() == "module.lua" {
-            let relative = entry.path();
-            let relative = relative
-                .strip_prefix(root)
-                .context("catalog module path outside root")?;
-            match trust {
-                ModuleTrustState::Main | ModuleTrustState::Trusted => {
-                    if !valid_module_location(relative) {
-                        bail!(
-                            "catalog game modules are only supported at games/<game>/module.json and module.lua"
-                        );
-                    }
+        let relative = entry.path();
+        let relative = relative
+            .strip_prefix(root)
+            .context("catalog module path outside root")?;
+        let parts: Vec<&OsStr> = relative
+            .components()
+            .filter_map(|component| match component {
+                Component::Normal(name) => Some(name),
+                _ => None,
+            })
+            .collect();
+        if parts.first() == Some(&OsStr::new("games")) {
+            if !matches!(
+                trust,
+                ModuleTrustState::Main | ModuleTrustState::Trusted
+            ) {
+                // Untrusted buckets ignore `games/` without reading it.
+                continue;
+            }
+            let valid = match parts.as_slice() {
+                [_] => kind.is_dir(),
+                [_, game] => kind.is_dir() && valid_id(&game.to_string_lossy()),
+                [_, game, name] => {
+                    kind.is_file()
+                        && valid_id(&game.to_string_lossy())
+                        && matches!(name.to_str(), Some(MODULE_MANIFEST | MODULE_SCRIPT))
                 }
-                ModuleTrustState::Untrusted => {
-                    // Module files are ignored without parsing or executing them.
-                }
-                ModuleTrustState::Local => {
-                    bail!("community Git catalogs cannot contain game modules");
-                }
+                _ => false,
+            };
+            if !valid {
+                bail!(
+                    "catalog game modules are only supported at games/<game-id>/module.json and module.lua"
+                );
             }
         }
         if kind.is_dir() {
@@ -174,36 +172,6 @@ fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Resu
         }
     }
     Ok(())
-}
-
-fn ignored_modules(root: &Path) -> Result<Vec<IgnoredModule>> {
-    let games = root.join("games");
-    match fs::symlink_metadata(&games) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        result => {
-            result?;
-        }
-    }
-    let mut ignored = Vec::new();
-    for entry in fs::read_dir(&games)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let game = entry.file_name().to_string_lossy().into_owned();
-        let directory = entry.path();
-        if valid_id(&game)
-            && (fs::symlink_metadata(directory.join("module.json")).is_ok()
-                || fs::symlink_metadata(directory.join("module.lua")).is_ok())
-        {
-            ignored.push(IgnoredModule {
-                game_id: game,
-                reason: ModuleIgnoreReason::UntrustedSource,
-            });
-        }
-    }
-    ignored.sort_by(|left, right| left.game_id.cmp(&right.game_id));
-    Ok(ignored)
 }
 
 fn unsigned(name: &str, reference: &str) -> anyhow::Error {
@@ -392,7 +360,7 @@ impl BucketStore {
         };
         let ignored = match &staged {
             Some(staged) => staged.ignored().to_vec(),
-            None => ignored_modules(&catalog)?,
+            None => Vec::new(),
         };
         self.publish_git(name, catalog, revision.clone())?;
         let imported = match staged {

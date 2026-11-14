@@ -52,7 +52,7 @@ pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
 }
 
 fn source_url(release: &BucketPackage) -> Result<Option<String>> {
-    Ok(match &release.package.source {
+    Ok(match release.package.primary_source() {
         PackageSource::Https { url } => Some(url.clone()),
         PackageSource::GithubRelease {
             repository,
@@ -77,13 +77,13 @@ fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
         &release.package.id,
         &release.package.version,
         url,
-        release.package.sha256.as_deref().unwrap_or_default(),
+        release.package.pin().unwrap_or_default(),
     )
 }
 
 pub(super) fn downloadable(release: &BucketPackage) -> bool {
     matches!(
-        release.package.source,
+        release.package.primary_source(),
         PackageSource::Https { .. }
             | PackageSource::GithubRelease { .. }
             | PackageSource::Git { .. }
@@ -95,7 +95,7 @@ pub(super) fn downloadable(release: &BucketPackage) -> bool {
 pub(super) fn validate_links(links: &[NxmLink], releases: &[&BucketPackage]) -> Result<()> {
     let packages: Vec<(&str, u64, u64)> = releases
         .iter()
-        .filter_map(|release| match &release.package.source {
+        .filter_map(|release| match release.package.primary_source() {
             PackageSource::Nexus {
                 game_domain,
                 mod_id,
@@ -114,7 +114,7 @@ fn nexus_label(game_domain: &str, mod_id: u64, file_id: u64, file_name: &str) ->
 
 /// A download consent label that never includes a secret-bearing URL.
 pub(super) fn source_label(release: &BucketPackage) -> Option<String> {
-    match &release.package.source {
+    match release.package.primary_source() {
         PackageSource::Nexus {
             game_domain,
             mod_id,
@@ -136,7 +136,7 @@ pub(super) fn digest<'a>(
     digests
         .get(&reference_of(release).to_string())
         .map(String::as_str)
-        .or(release.package.sha256.as_deref())
+        .or(release.package.pin())
 }
 
 /// Acquire the archive of one recorded release source for undo.
@@ -267,7 +267,7 @@ pub(super) fn download(
         if archives.contains_key(&reference) {
             continue;
         }
-        if let PackageSource::Git { repository, commit } = &release.package.source {
+        if let PackageSource::Git { repository, commit } = release.package.primary_source() {
             if !json && !progress.enabled() {
                 eprintln!(
                     "Fetching {reference} {} commit {commit} from {repository}",
@@ -284,7 +284,7 @@ pub(super) fn download(
             mod_id,
             file_id,
             file_name,
-        } = &release.package.source
+        } = release.package.primary_source()
         {
             let file = NexusFile::new(game_domain, *mod_id, *file_id, file_name)?;
             let link = nexus_download::matching_link(links, game_domain, *mod_id, *file_id);
@@ -322,7 +322,7 @@ pub(super) fn download(
             repository,
             tag,
             asset,
-        } = &release.package.source
+        } = release.package.primary_source()
         {
             let provider = GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
             let resolved = provider.resolve(fetch_metadata)?;

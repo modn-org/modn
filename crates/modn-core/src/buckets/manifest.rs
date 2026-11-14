@@ -22,10 +22,19 @@ pub struct PackageManifest {
     /// Required for every source except `git`, whose archive is always ZIP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_format: Option<ArchiveFormat>,
-    /// Archive digest. Required except for `git`, whose commit is the pin.
+    /// BLAKE3 archive pin, 64 lowercase hex characters. Required for every
+    /// source except `git`, whose commit is the pin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sha256: Option<String>,
-    pub source: PackageSource,
+    pub blake3: Option<String>,
+    /// Ordered artifact sources tried in turn for this release.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<PackageSource>,
+    /// True when the author allows redistribution of the archive.
+    #[serde(default)]
+    pub redistributable: bool,
+    /// Upstream SHA-256, when known. Provenance only; Modn never verifies it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_sha256: Option<String>,
     #[serde(default)]
     pub dependencies: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -134,27 +143,59 @@ fn valid_https(url: &str) -> bool {
 }
 
 impl PackageManifest {
-    fn required_sha256(&self) -> Result<&str> {
-        let sha256 = self
-            .sha256
-            .as_deref()
-            .context("package sha256 is required for non-git sources")?;
-        if sha256.len() != 64
-            || !sha256
+    /// Return the first artifact source, which validated records always have.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the record was not validated and carries no source.
+    #[must_use]
+    pub fn primary_source(&self) -> &PackageSource {
+        self.sources
+            .first()
+            .expect("validated package manifest has at least one source")
+    }
+
+    /// Return the BLAKE3 archive pin, when the release pins an archive.
+    #[must_use]
+    pub fn pin(&self) -> Option<&str> {
+        self.blake3.as_deref()
+    }
+
+    fn valid_digest(value: &str) -> bool {
+        value.len() == 64
+            && value
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            bail!("package sha256 must be 64 lowercase hex characters");
+    }
+
+    fn required_blake3(&self) -> Result<&str> {
+        let pin = self
+            .blake3
+            .as_deref()
+            .context("package blake3 is required for non-git sources")?;
+        if !Self::valid_digest(pin) {
+            bail!("package blake3 must be 64 lowercase hex characters");
         }
-        Ok(sha256)
+        Ok(pin)
     }
 
     pub(super) fn validate(&self, game: &str, id: &str) -> Result<()> {
-        if self.schema_version != 1 {
-            bail!("unsupported bucket package schema");
+        if self.schema_version != 2 {
+            bail!(
+                "bucket package schema_version {} is unsupported; Modn requires bucket contract v2 and does not read v1 records",
+                self.schema_version
+            );
         }
         if !valid_id(&self.id) || !valid_id(&self.game) || self.id != id || self.game != game {
-            bail!("bucket package identity disagrees with games/<game>/<id>.json path");
+            bail!("bucket package identity disagrees with mods/<game>/<id>.json path");
+        }
+        if self.sources.is_empty() {
+            bail!("bucket package sources must not be empty");
+        }
+        if let Some(upstream) = &self.upstream_sha256 {
+            if !Self::valid_digest(upstream) {
+                bail!("package upstream_sha256 must be 64 lowercase hex characters");
+            }
         }
         if self.name.trim().is_empty() || self.name.len() > 128 {
             bail!("invalid package name");
@@ -168,69 +209,76 @@ impl PackageManifest {
         {
             bail!("invalid package version");
         }
-        match &self.source {
-            PackageSource::Git { repository, commit } => {
-                if self.sha256.is_some() {
-                    bail!("git source packages must not declare sha256; the commit is the pin");
-                }
-                if self
-                    .archive_format
-                    .as_ref()
-                    .is_some_and(|format| !matches!(format, ArchiveFormat::Zip))
-                {
-                    bail!("git source archive_format must be zip when present");
-                }
-                crate::acquisition::GitSource::new(repository.clone(), commit.clone())
-                    .remote_url()?;
+        let git_only = self
+            .sources
+            .iter()
+            .all(|source| matches!(source, PackageSource::Git { .. }));
+        if git_only {
+            if self.blake3.is_some() {
+                bail!("git source packages must not declare blake3; the commit is the pin");
             }
-            PackageSource::GithubRelease {
-                repository,
-                tag,
-                asset,
-            } => {
-                self.required_sha256()?;
-                crate::acquisition::GithubReleaseAsset::new(
-                    repository.clone(),
-                    tag.clone(),
-                    asset.clone(),
-                )
-                .metadata_url()?;
-            }
-            PackageSource::Manual { filename } => {
-                self.required_sha256()?;
-                let format = self
-                    .archive_format
-                    .as_ref()
-                    .context("archive_format is required for non-git sources")?;
-                let extension = match format {
-                    ArchiveFormat::Zip => ".zip",
-                    ArchiveFormat::SevenZ => ".7z",
-                };
-                if filename.is_empty()
-                    || filename.len() > 255
-                    || filename == "."
-                    || filename == ".."
-                    || filename
-                        .chars()
-                        .any(|c| c.is_control() || c == '/' || c == '\\')
-                    || !filename.to_ascii_lowercase().ends_with(extension)
-                {
-                    bail!("invalid manual archive filename");
+        } else {
+            self.required_blake3()?;
+        }
+        for source in &self.sources {
+            match source {
+                PackageSource::Git { repository, commit } => {
+                    if self
+                        .archive_format
+                        .as_ref()
+                        .is_some_and(|format| !matches!(format, ArchiveFormat::Zip))
+                    {
+                        bail!("git source archive_format must be zip when present");
+                    }
+                    crate::acquisition::GitSource::new(repository.clone(), commit.clone())
+                        .remote_url()?;
                 }
-            }
-            PackageSource::Nexus {
-                game_domain,
-                mod_id,
-                file_id,
-                file_name,
-            } => nexus::validate(self, game_domain, *mod_id, *file_id, file_name)?,
-            PackageSource::Https { url } => {
-                self.required_sha256()?;
-                self.archive_format
-                    .as_ref()
-                    .context("archive_format is required for non-git sources")?;
-                if !valid_https(url) {
-                    bail!("download URL must be HTTPS")
+                PackageSource::GithubRelease {
+                    repository,
+                    tag,
+                    asset,
+                } => {
+                    crate::acquisition::GithubReleaseAsset::new(
+                        repository.clone(),
+                        tag.clone(),
+                        asset.clone(),
+                    )
+                    .metadata_url()?;
+                }
+                PackageSource::Manual { filename } => {
+                    let format = self
+                        .archive_format
+                        .as_ref()
+                        .context("archive_format is required for non-git sources")?;
+                    let extension = match format {
+                        ArchiveFormat::Zip => ".zip",
+                        ArchiveFormat::SevenZ => ".7z",
+                    };
+                    if filename.is_empty()
+                        || filename.len() > 255
+                        || filename == "."
+                        || filename == ".."
+                        || filename
+                            .chars()
+                            .any(|c| c.is_control() || c == '/' || c == '\\')
+                        || !filename.to_ascii_lowercase().ends_with(extension)
+                    {
+                        bail!("invalid manual archive filename");
+                    }
+                }
+                PackageSource::Nexus {
+                    game_domain,
+                    mod_id,
+                    file_id,
+                    file_name,
+                } => nexus::validate(self, game_domain, *mod_id, *file_id, file_name)?,
+                PackageSource::Https { url } => {
+                    self.archive_format
+                        .as_ref()
+                        .context("archive_format is required for non-git sources")?;
+                    if !valid_https(url) {
+                        bail!("download URL must be HTTPS")
+                    }
                 }
             }
         }
@@ -310,9 +358,9 @@ mod tests {
 
     fn parse(extra: serde_json::Value) -> anyhow::Result<super::PackageManifest> {
         let mut value = serde_json::json!({
-            "schema_version": 1, "id": "top", "game": "test-game", "name": "Top",
-            "version": "1.0", "archive_format": "zip", "sha256": "0".repeat(64),
-            "source": {"kind": "manual", "filename": "top.zip"},
+            "schema_version": 2, "id": "top", "game": "test-game", "name": "Top",
+            "version": "1.0", "archive_format": "zip", "blake3": "0".repeat(64),
+            "sources": [{"kind": "manual", "filename": "top.zip"}],
             "dependencies": ["base", "xl"]
         });
         if let (Some(value), serde_json::Value::Object(extra)) = (value.as_object_mut(), extra) {
@@ -389,9 +437,9 @@ mod tests {
 
     fn parse_git(extra: serde_json::Value) -> anyhow::Result<super::PackageManifest> {
         let mut value = serde_json::json!({
-            "schema_version": 1, "id": "top", "game": "test-game", "name": "Top",
+            "schema_version": 2, "id": "top", "game": "test-game", "name": "Top",
             "version": "1.0",
-            "source": {"kind": "git", "repository": "owner/project", "commit": "a".repeat(40)}
+            "sources": [{"kind": "git", "repository": "owner/project", "commit": "a".repeat(40)}]
         });
         if let (Some(value), serde_json::Value::Object(extra)) = (value.as_object_mut(), extra) {
             value.extend(extra);
@@ -407,19 +455,19 @@ mod tests {
     fn git_source_parses_with_a_full_commit_and_no_digest() {
         use serde_json::json;
         let parsed = parse_git(json!({})).expect("valid git source");
-        assert!(parsed.sha256.is_none());
+        assert!(parsed.blake3.is_none());
         assert!(parsed.archive_format.is_none());
         assert!(matches!(
-            parsed.source,
+            parsed.primary_source(),
             super::PackageSource::Git { repository, commit }
-                if repository == "owner/project" && commit == "a".repeat(40)
+                if repository == "owner/project" && *commit == "a".repeat(40)
         ));
         git(json!({"archive_format": "zip"})).expect("zip is allowed when present");
         for commit in ["abc", &"A".repeat(40), &"a".repeat(64)] {
             let error = format!(
                 "{:#}",
                 git(json!({
-                    "source": {"kind": "git", "repository": "owner/project", "commit": commit}
+                    "sources": [{"kind": "git", "repository": "owner/project", "commit": commit}]
                 }))
                 .unwrap_err()
             );
@@ -433,7 +481,7 @@ mod tests {
         let branch = format!(
             "{:#}",
             git(json!({
-                "source": {"kind": "git", "repository": "owner/project", "commit": "main"}
+                "sources": [{"kind": "git", "repository": "owner/project", "commit": "main"}]
             }))
             .unwrap_err()
         );
@@ -442,19 +490,19 @@ mod tests {
         let unknown = format!(
             "{:#}",
             parse_git(json!({
-                "source": {"kind": "git", "repository": "owner/project",
-                    "commit": "a".repeat(40), "tag": "v1"}
+                "sources": [{"kind": "git", "repository": "owner/project",
+                    "commit": "a".repeat(40), "tag": "v1"}]
             }))
             .unwrap_err()
         );
         assert!(unknown.contains("unknown field"), "{unknown}");
 
-        let digest = format!("{:#}", git(json!({"sha256": "0".repeat(64)})).unwrap_err());
-        assert!(digest.contains("must not declare sha256"), "{digest}");
+        let digest = format!("{:#}", git(json!({"blake3": "0".repeat(64)})).unwrap_err());
+        assert!(digest.contains("must not declare blake3"), "{digest}");
     }
 
     #[test]
-    fn non_git_sources_still_require_sha256() {
+    fn non_git_sources_still_require_blake3() {
         use serde_json::json;
         for source in [
             json!({"kind": "manual", "filename": "top.zip"}),
@@ -464,9 +512,87 @@ mod tests {
         ] {
             let error = format!(
                 "{:#}",
-                manifest(json!({"sha256": null, "source": source})).unwrap_err()
+                manifest(json!({"blake3": null, "sources": [source]})).unwrap_err()
             );
-            assert!(error.contains("sha256 is required"), "{error}");
+            assert!(error.contains("blake3 is required"), "{error}");
         }
+    }
+
+    #[test]
+    fn contract_v2_record_keeps_ordered_sources_and_optional_fields() {
+        use serde_json::json;
+        let parsed = parse(json!({
+            "sources": [
+                {"kind": "https", "url": "https://primary.invalid/top.zip"},
+                {"kind": "https", "url": "https://mirror.invalid/top.zip"}
+            ],
+            "redistributable": true,
+            "upstream_sha256": "b".repeat(64)
+        }))
+        .expect("valid v2 record");
+        assert_eq!(parsed.schema_version, 2);
+        assert_eq!(parsed.pin(), Some("0".repeat(64).as_str()));
+        assert_eq!(
+            parsed
+                .sources
+                .iter()
+                .map(|source| match source {
+                    super::PackageSource::Https { url } => url.as_str(),
+                    _ => "other",
+                })
+                .collect::<Vec<_>>(),
+            [
+                "https://primary.invalid/top.zip",
+                "https://mirror.invalid/top.zip"
+            ]
+        );
+        assert!(parsed.redistributable);
+        assert_eq!(parsed.upstream_sha256, Some("b".repeat(64)));
+        let default = parse(json!({})).expect("redistributable defaults to false");
+        assert!(!default.redistributable);
+        assert!(default.upstream_sha256.is_none());
+    }
+
+    #[test]
+    fn contract_v1_fields_are_refused() {
+        use serde_json::json;
+        let schema = format!(
+            "{:#}",
+            manifest(json!({"schema_version": 1})).unwrap_err()
+        );
+        assert!(schema.contains("schema_version 1"), "{schema}");
+        assert!(schema.contains("contract v2"), "{schema}");
+        for extra in [
+            json!({"sha256": "0".repeat(64)}),
+            json!({"source": {"kind": "manual", "filename": "top.zip"}}),
+        ] {
+            let error = format!("{:#}", parse(extra.clone()).unwrap_err());
+            assert!(error.contains("unknown field"), "{extra}: {error}");
+        }
+        let boolean = format!(
+            "{:#}",
+            manifest(json!({"redistributable": "yes"})).unwrap_err()
+        );
+        assert!(boolean.contains("boolean"), "{boolean}");
+        for extra in [
+            json!({"blake3": "A".repeat(64)}),
+            json!({"blake3": "0".repeat(63)}),
+            json!({"upstream_sha256": "xyz"}),
+        ] {
+            let error = format!("{:#}", manifest(extra.clone()).unwrap_err());
+            assert!(error.contains("64 lowercase hex"), "{extra}: {error}");
+        }
+    }
+
+    #[test]
+    fn sources_must_be_a_non_empty_list() {
+        use serde_json::json;
+        let error = format!("{:#}", manifest(json!({"sources": []})).unwrap_err());
+        assert!(error.contains("sources must not be empty"), "{error}");
+        assert!(parse(json!({"sources": null})).is_err());
+        let mut missing = parse(json!({})).expect("parse without sources");
+        missing.sources.clear();
+        let error = format!("{:#}", missing.validate("test-game", "top").unwrap_err());
+        assert!(error.contains("sources must not be empty"), "{error}");
     }
 }
