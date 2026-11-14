@@ -4,11 +4,11 @@ mod main_bucket;
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/git_command.rs"]
+mod git_command;
 #[path = "support/tree.rs"]
 #[allow(dead_code)]
 mod tree;
-#[path = "support/git_command.rs"]
-mod git_command;
 
 use serde_json::Value;
 use std::collections::BTreeMap;

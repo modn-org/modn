@@ -1,7 +1,7 @@
-#[path = "support/main_bucket.rs"]
-mod main_bucket;
 #[path = "support/git_command.rs"]
 mod git_command;
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 
 use minisign::KeyPair;
 use modn_core::buckets::{

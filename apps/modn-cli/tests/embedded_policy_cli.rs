@@ -16,7 +16,19 @@ fn policy_beside_the_executable_is_ignored() {
     let bundled =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
     main_bucket::copy_main_module(&bundled, &planted);
-    fs::write(planted.join("main.lua"), "error('planted policy loaded')").expect("planted Lua");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(planted.join("module.json")).expect("module manifest"))
+            .expect("module manifest JSON");
+    let entrypoint = manifest["entrypoint"]
+        .as_str()
+        .expect("the manifest names its entrypoint")
+        .to_owned();
+    fs::write(planted.join(&entrypoint), "error('planted policy loaded')").expect("planted Lua");
+    assert_eq!(
+        fs::read_to_string(planted.join(&entrypoint)).expect("manifest entrypoint"),
+        "error('planted policy loaded')",
+        "the marker must live in the entrypoint the loader reads"
+    );
 
     let game = root.path().join("not-a-game");
     fs::create_dir_all(&game).expect("game directory");
@@ -34,4 +46,24 @@ fn policy_beside_the_executable_is_ignored() {
     assert!(!stderr.contains("planted policy loaded"), "{stderr}");
     assert!(stderr.contains("does not contain"), "{stderr}");
     assert!(!root.path().join("state/state.sqlite").exists());
+
+    // The same marker is observable when the planted directory is the module
+    // source, so a regression that loads it from beside the executable would
+    // surface the marker in the output above.
+    let checked = main_bucket::command(&copied)
+        .env_remove("MODN_GAME_MODULES_DIR")
+        .current_dir(root.path())
+        .args(["module", "check"])
+        .arg(&planted)
+        .output()
+        .expect("check planted module");
+    let checked_stderr = String::from_utf8_lossy(&checked.stderr);
+    assert!(
+        !checked.status.success(),
+        "the planted marker fails the check"
+    );
+    assert!(
+        checked_stderr.contains("planted policy loaded"),
+        "{checked_stderr}"
+    );
 }
