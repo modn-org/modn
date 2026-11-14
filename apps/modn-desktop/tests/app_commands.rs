@@ -3,6 +3,28 @@
 use std::fs;
 use std::path::Path;
 
+#[expect(
+    dead_code,
+    reason = "The game-command tests reuse the application backend without invoking its process-global argument parser"
+)]
+#[cfg(windows)]
+#[path = "../src/backend.rs"]
+mod backend;
+
+#[expect(
+    dead_code,
+    reason = "The game-command tests include the command error, busy guard and blocking runner, not every command-layer item"
+)]
+#[cfg(windows)]
+mod app {
+    #[path = "../../src/app/blocking.rs"]
+    pub(crate) mod blocking;
+    #[path = "../../src/app/error.rs"]
+    pub(crate) mod error;
+    #[path = "../../src/app/state.rs"]
+    pub(crate) mod state;
+}
+
 fn read(relative: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("cannot read {path:?}: {error}"))
@@ -83,6 +105,146 @@ fn undo_passes_the_approvals_to_the_cli() {
         body.contains("args::undo(&operation_id, allow_native_injector, &allow_executables)?"),
         "undo must validate the approvals through args::undo"
     );
+}
+
+#[test]
+fn game_commands_keep_backend_errors_typed() {
+    let source = read("src/app/commands/games.rs");
+    for name in [
+        "detect_games",
+        "activate_game",
+        "add_game",
+        "remove_game",
+        "play",
+    ] {
+        let body = handler_body(&source, name);
+        let start = body
+            .find("run_blocking(")
+            .unwrap_or_else(|| panic!("{name} must run off the UI thread"));
+        let job = &body[start..];
+        let job = &job[..job
+            .find(".await")
+            .unwrap_or_else(|| panic!("{name} must await its blocking job"))];
+        assert!(
+            job.contains("backend.call_with_inactivity_timeout("),
+            "{name} must call the inactivity-timeout backend directly"
+        );
+        assert!(
+            !job.contains('?') && !job.contains("Ok("),
+            "{name} must return the BackendError from its job instead of flattening it through anyhow"
+        );
+    }
+}
+
+#[cfg(windows)]
+mod game_command_errors {
+    //! The typed backend error reaches the command error for a game command.
+
+    use super::backend;
+    use crate::app;
+    use std::ffi::OsString;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
+
+    /// A disposable backend state that only these tests may create or remove.
+    struct Fixture {
+        state: PathBuf,
+        backend: backend::Backend,
+        game: backend::Game,
+    }
+
+    impl Fixture {
+        fn new(binary: &str) -> Self {
+            static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+            let state = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
+                "modn-desktop-game-command-{}-{}",
+                std::process::id(),
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(state.join("game")).expect("create disposable game");
+            fs::write(state.join("test-backend.marker"), b"disposable").expect("fixture marker");
+            let game = backend::Game {
+                game_id: "fixture".into(),
+                path: state.join("game"),
+            };
+            let backend = backend::Backend {
+                binary: PathBuf::from(binary),
+                state: state.clone(),
+                data: None,
+                modules: None,
+                evidence: None,
+                inactivity_timeout: None,
+            };
+            Self {
+                state,
+                backend,
+                game,
+            }
+        }
+
+        fn registration_args(&self, scenario: &str) -> Vec<OsString> {
+            vec![
+                "game".into(),
+                "add".into(),
+                self.game.game_id.clone().into(),
+                "--path".into(),
+                self.game.path.clone().into_os_string(),
+                "--fixture-scenario".into(),
+                scenario.into(),
+            ]
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.state).expect("remove only this fixture");
+        }
+    }
+
+    fn fixture_binary() -> Option<&'static str> {
+        // The `verification` feature builds the fixture binary. Without it the
+        // target still compiles, but there is no fixture to run.
+        option_env!("CARGO_BIN_EXE_modn-desktop-test-backend")
+    }
+
+    #[test]
+    fn a_game_refusal_keeps_the_cli_code_in_the_command_error() {
+        let Some(binary) = fixture_binary() else {
+            return;
+        };
+        let fixture = Fixture::new(binary);
+        let busy = Arc::new(app::state::Busy::default());
+        let backend = fixture.backend.clone();
+        let args = fixture.registration_args("refuse");
+        let error = tauri::async_runtime::block_on(app::blocking::run_blocking(&busy, move || {
+            backend.call_with_inactivity_timeout(&args)
+        }))
+        .expect_err("the fixture refuses the registration");
+        assert_eq!(error.code, "PLAN_BLOCKED");
+        assert!(!error.message.contains("fixture secret"));
+    }
+
+    #[test]
+    fn a_game_inactivity_timeout_reaches_backend_timeout() {
+        let Some(binary) = fixture_binary() else {
+            return;
+        };
+        let fixture = Fixture::new(binary);
+        let busy = Arc::new(app::state::Busy::default());
+        let backend = fixture
+            .backend
+            .clone()
+            .with_inactivity_timeout(Duration::from_millis(250));
+        let args = fixture.registration_args("silent");
+        let error = tauri::async_runtime::block_on(app::blocking::run_blocking(&busy, move || {
+            backend.call_with_inactivity_timeout(&args)
+        }))
+        .expect_err("a silent registration must stop");
+        assert_eq!(error.code, "BACKEND_TIMEOUT");
+    }
 }
 
 #[test]

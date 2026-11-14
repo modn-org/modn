@@ -20,7 +20,7 @@ fn installations_of(games: Vec<Game>, game_id: &str) -> Vec<Game> {
 pub(crate) async fn list_games(state: tauri::State<'_, AppState>) -> Result<Value, CommandError> {
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
-    run_blocking(&busy, move || {
+    run_blocking(&busy, move || -> Result<Value, anyhow::Error> {
         let games: Vec<Game> = serde_json::from_value(backend.call(&args::list_games())?)?;
         Ok(serde_json::to_value(games)?)
     })
@@ -34,7 +34,7 @@ pub(crate) async fn list_installations(
 ) -> Result<Value, CommandError> {
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
-    run_blocking(&busy, move || {
+    run_blocking(&busy, move || -> Result<Value, anyhow::Error> {
         let games: Vec<Game> = serde_json::from_value(backend.call(&args::list_games())?)?;
         Ok(serde_json::to_value(installations_of(games, &game_id))?)
     })
@@ -46,7 +46,7 @@ pub(crate) async fn detect_games(state: tauri::State<'_, AppState>) -> Result<Va
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     run_blocking(&busy, move || {
-        Ok(backend.call_with_inactivity_timeout(&args::detect_games())?)
+        backend.call_with_inactivity_timeout(&args::detect_games())
     })
     .await
 }
@@ -60,10 +60,7 @@ pub(crate) async fn activate_game(
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let args = args::game_add(&game_id, Path::new(&path));
-    run_blocking(&busy, move || {
-        Ok(backend.call_with_inactivity_timeout(&args)?)
-    })
-    .await
+    run_blocking(&busy, move || backend.call_with_inactivity_timeout(&args)).await
 }
 
 /// Shows the native folder picker from Rust, then registers the chosen folder.
@@ -80,10 +77,7 @@ pub(crate) async fn add_game(
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let args = args::game_add(&game_id, &folder);
-    let game = run_blocking(&busy, move || {
-        Ok(backend.call_with_inactivity_timeout(&args)?)
-    })
-    .await?;
+    let game = run_blocking(&busy, move || backend.call_with_inactivity_timeout(&args)).await?;
     Ok(Some(game))
 }
 
@@ -101,10 +95,7 @@ pub(crate) async fn remove_game(
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let args = args::game_remove(&game_id, Path::new(&path));
-    let removed = run_blocking(&busy, move || {
-        Ok(backend.call_with_inactivity_timeout(&args)?)
-    })
-    .await?;
+    let removed = run_blocking(&busy, move || backend.call_with_inactivity_timeout(&args)).await?;
     Ok(Some(removed))
 }
 
@@ -117,10 +108,7 @@ pub(crate) async fn play(
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let args = args::play(&game_id, Path::new(&path));
-    run_blocking(&busy, move || {
-        Ok(backend.call_with_inactivity_timeout(&args)?)
-    })
-    .await
+    run_blocking(&busy, move || backend.call_with_inactivity_timeout(&args)).await
 }
 
 async fn pick_folder(app: &tauri::AppHandle) -> Result<Option<PathBuf>, CommandError> {

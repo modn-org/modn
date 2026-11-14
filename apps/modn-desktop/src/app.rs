@@ -1,3 +1,4 @@
+mod blocking;
 mod commands;
 mod error;
 mod state;

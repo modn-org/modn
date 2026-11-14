@@ -15,13 +15,14 @@ mod args;
 mod tests;
 
 use crate::app::error::CommandError;
-use crate::app::state::{AppState, Busy, RunGuard};
+use crate::app::state::{AppState, RunGuard};
 use crate::backend::{CancelToken, Game, ProgressEvent};
 use serde_json::Value;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tauri::Emitter;
+
+pub(super) use crate::app::blocking::run_blocking;
 
 /// The name of every command registered in `generate_handler!`.
 ///
@@ -57,22 +58,6 @@ pub(super) fn installation(game_id: String, path: String) -> Game {
     Game {
         game_id,
         path: PathBuf::from(path),
-    }
-}
-
-/// Runs one backend call off the UI thread while holding the busy guard that
-/// vetoes a window close.
-pub(super) async fn run_blocking<T>(
-    busy: &Arc<Busy>,
-    job: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
-) -> Result<T, CommandError>
-where
-    T: Send + 'static,
-{
-    let _guard = busy.begin();
-    match tauri::async_runtime::spawn_blocking(job).await {
-        Ok(result) => result.map_err(CommandError::from),
-        Err(_) => Err(CommandError::backend_failed()),
     }
 }
 

@@ -23,6 +23,10 @@
 //! - `refuse`: emits plain stderr text and a `PLAN_BLOCKED` envelope, then
 //!   exits 1 without a write.
 //! - any other name: emits the full sequence and succeeds.
+//!
+//! Without `--progress json`, `heartbeat`, `silent`, `committed-stall`,
+//! `game-launch` and `refuse` select registration behaviour; `refuse` writes
+//! the `PLAN_BLOCKED` envelope on stderr and exits 1 without a write.
 
 use serde_json::json;
 use std::ffi::OsString;
@@ -217,6 +221,7 @@ fn fixture_scenario(args: &[OsString]) -> Option<&'static str> {
         "silent" => Some("silent"),
         "committed-stall" => Some("committed-stall"),
         "game-launch" => Some("game-launch"),
+        "refuse" => Some("refuse"),
         _ => None,
     }
 }
@@ -243,6 +248,13 @@ fn registration_scenario(scenario: &str, state: &Path) -> anyhow::Result<()> {
             std::process::Command::new(executable)
                 .arg("--fixture-grandchild")
                 .spawn()?;
+        }
+        "refuse" => {
+            eprintln!(
+                "{}",
+                json!({"error":"PLAN_BLOCKED","message":"fixture secret refusal text"})
+            );
+            std::process::exit(1);
         }
         _ => {}
     }
