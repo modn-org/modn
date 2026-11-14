@@ -407,8 +407,10 @@ fn install_mod(
     })?;
     store.set_control(progress.control().clone());
     store.set_history_context(
-        HistoryContext::new(game_id, installation.clone())
-            .with_source(&reference_of(&selected), selected.package.primary_source().clone()),
+        HistoryContext::new(game_id, installation.clone()).with_source(
+            &reference_of(&selected),
+            selected.package.primary_source().clone(),
+        ),
     );
     let package = store.install_catalog_release_with_permissions(
         &installation,

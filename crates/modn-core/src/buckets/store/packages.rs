@@ -30,10 +30,7 @@ fn real_directory(path: &Path, root: &Path) -> Result<()> {
 /// `games/<game-id>/module.json` and `module.lua`. Every other bucket ignores
 /// the folder without reading or validating it.
 fn validate_games(root: &Path, canonical: &Path, trust: ModuleTrustState) -> Result<()> {
-    if !matches!(
-        trust,
-        ModuleTrustState::Main | ModuleTrustState::Trusted
-    ) {
+    if !matches!(trust, ModuleTrustState::Main | ModuleTrustState::Trusted) {
         return Ok(());
     }
     let games = root.join("games");
@@ -61,27 +58,20 @@ fn validate_games(root: &Path, canonical: &Path, trust: ModuleTrustState) -> Res
             let entry = entry?;
             let kind = entry.file_type()?;
             if !kind.is_file() {
-                bail!(
-                    "games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}"
-                );
+                bail!("games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}");
             }
             match entry.file_name().to_str() {
                 Some(MODULE_SCRIPT) => has_script = true,
                 Some(MODULE_MANIFEST) => {}
-                _ => bail!(
-                    "games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}"
-                ),
+                _ => bail!("games/{game_id}/ may hold only {MODULE_MANIFEST} and {MODULE_SCRIPT}"),
             }
         }
         if trust == ModuleTrustState::Main {
             let info = crate::game_modules::check_module(&game.path())?;
             if info.game_id != game_id || !has_script {
-                bail!(
-                    "official game module identity or {MODULE_SCRIPT} mismatch: {game_id}"
-                );
+                bail!("official game module identity or {MODULE_SCRIPT} mismatch: {game_id}");
             }
-            let manifest: serde_json::Value =
-                bounded_json(&game.path().join(MODULE_MANIFEST))?;
+            let manifest: serde_json::Value = bounded_json(&game.path().join(MODULE_MANIFEST))?;
             if manifest["entrypoint"] != MODULE_SCRIPT {
                 bail!("official game module entrypoint must be {MODULE_SCRIPT}");
             }

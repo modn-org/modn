@@ -144,10 +144,7 @@ fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Resu
             })
             .collect();
         if parts.first() == Some(&OsStr::new("games")) {
-            if !matches!(
-                trust,
-                ModuleTrustState::Main | ModuleTrustState::Trusted
-            ) {
+            if !matches!(trust, ModuleTrustState::Main | ModuleTrustState::Trusted) {
                 // Untrusted buckets ignore `games/` without reading it.
                 continue;
             }

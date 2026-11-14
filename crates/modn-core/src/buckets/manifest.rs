@@ -556,10 +556,7 @@ mod tests {
     #[test]
     fn contract_v1_fields_are_refused() {
         use serde_json::json;
-        let schema = format!(
-            "{:#}",
-            manifest(json!({"schema_version": 1})).unwrap_err()
-        );
+        let schema = format!("{:#}", manifest(json!({"schema_version": 1})).unwrap_err());
         assert!(schema.contains("schema_version 1"), "{schema}");
         assert!(schema.contains("contract v2"), "{schema}");
         for extra in [

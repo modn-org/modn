@@ -500,9 +500,7 @@ fn trusted_catalogs_refuse_a_package_manifest_under_games() {
         fs::create_dir_all(remote.path().join("games/test-game")).expect("games");
         fs::write(remote.path().join(relative), contents).expect("extra entry");
         remote.resign(relative);
-        let error = store
-            .sync_git("community", None)
-            .expect_err(relative);
+        let error = store.sync_git("community", None).expect_err(relative);
         let error = format!("{error:#}");
         assert!(error.contains("games/<game-id>"), "{relative}: {error}");
         assert_eq!(
@@ -531,59 +529,60 @@ fn trusted_catalogs_refuse_a_package_manifest_under_games() {
     let error = store
         .sync_git("community", None)
         .expect_err("nested directory");
-    assert!(format!("{error:#}").contains("games/<game-id>"), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("games/<game-id>"),
+        "{error:#}"
+    );
 }
 
 #[test]
 fn untrusted_catalogs_ignore_games_and_stay_untrusted() {
     main_bucket::seeded(|| {
-    let remote = signed_remote(|root| {
-        fs::create_dir_all(root.join("games/test-game")).expect("games");
-        fs::write(
+        let remote = signed_remote(|root| {
+            fs::create_dir_all(root.join("games/test-game")).expect("games");
+            fs::write(
             root.join("games/test-game/module.json"),
             r#"{"game_id":"test-game","version":"1","api_version":1,"entrypoint":"module.lua"}"#,
         )
         .expect("module manifest");
-        fs::write(root.join("games/test-game/module.lua"), "return {}").expect("module script");
-        fs::write(root.join("games/loose.txt"), "ignored").expect("loose entry");
-    });
-    let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
-    let synced = store
-        .sync_git_with_signer("community", Some(remote.source()))
-        .expect("untrusted games folder is ignored");
-    assert!(synced.modules.ignored.is_empty());
-    assert_eq!(
-        store.module_trust("community").expect("trust"),
-        ModuleTrustState::Untrusted
-    );
-    assert!(store.trusted_module_sources().expect("sources").is_empty());
-    let packages = store.packages(Some("test-game")).expect("packages");
-    assert!(packages.iter().any(|package| package.package.id == "mod"));
+            fs::write(root.join("games/test-game/module.lua"), "return {}").expect("module script");
+            fs::write(root.join("games/loose.txt"), "ignored").expect("loose entry");
+        });
+        let state = tempfile::tempdir().expect("state");
+        let store = BucketStore::new(state.path());
+        let synced = store
+            .sync_git_with_signer("community", Some(remote.source()))
+            .expect("untrusted games folder is ignored");
+        assert!(synced.modules.ignored.is_empty());
+        assert_eq!(
+            store.module_trust("community").expect("trust"),
+            ModuleTrustState::Untrusted
+        );
+        assert!(store.trusted_module_sources().expect("sources").is_empty());
+        let packages = store.packages(Some("test-game")).expect("packages");
+        assert!(packages.iter().any(|package| package.package.id == "mod"));
     });
 }
 
 #[test]
 fn a_mod_named_module_is_a_package_not_a_game_module() {
     main_bucket::seeded(|| {
-    let state = tempfile::tempdir().expect("state");
-    let source = tempfile::tempdir().expect("source");
-    let bucket = local_bucket(source.path());
-    fs::create_dir_all(bucket.join("mods/test-game")).expect("mods");
-    fs::write(
-        bucket.join("mods/test-game/module.json"),
-        package().replace("\"id\":\"mod\"", "\"id\":\"module\""),
-    )
-    .expect("package named module");
-    fs::write(
-        bucket.join("games/test-game/module.lua"),
-        "return {}",
-    )
-    .expect("ignored script");
-    let store = BucketStore::new(state.path());
-    store.add("local", &bucket).expect("register");
-    let packages = store.packages(Some("test-game")).expect("packages");
-    assert!(packages.iter().any(|package| package.package.id == "module"));
+        let state = tempfile::tempdir().expect("state");
+        let source = tempfile::tempdir().expect("source");
+        let bucket = local_bucket(source.path());
+        fs::create_dir_all(bucket.join("mods/test-game")).expect("mods");
+        fs::write(
+            bucket.join("mods/test-game/module.json"),
+            package().replace("\"id\":\"mod\"", "\"id\":\"module\""),
+        )
+        .expect("package named module");
+        fs::write(bucket.join("games/test-game/module.lua"), "return {}").expect("ignored script");
+        let store = BucketStore::new(state.path());
+        store.add("local", &bucket).expect("register");
+        let packages = store.packages(Some("test-game")).expect("packages");
+        assert!(packages
+            .iter()
+            .any(|package| package.package.id == "module"));
     });
 }
 

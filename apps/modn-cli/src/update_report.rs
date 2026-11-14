@@ -105,9 +105,9 @@ fn legacy_requirement(
         .releases(&reference.bucket, &reference.game_id, &reference.mod_id)
         .ok()
         .and_then(|releases| {
-            releases.into_iter().find(|release| {
-                release.package.pin() == Some(dependent.archive_sha256.as_str())
-            })
+            releases
+                .into_iter()
+                .find(|release| release.package.pin() == Some(dependent.archive_sha256.as_str()))
         });
     match installed {
         Some(release)

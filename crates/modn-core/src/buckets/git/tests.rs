@@ -195,8 +195,7 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
         .sync_git_with_signer("community", Some(source(&remote)))
         .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
-    let before_package =
-        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
+    let before_package = fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
 
     seed_catalog(remote.directory.path(), "2");
     write_signature(remote.directory.path(), &new_key);
@@ -304,8 +303,7 @@ fn invalid_signature_is_refused_at_first_and_later_sync() {
         .sync_git_with_signer("community", Some(source(&valid)))
         .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
-    let before_package =
-        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
+    let before_package = fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
     fs::write(
         valid.directory.path().join("mods/test-game/mod.json"),
         package("tampered"),
@@ -343,8 +341,7 @@ fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
         .sync_git_with_signer("community", Some(source(&remote)))
         .unwrap();
     let before_registration = fs::read(registration(state.path())).unwrap();
-    let before_package =
-        fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
+    let before_package = fs::read(published(state.path()).join("mods/test-game/mod.json")).unwrap();
 
     seed_catalog(remote.directory.path(), "2");
     fs::remove_file(remote.directory.path().join("catalog.sig")).unwrap();

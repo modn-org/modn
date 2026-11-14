@@ -121,7 +121,10 @@ pub(super) fn run(
     let releases = releases(&stack)?;
     let mut history = HistoryContext::new(stack.game_id.clone(), stack.installation.clone());
     for release in &releases {
-        history = history.with_source(&reference_of(release), release.package.primary_source().clone());
+        history = history.with_source(
+            &reference_of(release),
+            release.package.primary_source().clone(),
+        );
     }
     download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes && !progress.enabled();
