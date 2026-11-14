@@ -20,6 +20,21 @@ fn archive() -> PathBuf {
     PathBuf::from(r"C:\mods\example.zip")
 }
 
+/// One `modn list --json` inventory: a catalog package and a standalone one.
+fn installed() -> serde_json::Value {
+    serde_json::json!([
+        {
+            "id": "txn-1",
+            "catalog": {"bucket": "main", "game_id": "balatro", "mod_id": "lovely"},
+        },
+        {
+            "id": "txn-2",
+            "catalog": null,
+            "mod_id": "fixture-mod",
+        }
+    ])
+}
+
 #[test]
 fn list_games_runs_the_registration_listing() {
     assert_eq!(strings(list_games()), vec!["game", "list"]);
@@ -215,14 +230,14 @@ fn plan_install_is_a_dry_run_without_approvals() {
 }
 
 #[test]
-fn update_selects_the_package_and_commits() {
+fn update_selects_the_qualified_catalog_name_and_commits() {
     assert_eq!(
-        strings(ok(update(&game(), "txn-1", false, &[]))),
+        strings(ok(update(&game(), &installed(), "txn-1", false, &[]))),
         vec![
             "--game",
             "balatro",
             "update",
-            "txn-1",
+            "main/balatro/lovely",
             "--yes",
             "--path",
             r"C:\games\balatro"
@@ -231,6 +246,7 @@ fn update_selects_the_package_and_commits() {
     assert_eq!(
         strings(ok(update(
             &game(),
+            &installed(),
             "txn-1",
             true,
             &["bin/tool.exe".to_string()]
@@ -239,7 +255,7 @@ fn update_selects_the_package_and_commits() {
             "--game",
             "balatro",
             "update",
-            "txn-1",
+            "main/balatro/lovely",
             "--yes",
             "--path",
             r"C:\games\balatro",
@@ -248,6 +264,20 @@ fn update_selects_the_package_and_commits() {
             "bin/tool.exe"
         ]
     );
+}
+
+#[test]
+fn update_refuses_a_package_without_a_catalog_name() {
+    let error = update(&game(), &installed(), "txn-2", false, &[])
+        .expect_err("a standalone package has no update target");
+    assert_eq!(error.code, "UPDATE_FAILED");
+}
+
+#[test]
+fn update_refuses_an_unknown_package() {
+    let error = update(&game(), &installed(), "txn-missing", false, &[])
+        .expect_err("the inventory does not list this package");
+    assert_eq!(error.code, "MOD_NOT_FOUND");
 }
 
 #[test]
@@ -324,7 +354,7 @@ fn no_write_builder_emits_force_or_adoption_flags() {
         &["bin/tool.exe".to_string()],
     )));
     all.extend(uninstall(&game(), "txn-1"));
-    all.extend(ok(update(&game(), "txn-1", true, &[])));
+    all.extend(ok(update(&game(), &installed(), "txn-1", true, &[])));
     all.extend(undo("txn-1"));
     let text = strings(all);
     for forbidden in ["--force", "--adopt", "--include-deps", "--cascade"] {

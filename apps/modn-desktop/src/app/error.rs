@@ -23,6 +23,21 @@ impl CommandError {
         Self::new("BACKEND_FAILED")
     }
 
+    /// Reports a cancel that arrived before the write started.
+    pub(crate) fn cancelled() -> Self {
+        Self::new("CANCELLED")
+    }
+
+    /// Rejects a package the inventory no longer lists.
+    pub(crate) fn package_not_found() -> Self {
+        Self::new("MOD_NOT_FOUND")
+    }
+
+    /// Rejects an update of a package with no catalog provenance.
+    pub(crate) fn update_not_in_catalog() -> Self {
+        Self::new("UPDATE_FAILED")
+    }
+
     /// Rejects an executable path before any CLI process starts.
     pub(crate) fn invalid_executable() -> Self {
         Self {
@@ -95,6 +110,8 @@ fn short_message(code: &str) -> &'static str {
     match code {
         "BACKEND_TIMEOUT" => "The operation took too long. Check diagnostics before trying again.",
         "BACKEND_FAILED" => "The operation could not be completed.",
+        "MOD_NOT_FOUND" => "The catalog does not list that package.",
+        "UPDATE_FAILED" => "This package cannot be updated from the catalog.",
         "PLAN_BLOCKED" => "Modn blocked this operation. Open details for the reason.",
         "CONFLICT" => "Another package owns these files.",
         "APPROVAL_REQUIRED" => "This change needs your approval.",
