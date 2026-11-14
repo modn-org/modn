@@ -228,6 +228,10 @@ def check_field_types(record: Record) -> None:
             )
     if "source" in value and not isinstance(value["source"], dict):
         raise RehashError(f"{record.filename}: field source must be an object")
+    if "native_injector" in value and not isinstance(value["native_injector"], bool):
+        raise RehashError(f"{record.filename}: field native_injector must be a boolean")
+    if "homepage" in value and not isinstance(value["homepage"], str):
+        raise RehashError(f"{record.filename}: field homepage must be a string")
 
 
 def convert_record(record: Record) -> Converted:

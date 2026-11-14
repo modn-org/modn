@@ -851,6 +851,11 @@ class FieldTypeTests(RehashTestCase):
                 {"dependencies": ["https-mod", 1]},
                 "field dependencies must be a list of strings",
             ),
+            (
+                "type-injector",
+                {"native_injector": "false"},
+                "field native_injector must be a boolean",
+            ),
             ("type-source", {"source": "https://example.org/type.zip"}, "field source must be an object"),
         ]
         records = self.fixture.bucket / "games" / GAME
