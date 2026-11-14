@@ -2,6 +2,7 @@ mod dependencies;
 mod git;
 mod lock;
 mod manifest;
+mod mirrors;
 mod signature;
 mod snapshot;
 mod store;
@@ -15,6 +16,7 @@ pub use crate::game_modules::{CatalogModuleReport, IgnoredModule, ModuleIgnoreRe
 pub use dependencies::install_order;
 pub use git::{CatalogSigner, GitCatalogRevision, GitCatalogSource, GitCatalogSync};
 pub use manifest::{ArchiveFormat, PackageManifest, PackageSource};
+pub use mirrors::{CatalogHost, CatalogSyncTrace, MAX_CATALOG_MIRRORS};
 pub use signature::{
     catalog_statement, verify_catalog, verify_catalog_directory, CatalogKeyId, CatalogPublicKey,
     CatalogStatement, VerifiedCatalog,
