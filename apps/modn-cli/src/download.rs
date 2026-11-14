@@ -333,11 +333,13 @@ pub(super) fn download(
             }
         }
         let candidates = fallback::candidates(release);
-        let Some(url) = fallback::first_url(&candidates) else {
+        let first_url = fallback::first_url(&candidates).map(str::to_owned);
+        let has_fetch = first_url.is_some();
+        let Some(url) = first_url.or_else(|| candidates.first().map(|c| c.label.clone())) else {
             continue;
         };
-        let key = key(release, url);
-        if !json && !progress.enabled() {
+        let key = key(release, &url);
+        if has_fetch && !json && !progress.enabled() {
             eprintln!("Downloading {reference} {} from {}", key.version, key.url);
         }
         let outcome = cache.acquire_from_sources(
