@@ -130,6 +130,165 @@ fn op_button_handles_progress_cancel_and_approval() {
 }
 
 #[test]
+fn op_button_binds_undo_to_the_operation_it_committed() {
+    let op = read("ui/js/op-button.js");
+    assert!(
+        op.contains("await operationIdOf(result, newestOperation)"),
+        "op-button.js must resolve this operation's history entry before the toast"
+    );
+    let binding = read("ui/js/library/undo-target.js");
+    for fragment in [
+        "function operationTarget(",
+        "operation_id",
+        "operationId",
+        "package_id_after",
+        "package_id_before",
+        "mod_id",
+        "await newest(target)",
+        "operationMatches(entry, target)",
+    ] {
+        assert!(
+            binding.contains(fragment),
+            "undo-target.js must bind Undo to its own operation via {fragment}"
+        );
+    }
+    let start = op.find("async function start(").expect("start function");
+    let body = &op[start..];
+    let resolve = body
+        .find("await operationIdOf(result")
+        .expect("the finished run resolves its committed operation");
+    let undo_toast = body
+        .find("showUndoToast(`${active.actionLabel} done`")
+        .expect("a bound operation shows an Undo toast");
+    let plain_toast = body
+        .find("showToast(`${active.actionLabel} done`)")
+        .expect("an unbound operation shows a plain toast");
+    assert!(
+        resolve < undo_toast && undo_toast < plain_toast,
+        "the toast must bind its operation before it appears, and omit Undo when no ID is bound"
+    );
+    assert!(
+        op.contains("async function undoLatest(operationId)"),
+        "Undo must take the bound operation ID instead of reading the newest history entry"
+    );
+    let tile = read("ui/js/library/tile.js");
+    for fragment in ["async newestOperation(match)", "operationMatches("] {
+        assert!(
+            tile.contains(fragment),
+            "tile.js must find the history entry that matches the operation"
+        );
+    }
+}
+
+#[test]
+fn library_filter_tabs_support_keyboard_navigation() {
+    let library = read("ui/js/library.js");
+    for fragment in [
+        "addEventListener('keydown'",
+        "'ArrowLeft'",
+        "'ArrowRight'",
+        "'Home'",
+        "'End'",
+        ".focus()",
+        "'aria-selected'",
+        "tab.tabIndex = active ? 0 : -1",
+    ] {
+        assert!(
+            library.contains(fragment),
+            "the filter tablist must support {fragment}"
+        );
+    }
+    let tabs = library
+        .find("tabs.setAttribute('role', 'tablist')")
+        .expect("tablist");
+    let toolbar = &library[tabs..];
+    let keys = toolbar
+        .find("addEventListener('keydown'")
+        .expect("arrow-key handler");
+    let filter = toolbar.find("function setFilter(").expect("setFilter");
+    assert!(
+        keys < filter,
+        "the tablist must handle arrow keys before the filter is applied"
+    );
+}
+
+#[test]
+fn op_button_reserves_its_operation_before_the_first_await() {
+    let op = read("ui/js/op-button.js");
+    let start = op.find("async function start(").expect("start function");
+    let body = &op[start..];
+    let first_await = body.find("await ").expect("start awaits");
+    let reserved = body.find("runId = id").expect("the run id is reserved");
+    assert!(
+        reserved < first_await,
+        "start must reserve runId synchronously before any await"
+    );
+    let head = &body[..first_await];
+    assert!(
+        head.contains("newRunId(") && head.contains("dataset.state = 'running'"),
+        "the reserved operation must exist before prepare runs"
+    );
+    assert!(
+        head.contains("button.disabled = true"),
+        "a reserved operation must ignore further clicks"
+    );
+}
+
+#[test]
+fn op_button_stops_a_destroyed_run_before_the_write() {
+    let op = read("ui/js/op-button.js");
+    let listen = op.find("await onProgress(").expect("progress subscription");
+    let write = op[listen..].find("await active.run(").expect("write call") + listen;
+    let between = &op[listen..write];
+    assert!(
+        between.contains("generationAtStart !== generation"),
+        "a stale generation must stop the run after the progress subscription"
+    );
+    assert!(
+        between.contains("destroyed"),
+        "a destroyed button must stop the run before the write"
+    );
+    assert!(
+        between.contains("off()"),
+        "a stale run must drop the progress listener before it starts the write"
+    );
+    let destroy = op.find("destroy() {").expect("destroy function");
+    assert!(
+        op[destroy..].contains("generation += 1"),
+        "destroy must advance the generation token"
+    );
+}
+
+#[test]
+fn truncated_after_commit_is_a_completed_operation() {
+    let messages = read("ui/js/messages.js");
+    assert!(
+        messages
+            .contains("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT: 'Done. Refresh to see the result.'"),
+        "a truncated result after the commit point must tell the user to refresh"
+    );
+    let op = read("ui/js/op-button.js");
+    let branch = op
+        .find("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT")
+        .expect("the completed branch");
+    let rest = &op[branch..];
+    let end = rest
+        .find("} else if (BLOCKED_CODES.has(code))")
+        .expect("the blocked branch follows");
+    let block = &rest[..end];
+    for fragment in [
+        "setIdle(active.idleLabel)",
+        "showToast(messageFor(code))",
+        "onSettled",
+    ] {
+        assert!(
+            block.contains(fragment),
+            "a truncated-after-commit result must {fragment} like a completed operation"
+        );
+    }
+}
+
+#[test]
 fn verifier_hooks_are_present() {
     let sources = ui_sources();
     let text = js(&sources);
