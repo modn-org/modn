@@ -1,6 +1,8 @@
-use super::catalog_tests::{reference, Fixture};
+use super::catalog_tests::{module_source, plan, reference, Fixture};
 use super::history_tests::context;
-use super::{CatalogConflict, CatalogDependency, CatalogRelease};
+use super::{CatalogConflict, CatalogDependency, CatalogRelease, NativeInjectorPolicy};
+use crate::archive::inspect;
+use crate::game_modules::with_module_source;
 
 #[test]
 fn release_metadata_keeps_declarations_for_a_later_uninstall() {
@@ -102,4 +104,46 @@ fn readonly_open_reads_state_without_release_declaration_columns() {
         )
         .expect("column count");
     assert_eq!(columns, 2);
+}
+
+#[test]
+fn history_install_hashes_the_archive_once_per_inspection() {
+    let mut fixture = Fixture::new();
+    let archive = fixture.archive("mod");
+    let expected = inspect(&archive).expect("inspect").blake3;
+    let game = fixture.game.clone();
+    let proposal = plan(&game, &archive);
+    let release = CatalogRelease::new(reference("mod"), Vec::new()).with_version("1.0".into());
+    fixture
+        .store
+        .set_history_context(context(&fixture, "mod", "mod.zip"));
+    crate::archive::reset_hashed_file_count();
+    let package = with_module_source(Some(&module_source()), || {
+        fixture.store.install_catalog_release(
+            &game,
+            &archive,
+            &proposal,
+            &release,
+            NativeInjectorPolicy::Refuse,
+        )
+    })
+    .expect("install");
+    assert_eq!(
+        crate::archive::hashed_file_count(),
+        2,
+        "one inspection and one change check must be the only archive hashes"
+    );
+    let metadata = crate::history::package_metadata(&fixture.store.connection, &package.id)
+        .expect("metadata")
+        .expect("recorded release metadata");
+    assert_eq!(
+        metadata.archive_blake3.as_deref(),
+        Some(format!("blake3:{expected}").as_str())
+    );
+    let operations = fixture.store.history(None).expect("history");
+    let after = operations[0].packages[0]
+        .release_after
+        .as_ref()
+        .expect("after release");
+    assert_eq!(after.archive_blake3.as_deref(), Some(expected.as_str()));
 }
