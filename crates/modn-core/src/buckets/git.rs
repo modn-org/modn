@@ -159,9 +159,7 @@ fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Resu
                 _ => false,
             };
             if !valid {
-                bail!(
-                    "catalog game modules are only supported at games/<game-id>/module.json and module.lua"
-                );
+                bail!("catalog game modules are only supported under games/<game-id>/");
             }
         }
         if kind.is_dir() {

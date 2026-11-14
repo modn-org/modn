@@ -27,7 +27,7 @@ fn real_directory(path: &Path, root: &Path) -> Result<()> {
 /// Validate `games/` for buckets that may publish game modules.
 ///
 /// `main` and signed catalogs the user trusts for modules may hold only
-/// `games/<game-id>/module.json` and `module.lua`. Every other bucket ignores
+/// `games/<game-id>/` module manifests and scripts. Every other bucket ignores
 /// the folder without reading or validating it.
 fn validate_games(root: &Path, canonical: &Path, trust: ModuleTrustState) -> Result<()> {
     if !matches!(trust, ModuleTrustState::Main | ModuleTrustState::Trusted) {
