@@ -16,18 +16,22 @@
  */
 
 /**
+ * Picks the installed package that came from the catalog entry's bucket.
+ *
+ * A package from another bucket never matches, and neither does a package
+ * without a bucket, such as an install from a local archive. Unmatched
+ * packages keep their own row.
+ *
  * @param {Object[]} candidates
  * @param {string} bucket
  * @returns {Object|null}
  */
 function pickPackage(candidates, bucket) {
-  if (candidates.length === 0) {
-    return null;
-  }
-  const exact = candidates.find(
-    (pkg) => pkg.catalog && typeof pkg.catalog === 'object' && pkg.catalog.bucket === bucket,
+  return (
+    candidates.find(
+      (pkg) => pkg.catalog && typeof pkg.catalog === 'object' && pkg.catalog.bucket === bucket,
+    ) || null
   );
-  return exact || candidates[0];
 }
 
 /**
