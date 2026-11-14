@@ -123,7 +123,83 @@ installed copy. The `main-bucket.zip.sha256` sidecar is no longer used.
 
 Each `modn-org/main` release must include `main-bucket.zip.minisig` next to the
 ZIP. The bucket repository's release pipeline does not produce that file yet.
-Key rotation and revocation are planned (#122).
+The official `main` catalog has no stored registration, so the rotation and
+revocation statements on this page apply to registered community catalogs.
+
+### Catalog key rotation and revocation
+
+A catalog can replace its signing key or revoke it. Three optional root files
+carry the statements. All three are inside the [catalog digest](#catalog-digest),
+and `catalog.sig` covers them:
+
+- `revocation.pub` holds the public key of an offline revocation key.
+- `rotation.json` and `rotation.sig` rotate the pinned signing key.
+- `revocation.json` and `revocation.sig` revoke the pinned signing key.
+
+`rotation.json` has this exact shape:
+
+```json
+{"schema_version":1,"kind":"rotation","from":"<pinned key id>","to":"<new public key>"}
+```
+
+`revocation.json` has this exact shape:
+
+```json
+{"schema_version":1,"kind":"revocation","revoked":"<pinned key id>","replacement":"<new public key>"}
+```
+
+The `.sig` file is a minisign signature. It signs the bytes
+`modn-rotation-v1\0catalog: <name>\n` followed by the exact `rotation.json`
+bytes. A revocation signature signs `modn-revocation-v1\0catalog: <name>\n`
+followed by the exact `revocation.json` bytes. The catalog name binds the
+statement to one catalog, and the prefix binds it to one kind. A statement
+cannot be replayed in another catalog or as another kind.
+
+Modn pins the revocation key at the first sync and prints both fingerprints. A
+revision whose `revocation.pub` differs or disappears is refused. A catalog
+that had no `revocation.pub` at its first sync cannot add one later. To pin a
+new revocation key, remove the bucket and sync it again.
+
+Sync accepts a rotation when all of these hold:
+
+- `rotation.sig` verifies with the pinned signing key.
+- `from` is the pinned key ID.
+- `catalog.pub` names the key in `to`, and `catalog.sig` verifies with it.
+
+Sync then pins the new key and records the old key ID in `previous_signers`.
+The old key vouched for the new key, so module trust follows the new signer. The
+output prints `signing key rotated: <old> -> <new>`.
+
+Sync accepts a revocation when all of these hold:
+
+- `revocation.sig` verifies with the pinned revocation key.
+- `revoked` is the pinned signing key ID.
+- `catalog.pub` names the key in `replacement`, and `catalog.sig` verifies with it.
+
+Sync then pins the replacement key and records the old key ID in
+`revoked_signers`. Module trust is cleared, because the user must trust modules
+again explicitly. The output prints
+`signing key revoked: <old> replaced by <new>`.
+
+Modn refuses a revision that carries both statements, a rotation signed by the
+revocation key, a revocation signed by the signing key, a statement from an
+unrelated key, a wrong `from` or `revoked` ID, a `to` or `replacement` key that
+does not match `catalog.pub`, an unknown `kind` or schema version, and a revision
+signed by a key in `previous_signers` or `revoked_signers`. Every refusal keeps
+the previous registration and catalog byte for byte.
+
+A revision that repeats an already accepted statement is accepted as history
+and changes no key. The registration records the BLAKE3 of the applied
+`rotation.json` or `revocation.json` for this check.
+
+`bucket list --json` reports `signer_key_id`, `revocation_key_id` when pinned,
+and the `previous_signers` and `revoked_signers` arrays when non-empty.
+
+If a signing key leaks, rotate it with the pinned signing key, or revoke it with
+the offline revocation key and name an uncompromised replacement. Sign the new
+revision with the replacement key and sync. If the offline revocation key leaks,
+remove the bucket and sync it again to pin a new revocation key; Modn cannot
+change a pinned revocation key in place.
 
 ### Catalog digest
 
@@ -182,8 +258,8 @@ signer key ID; a mismatch writes nothing.
 
 The trust record stores the signer key ID for the whole bucket. It does not
 record one game. A new game module in the same trusted bucket needs no new
-acknowledgement. If the bucket's pinned signer key changes, the stored key ID no
-longer matches, and its modules become untrusted. Key rotation is planned (#122).
+acknowledgement. A rotation keeps the trust record and moves it to the new key.
+A revocation clears the trust record, and its modules become untrusted.
 
 `bucket untrust-modules` removes the trust record and leaves the bucket
 registered. Modules retained from that bucket are refused at use. Run

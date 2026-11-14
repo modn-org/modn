@@ -82,9 +82,9 @@ fn rotation_signed_by_the_pinned_key_is_accepted() {
     let signer = test_key();
     let successor = test_key();
     let body = rotation_body(&signer.public.key_id().to_string(), &successor.text);
-    write(&directory.path(), ROTATION_FILE, &body);
+    write(directory.path(), ROTATION_FILE, &body);
     write(
-        &directory.path(),
+        directory.path(),
         ROTATION_SIGNATURE_FILE,
         sign(
             &signer,
@@ -112,9 +112,9 @@ fn rotation_signed_by_an_unrelated_key_is_refused() {
     let successor = test_key();
     let unrelated = test_key();
     let body = rotation_body(&signer.public.key_id().to_string(), &successor.text);
-    write(&directory.path(), ROTATION_FILE, &body);
+    write(directory.path(), ROTATION_FILE, &body);
     write(
-        &directory.path(),
+        directory.path(),
         ROTATION_SIGNATURE_FILE,
         sign(
             &unrelated,
@@ -147,9 +147,9 @@ fn rotation_signed_by_the_revocation_key_is_refused() {
     let revocation = test_key();
     let successor = test_key();
     let body = rotation_body(&signer.public.key_id().to_string(), &successor.text);
-    write(&directory.path(), ROTATION_FILE, &body);
+    write(directory.path(), ROTATION_FILE, &body);
     write(
-        &directory.path(),
+        directory.path(),
         ROTATION_SIGNATURE_FILE,
         sign(
             &revocation,
@@ -179,9 +179,9 @@ fn revocation_signed_by_the_signer_key_is_refused() {
     let replacement = test_key();
     let body = revocation_statement(&signer.public.key_id().to_string(), &replacement.text)
         .expect("revocation statement");
-    write(&directory.path(), REVOCATION_FILE, &body);
+    write(directory.path(), REVOCATION_FILE, &body);
     write(
-        &directory.path(),
+        directory.path(),
         REVOCATION_SIGNATURE_FILE,
         sign(
             &signer,
@@ -211,9 +211,9 @@ fn a_statement_cannot_be_replayed_as_another_kind_or_catalog() {
     let replacement = test_key();
     let body = revocation_statement(&signer.public.key_id().to_string(), &replacement.text)
         .expect("revocation statement");
-    write(&directory.path(), REVOCATION_FILE, &body);
+    write(directory.path(), REVOCATION_FILE, &body);
     write(
-        &directory.path(),
+        directory.path(),
         REVOCATION_SIGNATURE_FILE,
         sign(
             &signer,
@@ -232,9 +232,9 @@ fn a_statement_cannot_be_replayed_as_another_kind_or_catalog() {
     assert!(error.contains("revocation"), "{error}");
 
     let rotation_body = rotation_body(&signer.public.key_id().to_string(), &replacement.text);
-    write(&directory.path(), REVOCATION_FILE, &body);
+    write(directory.path(), REVOCATION_FILE, &body);
     write(
-        &directory.path(),
+        directory.path(),
         REVOCATION_SIGNATURE_FILE,
         sign(
             &revocation,
@@ -264,9 +264,9 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
     let rotation = rotation_body(&signer.public.key_id().to_string(), &successor.text);
     let revocation = revocation_statement(&signer.public.key_id().to_string(), &successor.text)
         .expect("revocation statement");
-    write(&directory.path(), ROTATION_FILE, &rotation);
+    write(directory.path(), ROTATION_FILE, &rotation);
     write(
-        &directory.path(),
+        directory.path(),
         ROTATION_SIGNATURE_FILE,
         sign(
             &signer,
@@ -274,9 +274,9 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
         )
         .as_bytes(),
     );
-    write(&directory.path(), REVOCATION_FILE, &revocation);
+    write(directory.path(), REVOCATION_FILE, &revocation);
     write(
-        &directory.path(),
+        directory.path(),
         REVOCATION_SIGNATURE_FILE,
         sign(
             &signer,
@@ -300,9 +300,9 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
     fs::remove_file(directory.path().join(REVOCATION_FILE)).expect("remove revocation");
     fs::remove_file(directory.path().join(REVOCATION_SIGNATURE_FILE)).expect("remove signature");
     let wrong_from = rotation_body("0000000000000000", &successor.text);
-    write(&directory.path(), ROTATION_FILE, &wrong_from);
+    write(directory.path(), ROTATION_FILE, &wrong_from);
     write(
-        &directory.path(),
+        directory.path(),
         ROTATION_SIGNATURE_FILE,
         sign(
             &signer,
@@ -321,7 +321,7 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
     assert!(error.contains("but the pinned signing key is"), "{error}");
 
     let unknown = br#"{"schema_version":2,"kind":"rotation","from":"x","to":"y"}"#;
-    write(&directory.path(), ROTATION_FILE, unknown);
+    write(directory.path(), ROTATION_FILE, unknown);
     let error = apply_key_statements(
         directory.path(),
         CATALOG_NAME,
@@ -340,9 +340,9 @@ fn a_to_key_that_does_not_match_catalog_pub_is_refused() {
     let successor = test_key();
     let other = test_key();
     let body = rotation_body(&signer.public.key_id().to_string(), &successor.text);
-    write(&directory.path(), ROTATION_FILE, &body);
+    write(directory.path(), ROTATION_FILE, &body);
     write(
-        &directory.path(),
+        directory.path(),
         ROTATION_SIGNATURE_FILE,
         sign(
             &signer,

@@ -302,7 +302,7 @@ impl BucketStore {
         trusted: bool,
     ) -> Result<()> {
         let signer_key_id = git.signer.key_id.clone();
-        let module_trust = trusted.then(|| super::ModuleSourceTrust { signer_key_id });
+        let module_trust = trusted.then_some(super::ModuleSourceTrust { signer_key_id });
         let trust = if module_trust.is_some() {
             ModuleTrustState::Trusted
         } else {

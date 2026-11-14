@@ -277,6 +277,7 @@ fn listed_entry_git(fixture: &GitFixture) -> Value {
 }
 
 #[test]
+#[allow(clippy::type_complexity, reason = "each case names one statement and one refusal")]
 fn forged_and_tampered_statements_are_refused_without_changes() {
     let fixture = Fixture::new();
     let temp = fixture.temp.path();
@@ -429,7 +430,7 @@ fn revocation_key_pinning_rules_are_enforced() {
 
     let add = temp.join("add");
     copy_tree(&base, &add);
-    fs::copy(&keys.join("offline.pub"), add.join("revocation.pub")).expect("revocation key");
+    fs::copy(keys.join("offline.pub"), add.join("revocation.pub")).expect("revocation key");
     sign(&add, &keys.join("author.key"));
     pack(&add, &source);
     let before = state_snapshot(&state);
@@ -477,7 +478,7 @@ fn revocation_key_pinning_rules_are_enforced() {
         (
             "change",
             Box::new(|case: &Path| {
-                fs::copy(&keys.join("next.pub"), case.join("revocation.pub"))
+                fs::copy(keys.join("next.pub"), case.join("revocation.pub"))
                     .expect("changed revocation key");
             }) as Box<dyn Fn(&Path)>,
             "Revocation key changed",
@@ -529,8 +530,8 @@ fn author_commands_refuse_a_secret_key_inside_the_catalog_and_write_nothing() {
     let keys = temp.path().join("keys");
     keygen(&keys, "author");
     let catalog = prepare_catalog(temp.path(), "community");
-    fs::copy(&keys.join("author.key"), catalog.join("inside.key")).expect("inner key");
-    fs::copy(&keys.join("author.pub"), catalog.join("next.pub")).expect("public key");
+    fs::copy(keys.join("author.key"), catalog.join("inside.key")).expect("inner key");
+    fs::copy(keys.join("author.pub"), catalog.join("next.pub")).expect("public key");
     let before = snapshot(&catalog);
     for command in [
         vec![
