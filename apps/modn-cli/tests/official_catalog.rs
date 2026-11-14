@@ -50,11 +50,16 @@ fn checkout_copy(destination: &Path) -> PathBuf {
                 serde_json::from_slice(&fs::read(package.path()).expect("record"))
                     .expect("record JSON");
             record["schema_version"] = serde_json::json!(2);
-            if let Some(source) = record.as_object_mut().and_then(|entry| entry.remove("source"))
+            if let Some(source) = record
+                .as_object_mut()
+                .and_then(|entry| entry.remove("source"))
             {
                 record["sources"] = serde_json::json!([source]);
             }
-            if let Some(pin) = record.as_object_mut().and_then(|entry| entry.remove("sha256")) {
+            if let Some(pin) = record
+                .as_object_mut()
+                .and_then(|entry| entry.remove("sha256"))
+            {
                 record["blake3"] = pin;
             }
             fs::write(

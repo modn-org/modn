@@ -125,7 +125,7 @@ impl Read for CancellingReader {
 fn download_cancellation_leaves_no_cache_entry() {
     let body = b"archive bytes".to_vec();
     let cache = ArchiveCache::new(tempfile::tempdir().expect("cache").keep());
-    let digest = format!("{:x}", Sha256::digest(&body));
+    let digest = blake3::hash(&body).to_hex().to_string();
     let key = CacheKey::new(
         "test-game",
         "mod",
@@ -223,7 +223,7 @@ fn successful_install_reports_every_phase_in_order() {
     let archive = fixture.archive("mod");
     let body = fs::read(&archive).expect("archive bytes");
     let cache = ArchiveCache::new(tempfile::tempdir().expect("cache").keep());
-    let digest = format!("{:x}", Sha256::digest(&body));
+    let digest = blake3::hash(&body).to_hex().to_string();
     let key = CacheKey::new(
         "test-game",
         "mod",
