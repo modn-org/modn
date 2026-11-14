@@ -299,6 +299,7 @@ def _walk(control):
 
 
 WM_SETTEXT = 0x000C
+WM_COMMAND = 0x0111
 BM_CLICK = 0x00F5
 IDCANCEL = 2
 
@@ -322,6 +323,24 @@ def set_file_dialog(dialog, path, session):
     confirm = _win32().GetDlgItem(window, 1)
     require(confirm, "File dialog has no Open button")
     _win32().PostMessageW(confirm, BM_CLICK, 0, 0)
+
+
+def cancel_file_dialog(dialog, timeout=10):
+    """Cancels a common item dialog through its documented cancel command.
+
+    The common item dialog does not publish its control ids through UI
+    Automation. `WM_COMMAND` with `IDCANCEL` is the same command its Cancel
+    button sends, and it leaves the dialog before any file is chosen.
+    """
+    window = dialog.NativeWindowHandle
+    require(window and _win32().IsWindow(window), "File dialog is not a live window")
+    _win32().PostMessageW(window, WM_COMMAND, IDCANCEL, 0)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _win32().IsWindow(window):
+            return
+        time.sleep(0.05)
+    raise Failure("File dialog stayed open after Cancel")
 
 
 def _find_by_id(dialog, automation_id):
