@@ -328,6 +328,7 @@ impl Store {
         stack_id: Option<&str>,
     ) -> Result<()> {
         let context = self.history.clone();
+        self.committed_operation = None;
         let tx = self.connection.transaction()?;
         let replaced = catalog.and_then(|catalog| catalog.replacing);
         let metadata = context.as_ref().map(|context| {
@@ -422,6 +423,7 @@ impl Store {
             [id],
         )?;
         tx.commit()?;
+        self.committed_operation = record.map(|record| record.id);
         Ok(())
     }
 
@@ -436,6 +438,7 @@ impl Store {
     /// marks each journal committed, so a failure keeps every file recoverable.
     pub(crate) fn commit_uninstall_many(&mut self, removals: &[(String, String)]) -> Result<()> {
         let context = self.history.clone();
+        self.committed_operation = None;
         let tx = self.connection.transaction()?;
         let record = match (context.as_ref(), removals) {
             (Some(context), [(journal_id, package_id)]) => {
@@ -490,6 +493,7 @@ impl Store {
             crate::history::insert(&tx, record)?;
         }
         tx.commit()?;
+        self.committed_operation = record.map(|record| record.id);
         Ok(())
     }
 }

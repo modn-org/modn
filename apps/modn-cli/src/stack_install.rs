@@ -293,18 +293,23 @@ pub(super) fn run(
         .zip(&installed)
         .map(|(member, package)| (member.release.reference.to_string(), package))
         .collect();
+    let operation_id = store.committed_operation_id().map(str::to_owned);
     if json {
         let packages: Vec<_> = report
             .iter()
             .map(|(reference, package)| serde_json::json!({"package": reference, "installed": package}))
             .collect();
+        let mut result = serde_json::json!({
+            "package": reference_of(stack.selected).to_string(),
+            "stack": packages,
+        });
+        if let Some(operation_id) = operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id);
+        }
         println!(
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "package": reference_of(stack.selected).to_string(),
-                "stack": packages,
-            }))
-            .context("cannot serialize installation report")?
+            serde_json::to_string_pretty(&result)
+                .context("cannot serialize installation report")?
         );
     } else {
         for (reference, package) in &report {

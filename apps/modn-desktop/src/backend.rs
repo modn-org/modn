@@ -1,3 +1,13 @@
+#[path = "backend/error.rs"]
+pub(crate) mod error;
+#[path = "backend/inactivity.rs"]
+mod inactivity;
+#[path = "backend/progress.rs"]
+mod progress;
+
+pub(crate) use error::{BackendError, BackendErrorKind};
+pub(crate) use progress::{CancelToken, ProgressEvent};
+
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -6,13 +16,13 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-const OUTPUT_LIMIT: u64 = 1024 * 1024;
+pub(crate) const OUTPUT_LIMIT: u64 = 1024 * 1024;
 const ARCHIVE_LIMIT: u64 = 4 * 1024 * 1024 * 1024;
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -23,6 +33,11 @@ pub(crate) struct Backend {
     pub data: Option<PathBuf>,
     pub modules: Option<PathBuf>,
     pub evidence: Option<PathBuf>,
+    /// Inactivity timeout for the write and long-running call paths.
+    ///
+    /// `None` uses 120 seconds. The timeout applies only before the CLI reports
+    /// its commit phase or starts its result on stdout.
+    pub inactivity_timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -33,9 +48,22 @@ pub(crate) struct Game {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Review {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test's install helper reads this; the desktop commits through call_with_progress"
+        )
+    )]
     pub game: Game,
     pub archive: PathBuf,
-    pub source: PathBuf,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test's install helper reads this; the desktop commits through call_with_progress"
+        )
+    )]
     pub digest: Vec<u8>,
     pub plan: Value,
 }
@@ -49,6 +77,7 @@ impl Backend {
             data: None,
             modules: None,
             evidence: None,
+            inactivity_timeout: None,
         };
         while let Some(flag) = args.next() {
             let value = PathBuf::from(
@@ -85,35 +114,82 @@ impl Backend {
         Ok(result)
     }
 
+    /// Sets the inactivity timeout for the write and long-running call paths.
+    ///
+    /// The default is 120 seconds. The timeout applies only before the CLI
+    /// reports the commit phase or starts its result on stdout; after that the
+    /// call waits for the CLI to finish or roll back.
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test sets a timeout; the desktop uses the default"
+        )
+    )]
+    pub fn with_inactivity_timeout(mut self, timeout: Duration) -> Self {
+        self.inactivity_timeout = Some(timeout);
+        self
+    }
+
+    /// Runs a write command with `--progress json` and cooperative cancellation.
+    ///
+    /// Each stderr JSON object with a `phase` field is passed to `on_event` in
+    /// the order the CLI wrote it. The final JSON result on stdout is returned.
+    /// When `cancel` is cancelled, the call writes one `cancel` line on stdin
+    /// and never kills the process for that reason.
+    ///
+    /// Before the commit event, inactivity for the configured timeout sends
+    /// `cancel`, waits 15 seconds and then kills the process. The deadline
+    /// stays armed after a cancel, so a step that stalls instead of stopping
+    /// cannot block the call or window close. After the commit event there is
+    /// no inactivity kill, because a committed write must be allowed to finish
+    /// or roll back.
+    ///
+    /// Output that exceeds the bound before the commit event fails the call.
+    /// Output that exceeds it after the commit event is drained, the writer is
+    /// not killed, and the error code is
+    /// `BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT`: the files are installed, so
+    /// callers refresh instead of reporting a failed write. The same code
+    /// reports stdout after an exit status of 0 when it is missing, unreadable
+    /// or not one JSON value, because the commit still completed. A nonzero
+    /// exit after the commit stays a refusal and outranks any output problem.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BackendError`] when the CLI refuses, the operation is
+    /// cancelled before the commit point, output is invalid or exceeds its
+    /// bound before the commit point, the process cannot start, or inactivity
+    /// expires before the commit point.
+    pub fn call_with_progress(
+        &self,
+        args: &[OsString],
+        cancel: &CancelToken,
+        on_event: &mut dyn FnMut(ProgressEvent),
+    ) -> Result<Value, BackendError> {
+        progress::call(self, args, cancel, on_event)
+    }
+
+    /// Runs a command that does not report progress with the inactivity
+    /// timeout.
+    ///
+    /// `--progress json` is not appended, and any output resets the timer. The
+    /// call ends when the CLI process exits, so a started game holding the
+    /// inherited pipes cannot block it. Stdout that starts is never killed: the
+    /// write committed and its result is recoverable. A nonzero exit is a
+    /// refusal whatever the output; with exit 0, a lost, oversized or malformed
+    /// result after stdout started reports `BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BackendError`] when the CLI refuses, output is lost before
+    /// stdout starts, the process cannot start, or inactivity expires.
+    pub fn call_with_inactivity_timeout(&self, args: &[OsString]) -> Result<Value, BackendError> {
+        inactivity::call(self, args)
+    }
+
     pub fn call(&self, args: &[OsString]) -> Result<Value> {
-        let mut command = Command::new(&self.binary);
-        command.args([
-            OsString::from("--json"),
-            OsString::from("--state-dir"),
-            self.state.clone().into_os_string(),
-        ]);
-        command
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        command.env_clear();
-        if let Some(root) = std::env::var_os("SystemRoot") {
-            command.env("SystemRoot", root);
-        }
-        if let Some(modules) = &self.modules {
-            command.env("MODN_GAME_MODULES_DIR", modules);
-        }
-        if let Some(data) = &self.data {
-            command.env("LOCALAPPDATA", data);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
-        }
-        let mut child = command
-            .spawn()
+        let mut child = progress::spawn(self, args, Stdio::null())
             .context("Cannot start configured backend. Check its path and permissions")?;
         let stdout = child.stdout.take().context("Missing backend stdout")?;
         let stderr = child.stderr.take().context("Missing backend stderr")?;
@@ -196,6 +272,13 @@ impl Backend {
         Ok(vec!["--game".into(), game.game_id.clone().into()])
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test lists owned packages through this helper; the desktop reads library state through call"
+        )
+    )]
     pub fn read(&self, game: &Game, action: &str) -> Result<Value> {
         if !["list", "doctor"].contains(&action) {
             bail!("Unsupported read action");
@@ -240,12 +323,18 @@ impl Backend {
         Ok(Review {
             game: game.clone(),
             archive,
-            source: source.to_path_buf(),
             digest,
             plan,
         })
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test uses the one-shot install helper; the desktop commits through call_with_progress"
+        )
+    )]
     pub fn install(&self, review: &Review) -> Result<Value> {
         if !reviewable(&review.plan) {
             bail!("Plan is blocked. Resolve blockers and review again");
@@ -268,6 +357,13 @@ impl Backend {
         self.call(&args)
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Only the backend contract test uses the one-shot uninstall helper; the desktop commits through call_with_progress"
+        )
+    )]
     pub fn uninstall(&self, game: &Game, id: &str) -> Result<Value> {
         let packages = self.read(game, "list")?;
         if !packages
@@ -330,6 +426,49 @@ pub(crate) fn reviewable(plan: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_backend() -> Backend {
+        Backend {
+            binary: PathBuf::from(r"C:\modn-test\missing-backend.exe"),
+            state: PathBuf::from(r"C:\modn-test\state"),
+            data: None,
+            modules: None,
+            evidence: None,
+            inactivity_timeout: None,
+        }
+    }
+
+    fn test_game() -> Game {
+        Game {
+            game_id: "fixture".into(),
+            path: PathBuf::from(r"C:\modn-test\game"),
+        }
+    }
+
+    #[test]
+    fn install_refuses_a_blocked_plan_before_reading_the_archive() {
+        let review = Review {
+            game: test_game(),
+            archive: PathBuf::from(r"C:\modn-test\missing.zip"),
+            digest: Vec::new(),
+            plan: serde_json::json!({"status": "blocked"}),
+        };
+        assert!(test_backend().install(&review).is_err());
+    }
+
+    #[test]
+    fn games_and_uninstall_fail_closed_when_the_backend_is_missing() {
+        let backend = test_backend();
+        assert!(backend.games().is_err());
+        assert!(backend.uninstall(&test_game(), "package").is_err());
+    }
+
+    #[test]
+    fn inactivity_timeout_is_recorded() {
+        let backend = test_backend().with_inactivity_timeout(Duration::from_millis(5));
+        assert_eq!(backend.inactivity_timeout, Some(Duration::from_millis(5)));
+    }
+
     #[test]
     fn only_complete_operations_in_unblocked_metadata_plans_enable_install() {
         let mut plan = serde_json::json!({"status":"reviewable", "metadata_only":true, "blockers":[], "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}]});

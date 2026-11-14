@@ -15,7 +15,7 @@ use crate::stores::Storefront;
 use anyhow::Result;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[cfg(test)]
 mod tests;
@@ -260,7 +260,7 @@ pub fn system_launch(target: &LaunchTarget) -> Result<()> {
         LaunchTarget::Executable {
             path,
             working_directory,
-        } => Command::new(path)
+        } => detach(Command::new(path))
             .current_dir(working_directory)
             .spawn()
             .map(|_child| ())
@@ -276,11 +276,23 @@ pub fn system_launch(target: &LaunchTarget) -> Result<()> {
     }
 }
 
+/// Detaches a started program from this process's standard streams.
+///
+/// An inherited pipe stays open for as long as the game runs, so the caller
+/// that spawned `modn play` would wait for the game to exit.
+fn detach(mut command: Command) -> Command {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
+}
+
 #[cfg(windows)]
 fn open_uri(uri: &str) -> Result<()> {
     // Explorer delegates the URI to the registered shell handler. Passing it
     // as one argument avoids cmd.exe metacharacter parsing in Epic URIs.
-    Command::new("explorer")
+    detach(Command::new("explorer"))
         .arg(uri)
         .spawn()
         .map(|_child| ())
@@ -299,7 +311,7 @@ fn open_uri(uri: &str) -> Result<()> {
     } else {
         "xdg-open"
     };
-    Command::new(opener)
+    detach(Command::new(opener))
         .arg(uri)
         .spawn()
         .map(|_child| ())

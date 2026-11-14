@@ -150,6 +150,7 @@ impl Store {
     }
 
     fn finish_stack(&mut self, id: &str, installed: Option<&[ManagedPackage]>) -> Result<()> {
+        self.committed_operation = None;
         let record = match (self.history.as_ref(), installed) {
             (Some(context), Some(packages)) => {
                 Some(crate::history::stack_operation(context, id, packages))
@@ -163,6 +164,7 @@ impl Store {
         tx.execute("DELETE FROM pending_stack_packages WHERE stack_id=?1", [id])?;
         tx.execute("DELETE FROM pending_stacks WHERE id=?1", [id])?;
         tx.commit()?;
+        self.committed_operation = record.map(|record| record.id);
         Ok(())
     }
 

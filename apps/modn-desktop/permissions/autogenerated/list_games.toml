@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-games"
+description = "Enables the list_games command without any pre-configured scope."
+commands.allow = ["list_games"]
+
+[[permission]]
+identifier = "deny-list-games"
+description = "Denies the list_games command without any pre-configured scope."
+commands.deny = ["list_games"]
