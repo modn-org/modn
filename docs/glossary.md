@@ -72,8 +72,8 @@ installation policy, diagnostics and tool behavior.
 _Avoid_: Mod, plugin, adapter, Rust game handler
 
 **Trusted third-party game module**:
-A user-approved executable Lua policy. It comes from a trusted signed Git
-catalog or a local `module register --trust` source and is stored as a versioned
+A user-approved executable Lua policy. It comes from a trusted signed Git or
+ZIP catalog or a local `module register --trust` source and is stored as a versioned
 release in a separate local registry.
 _Avoid_: Community bucket module, automatically safe module
 
@@ -89,9 +89,9 @@ _Avoid_: Catalog revision, unversioned snapshot
 
 **Trusted module source**:
 A bucket that may supply executable game modules: the official `main` bucket, or
-a signed Git catalog the user trusts with `modn bucket trust-modules`. Trust
-covers the whole bucket and ends when its signer key changes or
-`untrust-modules` removes it.
+a signed Git or ZIP catalog the user trusts with `modn bucket trust-modules`.
+Trust covers the whole bucket. A signed rotation moves it to the successor key;
+a revocation or `untrust-modules` ends it.
 _Avoid_: Any registered bucket, unsigned catalog
 
 **Development module override**:
@@ -107,8 +107,34 @@ _Avoid_: Sandboxed module, bucket module, development override
 **Git catalog revision**:
 The explicit source and full commit published with a validated community catalog snapshot.
 Only an explicit `bucket sync` fetches this source.
-The registration also records the pinned signer key ID.
+A ZIP catalog revision records the ZIP source and digest instead of a commit.
+Both kinds record the pinned signer key ID, the pinned revocation key ID and the
+previous or revoked signer key IDs.
 _Avoid_: Automatically refreshed catalog
+
+**Mirror**:
+Another host of the same signed catalog, listed in `mirrors.json`. Sync tries
+the registered primary first and then the stored mirrors in order. Only a
+transport failure moves to the next mirror; a trust failure stops the sync.
+_Avoid_: Another catalog, fallback archive source
+
+**Catalog relocation**:
+A signed `relocation.json` record that names a new primary host for the same
+catalog. After verification, Modn updates the registration in one atomic write,
+and the next sync contacts the new primary first.
+_Avoid_: Redirect, unsigned URL change
+
+**Key rotation**:
+A signed `rotation.json` statement from the pinned signing key that names its
+successor. Modn pins the successor, records the old key ID in
+`previous_signers`, and moves module trust to the successor.
+_Avoid_: Replacing `catalog.pub` without a statement
+
+**Revocation key**:
+An offline minisign key, pinned at first sync from `revocation.pub`, that signs
+`revocation.json` to revoke the signing key and name its replacement. It never
+signs a catalog.
+_Avoid_: Signing key, backup password
 
 **Catalog signature**:
 A minisign (Ed25519) signature over the signed catalog statement.
@@ -127,7 +153,8 @@ _Avoid_: Archive checksum, commit ID
 
 **Signer key**:
 The minisign public key whose signatures Modn accepts for one catalog.
-`main` uses the key built into Modn. A Git catalog pins its signer key at first sync.
+`main` uses the key built into Modn. A Git or ZIP catalog pins its signer key at
+first sync and changes it only through a signed rotation or revocation.
 _Avoid_: Certificate, user account
 
 **Key ID (fingerprint)**:

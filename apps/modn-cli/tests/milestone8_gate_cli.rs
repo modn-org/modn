@@ -21,9 +21,7 @@ mod zip_catalog;
 mod zip_catalog_fixture;
 
 use catalog_authoring::{copy_tree, path_text, stderr};
-use catalog_mirrors::{
-    keygen, pack_catalog, relocation_json, signed_catalog, snapshot,
-};
+use catalog_mirrors::{keygen, pack_catalog, relocation_json, signed_catalog, snapshot};
 use catalog_rotation::{rotate, sign};
 use serde_json::Value;
 use std::fs;
@@ -88,7 +86,10 @@ fn after_the_author_moves_the_catalog_the_next_sync_follows_the_signed_relocatio
     pack(&invalid, &old);
     let before_invalid = stored_state(&fixture);
     let refused = fixture.run(&["bucket", "sync", "community"]);
-    assert!(!refused.status.success(), "a local relocation target was accepted");
+    assert!(
+        !refused.status.success(),
+        "a local relocation target was accepted"
+    );
     assert!(
         stderr(&refused).contains("a declared ZIP source must use an https:// URL"),
         "{}",
@@ -122,13 +123,7 @@ fn after_the_author_moves_the_catalog_the_next_sync_follows_the_signed_relocatio
     assert_eq!(entry["signer_key_id"], author.as_str());
 
     let state_before_old_url = stored_state(&fixture);
-    let refused = fixture.run(&[
-        "bucket",
-        "sync",
-        "community",
-        "--source",
-        path_text(&old),
-    ]);
+    let refused = fixture.run(&["bucket", "sync", "community", "--source", path_text(&old)]);
     assert!(!refused.status.success());
     assert!(
         stderr(&refused).contains("changing a registered source is refused"),
@@ -145,7 +140,10 @@ fn modn_refuses_a_catalog_at_the_old_url_that_a_different_key_signed() {
     let author = keygen(&keys, "author");
     let other = fixture.temp.path().join("other-keys");
     let foreign_key = keygen(&other, "author");
-    let zip = pack_catalog(&author_catalog(&fixture, &keys), &fixture.temp.path().join("old.zip"));
+    let zip = pack_catalog(
+        &author_catalog(&fixture, &keys),
+        &fixture.temp.path().join("old.zip"),
+    );
 
     let first = fixture.sync(&zip);
     assert!(first.status.success(), "{}", stderr(&first));
@@ -231,7 +229,11 @@ fn after_a_signed_handover_modn_accepts_the_successor_keys_catalog() {
 
     let repeated = fixture.sync(&zip);
     assert!(repeated.status.success(), "{}", stderr(&repeated));
-    assert!(!stderr(&repeated).contains("signing key"), "{}", stderr(&repeated));
+    assert!(
+        !stderr(&repeated).contains("signing key"),
+        "{}",
+        stderr(&repeated)
+    );
 
     let before_retired = stored_state(&fixture);
     pack(&before_rotation, &zip);

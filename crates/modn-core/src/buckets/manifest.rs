@@ -25,8 +25,8 @@ pub struct PackageManifest {
     /// source except `git`, whose commit is the pin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blake3: Option<String>,
-    /// Ordered artifact sources for this release. Modn uses only the first
-    /// source until fallback across sources (issue #118) ships.
+    /// Ordered artifact sources for this release. Modn tries them in order and
+    /// uses the first whose bytes match the archive pin.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<PackageSource>,
     /// True when the author allows redistribution of the archive.

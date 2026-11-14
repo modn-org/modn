@@ -215,27 +215,29 @@ only by case, a root `.git` entry and a non-UTF-8 path. It refuses a root
 
 ### Signing a catalog
 
-Install the stock `minisign` CLI, then run these commands. Replace `<dir>` with
-the catalog path. The statement file must hold the bytes exactly, with no
-byte-order mark and no added newline.
+Create one signing key with `modn catalog keygen`. Run `modn catalog sign` before
+each publish, and `modn catalog verify` to check the tree. Replace `<dir>` with
+the catalog path.
 
 ```powershell
-cmd /c "cargo run -p modn-core --example catalog_digest -- <dir> > statement.txt"
-minisign -S -s <secret key> -m statement.txt -x <dir>/catalog.sig
-Copy-Item <public key> <dir>/catalog.pub
+modn catalog keygen --out ./author-keys
+modn catalog sign . --key ../author-keys/catalog.key
+modn catalog verify . --key catalog.pub
 ```
 
-Windows PowerShell 5.1 `>` writes UTF-16, so keep the `cmd /c` redirection.
-
-`catalog_digest` prints the statement for the catalog tree. `minisign -S` signs
-that file and writes `catalog.sig` at the catalog root. Do not pass `-l`, which
-writes the legacy format that Modn refuses. `catalog.pub` holds the signer
-public key as a bare key line or a two-line `minisign.pub` file.
+`modn catalog sign` writes `catalog.sig` and the matching `catalog.pub` at the
+catalog root. `modn catalog hash` prints the BLAKE3 pin of an archive for a
+package record. `modn catalog rotate` and `modn catalog revoke` write the signed
+key statements described above. A password-protected key takes
+`--password-env <VAR>`. Every command needs no manager state and registers
+nothing. See [catalog authoring](catalog-authoring.md) for the full workflow.
 
 Sign the tree that you ship. Any change to a catalog file changes the digest and
 invalidates the signature. A Git catalog publishes `catalog.sig` and `catalog.pub`
 at its root. A `main` release also uploads the same signature as
-`main-bucket.zip.minisig`.
+`main-bucket.zip.minisig`. That file comes from the main bucket release pipeline,
+which uses the stock `minisign` CLI with `-S`, never `-l`, and produces the same
+statement format. See [releasing](releasing.md).
 
 ## Module sources and trust
 
@@ -324,9 +326,11 @@ has schema_version: 2, id, game, name, version, sources (`manual` with filename,
 with game_domain, mod_id, file_id and file_name), optional redistributable,
 upstream_sha256, dependencies (same-game IDs), dependency_versions, conflicts,
 executables, native_injector and homepage.
-`sources` is an ordered, non-empty list. Modn uses only the first entry; it
-reads the later entries but does not fall back to them until fallback across
-sources (issue #118) ships.
+`sources` is an ordered, non-empty list. Modn tries each fetchable source in
+order and uses the first one whose bytes match the `blake3` pin. It moves on
+after a timeout, a network or HTTP failure, or a digest mismatch. A `manual`
+source is never started automatically. See
+[artifact source fallback](sources.md#artifact-source-fallback).
 A record lists either archive sources or `git` sources, never both. Modn refuses
 a mixed record, because one archive pin cannot cover a packed Git archive.
 An archive record declares `blake3`, 64 lowercase hex characters that pin the

@@ -343,4 +343,3 @@ fn sign_refuses_unsafe_inputs_and_keeps_the_previous_signature() {
         fs::read(keys.join("author.pub")).expect("generated public key")
     );
 }
-

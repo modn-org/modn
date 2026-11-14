@@ -80,7 +80,6 @@ fn rotation_is_accepted_with_the_successor_and_trust_follows() {
     assert_eq!(before, state_snapshot(&fixture.temp.path().join("state")));
 }
 
-
 #[test]
 fn revocation_by_the_offline_key_clears_trust_and_retires_the_signer() {
     let fixture = GitFixture::new();
@@ -160,4 +159,3 @@ fn revocation_by_the_offline_key_clears_trust_and_retires_the_signer() {
     );
     assert_eq!(before, fixture.snapshot());
 }
-

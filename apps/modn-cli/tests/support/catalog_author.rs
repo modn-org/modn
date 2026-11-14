@@ -38,4 +38,3 @@ pub fn verify(catalog: &Path, key: &Path) -> std::process::Output {
         path_text(key),
     ])
 }
-

@@ -49,10 +49,10 @@ transaction state. Mod IDs are qualified by bucket and game when ambiguous.
 | Field | Meaning |
 | --- | --- |
 | `bucket_id` | Registered catalog name, for example `main`. |
-| `source` | Verified local `main` copy, registered local directory or explicitly synchronized Git source. |
+| `source` | Verified local `main` copy, registered local directory, explicitly synchronized Git catalog or explicitly synchronized ZIP catalog. |
 | `revision` | Selected catalog snapshot/revision. |
 | `title` | Human-readable catalog name. |
-| `module_trust` | Stored signer key ID that accepts this bucket's module code. A trusted signed Git catalog has this record; other buckets do not. |
+| `module_trust` | Stored signer key ID that accepts this bucket's module code. A trusted signed Git or ZIP catalog has this record; other buckets do not. |
 
 The install script runs `modn bucket update` to fetch the official `main` bucket.
 Modn never fetches it implicitly. A missing copy prompts the user to run that command.
@@ -62,11 +62,20 @@ installed copy.
 The update fetches the latest `modn-org/main`
 release, and it refuses a bucket with a module this Modn cannot run.
 The local copy works offline and changes only on explicit update. `main` and the
-signed Git catalogs the user trusts for modules may contain game modules. Modn
-ignores modules from other buckets, and local folder buckets cannot be module
-sources. Registering a bucket never authorizes modification of a game installation.
-A trusted catalog's `module_trust` record names its signer key ID; a signer key
-change ends trust.
+signed Git and ZIP catalogs the user trusts for modules may contain game modules.
+Modn ignores modules from other buckets, and local folder buckets cannot be
+module sources. Registering a bucket never authorizes modification of a game installation.
+
+A distributed catalog registration records its source kind (`git` or `zip`) and
+source, the ordered mirror list from the latest verified revision, and the
+pinned signer key ID and public key. It also records the pinned revocation key ID
+and public key when the first sync named one. A rotation moves the pin to the
+successor and records the old key ID in `previous_signers`; a revocation records
+the old key ID in `revoked_signers`. The registration also keeps the BLAKE3
+digest of an applied rotation or revocation statement, so a repeated statement
+changes no key.
+A trusted catalog's `module_trust` record names its signer key ID. A signed
+rotation moves that record to the successor key, and a revocation clears it.
 
 ### Game and game installation
 
@@ -116,7 +125,7 @@ registered again.
 | `name` | User-facing name. |
 | `archive_format` | ZIP or 7z, where supported. |
 | `blake3` | BLAKE3 pin of the original distribution archive. |
-| `sources` | Ordered artifact sources: HTTPS URLs, pinned GitHub release assets, pinned Nexus Mods files, Git commits or manual archives. Modn uses only the first entry until fallback ships. |
+| `sources` | Ordered artifact sources: HTTPS URLs, pinned GitHub release assets, pinned Nexus Mods files, Git commits or manual archives. Modn tries them in order and uses the first whose bytes match the archive pin; a `manual` source is never started automatically. See [sources.md](sources.md#artifact-source-fallback). |
 | `redistributable` | True when the author allows redistribution of the archive; defaults to false. |
 | `upstream_sha256` | Original upstream SHA-256, when known. Provenance only; Modn never verifies it. |
 | `dependencies` | Documented required/optional/conflicting relations. |
@@ -256,7 +265,7 @@ fixture exercises game-agnostic support.
 | Active or pinned module release | `<data-directory>/game-modules/<game-id>/current` and `pin.json` |
 | Bucket module trust | `buckets/registrations/<name>.json / module_trust.signer_key_id` |
 | Development override | In-memory per-invocation `--module-src` / `--src` |
-| Bucket packages | Local `main` copy, registered local directories and explicitly synced Git snapshots |
+| Bucket packages | Local `main` copy, registered local directories and explicitly synced Git and ZIP catalog snapshots |
 
 The manager schema stores each pin as `pinned INTEGER NOT NULL DEFAULT 0`.
 A fresh package starts unpinned.

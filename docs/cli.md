@@ -556,10 +556,10 @@ otherwise the command's default code is used. No command reports a generic
 ## Additional commands
 
 - `modn scan --path <game>` and `modn doctor --path <game>` read the game root and a module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
-- `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key, and later syncs refuse a key change. See [sources.md](sources.md).
+- `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key and the optional revocation key. A later sync refuses an unrelated key change and follows a signed rotation or revocation. See [sources.md](sources.md) and [buckets.md](buckets.md#catalog-key-rotation-and-revocation).
 - `modn bucket sync <name> --source <url>.zip` registers a signed ZIP catalog. Modn verifies it in staging before publication, and `--revision` is refused. The source must be `https://`, or an absolute local ZIP path for offline testing. See [buckets.md](buckets.md#community-catalog-sources).
 - `modn bucket sync` and `modn update` try the registered primary and then the mirrors that the latest verified revision lists. A signed `relocation.json` moves the registered primary. See [buckets.md](buckets.md#mirrors-and-relocation).
-- `modn bucket list --json` reports `primary` as `{"kind":"git","remote":...,"revision":...}` or `{"kind":"zip","url":...}`, and `mirrors` as the ordered tagged list. Text output shows the primary and the mirror count. The existing keys stay. A signed catalog also reports `revocation_key_id` when it pinned an offline revocation key, plus `previous_signers` and `revoked_signers` arrays when non-empty.
+- `modn bucket list --json` reports `source_kind` as `git` or `zip` for a registered catalog, `primary` as `{"kind":"git","remote":...,"revision":...}` or `{"kind":"zip","url":...}`, and `mirrors` as the ordered tagged list. Text output shows the primary and the mirror count. The existing keys stay. A signed catalog also reports `signer_key_id`, `revocation_key_id` when it pinned an offline revocation key, plus `previous_signers` and `revoked_signers` arrays when non-empty.
 - `modn adopt <archive> --dry-run` previews manual adoption. Commit requires `--acknowledge --yes`.
 - `modn uninstall <package> --force --yes` approves cleanup of modified owned files.
 
