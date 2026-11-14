@@ -31,8 +31,12 @@
 //! - any other name: emits the full sequence and succeeds.
 //!
 //! Without `--progress json`, `heartbeat`, `silent`, `committed-stall`,
-//! `game-launch` and `refuse` select registration behaviour; `refuse` writes
-//! the `PLAN_BLOCKED` envelope on stderr and exits 1 without a write.
+//! `game-launch`, `refuse`, `overflow-failure` and `overflow-stall-failure`
+//! select registration behaviour. `refuse` writes the `PLAN_BLOCKED` envelope
+//! on stderr and exits 1 without a write. `overflow-failure` writes 2 MiB on
+//! stdout, then an `INSTALL_FAILED` envelope, and exits 1.
+//! `overflow-stall-failure` also waits 1.5 seconds, records
+//! `survived-after-output` after that wait, and then fails the same way.
 
 use serde_json::json;
 use std::ffi::OsString;
@@ -252,6 +256,8 @@ fn fixture_scenario(args: &[OsString]) -> Option<&'static str> {
         "committed-stall" => Some("committed-stall"),
         "game-launch" => Some("game-launch"),
         "refuse" => Some("refuse"),
+        "overflow-failure" => Some("overflow-failure"),
+        "overflow-stall-failure" => Some("overflow-stall-failure"),
         _ => None,
     }
 }
@@ -286,10 +292,37 @@ fn registration_scenario(scenario: &str, state: &Path) -> anyhow::Result<()> {
             );
             std::process::exit(1);
         }
+        "overflow-failure" => {
+            overflow_stdout()?;
+            exit_with_output_failure();
+        }
+        "overflow-stall-failure" => {
+            overflow_stdout()?;
+            thread::sleep(Duration::from_millis(1500));
+            fs::write(state.join("survived-after-output"), b"not killed")?;
+            exit_with_output_failure();
+        }
         _ => {}
     }
     println!("{}", json!({"game_id": "fixture"}));
     Ok(())
+}
+
+/// Starts stdout on a registration call and exceeds its output bound.
+fn overflow_stdout() -> anyhow::Result<()> {
+    let filler = vec![b'x'; 2 * 1024 * 1024];
+    io::stdout().write_all(&filler)?;
+    io::stdout().flush()?;
+    Ok(())
+}
+
+/// Refuses with a stable code after the result stream started.
+fn exit_with_output_failure() -> ! {
+    eprintln!(
+        "{}",
+        json!({"error":"INSTALL_FAILED","message":"fixture output failure"})
+    );
+    std::process::exit(1);
 }
 
 fn scenario(args: &[OsString]) -> &'static str {
