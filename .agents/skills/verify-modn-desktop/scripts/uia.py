@@ -301,8 +301,6 @@ def _walk(control):
 WM_SETTEXT = 0x000C
 BM_CLICK = 0x00F5
 IDCANCEL = 2
-# TaskDialog answers its own button ids through this window message.
-TDM_CLICK_BUTTON = 0x0400 + 102
 
 
 def _win32():
@@ -364,89 +362,6 @@ def _answer_role(control):
 def dialog_buttons(dialog):
     """The canonical answer names of every button in a native dialog."""
     return [role for role in (_answer_role(c) for c in _walk(dialog)) if role]
-
-
-def _dialog_window(dialog, session):
-    """The HWND of the live dialog, refreshed after a stale UIA node."""
-    try:
-        handle = dialog.NativeWindowHandle
-    except Exception:
-        handle = 0
-    if handle and _win32().IsWindow(handle):
-        return handle
-    for window in titled_windows(session):
-        try:
-            candidate = window.NativeWindowHandle
-        except Exception:
-            continue
-        if candidate and _win32().IsWindow(candidate):
-            return candidate
-    return 0
-
-
-def _dialog_button(dialog, session, name):
-    """The live answer button of the dialog, rebuilt from its window handle.
-
-    A UI Automation proxy can disconnect while its dialog is still open, so
-    every attempt starts from a fresh element instead of reusing a node.
-    """
-    handle = _dialog_window(dialog, session)
-    if not handle:
-        return None, 0
-    try:
-        window = auto.ControlFromHandle(handle)
-    except Exception:
-        return None, handle
-    for control in _walk(window):
-        if _answer_role(control) == name:
-            return control, handle
-    return None, handle
-
-
-def answer_dialog(dialog, session, name, timeout=15):
-    """Clicks the button that answers a native dialog with `name`.
-
-    `name` is one of `DIALOG_BUTTON_IDS`: OK, Cancel, Yes or No. The answer
-    resolves by Win32 control id first, so a localized label still selects the
-    intended button. The confirmation is a TaskDialog, whose UI Automation
-    Invoke can be dropped while the dialog stays open, so the answer first
-    posts the documented TaskDialog button message and only falls back to
-    Invoke. The answer counts only once the dialog window is gone; an
-    unanswered dialog is retried with a fresh element.
-    """
-    require(name in DIALOG_BUTTON_IDS, f"Unknown dialog answer {name!r}")
-    control_id = int(DIALOG_BUTTON_IDS[name])
-    deadline = time.monotonic() + timeout
-    last = "it did not open"
-    while time.monotonic() < deadline:
-        control, handle = _dialog_button(dialog, session, name)
-        if not handle:
-            return None
-        if control is None:
-            last = f"it has no {name} button"
-            time.sleep(0.1)
-            continue
-        _win32().PostMessageW(handle, TDM_CLICK_BUTTON, control_id, 0)
-        until = time.monotonic() + min(3.0, max(0.0, deadline - time.monotonic()))
-        while time.monotonic() < until:
-            if not _win32().IsWindow(handle):
-                return control
-            time.sleep(0.05)
-        try:
-            session.activate(control)
-        except Exception as error:  # noqa: BLE001 - a retry uses a fresh node
-            last = f"activation failed: {error}"
-        until = time.monotonic() + min(3.0, max(0.0, deadline - time.monotonic()))
-        while time.monotonic() < until:
-            if not _win32().IsWindow(handle):
-                return control
-            time.sleep(0.05)
-        last = f"it stayed open after {name}"
-    raise Failure(f"Cannot answer the dialog with {name}: {last}")
-
-
-def dismiss(dialog, session, name="OK"):
-    return answer_dialog(dialog, session, name)
 
 
 def clipboard_text(timeout=10):
