@@ -201,7 +201,7 @@ fn warns_about_changed_managed_files_without_refusing() {
         .connection
         .execute(
             "INSERT INTO managed_files
-             (game_path, path_key, relative_path, package_id, sha256, bytes)
+             (game_path, path_key, relative_path, package_id, blake3, bytes)
              VALUES (?1, 'game.exe', 'Game.exe', 'fixture', 'fixture', 8)",
             [&game_text],
         )

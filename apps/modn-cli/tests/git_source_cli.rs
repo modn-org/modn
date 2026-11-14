@@ -5,7 +5,6 @@ mod support;
 mod main_bucket;
 
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -168,7 +167,7 @@ fn add_native_stack_bucket(fixture: &Fixture, root: &Path, commit: &str, depende
 fn seed_dependency_cache(fixture: &Fixture, archive: &Path) {
     let cache = fixture.state.join("cache");
     fs::create_dir_all(&cache).expect("cache directory");
-    let url_hash = &format!("{:x}", Sha256::digest(NATIVE_DEPENDENCY_URL.as_bytes()))[..7];
+    let url_hash = &blake3::hash(NATIVE_DEPENDENCY_URL.as_bytes()).to_hex()[..7];
     let entry = cache.join(format!("native-injector-game#lovely#1.0#{url_hash}.zip"));
     fs::copy(archive, entry).expect("seed dependency cache");
 }

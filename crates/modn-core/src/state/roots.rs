@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
 /// The manager state schema version this build writes.
-pub(crate) const SCHEMA_VERSION: i64 = 6;
+pub(crate) const SCHEMA_VERSION: i64 = 7;
 
 /// Identity of one root within its installation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -177,7 +177,7 @@ fn a_failed_removal_names_what_was_removed_and_keeps_the_rest() {
     let base = lab.install("base", &[]);
     let top = lab.install("top", &["base"]);
     let edited = lab.fixture.game.join("addons/base.plugin");
-    fs::write(&edited, b"edited").unwrap();
+    fs::write(&edited, b"BAKE").unwrap();
 
     let error = lab.uninstall("top", DEPENDENCIES).unwrap_err();
     let message = format!("{error:#}");
@@ -190,7 +190,7 @@ fn a_failed_removal_names_what_was_removed_and_keeps_the_rest() {
         "{message}"
     );
     assert_eq!(lab.installed(), ["base"]);
-    assert_eq!(fs::read(&edited).unwrap(), b"edited");
+    assert_eq!(fs::read(&edited).unwrap(), b"BAKE");
 }
 
 #[test]

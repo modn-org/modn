@@ -57,8 +57,8 @@ fn module_discovers_authorized_game_and_inspects_zip_and_hash() {
         local metadata = mods_host.fs.metadata(roots[1].id, "game.marker")
         assert(metadata.kind == "file" and metadata.bytes == 3)
         assert(mods_host.fs.metadata(1, "packages").kind == "directory")
-        local digest = mods_host.hash.sha256(1, "game.marker")
-        assert(digest == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        local digest = mods_host.hash.blake3(1, "game.marker")
+        assert(digest == "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85")
         local pkg = mods_host.archive.inspect(1, "packages/test.zip")
         assert(pkg.format == "zip" and pkg.metadata_only)
         assert(#pkg.files == 1 and pkg.files[1].entry == "content/example.txt")
@@ -127,7 +127,7 @@ fn traversal_absolute_paths_and_other_roots_are_denied() {
         });
     }
     let error = failure(
-        "mods_host.hash.sha256(1, '../private.txt'); return {}",
+        "mods_host.hash.blake3(1, '../private.txt'); return {}",
         &game,
         &module,
     );
@@ -139,7 +139,7 @@ fn invalid_root_ids_and_nonexistent_files_fail_explicitly() {
     let (_temp, module, game) = fixture();
     for (method, path) in [
         ("mods_host.fs.metadata", "game.marker"),
-        ("mods_host.hash.sha256", "game.marker"),
+        ("mods_host.hash.blake3", "game.marker"),
         ("mods_host.archive.inspect", "packages/test.zip"),
     ] {
         let script = format!("{method}(2, {path:?}); {SUCCESS}");
@@ -163,7 +163,7 @@ fn oversized_files_and_excessive_operations_are_rejected() {
     fs::write(game.join("big.bin"), vec![0u8; 9 * 1024 * 1024]).expect("large file");
     fs::copy(game.join("big.bin"), game.join("big.zip")).expect("large archive fixture");
     let error = failure(
-        "mods_host.hash.sha256(1,'big.bin'); return {}",
+        "mods_host.hash.blake3(1,'big.bin'); return {}",
         &game,
         &module,
     );
@@ -171,7 +171,7 @@ fn oversized_files_and_excessive_operations_are_rejected() {
     fs::write(game.join("chunk.bin"), vec![1u8; 5 * 1024 * 1024]).expect("chunk");
     let error = failure(
         r#"
-        for i = 1, 4 do mods_host.hash.sha256(1, "chunk.bin") end
+        for i = 1, 4 do mods_host.hash.blake3(1, "chunk.bin") end
         return {}
     "#,
         &game,
@@ -256,7 +256,7 @@ fn linked_components_and_root_symlinks_are_rejected() {
     fs::write(&outside, b"secret").expect("secret");
     symlink(&outside, game.join("linked")).expect("linked file");
     let error = failure(
-        "mods_host.hash.sha256(1,'linked'); return {}",
+        "mods_host.hash.blake3(1,'linked'); return {}",
         &game,
         &module,
     );
@@ -388,7 +388,7 @@ fn empty_relative_path_is_rejected_outside_root_listing() {
     for call in [
         "mods_host.directory.read_text(1, '')",
         "mods_host.fs.metadata(1, '')",
-        "mods_host.hash.sha256(1, '')",
+        "mods_host.hash.blake3(1, '')",
         "mods_host.archive.inspect(1, '')",
     ] {
         let error = failure(&format!("{call}; return {{}}"), &game, &module);
@@ -431,7 +431,7 @@ fn host_answers_carry_no_host_path_or_handle() {
         check(mods_host.discovery.roots())
         check(mods_host.fs.metadata(1, "game.marker"))
         check(mods_host.fs.metadata(1, "packages"))
-        check(mods_host.hash.sha256(1, "game.marker"))
+        check(mods_host.hash.blake3(1, "game.marker"))
         check(mods_host.archive.inspect(1, "packages/test.zip"))
         check(mods_host.directory.list(1, "packages"))
         check(mods_host.directory.read_text(1, "game.marker"))

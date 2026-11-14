@@ -120,7 +120,7 @@ fetches, so `modn update --dry-run` is refused rather than ignored. Use
 
 ## Module releases and trust
 
-A game module release is a required `version` plus the SHA-256 digest of
+A game module release is a required `version` plus the BLAKE3 digest of
 `module.json` and its entrypoint. The registry keeps retained releases and one
 active release under `<data>/game-modules/<game-id>/`. See
 [game modules](game-modules.md#module-releases).
@@ -144,7 +144,7 @@ whole bucket. A signer key change ends trust.
 registered. Retained modules from that bucket are then refused at use.
 
 `module list` verifies and lists every retained release. Each entry has the
-module identity, `sha256`, `source`, `active`, `source_trusted` and `pinned`.
+module identity, `blake3`, `source`, `active`, `source_trusted` and `pinned`.
 Text output marks an active release `[active]` and the pinned release `[pinned]`.
 It also warns when a release's bucket is not a trusted module source.
 
@@ -166,7 +166,7 @@ while the module is pinned.
 imported release and each ignored module. `--json` adds a `modules` value with
 two arrays:
 
-- `imported`: each entry has `game_id`, `version`, `sha256` and `outcome`.
+- `imported`: each entry has `game_id`, `version`, `blake3` and `outcome`.
 - `ignored`: each entry has `game_id` and `reason`, either `untrusted_source` or
   `official_priority`.
 
@@ -331,7 +331,7 @@ but is not stored as an approval.
 
 Undo also checks every restored file against the record: the archive member
 that the current module selects for a destination must have the recorded
-`digest_before` SHA-256, or the error is `UNDO_FAILED` with no change. A
+`digest_before` BLAKE3 digest, or the error is `UNDO_FAILED` with no change. A
 planned file whose root differs from the record is refused the same way.
 Restored files are written below their recorded root, including a
 module-declared appdata content root. A history record written before the

@@ -18,7 +18,7 @@ UTC timestamp. For each package it holds:
 - the archive BLAKE3 pin, which is also the cache key, written as 64 hex
   characters;
 - every owned file the operation created, replaced or removed, with its
-  SHA-256 content digest before and after.
+  BLAKE3 content digest before and after.
 
 A source descriptor uses the bucket manifest shape: `manual`, `https`,
 `github-release`, `nexus` or `git`. A standalone archive is a `manual` source.
@@ -110,7 +110,7 @@ archive cache before a later check refuses:
   contacting GitHub, and downloads again only on a cache miss.
 - A restored archive does not match the recorded BLAKE3 pin, or the current
   game policy maps the release to another root or other files than the record.
-- An update undo or an uninstall undo selects an archive member whose SHA-256
+- An update undo or an uninstall undo selects an archive member whose BLAKE3 digest
   differs from the recorded `digest_before` of a restored file. The undo checks
   the selected members before any game file changes. The error is `UNDO_FAILED`
   and no game file, ownership row or history record changes.
@@ -151,7 +151,7 @@ History lives in `state.sqlite`:
 |---|---|
 | `history_operations` | ID, kind, game ID, installation root, UTC time and the optional `undoes` target; an autoincrement sequence orders records. |
 | `history_packages` | One row per package with before/after package IDs and serialized release descriptors. |
-| `history_files` | One row per owned file with before/after SHA-256 digests. |
+| `history_files` | One row per owned file with before/after BLAKE3 digests. |
 | `managed_package_releases` | Release version, source descriptor, archive BLAKE3, qualified catalog reference and declared dependencies, conflicts and native-injector flag for each installed package, so a later update or uninstall can record the side it removes. |
 
 These tables are additive and add no schema version of their own. A writable

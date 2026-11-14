@@ -3,7 +3,6 @@ use super::CatalogRelease;
 use crate::acquisition::{ArchiveCache, CacheKey, CacheUse};
 use crate::error::{code_of, ErrorCode};
 use crate::progress::{CancellationToken, OperationControl, Outcome, ProgressEvent};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Cursor, Read};
@@ -63,7 +62,9 @@ fn snapshot(root: &Path) -> BTreeMap<String, String> {
             } else {
                 files.insert(
                     relative,
-                    format!("{:x}", Sha256::digest(fs::read(&path).expect("file"))),
+                    blake3::hash(&fs::read(&path).expect("file"))
+                        .to_hex()
+                        .to_string(),
                 );
             }
         }

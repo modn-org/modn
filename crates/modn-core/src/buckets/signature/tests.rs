@@ -14,7 +14,8 @@ const BUCKET_JSON: &str = r#"{"schema_version":1,"name":"test","title":"Test"}"#
 const MOD_JSON: &str = r#"{"schema_version":1,"id":"mod"}"#;
 const PINNED_BLAKE3: &str =
     "blake3:29576b11ea5785cce9d64eb2a56ac07a2b8ddabed0c3c05a3bebf031f623b33e";
-const PINNED_SHA256: &str = "6da1fff4583f24044eccfec3d3d02d8c732924bc3aea11ed63bfb3bce56661f1";
+const PINNED_DIRECTORY_BLAKE3: &str =
+    "31f87bca6e038aada44c1bfe00b847c52709ba450f910c1d60583a37b1a0f8ac";
 
 fn catalog(name: &str) -> tempfile::TempDir {
     let directory = tempfile::tempdir().unwrap();
@@ -106,9 +107,12 @@ fn statement_has_exact_bytes() {
 }
 
 #[test]
-fn existing_sha256_digest_is_unchanged() {
+fn directory_digest_is_stable_blake3() {
     let directory = fixed_catalog();
-    assert_eq!(directory_digest(directory.path()).unwrap(), PINNED_SHA256);
+    assert_eq!(
+        directory_digest(directory.path()).unwrap(),
+        PINNED_DIRECTORY_BLAKE3
+    );
 }
 
 #[test]

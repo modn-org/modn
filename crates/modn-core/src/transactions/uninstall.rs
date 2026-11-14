@@ -200,7 +200,7 @@ impl Store {
                 ordinal,
                 root: RootKind::from_label(&f.root).unwrap_or(RootKind::Game),
                 destination: f.destination.clone(),
-                sha256: f.sha256.clone(),
+                blake3: f.blake3.clone(),
                 bytes: f.bytes,
             })
             .collect();
@@ -214,10 +214,10 @@ impl Store {
                         format!("unsafe owned target: {}", target.display()),
                     ));
                 }
-                f.sha256 = digest(&target)?;
+                f.blake3 = digest(&target)?;
                 f.bytes = metadata.len();
             }
-            if !target.is_file() || digest(&target)? != f.sha256 {
+            if !target.is_file() || digest(&target)? != f.blake3 {
                 return Err(coded(
                     ErrorCode::Conflict,
                     format!(
@@ -278,7 +278,7 @@ impl Store {
                     }
                 }
                 let target = roots.target(f.root, &f.destination)?;
-                if !target.is_file() || digest(&target)? != f.sha256 {
+                if !target.is_file() || digest(&target)? != f.blake3 {
                     return Err(coded(
                         ErrorCode::Conflict,
                         format!("owned file modified during uninstall: {}", target.display()),
@@ -287,8 +287,8 @@ impl Store {
                 let temp = temp_path(&target, &id, f.ordinal)?;
                 fs::hard_link(&target, &temp)?;
                 if !same_file::is_same_file(&target, &temp)?
-                    || digest(&temp)? != f.sha256
-                    || digest(&target)? != f.sha256
+                    || digest(&temp)? != f.blake3
+                    || digest(&target)? != f.blake3
                 {
                     return Err(coded(
                         ErrorCode::Conflict,

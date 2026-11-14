@@ -103,8 +103,8 @@ fn scoped_cli_roots_work_without_creating_state_or_writing_to_game() {
             local roots = mods_host.discovery.roots()
             assert(#roots == 1 and roots[1].id == 1)
             assert(mods_host.fs.metadata(1, "marker.txt").bytes == 3)
-            assert(mods_host.hash.sha256(1, "marker.txt") ==
-                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+            assert(mods_host.hash.blake3(1, "marker.txt") ==
+                "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85")
             return { game_id="demo-game", api_version=mods_host.api_version }
         "#,
     )

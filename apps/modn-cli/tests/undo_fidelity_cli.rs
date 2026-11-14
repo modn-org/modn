@@ -7,7 +7,6 @@ mod main_bucket;
 
 use catalog::{error, Fixture};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
@@ -52,7 +51,7 @@ fn https(url: &str) -> Value {
 fn cache(state: &Path, game: &str, id: &str, version: &str, url: &str, archive: &Path) {
     let root = state.join("cache");
     fs::create_dir_all(&root).expect("cache");
-    let hash = format!("{:x}", Sha256::digest(url.as_bytes()));
+    let hash = blake3::hash(url.as_bytes()).to_hex().to_string();
     fs::copy(
         archive,
         root.join(format!("{game}#{id}#{version}#{}.zip", &hash[..7])),

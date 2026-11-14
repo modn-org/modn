@@ -20,17 +20,17 @@ pub struct ModulePin {
     pub game_id: String,
     /// Pinned release version.
     pub version: String,
-    /// SHA-256 of the pinned manifest followed by the entrypoint.
-    pub sha256: String,
+    /// BLAKE3 digest of the pinned manifest followed by the entrypoint.
+    pub blake3: String,
 }
 
 impl ModulePin {
-    pub(super) fn new(source: &ModuleSource, game: &str, version: &str, sha256: &str) -> Self {
+    pub(super) fn new(source: &ModuleSource, game: &str, version: &str, blake3: &str) -> Self {
         Self {
             bucket: source.bucket.clone(),
             game_id: game.to_owned(),
             version: version.to_owned(),
-            sha256: sha256.to_owned(),
+            blake3: blake3.to_owned(),
         }
     }
 
@@ -43,16 +43,19 @@ impl ModulePin {
             }
         }
         let root = directory.canonicalize()?;
-        let pin: Self = serde_json::from_slice(&loader::bounded_file(
-            &path,
-            &root,
-            loader::MAX_MANIFEST_BYTES,
-        )?)?;
+        let bytes = loader::bounded_file(&path, &root, loader::MAX_MANIFEST_BYTES)?;
+        if layout::names_retired_digest(&bytes) {
+            bail!(
+                "module pin for {game} records the retired SHA-256 module digest; \
+                 remove the pin and create it again"
+            );
+        }
+        let pin: Self = serde_json::from_slice(&bytes)?;
         if pin.game_id != game
             || !loader::valid_version(&pin.version)
-            || pin.sha256.len() != 64
+            || pin.blake3.len() != 64
             || !pin
-                .sha256
+                .blake3
                 .bytes()
                 .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
             || pin.bucket.as_deref() == Some("")

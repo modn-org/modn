@@ -71,7 +71,7 @@ pub struct StagedCatalogImport {
 struct StagedRelease {
     game_id: String,
     version: String,
-    sha256: String,
+    blake3: String,
     directory: PathBuf,
     newer: bool,
     current: Option<String>,
@@ -248,7 +248,7 @@ fn apply(
         reports.push(ImportReport {
             game_id: release.game_id.clone(),
             version: release.version.clone(),
-            sha256: release.sha256.clone(),
+            blake3: release.blake3.clone(),
             outcome: if release.newer {
                 ReleaseOutcome::Imported
             } else {

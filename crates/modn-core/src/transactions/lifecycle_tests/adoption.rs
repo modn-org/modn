@@ -27,6 +27,14 @@ fn manual_redmod_adoption_claims_files_without_unknown_descendants() {
             package.archive_blake3,
             crate::archive::inspect(&archive).unwrap().blake3
         );
+        for file in &package.files {
+            let bytes = fs::read(fixture.game.join(&file.destination)).unwrap();
+            assert_eq!(
+                file.blake3,
+                blake3::hash(&bytes).to_hex().to_string(),
+                "adoption must record the BLAKE3 digest of each owned file"
+            );
+        }
         fixture.store.uninstall(&fixture.game, &package.id).unwrap();
         assert_eq!(
             fs::read(fixture.game.join("mods/Manual/unknown.txt")).unwrap(),

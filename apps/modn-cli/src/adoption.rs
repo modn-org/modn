@@ -35,7 +35,7 @@ pub(super) fn run(
             "verification_required"
         };
         let pending = [
-            "target byte size and SHA-256 match",
+            "target byte size and BLAKE3 digest match",
             "staged archive content",
             "ownership and recorded conflicts",
             "current paths and pending transactions",
