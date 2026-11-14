@@ -10,7 +10,7 @@ impl Store {
         let game = self.transaction_root(game)?;
         let name = game.to_string_lossy().into_owned();
         let mut query = self.connection.prepare(
-            "SELECT id, archive_sha256 FROM managed_packages
+            "SELECT id, archive_blake3 FROM managed_packages
              WHERE game_path=?1 ORDER BY created_at, id",
         )?;
         let packages = query
@@ -18,7 +18,7 @@ impl Store {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        packages.into_iter().map(|(id, archive_sha256)| {
+        packages.into_iter().map(|(id, archive_blake3)| {
             let mut statement = self.connection.prepare(
                 "SELECT root, relative_path, sha256, bytes FROM managed_files WHERE package_id=?1 ORDER BY root, relative_path")?;
             let files = statement.query_map([&id], |row| Ok(OwnedFile {
@@ -41,16 +41,13 @@ impl Store {
                 id,
                 pinned,
                 game_installation: game.clone(),
-                archive_sha256,
+                archive_blake3,
                 files,
                 directories,
                 catalog,
                 mod_id: metadata.as_ref().map(|metadata| metadata.mod_id.clone()),
                 version: metadata.as_ref().and_then(|metadata| metadata.version.clone()),
                 source: metadata.as_ref().and_then(|metadata| metadata.source.clone()),
-                archive_blake3: metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.archive_blake3.clone()),
                 declarations: metadata
                     .as_ref()
                     .and_then(|metadata| metadata.declarations.clone()),

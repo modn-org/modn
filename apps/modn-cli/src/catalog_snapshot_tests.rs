@@ -49,6 +49,6 @@ fn selected_release_keeps_dependency_pins_when_bucket_changes() {
         let release = catalog.release(&selected).expect("release evidence");
 
         assert_eq!(release.dependencies.len(), 1);
-        assert_eq!(release.dependencies[0].archive_sha256, original);
+        assert_eq!(release.dependencies[0].archive_blake3, original);
     });
 }

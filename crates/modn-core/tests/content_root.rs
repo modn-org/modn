@@ -197,7 +197,7 @@ fn adoption_of_existing_content_files_is_root_qualified() {
                 GAME,
                 &game,
                 &archive_path,
-                &preview.archive_sha256,
+                &preview.archive_blake3,
                 modn_core::transactions::AdoptionApproval::Acknowledged,
                 &appdata,
             )

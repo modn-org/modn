@@ -156,7 +156,7 @@ _Avoid_: Bucket, install destination
 **Nexus source**:
 A package source that pins one Nexus Mods file by game domain, mod ID, file ID
 and file name. Modn downloads it from a validated Nexus CDN host and verifies
-the archive against its SHA-256 pin.
+the archive against its BLAKE3 pin.
 _Avoid_: Manual source, HTTPS source
 
 **nxm link**:

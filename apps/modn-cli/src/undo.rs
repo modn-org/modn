@@ -140,8 +140,8 @@ fn restores(
                 ),
             ));
         }
-        let sha256 = release
-            .archive_sha256
+        let archive_blake3 = release
+            .archive_blake3
             .as_deref()
             .with_context(|| format!("{} has no recorded archive digest", package.mod_id))?;
         let version = release.version.as_deref().unwrap_or("0");
@@ -151,10 +151,10 @@ fn restores(
             &package.mod_id,
             version,
             source,
-            sha256,
+            archive_blake3,
             progress,
         )?;
-        if inspect(&archive)?.blake3 != sha256 {
+        if inspect(&archive)?.blake3 != archive_blake3 {
             return Err(coded(
                 ErrorCode::DigestMismatch,
                 format!(

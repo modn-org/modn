@@ -164,7 +164,7 @@ fn refuses_to_launch_while_recovery_is_pending() {
         .connection
         .execute(
             "INSERT INTO pending_transactions
-             (id, action, status, game_path, package_id, archive_sha256)
+             (id, action, status, game_path, package_id, archive_blake3)
              VALUES ('pending', 'install', 'pending', ?1, 'fixture', NULL)",
             [installation.to_string_lossy().as_ref()],
         )
@@ -192,7 +192,7 @@ fn warns_about_changed_managed_files_without_refusing() {
     store
         .connection
         .execute(
-            "INSERT INTO managed_packages (id, game_path, archive_sha256)
+            "INSERT INTO managed_packages (id, game_path, archive_blake3)
              VALUES ('fixture', ?1, 'fixture')",
             [&game_text],
         )

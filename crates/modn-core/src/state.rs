@@ -49,16 +49,16 @@ impl Store {
         FileExt::lock_exclusive(&lock)?;
         let mut connection = Connection::open(path)
             .with_context(|| format!("cannot open state database {}", path.display()))?;
-        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing_state: bool = tx.query_row(
+        let existing_state: bool = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master
              WHERE type='table' AND name NOT LIKE 'sqlite_%')",
             [],
             |row| row.get(0),
         )?;
         if existing_state {
-            validate_package_schema(&tx)?;
+            schema::validate_package_schema(&connection, path)?;
         }
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS game_installations (
                 game_id TEXT NOT NULL,
@@ -71,28 +71,38 @@ impl Store {
             "CREATE TABLE IF NOT EXISTS managed_packages (
                 id TEXT PRIMARY KEY,
                 game_path TEXT NOT NULL,
-                archive_sha256 TEXT NOT NULL,
+                archive_blake3 TEXT NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS managed_files (
                 game_path TEXT NOT NULL,
+                root TEXT NOT NULL DEFAULT 'game',
                 path_key TEXT NOT NULL,
                 relative_path TEXT NOT NULL,
                 package_id TEXT NOT NULL REFERENCES managed_packages(id),
                 sha256 TEXT NOT NULL,
                 bytes INTEGER NOT NULL,
-                PRIMARY KEY(game_path, path_key)
+                PRIMARY KEY(game_path, root, path_key)
             );
             CREATE TABLE IF NOT EXISTS managed_directories (
-                game_path TEXT NOT NULL, path_key TEXT NOT NULL,
+                game_path TEXT NOT NULL, root TEXT NOT NULL DEFAULT 'game', path_key TEXT NOT NULL,
                 relative_path TEXT NOT NULL,
                 package_id TEXT NOT NULL REFERENCES managed_packages(id),
                 identity TEXT,
-                PRIMARY KEY(game_path, path_key)
+                PRIMARY KEY(game_path, root, path_key)
+            );
+            CREATE TABLE IF NOT EXISTS installation_roots (
+                game_path TEXT NOT NULL,
+                root TEXT NOT NULL,
+                path TEXT NOT NULL,
+                path_key TEXT NOT NULL UNIQUE,
+                PRIMARY KEY(game_path, root)
             );
             CREATE TABLE IF NOT EXISTS pending_directories (
                 transaction_id TEXT NOT NULL REFERENCES pending_transactions(id),
-                ord INTEGER NOT NULL, relative_path TEXT NOT NULL, identity TEXT,
+                ord INTEGER NOT NULL, root TEXT NOT NULL DEFAULT 'game',
+                relative_path TEXT NOT NULL, identity TEXT,
                 PRIMARY KEY(transaction_id, ord)
             );
             CREATE TABLE IF NOT EXISTS pending_transactions (
@@ -101,11 +111,12 @@ impl Store {
                 status TEXT NOT NULL,
                 game_path TEXT NOT NULL,
                 package_id TEXT NOT NULL,
-                archive_sha256 TEXT
+                archive_blake3 TEXT
             );
             CREATE TABLE IF NOT EXISTS pending_files (
                 transaction_id TEXT NOT NULL REFERENCES pending_transactions(id),
                 ord INTEGER NOT NULL,
+                root TEXT NOT NULL DEFAULT 'game',
                 relative_path TEXT NOT NULL,
                 sha256 TEXT NOT NULL,
                 bytes INTEGER NOT NULL,
@@ -125,23 +136,26 @@ impl Store {
             CREATE TABLE IF NOT EXISTS pending_created_directories (
                 transaction_id TEXT NOT NULL REFERENCES pending_transactions(id),
                 ord INTEGER NOT NULL,
+                root TEXT NOT NULL DEFAULT 'game',
                 relative_path TEXT NOT NULL,
                 identity TEXT,
+                base_path TEXT,
                 PRIMARY KEY(transaction_id, ord)
             );
             CREATE TABLE IF NOT EXISTS created_directories (
                 game_path TEXT NOT NULL,
+                root TEXT NOT NULL DEFAULT 'game',
                 path_key TEXT NOT NULL,
                 relative_path TEXT NOT NULL,
                 identity TEXT,
-                PRIMARY KEY(game_path, path_key)
+                PRIMARY KEY(game_path, root, path_key)
             );
             CREATE TABLE IF NOT EXISTS package_conflicts (
                 package_id TEXT NOT NULL REFERENCES managed_packages(id),
                 bucket TEXT NOT NULL,
                 game_id TEXT NOT NULL,
                 mod_id TEXT NOT NULL,
-                archive_sha256 TEXT,
+                archive_blake3 TEXT,
                 PRIMARY KEY(package_id, bucket, game_id, mod_id)
             );
             CREATE TABLE IF NOT EXISTS package_requirements (
@@ -149,7 +163,7 @@ impl Store {
                 bucket TEXT NOT NULL,
                 game_id TEXT NOT NULL,
                 mod_id TEXT NOT NULL,
-                archive_sha256 TEXT NOT NULL,
+                archive_blake3 TEXT NOT NULL,
                 requirement TEXT,
                 PRIMARY KEY(package_id, bucket, game_id, mod_id)
             );
@@ -211,18 +225,7 @@ impl Store {
             );",
         )?;
         if !existing_state {
-            tx.pragma_update(None, "user_version", 1)?;
-        }
-        validate_package_schema(&tx)?;
-        let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version == 1 {
-            tx.execute_batch(
-                "ALTER TABLE managed_packages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
-            )?;
-            tx.pragma_update(None, "user_version", 2)?;
-        }
-        if version < roots::SCHEMA_VERSION {
-            roots::migrate_to_v3(&tx)?;
+            tx.pragma_update(None, "user_version", roots::SCHEMA_VERSION)?;
         }
         migrate_ownership_keys(&tx)?;
         crate::approval::ensure_schema(&tx)?;
@@ -242,17 +245,16 @@ impl Store {
 
     /// Read existing registrations without creating or migrating manager state.
     pub fn open_readonly(path: &Path) -> Result<Self> {
-        let lock = File::open(path.with_file_name(".schema.lock"))
-            .context("unsupported manager state schema; start with a fresh state directory")?;
+        let lock = File::open(path.with_file_name(".schema.lock")).with_context(|| {
+            format!(
+                "cannot read state database {}: its schema lock is missing",
+                path.display()
+            )
+        })?;
         FileExt::lock_shared(&lock)?;
         let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .with_context(|| format!("cannot read existing state database {}", path.display()))?;
-        validate_package_schema(&connection)?;
-        let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version < roots::SCHEMA_VERSION {
-            roots::attach_legacy_views(&connection)?;
-        }
-        crate::approval::attach_missing_view(&connection)?;
+        schema::validate_package_schema(&connection, path)?;
         Ok(Self {
             connection,
             state_root: path
@@ -462,27 +464,8 @@ fn ensure_history_undoes(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn validate_package_schema(connection: &Connection) -> Result<()> {
-    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    let latest = roots::SCHEMA_VERSION.max(crate::approval::SCHEMA_VERSION);
-    if !(1..=latest).contains(&version) {
-        bail!("unsupported manager state schema; start with a fresh state directory");
-    }
-    let (archive_required, manual_origin): (Option<i64>, bool) = connection.query_row(
-        r#"SELECT
-            (SELECT "notnull" FROM pragma_table_info('managed_packages')
-             WHERE name='archive_sha256'),
-            EXISTS(SELECT 1 FROM pragma_table_info('managed_packages') WHERE name='origin')"#,
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    if archive_required != Some(1) || manual_origin {
-        bail!("unsupported manager state schema; start with a fresh state directory");
-    }
-    Ok(())
-}
-
 mod roots;
+mod schema;
 #[cfg(test)]
 pub(crate) use roots::tests::{link_directory, unlink_directory};
 pub(crate) use roots::{

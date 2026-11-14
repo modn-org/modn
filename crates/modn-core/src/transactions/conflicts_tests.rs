@@ -107,7 +107,7 @@ fn legacy_read_only_state_still_matches_conflicts_by_digest() {
         found,
         [format!(
             "{} (archive {})",
-            installed.id, installed.archive_sha256
+            installed.id, installed.archive_blake3
         )]
     );
 }

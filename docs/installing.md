@@ -2,7 +2,7 @@
 
 ## Catalog and standalone installs
 
-Catalog installation needs each archive with the exact format and SHA-256
+Catalog installation needs each archive with the exact format and BLAKE3 pin
 from its manifest. Modn downloads an `https`, `github-release` or `nexus`
 source itself, or fetches a `git` source. A `manual` source is never
 downloaded: supply it with `--file`, and without it Modn names the file to
@@ -54,7 +54,7 @@ needs an API key, and a free Nexus account also needs `--nxm`. See
 To install a mod with its missing dependencies, pass `--file` once for each
 `manual` archive, in any order. Modn downloads or reuses the other sources.
 A free Nexus account also passes the matching link with `--nxm` for each
-Nexus download. Modn matches each archive to a release by SHA-256 and refuses an archive that
+Nexus download. Modn matches each archive to a release by BLAKE3 pin and refuses an archive that
 no release in the installation pins. When a `manual` archive is missing, Modn
 names it and writes nothing. One confirmation, or `--yes`, approves the whole stack. With `--yes`,
 each executable that a stack manifest declares also needs `--allow-executable`,
@@ -105,6 +105,6 @@ Each catalog install or update retains one bucket snapshot for release selection
 
 Catalog manifests can select an exact GitHub repository, release tag and asset name with `github-release`.
 A manifest can also pin a Nexus Mods file with `nexus`. It names the game domain, mod ID, file ID and file name.
-The archive SHA-256 and `archive_format` remain required for both kinds.
+The archive BLAKE3 pin and `archive_format` remain required for both kinds.
 Ordinary previews make no provider request.
 Explicit installation or `--dry-run --download` permits acquisition. See [sources.md](sources.md).

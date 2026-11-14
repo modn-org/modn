@@ -209,6 +209,7 @@ fn local_archive_preview_without_game_registration_has_no_state_writes() {
     let (archive, hash) = fixture.archive();
     fixture.bucket("community", "test-game", "example", &hash, &[]);
     assert!(!fixture.state.join("state.sqlite").exists());
+    let state_before = tree_listing(&fixture.state);
     let preview = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")
         .arg(&fixture.state)
@@ -222,8 +223,30 @@ fn local_archive_preview_without_game_registration_has_no_state_writes() {
     assert!(preview.status.success(), "{}", error(&preview));
     let data: Value = serde_json::from_slice(&preview.stdout).expect("JSON");
     assert_eq!(data["plan"]["status"], "reviewable");
+    assert_eq!(data["plan"]["archive_blake3"], hash);
+    assert_eq!(tree_listing(&fixture.state), state_before);
     assert!(!fixture.state.join("state.sqlite").exists());
+    assert!(!fixture.state.join(".schema.lock").exists());
     assert!(!fixture.game.join("addons").exists());
+}
+
+fn tree_listing(root: &Path) -> Vec<String> {
+    fn visit(directory: &Path, prefix: &Path, names: &mut Vec<String>) {
+        for entry in fs::read_dir(directory).expect("directory listing") {
+            let entry = entry.expect("directory entry");
+            let relative = prefix.join(entry.file_name());
+            let kind = entry.file_type().expect("file type");
+            if kind.is_dir() {
+                visit(&entry.path(), &relative, names);
+            } else {
+                names.push(relative.to_string_lossy().into_owned());
+            }
+        }
+    }
+    let mut names = Vec::new();
+    visit(root, Path::new(""), &mut names);
+    names.sort();
+    names
 }
 
 #[test]

@@ -311,7 +311,7 @@ fn recovery_keeps_a_linked_witness_that_another_process_changed() {
 fn update_refuses_a_release_that_depends_on_its_own_dependent() {
     let mut installed = base_with_dependent();
     let before = installed.package_ids();
-    let needs_top = CatalogDependency::new(reference("top"), installed.top.archive_sha256.clone());
+    let needs_top = CatalogDependency::new(reference("top"), installed.top.archive_blake3.clone());
     let error = installed
         .update_to(
             CatalogRelease::new(reference("base"), vec![needs_top]),

@@ -57,7 +57,7 @@ fn undo_with_a_pending_transaction_reports_pending_transaction() {
     connection
         .execute(
             "INSERT INTO pending_transactions
-             (id, action, status, game_path, package_id, archive_sha256)
+             (id, action, status, game_path, package_id, archive_blake3)
              VALUES ('pending', 'install', 'pending', ?1, 'fixture', NULL)",
             [fixture.game.to_string_lossy().as_ref()],
         )

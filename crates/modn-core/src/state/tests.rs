@@ -4,6 +4,7 @@ use std::fs;
 use tempfile::tempdir;
 
 mod pins;
+mod schema;
 
 #[cfg(windows)]
 #[test]
@@ -12,7 +13,7 @@ fn ownership_key_migration_rewrites_old_keys_and_reopening_is_a_noop() {
     let db = temp.path().join("state.sqlite");
     let store = Store::open(&db).expect("state");
     store.connection.execute_batch(
-        "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES ('pkg','game','hash');"
+        "INSERT INTO managed_packages(id,game_path,archive_blake3) VALUES ('pkg','game','hash');"
     ).expect("package");
     for table in [
         "managed_files",
@@ -72,7 +73,7 @@ fn ownership_key_migration_collision_preserves_every_row() {
         let db = temp.path().join("state.sqlite");
         let store = Store::open(&db).expect("state");
         store.connection.execute_batch(
-            "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES ('pkg','game','hash');"
+            "INSERT INTO managed_packages(id,game_path,archive_blake3) VALUES ('pkg','game','hash');"
         ).expect("package");
         let (extra, values) = match table {
             "managed_files" => (",package_id,sha256,bytes", ",'pkg','digest',7"),
@@ -139,7 +140,7 @@ fn managed_ownership_migration_preserves_exact_keys_without_writes() {
         ("mixed", "R6/Scripts/one.reds"),
     ] {
         store.connection.execute(
-            "INSERT INTO managed_packages(id,game_path,archive_sha256) VALUES (?1,'game','hash')",
+            "INSERT INTO managed_packages(id,game_path,archive_blake3) VALUES (?1,'game','hash')",
             [package],
         ).expect("package");
         store.connection.execute(
@@ -187,7 +188,7 @@ fn fresh_packages_require_archive_provenance() {
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(schema_version, 5);
+    assert_eq!(schema_version, super::roots::SCHEMA_VERSION);
     let columns: Vec<(String, i64)> = store
         .connection
         .prepare("PRAGMA table_info(managed_packages)")
@@ -196,12 +197,12 @@ fn fresh_packages_require_archive_provenance() {
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap();
-    assert!(columns.contains(&("archive_sha256".into(), 1)));
+    assert!(columns.contains(&("archive_blake3".into(), 1)));
     assert!(!columns.iter().any(|(name, _)| name == "origin"));
     assert!(store
         .connection
         .execute(
-            "INSERT INTO managed_packages(id,game_path,archive_sha256)
+            "INSERT INTO managed_packages(id,game_path,archive_blake3)
          VALUES ('manual','/game',NULL)",
             [],
         )
@@ -209,7 +210,7 @@ fn fresh_packages_require_archive_provenance() {
     store
         .connection
         .execute(
-            "INSERT INTO managed_packages(id,game_path,archive_sha256)
+            "INSERT INTO managed_packages(id,game_path,archive_blake3)
          VALUES ('installed',?1,?2)",
             rusqlite::params![
                 game.canonicalize().unwrap().to_string_lossy().as_ref(),
@@ -218,7 +219,7 @@ fn fresh_packages_require_archive_provenance() {
         )
         .unwrap();
     assert_eq!(
-        store.installed(&game).unwrap()[0].archive_sha256,
+        store.installed(&game).unwrap()[0].archive_blake3,
         "a".repeat(64)
     );
     let original = fs::read(&db).unwrap();
@@ -237,7 +238,7 @@ fn old_archive_origin_schema_is_rejected_even_with_required_digest() {
     conn.execute_batch(
         "CREATE TABLE managed_packages (
             id TEXT PRIMARY KEY, game_path TEXT NOT NULL,
-            archive_sha256 TEXT NOT NULL,
+            archive_blake3 TEXT NOT NULL,
             origin TEXT NOT NULL DEFAULT 'archive',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );",
@@ -256,7 +257,7 @@ fn old_nullable_archive_schema_is_rejected_without_origin() {
     conn.execute_batch(
         "CREATE TABLE managed_packages (
             id TEXT PRIMARY KEY, game_path TEXT NOT NULL,
-            archive_sha256 TEXT,
+            archive_blake3 TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );",
     )
@@ -274,11 +275,11 @@ fn old_manual_ownership_schema_is_rejected_not_migrated() {
     conn.execute_batch(
         "CREATE TABLE managed_packages (
             id TEXT PRIMARY KEY, game_path TEXT NOT NULL,
-            archive_sha256 TEXT,
+            archive_blake3 TEXT,
             origin TEXT NOT NULL DEFAULT 'archive',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-        INSERT INTO managed_packages(id,game_path,archive_sha256,origin)
+        INSERT INTO managed_packages(id,game_path,archive_blake3,origin)
         VALUES ('manual','/game',NULL,'manual');",
     )
     .unwrap();
@@ -319,7 +320,7 @@ fn concurrent_fresh_opens_finish_one_complete_schema() {
                         .connection
                         .pragma_query_value(None, "user_version", |row| row.get(0))
                         .unwrap();
-                    assert_eq!(version, 5);
+                    assert_eq!(version, super::roots::SCHEMA_VERSION);
                 })
             })
             .collect();
@@ -366,7 +367,8 @@ fn readonly_open_waits_for_in_progress_state_initialization() {
         receiver.recv_timeout(Duration::from_millis(100)).is_err(),
         "read-only open bypassed the in-progress schema lock"
     );
-    conn.pragma_update(None, "user_version", 1).unwrap();
+    conn.pragma_update(None, "user_version", super::roots::SCHEMA_VERSION)
+        .unwrap();
     FileExt::unlock(&lock).unwrap();
     receiver
         .recv_timeout(Duration::from_secs(3))
@@ -383,10 +385,10 @@ fn pre_adoption_archive_schema_is_rejected_even_with_identical_columns() {
     conn.execute_batch(
         "CREATE TABLE managed_packages (
             id TEXT PRIMARY KEY, game_path TEXT NOT NULL,
-            archive_sha256 TEXT NOT NULL,
+            archive_blake3 TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-        INSERT INTO managed_packages(id,game_path,archive_sha256)
+        INSERT INTO managed_packages(id,game_path,archive_blake3)
         VALUES ('old','/game','sha256');",
     )
     .unwrap();

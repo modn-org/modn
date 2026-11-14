@@ -333,7 +333,7 @@ fn install_mod(
                 preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?
             }
         };
-        if Some(plan.archive_sha256.as_str()) != download::digest(&selected, &digests) {
+        if Some(plan.archive_blake3.as_str()) != download::digest(&selected, &digests) {
             bail!("{reference}: source changed after catalog verification");
         }
         Ok(plan)

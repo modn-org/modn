@@ -243,7 +243,7 @@ fn undo_uninstall_restores_a_nexus_release_from_the_cache() {
 
     let uninstall = history(&fixture)[0].clone();
     assert_eq!(
-        uninstall["packages"][0]["release_before"]["archive_sha256"],
+        uninstall["packages"][0]["release_before"]["archive_blake3"],
         digest
     );
     let target = id_of(&uninstall);

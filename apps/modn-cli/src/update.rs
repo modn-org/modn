@@ -118,7 +118,7 @@ fn plan_update(
             }
             None => preview_update_with_permissions(game_id, game, archive, approved, replaced)?,
         };
-        if Some(plan.archive_sha256.as_str()) != target.package.pin() {
+        if Some(plan.archive_blake3.as_str()) != target.package.pin() {
             bail!(
                 "{}: source changed after catalog verification",
                 reference_of(target)
@@ -226,7 +226,7 @@ pub(super) fn run(
     }
     let installed_version = installed_versions
         .iter()
-        .find(|(sha256, _)| *sha256 == old.archive_sha256)
+        .find(|(archive_blake3, _)| *archive_blake3 == old.archive_blake3)
         .map(|(_, version)| version.as_str());
     let mut blockers = Vec::new();
     if let Err(error) = catalog.install_order(&target) {
@@ -243,7 +243,7 @@ pub(super) fn run(
         &dependents,
         &current.package.id,
     ));
-    let up_to_date = target.package.pin() == Some(old.archive_sha256.as_str());
+    let up_to_date = target.package.pin() == Some(old.archive_blake3.as_str());
     if target.package.native_injector && !native_covered && !up_to_date && !args.dry_run {
         return Err(
             ApprovalRefusal::new(reference.clone(), Uncovered::native_injector()).into_error(),
