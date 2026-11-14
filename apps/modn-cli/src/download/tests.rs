@@ -1,6 +1,8 @@
 use crate::commands::Cli;
 use crate::download::{TEST_CALLS, TEST_RESPONSES};
 use clap::Parser;
+use modn_core::acquisition::{CacheUse, SourceAttempt};
+use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::data_dir;
 use modn_core::game_modules::with_module_source;
 use serde_json::json;
@@ -196,4 +198,143 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
         });
     });
     TEST_RESPONSES.with(|responses| responses.replace(None));
+}
+
+const FALLBACK_URL: &str = "https://fixture.invalid/example.zip";
+
+fn package_with_sources(root: &Path, digest: &str, sources: serde_json::Value) -> BucketPackage {
+    let bucket = root.join("buckets/main");
+    let game = bucket.join("mods/test-game");
+    fs::create_dir_all(&game).expect("bucket directory");
+    fs::write(
+        bucket.join("bucket.json"),
+        br#"{"schema_version":2,"name":"main","title":"Fixture"}"#,
+    )
+    .expect("bucket metadata");
+    fs::write(
+        game.join("example.json"),
+        serde_json::to_vec(&json!({
+            "schema_version": 2,
+            "id": "example",
+            "game": "test-game",
+            "name": "Example",
+            "version": "1.0",
+            "archive_format": "zip",
+            "blake3": digest,
+            "sources": sources,
+        }))
+        .expect("manifest JSON"),
+    )
+    .expect("manifest");
+    data_dir::with_data_directory(root, || BucketStore::new(root).packages(Some("test-game")))
+        .expect("packages")
+        .into_iter()
+        .next()
+        .expect("example package")
+}
+
+fn acquire_with_sources(
+    root: &Path,
+    package: &BucketPackage,
+) -> anyhow::Result<(Vec<SourceAttempt>, std::path::PathBuf)> {
+    let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
+    let mut archives = BTreeMap::new();
+    let mut digests = BTreeMap::new();
+    let attempts = super::download(
+        &cache,
+        CacheUse::Refresh,
+        &[package],
+        &mut archives,
+        &mut digests,
+        &[],
+        true,
+        &crate::progress::Progress::start(None),
+    )?;
+    assert_eq!(archives.len(), 1, "the acquired archive was not recorded");
+    let archive = archives.into_values().next().expect("acquired archive");
+    Ok((attempts, archive))
+}
+
+#[test]
+fn a_failed_nexus_primary_falls_back_to_the_https_source() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (bytes, digest) = archive(temporary.path());
+    let package = package_with_sources(
+        &root,
+        &digest,
+        json!([
+            {
+                "kind": "nexus",
+                "game_domain": "cyberpunk2077",
+                "mod_id": 6945,
+                "file_id": 123456,
+                "file_name": "NexusMod.zip"
+            },
+            {"kind": "https", "url": FALLBACK_URL}
+        ]),
+    );
+    TEST_RESPONSES.with(|responses| {
+        responses.replace(Some(BTreeMap::from([(
+            FALLBACK_URL.to_owned(),
+            bytes.clone(),
+        )])))
+    });
+    let result = crate::nexus_auth::with_test_key(crate::nexus_auth::TestKey::Missing, || {
+        acquire_with_sources(&root, &package)
+    });
+    let attempts = result.expect("the https source supplies the archive");
+    TEST_RESPONSES.with(|responses| responses.replace(None));
+    let (attempts, archive) = attempts;
+    assert!(attempts.len() >= 2, "the Nexus attempt was not recorded: {attempts:?}");
+    assert!(
+        attempts[0].source.contains("Nexus Mods"),
+        "the first attempt is not the Nexus source: {attempts:?}"
+    );
+    assert!(
+        attempts[0]
+            .failure
+            .as_ref()
+            .is_some_and(|failure| failure.to_string().contains(crate::nexus_auth::MISSING_KEY)),
+        "the Nexus failure is not named: {attempts:?}"
+    );
+    assert!(
+        attempts.last().expect("last attempt").succeeded(),
+        "the https fallback did not succeed: {attempts:?}"
+    );
+    assert_eq!(
+        fs::read(archive).expect("fallback archive bytes"),
+        bytes,
+        "the fallback archive does not hold the https bytes"
+    );
+}
+
+#[test]
+fn a_lone_nexus_source_still_fails_with_the_missing_key_message() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (_, digest) = archive(temporary.path());
+    let package = package_with_sources(
+        &root,
+        &digest,
+        json!([{
+            "kind": "nexus",
+            "game_domain": "cyberpunk2077",
+            "mod_id": 6945,
+            "file_id": 123456,
+            "file_name": "NexusMod.zip"
+        }]),
+    );
+    let error = crate::nexus_auth::with_test_key(crate::nexus_auth::TestKey::Missing, || {
+        acquire_with_sources(&root, &package)
+    })
+    .expect_err("a lone Nexus source still fails");
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(crate::nexus_auth::MISSING_KEY),
+        "the clear missing-key message is gone: {message}"
+    );
+    assert!(!message.contains("fallback"));
 }

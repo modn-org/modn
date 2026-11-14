@@ -43,7 +43,8 @@ pub(super) fn rotate(
         bail!("a rotation must name a different signing key; the new public key is {from}");
     }
     let to = new_key.key_id().to_string();
-    let name = catalog_statement(root)
+    let (view, _staging) = super::published_view(root, false)?;
+    let name = catalog_statement(&view)
         .context("cannot read the catalog")?
         .name()
         .to_owned();
@@ -98,7 +99,8 @@ pub(super) fn revoke(
     if replacement.key_id().to_string() == revoked {
         bail!("a revocation must name a different replacement key; the revoked key is {revoked}");
     }
-    let name = catalog_statement(root)
+    let (view, _staging) = super::published_view(root, false)?;
+    let name = catalog_statement(&view)
         .context("cannot read the catalog")?
         .name()
         .to_owned();

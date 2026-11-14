@@ -30,6 +30,7 @@ from rehash_bucket import (
     ProvenanceRow,
     RehashError,
     check_url,
+    contained_archive,
     convert_record,
     copy_modules,
     download_url,
@@ -138,7 +139,7 @@ def acquire(
             raise RehashError(
                 f"{kind} source needs --archive-dir with {source_file_name(converted.source)}"
             )
-        path = archive_dir / source_file_name(converted.source)
+        path = contained_archive(archive_dir, source_file_name(converted.source))
         if not path.is_file():
             raise RehashError(f"missing archive {path.name} in --archive-dir")
         return path
@@ -176,7 +177,7 @@ def rehash(
         if not check:
             if out is None:
                 raise RehashError("--out is required unless --check is used")
-            prepare_output(out, bucket)
+            prepare_output(out, bucket, archive_dir)
     except RehashError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
@@ -261,6 +262,8 @@ def rehash(
     finally:
         if staging_root is not None:
             shutil.rmtree(staging_root, ignore_errors=True)
+        elif staging_archives is not None:
+            shutil.rmtree(staging_archives, ignore_errors=True)
 
 
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:

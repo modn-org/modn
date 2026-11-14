@@ -302,6 +302,7 @@ pub(super) fn download(
             digests.insert(reference, archive.blake3);
             continue;
         }
+        let mut nexus_failure: Option<anyhow::Error> = None;
         if let PackageSource::Nexus {
             game_domain,
             mod_id,
@@ -326,17 +327,30 @@ pub(super) fn download(
                     continue;
                 }
             }
-            let api_key = nexus_auth::load_key()?;
-            let download_url = nexus_download::resolve(&file, &api_key, link)?;
-            let acquired = cache.acquire_with_control(
-                &key,
-                cache_use,
-                Some(reference.clone()),
-                progress.control(),
-                |_cache_url| nexus_download::open(&download_url),
-            )?;
-            archives.insert(reference, acquired.path);
-            continue;
+            let outcome = (|| -> Result<()> {
+                let api_key = nexus_auth::load_key()?;
+                let download_url = nexus_download::resolve(&file, &api_key, link)?;
+                let acquired = cache.acquire_with_control(
+                    &key,
+                    cache_use,
+                    Some(reference.clone()),
+                    progress.control(),
+                    |_cache_url| nexus_download::open(&download_url),
+                )?;
+                archives.insert(reference.clone(), acquired.path);
+                Ok(())
+            })();
+            if let Err(error) = outcome {
+                let label = nexus_label(game_domain, *mod_id, *file_id, file_name);
+                attempts.push(SourceAttempt::failed(
+                    label,
+                    1,
+                    modn_core::acquisition::SourceFailure::Refused(format!("{error:#}")),
+                ));
+                nexus_failure = Some(error);
+            } else {
+                continue;
+            }
         }
         if cache_use == CacheUse::Reuse {
             let mut hit = None;
@@ -351,8 +365,18 @@ pub(super) fn download(
                 continue;
             }
         }
-        let candidates = fallback::candidates(release);
-        let first_url = fallback::first_url(&candidates).map(str::to_owned);
+        let all_candidates = fallback::candidates(release);
+        let candidates = match nexus_failure {
+            Some(_) => &all_candidates[1..],
+            None => &all_candidates[..],
+        };
+        if candidates.is_empty() {
+            if let Some(error) = nexus_failure {
+                return Err(error);
+            }
+            continue;
+        }
+        let first_url = fallback::first_url(candidates).map(str::to_owned);
         let has_fetch = first_url.is_some();
         let Some(url) = first_url.or_else(|| candidates.first().map(|c| c.label.clone())) else {
             continue;
@@ -361,15 +385,20 @@ pub(super) fn download(
         if has_fetch && !json && !progress.enabled() {
             eprintln!("Downloading {reference} {} from {}", key.version, key.url);
         }
-        let outcome = cache.acquire_from_sources(
-            &key,
-            cache_use,
-            &candidates,
-            &HttpTransport,
-            SourcePolicy::default(),
-            Some(reference.clone()),
-            progress.control(),
-        )?;
+        let outcome = cache
+            .acquire_from_sources(
+                &key,
+                cache_use,
+                candidates,
+                &HttpTransport,
+                SourcePolicy::default(),
+                Some(reference.clone()),
+                progress.control(),
+            )
+            .map_err(|error| match &nexus_failure {
+                Some(nexus) => error.context(format!("the Nexus attempt failed first: {nexus:#}")),
+                None => error,
+            })?;
         for attempt in &outcome.attempts {
             if !json {
                 eprintln!(

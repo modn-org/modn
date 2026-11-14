@@ -231,6 +231,16 @@ pub struct SourceAttempt {
 }
 
 impl SourceAttempt {
+    /// An attempt that did not supply an archive, with its classified failure.
+    #[must_use]
+    pub fn failed(source: impl Into<String>, attempt: u32, failure: SourceFailure) -> Self {
+        Self {
+            source: source.into(),
+            attempt,
+            failure: Some(failure),
+        }
+    }
+
     /// Whether the attempt supplied verified bytes.
     #[must_use]
     pub fn succeeded(&self) -> bool {
