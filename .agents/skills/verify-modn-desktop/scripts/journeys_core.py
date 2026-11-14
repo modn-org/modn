@@ -111,21 +111,30 @@ def journey_finishing(runner):
         timeout=40,
     )
     runner.check(True, "Button is disabled during the commit phase")
-    dialog = None
-    for _ in range(4):
-        session.request_close()
-        try:
-            dialog = uia.dialog_for(session, timeout=3)
-            break
-        except uia.Failure:
-            runner.check(app.process.poll() is None, "The window closed during the write")
-    runner.check(dialog is not None, "Closing during the commit was not refused")
+    session.request_close()
+    dialog = uia.dialog_for(session, timeout=15)
+    runner.check(dialog.Name == "Modn", f"Close dialog has an unexpected title: {dialog.Name!r}")
+    dialogs = uia.titled_windows(session)
+    runner.check(
+        len(dialogs) == 1,
+        f"One close request opened {len(dialogs)} dialogs: {[d.Name for d in dialogs]}",
+    )
     text = uia.dialog_text(dialog)
-    runner.check("still working" in text, f"Close was not refused: {text!r}")
+    runner.check(
+        "Modn is still working. Wait for the operation to finish." in text.splitlines(),
+        f"Close was not refused with the expected text: {text!r}",
+    )
     uia.dismiss(dialog, session)
-    session.wait_for(lambda s: (fx.state / "write.json").exists(), "completed write", timeout=60)
-    runner.check(not session.extra_windows(), "An extra window outlived the dialog")
+    session.wait_for(
+        lambda s: not uia.titled_windows(s),
+        "every close dialog dismissed",
+        timeout=10,
+    )
+    runner.check(not uia.titled_windows(session), "A titled window outlived the dialog")
     runner.check(app.process.poll() is None, "The window closed during the write")
+    session.wait_for(lambda s: (fx.state / "write.json").exists(), "completed write", timeout=60)
+    session.wait_text("Install done", timeout=60)
+    runner.check(session.exists("Undo"), "Undo action is missing from the toast")
     app.close()
 
 
@@ -170,6 +179,35 @@ def journey_blocked(runner):
     app.close()
 
 
+SCAN_BUTTON = "Scan this PC for supported games"
+BACKEND_NOISE = ("invalid fixture response", "fixture refusal")
+
+
+def _scan(session):
+    """Waits for the rendered Scan button, then clicks it once."""
+    session.wait_for(
+        lambda s: s.find_all(name=SCAN_BUTTON, control_type="ButtonControl"),
+        "Scan button",
+    )
+    session.wait_for(
+        lambda s: [c for c in s.find_all(name=SCAN_BUTTON) if c.IsEnabled],
+        "enabled Scan button",
+    )
+    session.click(name=SCAN_BUTTON)
+
+
+def _assert_no_noise(runner, session, needle, seconds=3):
+    """Polls the whole owned window tree, including toasts and dialogs."""
+    leaked = []
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        tree = session.tree_text()
+        if needle in tree:
+            leaked.append(tree)
+        time.sleep(0.2)
+    runner.check(not leaked, f"Backend text leaked into the UI: {needle}")
+
+
 def journey_no_cli_output(runner):
     """8. Backend stdout and stderr noise never reach the UI tree."""
     fx = Fixture()
@@ -178,16 +216,17 @@ def journey_no_cli_output(runner):
     app = App(fx, BINARIES.test_backend).launch()
     runner.cleanup.append(app.kill)
     session = app.session
-    session.click(name="Scan this PC for supported games")
-    time.sleep(1.5)
-    tree = session.snapshot("stdout-noise")
-    runner.check("invalid fixture response" not in tree, "Backend stdout leaked into the UI")
+    _scan(session)
+    _assert_no_noise(runner, session, "invalid fixture response")
+    session.snapshot("stdout-noise")
     (fx.state / "mode").write_text("failure", encoding="utf-8")
-    session.click(name="Scan this PC for supported games")
-    time.sleep(1.5)
-    tree = session.snapshot("stderr-noise")
-    runner.check("fixture refusal" not in tree, "Backend stderr leaked into the UI")
+    _scan(session)
+    _assert_no_noise(runner, session, "fixture refusal")
+    session.snapshot("stderr-noise")
     runner.check(session.window is not None, "Window disappeared during backend failure")
+    tree = session.tree_text()
+    for needle in BACKEND_NOISE:
+        runner.check(needle not in tree, f"Backend text leaked into the UI: {needle}")
     app.close()
 
 

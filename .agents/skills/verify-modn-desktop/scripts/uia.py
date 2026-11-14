@@ -117,8 +117,21 @@ class Session:
             yield from self._walk(child)
 
     def text(self):
+        return self.text_of(self.window)
+
+    def tree_text(self):
+        """Every visible string in the main window and every owned dialog."""
+        parts = [self.text()]
+        for window in self.extra_windows():
+            try:
+                parts.append(self.text_of(window))
+            except Exception:
+                continue
+        return "\n".join(part for part in parts if part)
+
+    def text_of(self, root):
         parts = []
-        for control in self.walk():
+        for control in self._walk(root):
             try:
                 for value in (control.Name, self.value_of(control)):
                     if value:
@@ -148,7 +161,7 @@ class Session:
     def snapshot(self, label):
         """Records the full tree as evidence and returns it as text."""
         self.snapshots += 1
-        text = self.text()
+        text = self.tree_text()
         if self.evidence is not None:
             path = self.evidence / f"uia-{self.snapshots:03d}-{label}.txt"
             path.write_text(text, encoding="utf-8")
@@ -234,16 +247,32 @@ class Session:
         control.GetValuePattern().SetValue(value)
 
 
+def titled_windows(session):
+    """Visible, titled top-level windows this process owns, except the main one.
+
+    Untitled helper windows, such as the Tao event-target window, are ignored.
+    """
+    windows = []
+    for window in session.extra_windows():
+        try:
+            if (window.Name or "").strip():
+                windows.append(window)
+        except Exception:
+            continue
+    return windows
+
+
 def dialog_for(session, timeout=20):
-    """Waits for one extra owned top-level window and returns it."""
+    """Waits for the first titled native dialog and returns it.
+
+    A second dialog does not make the wait fail: callers that must reject
+    stacked dialogs count `titled_windows` themselves.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        windows = [w for w in session.extra_windows() if w.Name.strip()]
-        if len(windows) == 1:
+        windows = titled_windows(session)
+        if windows:
             return windows[0]
-        if len(windows) > 1:
-            names = [w.Name for w in windows]
-            raise Failure(f"Expected one owned dialog, found {names}")
         time.sleep(0.2)
     raise Failure("No native dialog opened")
 
