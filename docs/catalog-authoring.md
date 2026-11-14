@@ -23,6 +23,8 @@ catalog.pub                        # written by modn catalog sign
 `bucket.json` holds `{"schema_version": 2, "name": "<catalog name>", "title": "<title>"}`.
 The `name` must be unique among the catalogs that a user registers.
 
+To move an existing contract v1 `main` checkout to contract v2, see [Rehash main for contract v2](releasing.md#rehash-main-for-contract-v2).
+
 ## Create a signing key
 
 Run `modn catalog keygen` once per author identity. Pass a directory outside the
