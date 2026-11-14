@@ -91,7 +91,8 @@ fn retired_sha256_hash_call_fails_clearly_and_blake3_works() {
     .unwrap();
     let error = format!(
         "{:#}",
-        check_module_with_roots(&module, &[game.clone()]).expect_err("sha256 is retired")
+        check_module_with_roots(&module, std::slice::from_ref(&game))
+            .expect_err("sha256 is retired")
     );
     assert!(error.contains("sha256"), "{error}");
     fs::write(
