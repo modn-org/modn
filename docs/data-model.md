@@ -290,7 +290,7 @@ The content root is resolved from the declared appdata base and recorded when an
   It resolves its game root as before, from the canonical game path.
 
 A writable open creates the current schema in one transaction.
-An existing state database from an earlier schema version is refused at read-write and read-only open, and its bytes stay unchanged.
+An existing state database from an earlier schema version is refused at read-write and read-only open, and Modn does not change its contents.
 There are no legacy views and no migration path.
 
 Operation history and the package release metadata are tables in the current

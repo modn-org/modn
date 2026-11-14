@@ -56,7 +56,7 @@ fn required_schema_version() -> i64 {
 
 fn schema_refusal(path: &Path, found: i64, detail: &str) -> anyhow::Error {
     anyhow::anyhow!(
-        "state database {} has schema version {found}, but this Modn build needs schema version {}. {detail} Modn did not read or change the database. Move it aside to start a new state; files Modn installed stay on disk but are no longer tracked.",
+        "state database {} has schema version {found}, but this Modn build needs schema version {}. {detail} Modn did not read or change the database. If a transaction was still pending in that state, run `modn recover` with the earlier Modn build first. Move it aside to start a new state; files Modn installed stay on disk but are no longer tracked.",
         path.display(),
         required_schema_version()
     )

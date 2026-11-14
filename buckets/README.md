@@ -84,10 +84,12 @@ module for contract v2.
 `games/<game-id>/module.json` and `module.lua`. Those folders may hold nothing
 else. `modn bucket trust-modules` validates this layout before it records trust,
 so a catalog with an extra entry is refused and stays untrusted. Modn refuses a package manifest or any other entry under `games/` in
-those buckets. In every other bucket, sync reads only the game folder names under
-`games/`. It never parses, validates or runs module content. It reports each game
-as ignored with the reason `untrusted_source`, and Modn refuses the module when it
-is used. A mod whose ID is `module` is a
+those buckets. In every other bucket, sync reads the game folder names under
+`games/` and checks by file metadata whether a folder holds `module.json` or
+`module.lua`. It never parses, validates or runs module content. It reports only
+folders with a valid game ID that hold one of those files, each as ignored with the
+reason `untrusted_source`. An empty `games/<game-id>/` folder produces no entry.
+Modn refuses the module when it is used. A mod whose ID is `module` is a
 normal package at `mods/<game-id>/module.json`. Modn rejects a `modules/`
 directory in any bucket. Registered local buckets are read-only and
 revalidated before catalog lookup.
