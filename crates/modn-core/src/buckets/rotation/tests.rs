@@ -58,9 +58,22 @@ fn pinned<'a>(signer: &'a TestKey, revocation: Option<&'a TestKey>) -> PinnedKey
     PinnedKeys {
         signer: &signer.public,
         revocation: revocation.map(|key| &key.public),
-        applied_rotation: None,
-        applied_revocation: None,
     }
+}
+
+fn accepted(
+    directory: &Path,
+    signer: &TestKey,
+    revocation: Option<&TestKey>,
+    revision: &TestKey,
+) -> super::KeyStatementOutcome {
+    apply_key_statements(
+        directory,
+        CATALOG_NAME,
+        &pinned(signer, revocation),
+        Some(&revision.public),
+    )
+    .expect("statement evaluation")
 }
 
 #[test]
@@ -92,17 +105,13 @@ fn rotation_signed_by_the_pinned_key_is_accepted() {
         )
         .as_bytes(),
     );
-    let change = apply_key_statements(
-        directory.path(),
-        CATALOG_NAME,
-        &pinned(&signer, None),
-        Some(&successor.public),
-    )
-    .expect("rotation")
-    .expect("change");
+    let change = accepted(directory.path(), &signer, None, &successor)
+        .change
+        .expect("change");
     assert_eq!(change.kind, super::KeyChangeKind::Rotated);
     assert_eq!(change.from, signer.public.key_id().to_string());
     assert_eq!(change.to, successor.public.key_id().to_string());
+    assert_eq!(change.new_key_text, successor.text);
 }
 
 #[test]
@@ -310,15 +319,15 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
         )
         .as_bytes(),
     );
-    let error = apply_key_statements(
+    let historical = apply_key_statements(
         directory.path(),
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
     )
-    .expect_err("wrong from")
-    .to_string();
-    assert!(error.contains("but the pinned signing key is"), "{error}");
+    .expect("a statement that names another key is history");
+    assert!(historical.change.is_none());
+    assert_eq!(historical.ignored, vec!["rotation".to_owned()]);
 
     let unknown = br#"{"schema_version":2,"kind":"rotation","from":"x","to":"y"}"#;
     write(directory.path(), ROTATION_FILE, unknown);
@@ -358,7 +367,10 @@ fn a_to_key_that_does_not_match_catalog_pub_is_refused() {
     )
     .expect_err("revision key mismatch")
     .to_string();
-    assert!(error.contains("but this revision publishes key"), "{error}");
+    assert!(
+        error.contains("publishes a different public key"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -209,6 +209,22 @@ fn print_sync_modules(modules: &CatalogModuleReport) {
 fn print_git_sync(name: &str, synced: &GitCatalogSync) {
     println!("Synced bucket {name} at commit {}.", synced.revision.commit);
     print_sync_modules(&synced.modules);
+    report_ignored_key_statements(name, &synced.ignored_key_statements, synced.pinned);
+}
+fn report_ignored_key_statements(name: &str, statements: &[String], pinned: bool) {
+    if statements.is_empty() {
+        return;
+    }
+    let kinds = statements.join(", ");
+    if pinned {
+        println!(
+            "Ignored published key change statements ({kinds}) for bucket {name}; the first sync pins the signer from catalog.pub and applies no statement."
+        );
+    } else {
+        println!(
+            "Ignored published key change statements ({kinds}) for bucket {name}; they do not name the pinned signing key."
+        );
+    }
 }
 fn print_zip_sync(name: &str, synced: &ZipCatalogSync) {
     println!(
@@ -216,6 +232,7 @@ fn print_zip_sync(name: &str, synced: &ZipCatalogSync) {
         synced.revision.source.url, synced.revision.digest
     );
     print_sync_modules(&synced.modules);
+    report_ignored_key_statements(name, &synced.ignored_key_statements, synced.pinned);
 }
 /// The pinned signer key ID that a trust acknowledgement must name.
 fn module_signer(store: &BucketStore, bucket: &str) -> Result<String> {

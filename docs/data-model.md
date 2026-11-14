@@ -358,10 +358,12 @@ independent of development source overrides. A catalog sync imports a trusted bu
 registry. Official game IDs retain priority and cannot be imported from a trusted
 bucket or registered locally. Changed bytes fail verification.
 
-A bucket is a module source when it is `main`, or when a signed Git catalog has a
-`module_trust` record whose signer key ID matches its pinned signer. A signer key
-change ends trust. Modules from other buckets are ignored at sync and refused at
-use. Doctor reports `MODULE_HIDDEN_BY_OFFICIAL` for a catalog module that `main`
+A bucket is a module source when it is `main`, or when a signed Git or ZIP
+catalog has a `module_trust` record for its pinned signer. Module trust belongs
+to the pinned signer of the registration, whatever the source kind. A rotation
+moves the trust record to the new signer; a revocation clears it. Any other
+signer key change ends trust. Modules from other buckets are ignored at sync and
+refused at use. Doctor reports `MODULE_HIDDEN_BY_OFFICIAL` for a catalog module that `main`
 hides, and `MODULE_SOURCE_UNTRUSTED` for a retained module whose bucket is no
 longer trusted. Unversioned entries from earlier releases are refused; remove and
 register the module again. Removal leaves game files and ownership intact.

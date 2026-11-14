@@ -49,7 +49,10 @@ fn seed_remote(version: &str, signer: TestKey) -> Remote {
     let directory = tempfile::tempdir().expect("remote");
     super::git(directory.path(), &["init", "--initial-branch=fixture"]).expect("git init");
     seed_catalog(directory.path(), version);
-    Remote { directory, key: signer }
+    Remote {
+        directory,
+        key: signer,
+    }
 }
 
 fn pin_revocation_key(remote: &Remote, revocation: &TestKey) {
@@ -75,7 +78,11 @@ fn set_trusted(state: &Path, key_id: &str) {
     let path = registration(state);
     let mut value = registration_json(state);
     value["module_trust"] = serde_json::json!({"signer_key_id": key_id});
-    fs::write(&path, serde_json::to_vec(&value).expect("registration JSON")).expect("write");
+    fs::write(
+        &path,
+        serde_json::to_vec(&value).expect("registration JSON"),
+    )
+    .expect("write");
 }
 
 fn trust_record(state: &Path) -> Option<String> {
@@ -280,10 +287,7 @@ fn two_statements_that_apply_to_the_pinned_key_are_refused() {
         error.contains("both rotation.json and revocation.json"),
         "{error}"
     );
-    assert!(
-        error.contains("apply to the pinned signing key"),
-        "{error}"
-    );
+    assert!(error.contains("apply to the pinned signing key"), "{error}");
     assert_eq!(
         fs::read(registration(state.path())).expect("registration"),
         before

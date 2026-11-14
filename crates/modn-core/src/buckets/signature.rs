@@ -34,7 +34,16 @@ impl fmt::Display for CatalogKeyId {
 pub struct CatalogPublicKey {
     verification_key: MinisignPublicKey,
     key_id: CatalogKeyId,
+    key_bytes: [u8; CATALOG_KEY_BYTES],
 }
+
+impl PartialEq for CatalogPublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.key_bytes == other.key_bytes
+    }
+}
+
+impl Eq for CatalogPublicKey {}
 
 impl fmt::Debug for CatalogPublicKey {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -71,11 +80,15 @@ impl CatalogPublicKey {
         if bytes.len() != CATALOG_KEY_BYTES {
             bail!("malformed catalog public key: invalid length");
         }
+        let Ok(key_bytes) = <[u8; CATALOG_KEY_BYTES]>::try_from(bytes.as_slice()) else {
+            bail!("malformed catalog public key: invalid length");
+        };
         let verification_key = MinisignPublicKey::from_base64(encoded)
             .map_err(|error| anyhow!("malformed catalog public key: {error}"))?;
         Ok(Self {
             verification_key,
             key_id: key_id_from(&bytes)?,
+            key_bytes,
         })
     }
 
@@ -231,6 +244,13 @@ pub(crate) fn main_bucket_public_key(embedded: &str) -> Result<CatalogPublicKey>
         bail!(NO_MAIN_KEY);
     }
     CatalogPublicKey::parse(text).context("invalid main bucket signer key")
+}
+
+/// Return the key identifier that a detached signature names.
+pub(crate) fn signature_key_id(text: &str, role: &str) -> Result<CatalogKeyId> {
+    parse_signature(text)
+        .with_context(|| format!("malformed {role} signature"))
+        .map(|signature| signature.key_id)
 }
 
 fn parse_signature(text: &str) -> Result<ParsedSignature> {

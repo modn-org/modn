@@ -190,8 +190,11 @@ pub(super) fn write_revocation_statement(
         "community",
         &body,
     );
-    fs::write(root.join("revocation.sig"), sign_bytes(revocation_key, &bytes))
-        .expect("revocation signature");
+    fs::write(
+        root.join("revocation.sig"),
+        sign_bytes(revocation_key, &bytes),
+    )
+    .expect("revocation signature");
 }
 
 pub(super) fn same_id_key_text(victim: &SigningKey, donor: &SigningKey) -> String {
