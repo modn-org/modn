@@ -1,6 +1,6 @@
 """Real-CLI lifecycle and native-code approval journeys.
 
-The module is imported by `verify.py`. It imports `verify` back only inside a
+The module is imported by `verify.py`. It imports `harness` back only inside a
 journey, after that module has finished loading, to reuse the app driver.
 """
 
@@ -16,9 +16,9 @@ REPO = Path(__file__).resolve().parents[4]
 
 
 def _driver():
-    import verify
+    import harness
 
-    return verify
+    return harness
 
 
 def _cli(fx, *args):
@@ -29,8 +29,8 @@ def _app(fx, backend):
     return _driver().App(fx, backend)
 
 
-def _target():
-    return _driver().TARGET / "debug"
+def _cli_path():
+    return _driver().BINARIES.cli
 
 
 def _install_archive(session, archive):
@@ -107,7 +107,7 @@ def journey_lifecycle(runner):
     runner.check(registered.returncode == 0, f"game add failed: {registered.stderr}")
     content = fx.root / "appdata" / "Balatro" / "Mods"
     archive = fx.zip("demo-pack.zip", {"demo.lua": "return {}"})
-    app = _app(fx, _target() / "modn.exe").launch()
+    app = _app(fx, _cli_path()).launch()
     runner.cleanup.append(app.kill)
     session = app.session
     _open_game(session, "Balatro")
@@ -179,7 +179,7 @@ def journey_approval(runner):
     runner.check(registered.returncode == 0, f"game add failed: {registered.stderr}")
     publish(fx, bucket, {"winmm.dll": "MZ"}, name="Native Pack", native=True)
     publish(fx, bucket, {"plain.lua": "return {}"}, name="Plain Pack")
-    app = _app(fx, _target() / "modn.exe").launch()
+    app = _app(fx, _cli_path()).launch()
     runner.cleanup.append(app.kill)
     session = app.session
     _open_game(session, "Balatro")
