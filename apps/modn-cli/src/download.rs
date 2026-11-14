@@ -1,3 +1,4 @@
+mod fallback;
 mod http;
 #[path = "nexus_download.rs"]
 pub(super) mod nexus_download;
@@ -10,9 +11,10 @@ use crate::nxm::NxmLink;
 use crate::progress::Progress;
 use anyhow::{bail, Context, Result};
 pub(crate) use http::fetch;
-use http::{fetch_measured, fetch_metadata};
+use http::{fetch_measured, fetch_metadata, HttpTransport};
 use modn_core::acquisition::{
-    ArchiveCache, CacheKey, CacheUse, GitCacheKey, GithubReleaseAsset, NexusFile,
+    ArchiveCache, CacheKey, CacheUse, GitCacheKey, GithubReleaseAsset, NexusFile, SourceAttempt,
+    SourcePolicy,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::collections::BTreeMap;
@@ -82,13 +84,15 @@ fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
 }
 
 pub(super) fn downloadable(release: &BucketPackage) -> bool {
-    matches!(
-        release.package.primary_source(),
-        PackageSource::Https { .. }
-            | PackageSource::GithubRelease { .. }
-            | PackageSource::Git { .. }
-            | PackageSource::Nexus { .. }
-    )
+    release.package.sources.iter().any(|source| {
+        matches!(
+            source,
+            PackageSource::Https { .. }
+                | PackageSource::GithubRelease { .. }
+                | PackageSource::Git { .. }
+                | PackageSource::Nexus { .. }
+        )
+    })
 }
 
 /// Refuse `--nxm` links that match no package this command installs or updates.
@@ -237,12 +241,11 @@ pub(super) fn add_cached<'a>(
             digests.insert(reference, archive.blake3);
             continue;
         }
-        if let Some(path) = source_url(release)?
-            .map(|url| cache.cached(&key(release, &url)))
-            .transpose()?
-            .flatten()
-        {
-            archives.insert(reference, path);
+        for url in fallback::urls(release) {
+            if let Some(path) = cache.cached(&key(release, &url))? {
+                archives.insert(reference, path);
+                break;
+            }
         }
     }
     Ok(())
@@ -261,7 +264,8 @@ pub(super) fn download(
     links: &[NxmLink],
     json: bool,
     progress: &Progress,
-) -> Result<()> {
+) -> Result<Vec<SourceAttempt>> {
+    let mut attempts = Vec::new();
     for release in releases {
         let reference = reference_of(release).to_string();
         if archives.contains_key(&reference) {
@@ -315,35 +319,51 @@ pub(super) fn download(
             archives.insert(reference, acquired.path);
             continue;
         }
-        let Some(url) = source_url(release)? else {
-            continue;
-        };
-        if let PackageSource::GithubRelease {
-            repository,
-            tag,
-            asset,
-        } = release.package.primary_source()
-        {
-            let provider = GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
-            let resolved = provider.resolve(fetch_metadata)?;
-            if resolved != url {
-                bail!("provider source changed during resolution");
+        if cache_use == CacheUse::Reuse {
+            let mut hit = None;
+            for url in fallback::urls(release) {
+                if let Some(path) = cache.cached(&key(release, &url))? {
+                    hit = Some(path);
+                    break;
+                }
+            }
+            if let Some(path) = hit {
+                archives.insert(reference, path);
+                continue;
             }
         }
+        let candidates = fallback::candidates(release);
+        let first_url = fallback::first_url(&candidates).map(str::to_owned);
+        let has_fetch = first_url.is_some();
+        let Some(url) = first_url.or_else(|| candidates.first().map(|c| c.label.clone())) else {
+            continue;
+        };
         let key = key(release, &url);
-        if !json && !progress.enabled() {
+        if has_fetch && !json && !progress.enabled() {
             eprintln!("Downloading {reference} {} from {}", key.version, key.url);
         }
-        let acquired = cache.acquire_with_control(
+        let outcome = cache.acquire_from_sources(
             &key,
             cache_use,
+            &candidates,
+            &HttpTransport,
+            SourcePolicy::default(),
             Some(reference.clone()),
             progress.control(),
-            fetch_measured,
         )?;
-        archives.insert(reference, acquired.path);
+        for attempt in &outcome.attempts {
+            if !json {
+                eprintln!(
+                    "Source {reference}: {}: {}",
+                    attempt.source,
+                    attempt.describe()
+                );
+            }
+        }
+        attempts.extend(outcome.attempts);
+        archives.insert(reference, outcome.acquired.path);
     }
-    Ok(())
+    Ok(attempts)
 }
 
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {

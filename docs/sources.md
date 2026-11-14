@@ -122,7 +122,52 @@ The CLI fixture transport exists only in test builds; production has no transpor
 Deterministic command tests cover metadata identity, URL and hash failures before game writes.
 Tags and asset names accept ASCII letters, digits, dots, underscores, and hyphens.
 `latest`, authentication, pagination, arbitrary providers, and release discovery remain unsupported.
-Transport rate limits, retries, redirect policy, and timeouts remain caller responsibilities.
+Artifact retries and timeouts follow the artifact source fallback below.
+
+## Artifact source fallback
+
+A package record lists its `sources` in the order Modn tries them.
+Modn tries each fetchable source in list order.
+It moves to the next source after a timeout, a network failure, an HTTP failure or a BLAKE3 mismatch.
+The first source whose bytes match the record's `blake3` pin supplies the archive.
+A `manual` source is never started automatically.
+If only manual sources remain, Modn prints the manual step as before.
+A verified cache entry for the pin is used before any network attempt.
+
+| Setting | Default | Applies to |
+| --- | --- | --- |
+| Connect timeout | 30 s | Opening one source |
+| Idle timeout | 60 s | Gap between body bytes |
+| Retries per source | 1 extra attempt | Timeouts, connection errors and HTTP 5xx |
+
+Modn never retries an HTTP 4xx answer or a BLAKE3 mismatch.
+It adds no flag or environment variable for these values.
+The constants are `CONNECT_TIMEOUT`, `READ_INACTIVITY_TIMEOUT` and `RETRIES_PER_SOURCE` in `modn_core::acquisition`.
+
+Modn reports each source it tried and why it failed.
+The failure classes are:
+
+- `timeout`: the connect or idle timeout elapsed.
+- `network`: the connection failed or the body stopped.
+- `http <status>`: the server answered with that status.
+- `digest mismatch`: the bytes differ from the pin; the report names the expected and actual BLAKE3 values.
+- `refused: <reason>`: Modn did not attempt this source, and the reason says why.
+- `manual`: the source needs a manual download.
+
+When every source fails, one error lists every source and its failure.
+A mismatched or partial download is never cached.
+No cache entry, index record or `.download` file remains on any failure path, including a body that stops halfway.
+
+A dry-run plan names the ordered sources that Modn would try.
+`install --dry-run` without `--download` downloads nothing and writes nothing.
+A real install names each attempt with its source, outcome and reason.
+
+```json
+"downloads": [
+  {"source": "https://primary.invalid/mod.zip", "attempt": 1, "outcome": "failed", "reason": "timeout"},
+  {"source": "https://mirror.invalid/mod.zip", "attempt": 1, "outcome": "ok", "reason": null}
+]
+```
 
 ## Nexus Mods provider
 
