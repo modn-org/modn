@@ -48,6 +48,7 @@ def parse_args(argv=None):
         help="comma-separated journey names or numbers to run (default: all)",
     )
     parser.add_argument("--keep", action="store_true", help="keep fixtures and evidence")
+    parser.add_argument("--selftest", action="store_true", help="check dialog_for against fake windows")
     parser.add_argument("--app", metavar="PATH", help="override the built modn-desktop.exe")
     parser.add_argument("--cli", metavar="PATH", help="override the built modn.exe")
     parser.add_argument("--test-backend", metavar="PATH", help="override the built test backend")
@@ -76,6 +77,44 @@ def resolve(spec):
     return getattr(module, function_name)
 
 
+class _FakeWindow:
+    def __init__(self, name):
+        self.Name = name
+
+
+class _FakeSession:
+    """The `extra_windows` surface `dialog_for` reads."""
+
+    def __init__(self, names):
+        self.names = names
+
+    def extra_windows(self):
+        return [_FakeWindow(name) for name in self.names]
+
+
+def selftest():
+    """Checks `dialog_for` ordering and timeout against fake window lists."""
+    import uia  # noqa: PLC0415 - harness has bootstrapped the interpreter
+
+    results = {}
+    results["ignores_untitled"] = (
+        uia.dialog_for(_FakeSession(["", "Modn"]), timeout=0.5).Name == "Modn"
+    )
+    results["returns_first_of_two"] = (
+        uia.dialog_for(_FakeSession(["Modn", "Second"]), timeout=0.5).Name == "Modn"
+    )
+    started = time.monotonic()
+    try:
+        uia.dialog_for(_FakeSession([""]), timeout=0.4)
+    except uia.Failure:
+        results["raises_on_timeout"] = time.monotonic() - started >= 0.3
+    else:
+        results["raises_on_timeout"] = False
+    passed = all(results.values())
+    print(json.dumps({"selftest": "passed" if passed else "failed", "checks": results}))
+    return 0 if passed else 1
+
+
 def build():
     commands = [
         ["cargo", "build", "-p", "modn-desktop", "--features", "verification", "--locked"],
@@ -94,6 +133,10 @@ def main():
         for number, name, _ in JOURNEYS:
             print(f"{number} {name}")
         return 0
+    if args.selftest:
+        import harness  # noqa: F401,PLC0415 - bootstrap must run before uia is imported
+
+        return selftest()
     selected = select(parser, args.only)
     import harness  # noqa: PLC0415 - bootstrap must run before uia is imported
 

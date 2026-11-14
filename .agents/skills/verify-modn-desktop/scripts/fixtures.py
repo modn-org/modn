@@ -146,4 +146,5 @@ class Fixture:
             "Unexpected cleanup root",
         )
         shutil.rmtree(self.root, ignore_errors=True)
-        return not self.root.exists()
+        require(not self.root.exists(), f"Fixture directory was not removed: {self.root}")
+        return True

@@ -129,9 +129,14 @@ class App:
         return self.process.returncode
 
     def kill(self):
-        if self.process and self.process.poll() is None:
+        if self.process is None:
+            return
+        if self.process.poll() is None:
             self.process.kill()
+        try:
             self.process.wait(timeout=10)
+        except subprocess.TimeoutExpired as error:
+            raise uia.Failure(f"App process {self.process.pid} did not exit") from error
 
 
 class Runner:
@@ -147,12 +152,23 @@ class Runner:
 
     def journey(self, name, function):
         started = time.monotonic()
+        mark = len(self.cleanup)
+        error_message = None
         try:
             function()
-            status = "passed"
         except Exception as error:  # noqa: BLE001 - every failure is recorded
-            status = f"failed: {error}"
-            print(f"  ! {name}: {error}")
+            error_message = str(error)
+        actions = self.cleanup[mark:]
+        del self.cleanup[mark:]
+        failures = self.clean(actions)
+        if error_message and failures:
+            status = f"failed: {error_message}; cleanup: {'; '.join(failures)}"
+        elif error_message:
+            status = f"failed: {error_message}"
+        elif failures:
+            status = f"failed: cleanup: {'; '.join(failures)}"
+        else:
+            status = "passed"
         self.results.append({
             "journey": name,
             "status": status,
@@ -160,12 +176,17 @@ class Runner:
         })
         print(f"  {name}: {status}")
 
-    def clean(self):
-        for action in reversed(self.cleanup):
+    def clean(self, actions=None):
+        failures = []
+        remaining = self.cleanup if actions is None else actions
+        for action in reversed(remaining):
             try:
                 action()
-            except Exception:
-                pass
+            except Exception as error:  # noqa: BLE001 - each cleanup failure is reported
+                failures.append(f"{action}: {error}")
+        if actions is None:
+            self.cleanup.clear()
+        return failures
 
 
 def cli(fixture, *args):
