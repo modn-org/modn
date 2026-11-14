@@ -80,6 +80,7 @@ impl Default for SourcePolicy {
 
 /// Failure of one transport call, before the body is verified.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FetchError {
     /// The connect or read-inactivity timeout elapsed.
     Timeout,
@@ -102,9 +103,18 @@ impl fmt::Display for FetchError {
 impl std::error::Error for FetchError {}
 
 /// One response body and its stated length, when the transport knows it.
+#[non_exhaustive]
 pub struct SourceBody {
     pub reader: Box<dyn Read>,
     pub total: Option<u64>,
+}
+
+impl SourceBody {
+    /// A body read from `reader`, whose length the source states as `total`.
+    #[must_use]
+    pub fn new(reader: Box<dyn Read>, total: Option<u64>) -> Self {
+        Self { reader, total }
+    }
 }
 
 /// Network transport used by the source fallback loop.
@@ -115,6 +125,7 @@ pub trait SourceTransport {
 
 /// What Modn may do with one entry of a release's ordered source list.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SourceTarget {
     /// Fetch this HTTPS URL.
     Fetch(String),
@@ -126,6 +137,7 @@ pub enum SourceTarget {
 
 /// One ordered source, with the label its attempt output uses.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SourceCandidate {
     pub label: String,
     pub target: SourceTarget,
@@ -164,6 +176,7 @@ impl SourceCandidate {
 
 /// Why one attempt did not supply a verified archive.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SourceFailure {
     /// The connect or read-inactivity timeout elapsed.
     Timeout,
@@ -206,6 +219,7 @@ impl From<FetchError> for SourceFailure {
 
 /// One attempt against one source.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SourceAttempt {
     pub source: String,
     pub attempt: u32,
@@ -231,6 +245,7 @@ impl SourceAttempt {
 
 /// A verified archive and every attempt the loop made.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct SourcesAcquired {
     pub acquired: Acquired,
     pub attempts: Vec<SourceAttempt>,
@@ -289,6 +304,10 @@ impl ArchiveCache {
     ///
     /// Returns [`ErrorCode::Cancelled`] when `control` is cancelled, and
     /// [`ErrorCode::DownloadFailed`] when every source fails.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the loop keeps the cache, policy, transport, package and cancellation explicit"
+    )]
     pub fn acquire_from_sources(
         &self,
         key: &CacheKey<'_>,

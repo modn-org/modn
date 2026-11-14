@@ -59,10 +59,7 @@ impl SourceTransport for HttpTransport {
         #[cfg(test)]
         if let Some(response) = fixture_response(url) {
             return response
-                .map(|reader| SourceBody {
-                    reader,
-                    total: None,
-                })
+                .map(|reader| SourceBody::new(reader, None))
                 .map_err(|error| FetchError::Network(format!("{error:#}")));
         }
         let response = agent(policy, true).get(url).call().map_err(classify)?;
@@ -71,9 +68,9 @@ impl SourceTransport for HttpTransport {
             .get("content-length")
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse().ok());
-        Ok(SourceBody {
-            reader: Box::new(response.into_body().into_reader()),
+        Ok(SourceBody::new(
+            Box::new(response.into_body().into_reader()),
             total,
-        })
+        ))
     }
 }

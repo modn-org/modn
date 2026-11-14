@@ -54,23 +54,22 @@ impl SourceTransport for Fake {
             .get_mut(url)
             .ok_or_else(|| FetchError::Network("unexpected request".to_owned()))?;
         match queue.pop_front().expect("a queued response") {
-            Response::Body(bytes) => Ok(SourceBody {
-                reader: Box::new(Cursor::new(bytes)),
-                total: None,
-            }),
+            Response::Body(bytes) => {
+                Ok(SourceBody::new(Box::new(Cursor::new(bytes)), None))
+            }
             Response::TimeoutAfter(delay) => Ok(SourceBody {
                 reader: Box::new(TimeoutBody { delay, sent: false }),
                 total: None,
             }),
             Response::Error(error) => Err(error),
-            Response::Partial { bytes, kind } => Ok(SourceBody {
-                reader: Box::new(PartialBody {
+            Response::Partial { bytes, kind } => Ok(SourceBody::new(
+                Box::new(PartialBody {
                     bytes,
                     kind,
                     sent: false,
                 }),
-                total: None,
-            }),
+                None,
+            )),
         }
     }
 }
@@ -116,9 +115,9 @@ fn key<'a>(blake3: &'a str) -> CacheKey<'a> {
     CacheKey::new("test-game", "fixture", "1.0", FIRST, blake3)
 }
 
-fn acquire<'a>(
+fn acquire(
     cache: &ArchiveCache,
-    blake3: &'a str,
+    blake3: &str,
     sources: &[SourceCandidate],
     fake: &Fake,
     policy: SourcePolicy,
