@@ -24,19 +24,21 @@ fn archive(fixture: &Fixture, name: &str, files: &[(&str, &str)]) -> (PathBuf, S
         zip.write_all(contents.as_bytes()).expect("payload");
     }
     zip.finish().expect("finish");
-    let digest = Sha256::digest(fs::read(&path).expect("bytes"));
-    (path, format!("{digest:x}"))
+    let digest = blake3::hash(&fs::read(&path).expect("bytes"))
+        .to_hex()
+        .to_string();
+    (path, digest)
 }
 
 fn manifest(fixture: &Fixture, id: &str, version: &str, hash: &str, source: Value) {
-    let folder = fixture.temp.path().join("deps/games/test-game");
+    let folder = fixture.temp.path().join("deps/mods/test-game");
     fs::create_dir_all(&folder).expect("bucket folder");
     fs::write(
         folder.join(format!("{id}.json")),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "id": id, "game": "test-game", "name": id,
-            "version": version, "archive_format": "zip", "sha256": hash,
-            "source": source
+            "schema_version": 2, "id": id, "game": "test-game", "name": id,
+            "version": version, "archive_format": "zip", "blake3": hash,
+            "sources": [source]
         }))
         .expect("manifest JSON"),
     )
@@ -351,11 +353,11 @@ fn undo_uninstall_restores_below_the_appdata_content_root() {
     let url = "https://example.invalid/content-fixture-1.0.zip";
     let bucket = fixture.temp.path().join("fixture-bucket");
     fs::write(
-        bucket.join("games/content-game/fixture.json"),
+        bucket.join("mods/content-game/fixture.json"),
         serde_json::to_vec(&json!({
-            "schema_version": 1, "id": "fixture", "game": "content-game",
+            "schema_version": 2, "id": "fixture", "game": "content-game",
             "name": "Fixture", "version": "1.0", "archive_format": "zip",
-            "sha256": digest, "source": {"kind": "https", "url": url}
+            "blake3": digest, "sources": [{"kind": "https", "url": url}]
         }))
         .expect("manifest JSON"),
     )

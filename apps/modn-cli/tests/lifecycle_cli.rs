@@ -77,7 +77,10 @@ fn adoption_requires_both_approvals_and_commits_exact_file_claims() {
     let preview = ok(&state, &game, &["adopt", path, "--dry-run"]);
     assert_eq!(preview["status"], "verification_required");
     assert_eq!(preview["target_contents_verified"], false);
-    assert_eq!(preview["plan"]["archive_sha256"], tree::sha(&zip));
+    assert_eq!(
+        preview["plan"]["archive_sha256"],
+        blake3::hash(&fs::read(&zip).unwrap()).to_hex().to_string()
+    );
     assert_eq!(preview["plan"]["operations"].as_array().unwrap().len(), 2);
     assert!(!state.exists());
     assert_eq!(tree::snapshot(&game), before);
@@ -101,7 +104,10 @@ fn adoption_requires_both_approvals_and_commits_exact_file_claims() {
     assert_eq!(fs::read(game.join(files[0].0)).unwrap(), files[0].1);
     write(&game, files[1].0, files[1].1);
     let package = ok(&state, &game, &["adopt", path, "--acknowledge", "--yes"]);
-    assert_eq!(package["archive_sha256"], tree::sha(&zip));
+    assert_eq!(
+        package["archive_sha256"],
+        blake3::hash(&fs::read(&zip).unwrap()).to_hex().to_string()
+    );
     assert_eq!(package["files"].as_array().unwrap().len(), 2);
     for &(name, bytes) in &files {
         let owned = package["files"]
@@ -307,12 +313,14 @@ fn forced_cleanup_refuses_a_required_package_without_changing_state_or_bytes() {
         fixture
             .temp
             .path()
-            .join("deps/games/test-game/dependent.json"),
+            .join("deps/mods/test-game/dependent.json"),
         serde_json::to_vec(&serde_json::json!({
-            "schema_version": 1, "id": "dependent", "game": "test-game",
+            "schema_version": 2, "id": "dependent", "game": "test-game",
             "name": "Dependent", "version": "1.0", "archive_format": "zip",
-            "sha256": tree::sha(&dependent_archive),
-            "source": {"kind": "manual", "filename": "dependent.zip"},
+            "blake3": blake3::hash(&fs::read(&dependent_archive).unwrap())
+                .to_hex()
+                .to_string(),
+            "sources": [{"kind": "manual", "filename": "dependent.zip"}],
             "dependencies": ["base"],
         }))
         .unwrap(),

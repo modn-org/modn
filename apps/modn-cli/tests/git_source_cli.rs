@@ -88,20 +88,20 @@ fn file_url(path: &Path) -> String {
 
 fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
     let bucket = root.join("git-fixture");
-    let game = bucket.join("games/test-game");
+    let game = bucket.join("mods/test-game");
     fs::create_dir_all(&game).expect("bucket directory");
     fs::write(
         bucket.join("bucket.json"),
-        br#"{"schema_version":1,"name":"git-fixture","title":"Git fixture"}"#,
+        br#"{"schema_version":2,"name":"git-fixture","title":"Git fixture"}"#,
     )
     .expect("bucket metadata");
     let manifest = json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "id": "git-package",
         "game": "test-game",
         "name": "Git Package",
         "version": "1.0",
-        "source": {"kind": "git", "repository": "fixture/project", "commit": commit},
+        "sources": [{"kind": "git", "repository": "fixture/project", "commit": commit}],
     });
     fs::write(
         game.join("git-package.json"),
@@ -115,39 +115,41 @@ fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
 const NATIVE_DEPENDENCY_URL: &str =
     "https://github.com/fixture/lovely/releases/download/v1/native-injector.zip";
 
-fn add_native_stack_bucket(fixture: &Fixture, root: &Path, commit: &str, dependency_sha256: &str) {
+fn add_native_stack_bucket(fixture: &Fixture, root: &Path, commit: &str, dependency_pin: &str) {
     let bucket = root.join("native-stack-fixture");
-    let game = bucket.join("games/native-injector-game");
+    let game = bucket.join("mods/native-injector-game");
     fs::create_dir_all(&game).expect("bucket directory");
     fs::write(
         bucket.join("bucket.json"),
-        br#"{"schema_version":1,"name":"native-stack-fixture","title":"Native stack fixture"}"#,
+        br#"{"schema_version":2,"name":"native-stack-fixture","title":"Native stack fixture"}"#,
     )
     .expect("bucket metadata");
     let packages = [
         json!({
-            "schema_version": 1,
+            "schema_version": 2,
             "id": "steamodded",
             "game": "native-injector-game",
             "name": "Git Stack Package",
             "version": "1.0",
-            "source": {"kind": "git", "repository": "fixture/project", "commit": commit},
+            "sources": [{"kind": "git", "repository": "fixture/project", "commit": commit}],
             "dependencies": ["lovely"],
         }),
         json!({
-            "schema_version": 1,
+            "schema_version": 2,
             "id": "lovely",
             "game": "native-injector-game",
             "name": "Native Dependency",
             "version": "1.0",
             "archive_format": "zip",
-            "sha256": dependency_sha256,
-            "source": {
-                "kind": "github-release",
-                "repository": "fixture/lovely",
-                "tag": "v1",
-                "asset": "native-injector.zip",
-            },
+            "blake3": dependency_pin,
+            "sources": [
+                {
+                    "kind": "github-release",
+                    "repository": "fixture/lovely",
+                    "tag": "v1",
+                    "asset": "native-injector.zip",
+                },
+            ],
             "native_injector": true,
         }),
     ];

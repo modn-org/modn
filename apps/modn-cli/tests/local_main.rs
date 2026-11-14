@@ -96,7 +96,7 @@ fn registered_local_bucket_cannot_supply_game_module_files() {
     fs::create_dir_all(bucket.join("games/test-game")).expect("fixture invariant");
     fs::write(
         bucket.join("bucket.json"),
-        r#"{"schema_version":1,"name":"community","title":"Community"}"#,
+        r#"{"schema_version":2,"name":"community","title":"Community"}"#,
     )
     .expect("fixture invariant");
     for name in ["module.json", "module.lua"] {
