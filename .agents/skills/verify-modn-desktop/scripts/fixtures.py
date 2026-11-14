@@ -15,7 +15,6 @@ from pathlib import Path
 
 from bucket_fixture import write_main_bucket
 
-REPO = Path(__file__).resolve().parents[4]
 HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
 

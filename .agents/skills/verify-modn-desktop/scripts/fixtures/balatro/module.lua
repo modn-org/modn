@@ -171,9 +171,9 @@ function policy.plan(files)
         local source = prefix == "" and path or prefix .. "/" .. path
         local destination, kind, package_root
         if folder ~= nil then
-            destination = prefix == "" and path or prefix .. "/" .. path
+            destination = path
             kind = lower(folder) == "smods" and "steamodded-file" or "balatro-mod-file"
-            package_root = prefix == "" and folder or prefix .. "/" .. folder
+            package_root = prefix ~= "" and prefix or folder
         elseif is_lua(path) and string.find(path, "/", 1, true) == nil then
             destination = path
             kind = "balatro-mod-file"
