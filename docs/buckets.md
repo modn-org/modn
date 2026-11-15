@@ -40,9 +40,10 @@ duplicate and case-colliding entries. It also refuses more than 20,000 entries,
 an entry above 64 MiB, more than 1 GiB uncompressed in total, and an expansion
 ratio above 200. It extracts only inside staging, verifies the signature and
 then validates the contract v2 layout with the same validator as Git sync.
-The first sync pins the signer from `catalog.pub` and prints its fingerprint.
-Every later sync verifies with the pinned key only and refuses a different
-signer. `--revision` is refused with a ZIP source.
+The first sync pins the signer from `catalog.pub` and prints its fingerprint. It
+validates any published rotation or revocation statement and ignores it as
+history. Every later sync verifies with the pinned key only and refuses a
+different signer. `--revision` is refused with a ZIP source.
 A failed download, an invalid signature or invalid contents keep the previous
 registration and catalog files byte for byte and remove staging.
 `modn bucket list --json` reports `source_kind` as `git` or `zip` for a
@@ -156,41 +157,59 @@ statement to one catalog, and the prefix binds it to one kind. A statement
 cannot be replayed in another catalog or as another kind.
 
 Modn pins the revocation key at the first sync and prints both fingerprints. A
-revision whose `revocation.pub` differs or disappears is refused. A catalog
-that had no `revocation.pub` at its first sync cannot add one later. To pin a
-new revocation key, remove the bucket and sync it again.
+revision whose `revocation.pub` differs by any public key byte or disappears is
+refused. A catalog that had no `revocation.pub` at its first sync cannot add one
+later. To pin a new revocation key, remove the bucket and sync it again.
+
+At the first sync Modn trusts `catalog.pub` on first use. It checks every
+published `rotation.json` and `revocation.json` for shape, kind, schema version
+and signature domain, then ignores the statement as history. A statement adds no
+trust for a user who never pinned the old key. The output names the ignored
+statements. A malformed statement or an unknown kind or version refuses the
+revision.
+
+Every later sync evaluates each published statement against the pinned signing
+key. A statement applies only when its `from` or `revoked` field names the
+pinned key and the matching pinned key signed the domain-separated statement.
+Every other statement is history and adds no trust. An author may keep it
+published.
 
 Sync accepts a rotation when all of these hold:
 
 - `rotation.sig` verifies with the pinned signing key.
 - `from` is the pinned key ID.
-- `catalog.pub` names the key in `to`, and `catalog.sig` verifies with it.
+- `catalog.pub` publishes exactly the key in `to` with the same full public key
+  bytes, and `catalog.sig` verifies with it.
 
-Sync then pins the new key and records the old key ID in `previous_signers`.
-The old key vouched for the new key, so module trust follows the new signer. The
-output prints `signing key rotated: <old> -> <new>`.
+Sync then pins the public key text from the signed statement, not the revision's
+`catalog.pub`, and records the old key ID in `previous_signers`. The old key
+vouched for the new key, so module trust follows the new signer. The output
+prints `signing key rotated: <old> -> <new>`.
 
 Sync accepts a revocation when all of these hold:
 
 - `revocation.sig` verifies with the pinned revocation key.
 - `revoked` is the pinned signing key ID.
-- `catalog.pub` names the key in `replacement`, and `catalog.sig` verifies with it.
+- `catalog.pub` publishes exactly the key in `replacement` with the same full
+  public key bytes, and `catalog.sig` verifies with it.
 
-Sync then pins the replacement key and records the old key ID in
-`revoked_signers`. Module trust is cleared, because the user must trust modules
-again explicitly. The output prints
+Sync then pins the public key text from the signed statement and records the old
+key ID in `revoked_signers`. Module trust is cleared, because the user must
+trust modules again explicitly. The output prints
 `signing key revoked: <old> replaced by <new>`.
 
-Modn refuses a revision that carries both statements, a rotation signed by the
-revocation key, a revocation signed by the signing key, a statement from an
-unrelated key, a wrong `from` or `revoked` ID, a `to` or `replacement` key that
-does not match `catalog.pub`, an unknown `kind` or schema version, and a revision
-signed by a key in `previous_signers` or `revoked_signers`. Every refusal keeps
-the previous registration and catalog byte for byte.
+Modn refuses a revision when both a rotation and a revocation apply to the
+pinned key, when the revision needs more than one key change from the pinned key
+(sync an intermediate revision or remove the bucket and register it again), a
+rotation signed by the revocation key, a revocation signed by the signing key,
+an unknown kind or schema version, a `catalog.pub` whose full public key bytes
+differ from the pinned key or the key a statement names, and a revision signed by
+a key in `previous_signers` or `revoked_signers`. Every refusal keeps the
+previous registration and catalog byte for byte.
 
-A revision that repeats an already accepted statement is accepted as history
-and changes no key. The registration records the BLAKE3 of the applied
-`rotation.json` or `revocation.json` for this check.
+A revision that repeats an already accepted statement is history, because its
+old key no longer matches the pin. The registration still records the BLAKE3 of
+the applied `rotation.json` or `revocation.json`.
 
 `bucket list --json` reports `signer_key_id`, `revocation_key_id` when pinned,
 and the `previous_signers` and `revoked_signers` arrays when non-empty.

@@ -4,9 +4,10 @@
 //! `.sig` file holds a minisign signature over a domain-separated statement that
 //! binds the catalog name. `revocation.pub` names the offline revocation key.
 //! All of these files are inside the catalog digest, so `catalog.sig` covers the
-//! exact bytes that a sync reads.
+//! exact bytes that a sync reads. A sync applies a statement only when it names
+//! the pinned key and the matching key signed it.
 
-use super::signature::{CatalogKeyId, CatalogPublicKey};
+use super::signature::CatalogPublicKey;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -145,10 +146,6 @@ pub(super) struct PinnedKeys<'a> {
     pub(super) signer: &'a CatalogPublicKey,
     /// The offline revocation key pinned at first sync, when the catalog named one.
     pub(super) revocation: Option<&'a CatalogPublicKey>,
-    /// BLAKE3 of the rotation statement already applied to this pin.
-    pub(super) applied_rotation: Option<&'a str>,
-    /// BLAKE3 of the revocation statement already applied to this pin.
-    pub(super) applied_revocation: Option<&'a str>,
 }
 
 /// An accepted statement and the key that this revision must be signed by.
@@ -159,6 +156,8 @@ pub(super) struct VerifiedKeyChange {
     pub(super) to: String,
     pub(super) body_digest: String,
     pub(super) new_key: CatalogPublicKey,
+    /// The public key text carried by the signed statement.
+    pub(super) new_key_text: String,
 }
 
 impl VerifiedKeyChange {
@@ -169,6 +168,15 @@ impl VerifiedKeyChange {
             to: self.to.clone(),
         }
     }
+}
+
+/// What this revision's published statements mean for the pinned key.
+#[derive(Debug)]
+pub(super) struct KeyStatementOutcome {
+    /// The one statement that applies to the pinned key, when present.
+    pub(super) change: Option<VerifiedKeyChange>,
+    /// Published statement kinds that add no trust to this pin.
+    pub(super) ignored: Vec<String>,
 }
 
 /// Read `revocation.pub`, if the catalog publishes one.
@@ -191,7 +199,7 @@ pub(super) fn check_revocation_key(
     present: Option<&CatalogPublicKey>,
 ) -> Result<()> {
     match (pinned, present) {
-        (Some(pinned), Some(present)) if pinned.key_id() == present.key_id() => Ok(()),
+        (Some(pinned), Some(present)) if pinned == present => Ok(()),
         (Some(pinned), Some(present)) => bail!(
             "Revocation key changed from {} to {} for bucket {name}. The revocation key cannot be changed in place; remove the bucket and sync it again to pin the new key.",
             pinned.key_id(),
@@ -206,218 +214,6 @@ pub(super) fn check_revocation_key(
             present.key_id()
         ),
         (None, None) => Ok(()),
-    }
-}
-
-/// True when the revision carries a rotation or revocation body or signature.
-pub(super) fn has_key_statements(root: &Path) -> Result<bool> {
-    for file in [
-        ROTATION_FILE,
-        ROTATION_SIGNATURE_FILE,
-        REVOCATION_FILE,
-        REVOCATION_SIGNATURE_FILE,
-    ] {
-        match fs::symlink_metadata(root.join(file)) {
-            Ok(_) => return Ok(true),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(false)
-}
-
-/// Verify one rotation or revocation statement and return the key change it names.
-pub(super) fn apply_key_statements(
-    root: &Path,
-    catalog_name: &str,
-    pinned: &PinnedKeys<'_>,
-    revision_public: Option<&CatalogPublicKey>,
-) -> Result<Option<VerifiedKeyChange>> {
-    let rotation = read_statement(root, ROTATION_FILE, ROTATION_SIGNATURE_FILE)?;
-    let revocation = read_statement(root, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE)?;
-    let rotation_applied = rotation
-        .as_ref()
-        .is_some_and(|(body, _)| is_applied(body, pinned.applied_rotation));
-    let revocation_applied = revocation
-        .as_ref()
-        .is_some_and(|(body, _)| is_applied(body, pinned.applied_revocation));
-    match (rotation, revocation) {
-        (Some(_), Some(_)) if rotation_applied && revocation_applied => Ok(None),
-        (Some(_), Some(_)) => bail!(
-            "catalog {catalog_name} contains both rotation.json and revocation.json; a revision may carry only one key change"
-        ),
-        (Some(_), None) if rotation_applied => Ok(None),
-        (None, Some(_)) if revocation_applied => Ok(None),
-        (None, None) => Ok(None),
-        (Some((body, signature)), None) => {
-            Ok(Some(verify_rotation(catalog_name, pinned, revision_public, &body, &signature)?))
-        }
-        (None, Some((body, signature))) => Ok(Some(verify_revocation(
-            catalog_name,
-            pinned,
-            revision_public,
-            &body,
-            &signature,
-        )?)),
-    }
-}
-
-fn is_applied(body: &[u8], applied: Option<&str>) -> bool {
-    applied.is_some_and(|digest| digest == body_digest(body))
-}
-
-fn body_digest(body: &[u8]) -> String {
-    blake3::hash(body).to_hex().to_string()
-}
-
-fn verify_rotation(
-    catalog_name: &str,
-    pinned: &PinnedKeys<'_>,
-    revision_public: Option<&CatalogPublicKey>,
-    body: &[u8],
-    signature: &str,
-) -> Result<VerifiedKeyChange> {
-    let statement: RotationBody = serde_json::from_slice(body)
-        .with_context(|| format!("invalid rotation statement for catalog {catalog_name}"))?;
-    check_body(
-        catalog_name,
-        "rotation",
-        statement.schema_version,
-        &statement.kind,
-    )?;
-    let pinned_id = pinned.signer.key_id().to_string();
-    if !statement.from.eq_ignore_ascii_case(&pinned_id) {
-        bail!(
-            "rotation statement for catalog {catalog_name} rotates key {}, but the pinned signing key is {pinned_id}",
-            statement.from
-        );
-    }
-    let new_key = CatalogPublicKey::parse(&statement.to).with_context(|| {
-        format!("rotation statement for catalog {catalog_name} names an invalid key")
-    })?;
-    let bytes = key_statement_bytes(KeyChangeKind::Rotated, catalog_name, body);
-    pinned
-        .signer
-        .verify_statement(&bytes, signature, "rotation")
-        .with_context(|| {
-            format!(
-                "rotation statement for catalog {catalog_name} is not signed by the pinned signing key {pinned_id}"
-            )
-        })?;
-    require_revision_key(catalog_name, "rotation", new_key.key_id(), revision_public)?;
-    Ok(VerifiedKeyChange {
-        kind: KeyChangeKind::Rotated,
-        from: pinned_id,
-        to: new_key.key_id().to_string(),
-        body_digest: body_digest(body),
-        new_key,
-    })
-}
-
-fn verify_revocation(
-    catalog_name: &str,
-    pinned: &PinnedKeys<'_>,
-    revision_public: Option<&CatalogPublicKey>,
-    body: &[u8],
-    signature: &str,
-) -> Result<VerifiedKeyChange> {
-    let statement: RevocationBody = serde_json::from_slice(body)
-        .with_context(|| format!("invalid revocation statement for catalog {catalog_name}"))?;
-    check_body(
-        catalog_name,
-        "revocation",
-        statement.schema_version,
-        &statement.kind,
-    )?;
-    let Some(revocation_key) = pinned.revocation else {
-        bail!(
-            "catalog {catalog_name} has a revocation statement, but no revocation key was pinned at first sync; Modn refuses it"
-        );
-    };
-    let pinned_id = pinned.signer.key_id().to_string();
-    if !statement.revoked.eq_ignore_ascii_case(&pinned_id) {
-        bail!(
-            "revocation statement for catalog {catalog_name} revokes key {}, but the pinned signing key is {pinned_id}",
-            statement.revoked
-        );
-    }
-    let new_key = CatalogPublicKey::parse(&statement.replacement).with_context(|| {
-        format!("revocation statement for catalog {catalog_name} names an invalid replacement key")
-    })?;
-    let bytes = key_statement_bytes(KeyChangeKind::Revoked, catalog_name, body);
-    revocation_key
-        .verify_statement(&bytes, signature, "revocation")
-        .with_context(|| {
-            format!(
-                "revocation statement for catalog {catalog_name} is not signed by the pinned revocation key {}",
-                revocation_key.key_id()
-            )
-        })?;
-    require_revision_key(
-        catalog_name,
-        "revocation",
-        new_key.key_id(),
-        revision_public,
-    )?;
-    Ok(VerifiedKeyChange {
-        kind: KeyChangeKind::Revoked,
-        from: pinned_id,
-        to: new_key.key_id().to_string(),
-        body_digest: body_digest(body),
-        new_key,
-    })
-}
-
-fn check_body(catalog_name: &str, expected: &str, version: u32, kind: &str) -> Result<()> {
-    if version != 1 {
-        bail!(
-            "{expected} statement for catalog {catalog_name} uses schema_version {version}; Modn supports 1"
-        );
-    }
-    if kind != expected {
-        bail!(
-            "{expected} statement for catalog {catalog_name} has kind \"{kind}\"; expected \"{expected}\""
-        );
-    }
-    Ok(())
-}
-
-fn require_revision_key(
-    catalog_name: &str,
-    role: &str,
-    expected: CatalogKeyId,
-    revision_public: Option<&CatalogPublicKey>,
-) -> Result<()> {
-    let Some(revision_public) = revision_public else {
-        bail!(
-            "{role} statement for catalog {catalog_name} names key {expected}, but this revision has no catalog.pub; a key change must publish the new public key"
-        );
-    };
-    if revision_public.key_id() != expected {
-        bail!(
-            "{role} statement for catalog {catalog_name} names key {expected}, but this revision publishes key {}",
-            revision_public.key_id()
-        );
-    }
-    Ok(())
-}
-
-fn read_statement(
-    root: &Path,
-    body_file: &str,
-    signature_file: &str,
-) -> Result<Option<(Vec<u8>, String)>> {
-    let body = read_bounded(&root.join(body_file), MAX_STATEMENT_BYTES)?;
-    let signature = read_bounded(&root.join(signature_file), MAX_SIGNATURE_BYTES)?;
-    match (body, signature) {
-        (None, None) => Ok(None),
-        (Some(_), None) => bail!("{body_file} is missing its signature {signature_file}"),
-        (None, Some(_)) => bail!("{signature_file} has no matching {body_file}"),
-        (Some(body), Some(signature)) => {
-            let signature = String::from_utf8(signature)
-                .map_err(|_| anyhow!("{signature_file} is not UTF-8"))?;
-            Ok(Some((body, signature)))
-        }
     }
 }
 
@@ -443,6 +239,22 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Option<Vec<u8>>> {
         format!("cannot read catalog key statement: {}", path.display())
     })?))
 }
+
+/// The key identifier text that a statement names in `from` or `revoked`.
+fn key_id_text(catalog_name: &str, kind: &str, field: &str, value: &str) -> Result<String> {
+    let value = value.trim();
+    if value.len() != 16 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!(
+            "{kind} statement for catalog {catalog_name} has an invalid key ID in {field}: {value}"
+        );
+    }
+    Ok(value.to_ascii_uppercase())
+}
+
+mod statements;
+pub(in crate::buckets) use self::statements::{
+    apply_key_statements, validate_historical_statements,
+};
 
 #[cfg(test)]
 mod tests;

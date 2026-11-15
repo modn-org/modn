@@ -55,6 +55,12 @@ pub(super) fn sync_catalog(
     let synced = store.sync_git_with_signer(name, source)?;
     report_pin(name, &synced.revision.signer, synced.pinned, json_output);
     report_key_change(synced.key_change.as_ref(), json_output);
+    report_ignored_key_statements(
+        name,
+        &synced.ignored_key_statements,
+        synced.pinned,
+        json_output,
+    );
     report_trace(name, &synced.trace, json_output);
     Ok(synced)
 }
@@ -68,6 +74,12 @@ pub(super) fn sync_zip_catalog(
     let synced = store.sync_zip_with_signer(name, source, open_zip_source)?;
     report_pin(name, &synced.revision.signer, synced.pinned, json_output);
     report_key_change(synced.key_change.as_ref(), json_output);
+    report_ignored_key_statements(
+        name,
+        &synced.ignored_key_statements,
+        synced.pinned,
+        json_output,
+    );
     report_trace(name, &synced.trace, json_output);
     Ok(synced)
 }
@@ -209,6 +221,27 @@ fn print_sync_modules(modules: &CatalogModuleReport) {
 fn print_git_sync(name: &str, synced: &GitCatalogSync) {
     println!("Synced bucket {name} at commit {}.", synced.revision.commit);
     print_sync_modules(&synced.modules);
+}
+fn report_ignored_key_statements(
+    name: &str,
+    statements: &[String],
+    pinned: bool,
+    json_output: bool,
+) {
+    if statements.is_empty() {
+        return;
+    }
+    let kinds = statements.join(", ");
+    let line = if pinned {
+        format!(
+            "Ignored published key change statements ({kinds}) for bucket {name}; the first sync pins the signer from catalog.pub and applies no statement."
+        )
+    } else {
+        format!(
+            "Ignored published key change statements ({kinds}) for bucket {name}; they do not name the pinned key."
+        )
+    };
+    emit_report(&line, json_output);
 }
 fn print_zip_sync(name: &str, synced: &ZipCatalogSync) {
     println!(

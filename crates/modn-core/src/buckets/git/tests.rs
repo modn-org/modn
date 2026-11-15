@@ -8,7 +8,7 @@ use std::path::Path;
 use std::thread;
 use std::time::Duration;
 
-fn commit(root: &Path, title: &str) -> String {
+pub(super) fn commit(root: &Path, title: &str) -> String {
     git(root, &["add", "."]).unwrap();
     git(
         root,
@@ -26,14 +26,14 @@ fn commit(root: &Path, title: &str) -> String {
     git(root, &["rev-parse", "HEAD"]).unwrap()
 }
 
-fn package(version: &str) -> String {
+pub(super) fn package(version: &str) -> String {
     serde_json::json!({"schema_version":2,"id":"mod","game":"test-game","name":"Mod",
         "version":version,"archive_format":"zip","blake3":"0".repeat(64),
         "sources":[{"kind":"manual","filename":"mod.zip"}]})
     .to_string()
 }
 
-fn seed_catalog(root: &Path, version: &str) {
+pub(super) fn seed_catalog(root: &Path, version: &str) {
     fs::write(
         root.join("bucket.json"),
         r#"{"schema_version":2,"name":"community","title":"Community"}"#,
@@ -43,20 +43,21 @@ fn seed_catalog(root: &Path, version: &str) {
     fs::write(root.join("mods/test-game/mod.json"), package(version)).unwrap();
 }
 
-struct TestKey {
-    pair: KeyPair,
-    public: CatalogPublicKey,
-    text: String,
+#[derive(Clone)]
+pub(super) struct TestKey {
+    pub(super) pair: KeyPair,
+    pub(super) public: CatalogPublicKey,
+    pub(super) text: String,
 }
 
-fn test_key() -> TestKey {
+pub(super) fn test_key() -> TestKey {
     let pair = KeyPair::generate_unencrypted_keypair().unwrap();
     let text = pair.pk.to_box().unwrap().into_string();
     let public = CatalogPublicKey::parse(&text).unwrap();
     TestKey { pair, public, text }
 }
 
-fn copy_tree(source: &Path, target: &Path) {
+pub(super) fn copy_tree(source: &Path, target: &Path) {
     fs::create_dir_all(target).unwrap();
     for entry in fs::read_dir(source).unwrap() {
         let entry = entry.unwrap();
@@ -72,7 +73,7 @@ fn copy_tree(source: &Path, target: &Path) {
     }
 }
 
-fn write_signature(root: &Path, key: &TestKey) {
+pub(super) fn write_signature(root: &Path, key: &TestKey) {
     let staging = tempfile::tempdir().unwrap();
     copy_tree(root, staging.path());
     let statement = catalog_statement(staging.path()).unwrap();
@@ -89,12 +90,12 @@ fn write_signature(root: &Path, key: &TestKey) {
     fs::write(root.join("catalog.sig"), signature).unwrap();
 }
 
-struct Remote {
-    directory: tempfile::TempDir,
-    key: TestKey,
+pub(super) struct Remote {
+    pub(super) directory: tempfile::TempDir,
+    pub(super) key: TestKey,
 }
 
-fn remote(version: &str, key: TestKey) -> Remote {
+pub(super) fn remote(version: &str, key: TestKey) -> Remote {
     let directory = tempfile::tempdir().unwrap();
     git(directory.path(), &["init", "--initial-branch=fixture"]).unwrap();
     seed_catalog(directory.path(), version);
@@ -103,14 +104,14 @@ fn remote(version: &str, key: TestKey) -> Remote {
     Remote { directory, key }
 }
 
-fn source(remote: &Remote) -> GitCatalogSource {
+pub(super) fn source(remote: &Remote) -> GitCatalogSource {
     GitCatalogSource {
         remote: remote.directory.path().to_string_lossy().into_owned(),
         reference: "fixture".into(),
     }
 }
 
-fn registration(state: &Path) -> std::path::PathBuf {
+pub(super) fn registration(state: &Path) -> std::path::PathBuf {
     state.join("buckets/registrations/community.json")
 }
 

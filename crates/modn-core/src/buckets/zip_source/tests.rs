@@ -101,22 +101,22 @@ fn plain_http_is_refused_before_the_source_is_opened() {
     assert_no_state(state.path());
 }
 
-const RECORD: &str = r#"{"schema_version":2,"id":"example","game":"test-game","name":"Example","version":"1.0","archive_format":"zip","blake3":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sources":[{"kind":"manual","filename":"example.zip"}]}"#;
+pub(super) const RECORD: &str = r#"{"schema_version":2,"id":"example","game":"test-game","name":"Example","version":"1.0","archive_format":"zip","blake3":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sources":[{"kind":"manual","filename":"example.zip"}]}"#;
 
-struct SigningKey {
-    pair: minisign::KeyPair,
-    public: crate::buckets::CatalogPublicKey,
-    text: String,
+pub(super) struct SigningKey {
+    pub(super) pair: minisign::KeyPair,
+    pub(super) public: crate::buckets::CatalogPublicKey,
+    pub(super) text: String,
 }
 
-fn signing_key() -> SigningKey {
+pub(super) fn signing_key() -> SigningKey {
     let pair = minisign::KeyPair::generate_unencrypted_keypair().expect("test key");
     let text = pair.pk.to_box().expect("public key").into_string();
     let public = crate::buckets::CatalogPublicKey::parse(&text).expect("parsed key");
     SigningKey { pair, public, text }
 }
 
-fn sign_bytes(key: &SigningKey, bytes: &[u8]) -> String {
+pub(super) fn sign_bytes(key: &SigningKey, bytes: &[u8]) -> String {
     minisign::sign(
         Some(&key.pair.pk),
         &key.pair.sk,
@@ -128,7 +128,7 @@ fn sign_bytes(key: &SigningKey, bytes: &[u8]) -> String {
     .into_string()
 }
 
-fn write_catalog(root: &Path, mirror: &str, key: &SigningKey) {
+pub(super) fn write_catalog(root: &Path, mirror: &str, key: &SigningKey) {
     fs::create_dir_all(root.join("mods/test-game")).expect("catalog directory");
     fs::write(
         root.join("bucket.json"),
@@ -154,7 +154,70 @@ fn write_catalog(root: &Path, mirror: &str, key: &SigningKey) {
     .expect("signature");
 }
 
-fn pack_catalog(root: &Path) -> Vec<u8> {
+pub(super) fn write_rotation(root: &Path, old: &SigningKey, new: &SigningKey) {
+    let body = crate::buckets::rotation_statement(&old.public.key_id().to_string(), &new.text)
+        .expect("rotation body");
+    fs::write(root.join("rotation.json"), &body).expect("rotation body");
+    let bytes = crate::buckets::key_statement_bytes(
+        crate::buckets::KeyChangeKind::Rotated,
+        "community",
+        &body,
+    );
+    fs::write(root.join("rotation.sig"), sign_bytes(old, &bytes)).expect("rotation signature");
+    fs::write(root.join("catalog.pub"), &new.text).expect("new public key");
+    let statement = crate::buckets::catalog_statement(root).expect("new statement");
+    fs::write(
+        root.join("catalog.sig"),
+        sign_bytes(new, statement.as_bytes()),
+    )
+    .expect("new signature");
+}
+
+pub(super) fn write_revocation_statement(
+    root: &Path,
+    revocation_key: &SigningKey,
+    revoked: &SigningKey,
+    replacement: &SigningKey,
+) {
+    let body = crate::buckets::revocation_statement(
+        &revoked.public.key_id().to_string(),
+        &replacement.text,
+    )
+    .expect("revocation body");
+    fs::write(root.join("revocation.json"), &body).expect("revocation body");
+    let bytes = crate::buckets::key_statement_bytes(
+        crate::buckets::KeyChangeKind::Revoked,
+        "community",
+        &body,
+    );
+    fs::write(
+        root.join("revocation.sig"),
+        sign_bytes(revocation_key, &bytes),
+    )
+    .expect("revocation signature");
+}
+
+pub(super) fn same_id_key_text(victim: &SigningKey, donor: &SigningKey) -> String {
+    use base64::Engine as _;
+    let decode = |text: &str| {
+        let line = text.lines().last().expect("key line").trim();
+        base64::engine::general_purpose::STANDARD
+            .decode(line)
+            .expect("key bytes")
+    };
+    let victim = decode(&victim.text);
+    let mut bytes = decode(&donor.text);
+    bytes[2..10].copy_from_slice(&victim[2..10]);
+    let line = base64::engine::general_purpose::STANDARD.encode(bytes);
+    format!("untrusted comment: swapped public key\n{line}\n")
+}
+
+pub(super) fn reformatted_key_text(key: &SigningKey) -> String {
+    let line = key.text.lines().last().expect("key line").trim();
+    format!("untrusted comment: reformatted public key\n{line}\n")
+}
+
+pub(super) fn pack_catalog(root: &Path) -> Vec<u8> {
     fn collect(root: &Path, current: &Path, output: &mut Vec<(String, Vec<u8>)>) {
         for entry in fs::read_dir(current).expect("catalog entries") {
             let path = entry.expect("entry").path();
@@ -248,4 +311,64 @@ fn rotation_is_accepted_when_a_mirror_serves_the_revision() {
         vec![change.from.clone()]
     );
     assert_eq!(synced.trace.served_by.label(), format!("zip {mirror}"));
+}
+
+pub(super) fn registration_bytes(state: &Path) -> Vec<u8> {
+    fs::read(state.join("buckets/registrations/community.json")).expect("registration")
+}
+
+pub(super) fn published_snapshot(state: &Path) -> (std::path::PathBuf, Vec<u8>) {
+    let value: serde_json::Value =
+        serde_json::from_slice(&registration_bytes(state)).expect("registration JSON");
+    let path = std::path::PathBuf::from(value["path"].as_str().expect("published path"));
+    let bytes = fs::read(path.join("bucket.json")).expect("published metadata");
+    (path, bytes)
+}
+
+#[test]
+fn mirror_rotation_with_a_swapped_catalog_public_key_is_refused() {
+    let state = tempfile::tempdir().expect("state");
+    let catalog = tempfile::tempdir().expect("catalog");
+    let old = signing_key();
+    let new = signing_key();
+    let donor = signing_key();
+    let primary = "https://primary.example/catalog.zip";
+    let mirror = "https://mirror.example/catalog.zip";
+    write_catalog(catalog.path(), mirror, &old);
+    let first = pack_catalog(catalog.path());
+    let store = BucketStore::new(state.path());
+    let first_bytes = first.clone();
+    store
+        .sync_zip_with_signer(
+            "community",
+            Some(ZipCatalogSource::new(primary.to_owned())),
+            move |_| Ok(Box::new(Cursor::new(first_bytes.clone())) as Box<dyn Read>),
+        )
+        .expect("first sync");
+    let before_registration = registration_bytes(state.path());
+    let before_published = published_snapshot(state.path());
+
+    write_rotation(catalog.path(), &old, &new);
+    fs::write(
+        catalog.path().join("catalog.pub"),
+        same_id_key_text(&new, &donor),
+    )
+    .expect("swapped public key");
+    let rotated = pack_catalog(catalog.path());
+
+    let error = store
+        .sync_zip_with_signer("community", None, move |source| {
+            if source.url == primary {
+                anyhow::bail!("primary is offline");
+            }
+            Ok(Box::new(Cursor::new(rotated.clone())) as Box<dyn Read>)
+        })
+        .expect_err("a swapped public key must be refused")
+        .to_string();
+    assert!(
+        error.contains("publishes a different public key"),
+        "{error}"
+    );
+    assert_eq!(registration_bytes(state.path()), before_registration);
+    assert_eq!(published_snapshot(state.path()), before_published);
 }

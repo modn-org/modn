@@ -181,9 +181,14 @@ new signature and `catalog.pub` together.
 
 A rotation keeps module trust because the old key vouched for the new key. A
 revocation clears it, so users run `modn bucket trust-modules` again. Sync output
-names both fingerprints. Remove the old statement before a different key change
-unless the statement was already accepted; sync treats an accepted statement as
-history.
+names both fingerprints.
+
+Keep accepted statements published. Each user applies the one statement whose
+old key matches their pinned key. Every other statement is history, and a new
+user registers the catalog normally: the first sync pins `catalog.pub` and
+ignores the published statements as history. Do not publish two statements that
+both apply to the same pinned key. If a catalog needs two key changes, publish
+and sync one intermediate revision before the next.
 
 A pinned `revocation.pub` cannot change in place. If the revocation key leaks,
 each user must remove the bucket and sync it again to pin a new revocation key.
@@ -212,9 +217,11 @@ The first sync prints
 `Pinned signer key <KEY_ID> for bucket community; compare this fingerprint with the catalog author.`
 Tell users the fingerprint that `modn catalog keygen` printed, so each user can
 compare it.
-Later syncs verify the revision with the pinned key. They may omit `catalog.pub`.
-A revision that names another key needs a signed rotation or revocation
-statement; see [rotate or revoke a signing key](#rotate-or-revoke-a-signing-key).
+At the first sync, Modn pins the signer from `catalog.pub` and ignores any
+published rotation or revocation statement as history. Later syncs verify the
+revision with the pinned key. They may omit `catalog.pub`. A revision that names
+another key needs a signed rotation or revocation statement whose old key is the
+pinned key; see [rotate or revoke a signing key](#rotate-or-revoke-a-signing-key).
 A changed key without that statement is refused.
 
 Git must be installed. The repository may be public or reachable by the user's

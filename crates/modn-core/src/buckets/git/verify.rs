@@ -150,6 +150,8 @@ pub(in crate::buckets) struct CatalogVerification {
     pub(in crate::buckets) pinned: bool,
     /// An accepted rotation or revocation, when this revision carries one.
     pub(in crate::buckets) key_change: Option<CatalogKeyChange>,
+    /// Published key statements that added no trust to this pin.
+    pub(in crate::buckets) ignored_key_statements: Vec<String>,
 }
 
 /// Verify one staged catalog tree and return the signer to publish.
@@ -172,16 +174,13 @@ pub(in crate::buckets) fn verify_catalog_tree(
         let Some((key, text)) = revision_public else {
             return Err(unsigned(label));
         };
-        if crate::buckets::rotation::has_key_statements(root)? {
-            bail!(
-                "catalog {name} carries a rotation or revocation statement before its first sync; Modn pins the signing key from catalog.pub instead"
-            );
-        }
+        let ignored = crate::buckets::rotation::validate_historical_statements(root, name)?;
         verify_catalog_directory(root, &key)?;
         return Ok(CatalogVerification {
             signer: CatalogSigner::pin(&key, text, revocation_public),
             pinned: true,
             key_change: None,
+            ignored_key_statements: ignored,
         });
     };
     let pinned = previous.pinned_key()?;
@@ -191,45 +190,43 @@ pub(in crate::buckets) fn verify_catalog_tree(
         pinned_revocation.as_ref(),
         revocation_public.as_ref().map(|(key, _)| key),
     )?;
-    if let Some((present, _)) = &revision_public {
-        // A rotation or revocation statement names its own successor below.
-        if !crate::buckets::rotation::has_key_statements(root)? {
-            refuse_retired_signer(name, previous, present)?;
-        }
-    }
     let catalog_name = crate::buckets::signature::catalog_name(root)?;
     let keys = crate::buckets::rotation::PinnedKeys {
         signer: &pinned,
         revocation: pinned_revocation.as_ref(),
-        applied_rotation: previous.applied_rotation.as_deref(),
-        applied_revocation: previous.applied_revocation.as_deref(),
     };
-    let change = crate::buckets::rotation::apply_key_statements(
+    let outcome = crate::buckets::rotation::apply_key_statements(
         root,
         &catalog_name,
         &keys,
         revision_public.as_ref().map(|(key, _)| key),
     )?;
-    let Some(change) = change else {
+    let Some(change) = outcome.change else {
+        if let Some((present, _)) = &revision_public {
+            refuse_retired_signer(name, previous, present)?;
+        }
         verify_catalog_directory(root, &pinned)?;
         return Ok(CatalogVerification {
             signer: previous.clone(),
             pinned: false,
             key_change: None,
+            ignored_key_statements: outcome.ignored,
         });
     };
     verify_catalog_directory(root, &change.new_key)?;
-    let text = revision_public
-        .map(|(_, text)| text)
-        .context("a key change must publish catalog.pub")?;
     let signer = match change.kind {
-        crate::buckets::rotation::KeyChangeKind::Rotated => previous.rotated_to(&change, text),
-        crate::buckets::rotation::KeyChangeKind::Revoked => previous.revoked_to(&change, text),
+        crate::buckets::rotation::KeyChangeKind::Rotated => {
+            previous.rotated_to(&change, change.new_key_text.clone())
+        }
+        crate::buckets::rotation::KeyChangeKind::Revoked => {
+            previous.revoked_to(&change, change.new_key_text.clone())
+        }
     };
     Ok(CatalogVerification {
         signer,
         pinned: false,
         key_change: Some(change.report()),
+        ignored_key_statements: outcome.ignored,
     })
 }
 
@@ -257,10 +254,17 @@ fn refuse_retired_signer(
             "Signing key {fingerprint} for bucket {name} was rotated away; publish a revision signed by the current key."
         );
     }
-    if present.key_id() != previous.pinned_key()?.key_id() {
+    let pinned = previous.pinned_key()?;
+    if *present != pinned {
+        if present.key_id().to_string() == previous.key_id {
+            bail!(
+                "Signer key {} for bucket {name} publishes a different public key than the pinned key. A key change needs a signed rotation or revocation statement; remove the bucket and sync it again to trust the new key.",
+                previous.key_id
+            );
+        }
         bail!(
             "Signer key changed from {} to {fingerprint} for bucket {name}. A key change needs a signed rotation or revocation statement; remove the bucket and sync it again to trust the new key.",
-            previous.key_id
+            pinned.key_id()
         );
     }
     Ok(())

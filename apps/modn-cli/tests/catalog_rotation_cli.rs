@@ -242,3 +242,33 @@ fn revocation_by_the_offline_key_clears_trust_and_retires_the_signer() {
     );
     assert_eq!(before, fixture.snapshot());
 }
+
+#[test]
+fn a_new_user_registers_a_rotated_catalog_and_the_output_names_the_ignored_statement() {
+    let fixture = Fixture::new();
+    let temp = fixture.temp.path();
+    let keys = temp.join("keys");
+    keygen(&keys, "author");
+    let next = keygen(&keys, "next");
+    let catalog = signed_catalog(temp, "community", &keys, "author", &[]);
+    rotate(&catalog, &keys.join("author.key"), &keys.join("next.pub"));
+    sign(&catalog, &keys.join("next.key"));
+    let source = pack_catalog(&catalog, &temp.join("community.zip"));
+
+    let first = fixture.sync(&source);
+    assert!(first.status.success(), "{}", stderr(&first));
+    assert!(
+        stderr(&first).contains(&format!("Pinned signer key {next}")),
+        "{}",
+        stderr(&first)
+    );
+    assert!(
+        stderr(&first).contains(
+            "Ignored published key change statements (rotation) for bucket community; the first sync pins the signer from catalog.pub and applies no statement."
+        ),
+        "{}",
+        stderr(&first)
+    );
+    let stored = registration(&fixture.temp.path().join("state"));
+    assert_eq!(stored["zip"]["signer"]["key_id"], next);
+}
