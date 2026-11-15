@@ -137,6 +137,7 @@ Artifact retries and timeouts follow the artifact source fallback below.
 A package record lists its `sources` in the order Modn tries them.
 Modn tries each fetchable source in list order.
 It moves to the next source after a timeout, a network failure, an HTTP failure or a BLAKE3 mismatch.
+A `nexus` source is one attempt in that order; a Nexus failure is reported and the next source runs.
 The first source whose bytes match the record's `blake3` pin supplies the archive.
 A `manual` source is never started automatically.
 If only manual sources remain, Modn prints the manual step as before.
@@ -226,6 +227,8 @@ The download comes from a validated `nexus-cdn.com` or `nexusmods.com` host with
 The file passes through the verified cache and must match its BLAKE3 pin.
 Secrets never appear in output, state, journals or cache names.
 The cache names the file by `nexus://<game_domain>/mods/<mod_id>/files/<file_id>/<file_name>`.
+A failed Nexus attempt is one failed source in the ordered fallback.
+Modn records why it failed and tries the record's next source.
 
 Errors name the action:
 - `400` means the nxm link is invalid or expired.

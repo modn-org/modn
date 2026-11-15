@@ -8,6 +8,8 @@ mod catalog_mirrors;
 mod catalog_rotation;
 #[path = "support/catalog_rotation_state.rs"]
 mod catalog_rotation_state;
+#[path = "support/git_fixture.rs"]
+mod git_fixture;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/zip_catalog.rs"]
@@ -78,6 +80,87 @@ fn rotation_is_accepted_with_the_successor_and_trust_follows() {
         stderr(&refused)
     );
     assert_eq!(before, state_snapshot(&fixture.temp.path().join("state")));
+}
+
+#[test]
+fn rotation_on_a_git_checkout_is_accepted_by_sync() {
+    let fixture = GitFixture::new();
+    let keys = fixture.temp.path().join("keys");
+    let old = keygen(&keys, "author");
+    let next = keygen(&keys, "next");
+    let catalog = prepare_catalog(fixture.temp.path(), "community");
+    let signed = run(&[
+        "--json",
+        "catalog",
+        "sign",
+        path_text(&catalog),
+        "--key",
+        path_text(&keys.join("author.key")),
+    ]);
+    assert!(signed.status.success(), "{}", stderr(&signed));
+    copy_tree(&catalog, &fixture.repo);
+    git_fixture::commit_all(&fixture.repo, "first");
+
+    let first = fixture.sync();
+    assert!(first.status.success(), "{}", stderr(&first));
+    assert!(stderr(&first).contains(&format!("Pinned signer key {old}")));
+
+    rotate(
+        &fixture.repo,
+        &keys.join("author.key"),
+        &keys.join("next.pub"),
+    );
+    sign(&fixture.repo, &keys.join("next.key"));
+    git_fixture::commit_all(&fixture.repo, "rotation");
+    let rotated = fixture.sync();
+    assert!(rotated.status.success(), "{}", stderr(&rotated));
+    assert!(
+        stderr(&rotated).contains(&format!("signing key rotated: {old} -> {next}")),
+        "{}",
+        stderr(&rotated)
+    );
+}
+
+#[test]
+fn revocation_on_a_git_checkout_is_accepted_by_sync() {
+    let fixture = GitFixture::new();
+    let keys = fixture.temp.path().join("keys");
+    let old = keygen(&keys, "author");
+    let _offline = keygen(&keys, "offline");
+    let next = keygen(&keys, "next");
+    let catalog = prepare_catalog(fixture.temp.path(), "community");
+    let signed = run(&[
+        "--json",
+        "catalog",
+        "sign",
+        path_text(&catalog),
+        "--key",
+        path_text(&keys.join("author.key")),
+        "--revocation-public-key",
+        path_text(&keys.join("offline.pub")),
+    ]);
+    assert!(signed.status.success(), "{}", stderr(&signed));
+    copy_tree(&catalog, &fixture.repo);
+    git_fixture::commit_all(&fixture.repo, "first");
+
+    let first = fixture.sync();
+    assert!(first.status.success(), "{}", stderr(&first));
+
+    revoke(
+        &fixture.repo,
+        &keys.join("offline.key"),
+        &old,
+        &keys.join("next.pub"),
+    );
+    sign(&fixture.repo, &keys.join("next.key"));
+    git_fixture::commit_all(&fixture.repo, "revocation");
+    let revoked = fixture.sync();
+    assert!(revoked.status.success(), "{}", stderr(&revoked));
+    assert!(
+        stderr(&revoked).contains(&format!("signing key revoked: {old} replaced by {next}")),
+        "{}",
+        stderr(&revoked)
+    );
 }
 
 #[test]

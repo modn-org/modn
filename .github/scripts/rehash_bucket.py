@@ -173,6 +173,15 @@ def source_file_name(source: dict[str, Any]) -> str:
     return name
 
 
+def contained_archive(archive_dir: Path, name: str) -> Path:
+    """Resolve an archive named by a record and refuse one outside `archive_dir`."""
+    root = archive_dir.resolve()
+    path = (archive_dir / name).resolve()
+    if path.parent != root:
+        raise RehashError(f"archive file name escapes --archive-dir: {name}")
+    return path
+
+
 def validate_source(source: Any) -> dict[str, Any]:
     """Validate one v1 source object and return it unchanged."""
     if not isinstance(source, dict):
@@ -203,6 +212,28 @@ def validate_source(source: Any) -> dict[str, Any]:
     return source
 
 
+def check_field_types(record: Record) -> None:
+    """Refuse a v1 record whose copied fields have the wrong JSON type."""
+    value = record.value
+    for field in ("id", "game", "name", "version", "archive_format", "sha256"):
+        if field in value and value[field] is not None and not isinstance(value[field], str):
+            raise RehashError(f"{record.filename}: field {field} must be a string")
+    if "dependencies" in value:
+        dependencies = value["dependencies"]
+        if not isinstance(dependencies, list) or not all(
+            isinstance(item, str) for item in dependencies
+        ):
+            raise RehashError(
+                f"{record.filename}: field dependencies must be a list of strings"
+            )
+    if "source" in value and not isinstance(value["source"], dict):
+        raise RehashError(f"{record.filename}: field source must be an object")
+    if "native_injector" in value and not isinstance(value["native_injector"], bool):
+        raise RehashError(f"{record.filename}: field native_injector must be a boolean")
+    if "homepage" in value and not isinstance(value["homepage"], str):
+        raise RehashError(f"{record.filename}: field homepage must be a string")
+
+
 def convert_record(record: Record) -> Converted:
     """Validate one v1 record and build its v2 manifest, without the archive."""
     value = record.value
@@ -211,6 +242,7 @@ def convert_record(record: Record) -> Converted:
         raise RehashError(f"invalid v1 fields: {', '.join(unknown)}")
     if value.get("schema_version") != SCHEMA_V1:
         raise RehashError(f"bucket package schema_version must be {SCHEMA_V1}")
+    check_field_types(record)
     package_id = value.get("id")
     file_stem = record.filename[:-5]
     if not valid_id(package_id) or package_id != file_stem.split("@")[0]:
@@ -363,10 +395,17 @@ def write_provenance(bucket: Path, tree: Path, rows: Sequence[ProvenanceRow], da
     (tree / "PROVENANCE.md").write_text(text, encoding="utf-8")
 
 
-def prepare_output(out: Path, bucket: Path) -> None:
+def prepare_output(out: Path, bucket: Path, archive_dir: Path | None = None) -> None:
     """Refuse an unsafe or non-empty output directory before any work."""
-    if out == bucket or bucket in out.parents:
-        raise RehashError("--out must not be inside the v1 bucket directory")
+    resolved_out = out.resolve()
+    blocked = [("the v1 bucket directory", bucket.resolve())]
+    if archive_dir is not None:
+        blocked.append(("the archive directory", archive_dir.resolve()))
+    for label, directory in blocked:
+        if resolved_out == directory or directory in resolved_out.parents:
+            raise RehashError(f"--out must not be inside {label}")
+        if resolved_out in directory.parents:
+            raise RehashError(f"--out must not contain {label}")
     if not out.parent.is_dir():
         raise RehashError(f"--out parent directory does not exist: {out.parent}")
     if not out.exists():
