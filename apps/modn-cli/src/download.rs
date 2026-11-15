@@ -26,6 +26,20 @@ use std::path::{Path, PathBuf};
 thread_local! {
     pub(super) static TEST_RESPONSES: std::cell::RefCell<Option<BTreeMap<String, Vec<u8>>>> = const { std::cell::RefCell::new(None) };
     pub(super) static TEST_CALLS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    pub(super) static TEST_METADATA_FAILURES: std::cell::RefCell<Option<BTreeMap<String, Vec<FetchError>>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn take_metadata_failure(url: &str) -> Option<FetchError> {
+    TEST_METADATA_FAILURES.with(|failures| {
+        let mut failures = failures.borrow_mut();
+        let queue = failures.as_mut()?.get_mut(url)?;
+        if queue.is_empty() {
+            return None;
+        }
+        TEST_CALLS.with(|calls| calls.borrow_mut().push(url.to_owned()));
+        Some(queue.remove(0))
+    })
 }
 
 #[cfg(test)]
@@ -242,6 +256,21 @@ fn cache_miss(detail: &str) -> anyhow::Error {
         modn_core::error::ErrorCode::UndoFailed,
         format!("the recorded archive is no longer cached and {detail}"),
     )
+}
+
+/// JSON outcomes for a list of source attempts.
+pub(super) fn downloads_json(attempts: &[SourceAttempt]) -> Vec<serde_json::Value> {
+    attempts
+        .iter()
+        .map(|attempt| {
+            serde_json::json!({
+                "source": attempt.source,
+                "attempt": attempt.attempt,
+                "outcome": if attempt.succeeded() { "ok" } else { "failed" },
+                "reason": attempt.failure.as_ref().map(ToString::to_string),
+            })
+        })
+        .collect()
 }
 
 pub(super) fn add_cached<'a>(

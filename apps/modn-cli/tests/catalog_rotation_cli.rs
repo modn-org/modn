@@ -191,7 +191,9 @@ fn revocation_by_the_offline_key_clears_trust_and_retires_the_signer() {
     let entry = listed_entry_git(&fixture);
     assert_eq!(entry["revocation_key_id"], offline);
 
-    fixture.run(&["--json", "bucket", "trust-modules", "community", "--yes"]);
+    let trusted = fixture.run(&["--json", "bucket", "trust-modules", "community", "--yes"]);
+    assert!(trusted.status.success(), "{}", stderr(&trusted));
+    assert_eq!(listed_entry_git(&fixture)["module_trusted"], true);
     let saved = fixture.temp.path().join("old-catalog");
     zip_catalog::copy_catalog(&fixture.repo, &saved);
 

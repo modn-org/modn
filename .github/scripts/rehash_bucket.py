@@ -203,8 +203,11 @@ def validate_source(source: Any) -> dict[str, Any]:
         source_file_name(source)
     if kind == "nexus":
         for field in ("mod_id", "file_id"):
-            if not isinstance(source.get(field), int) or isinstance(source.get(field), bool):
+            value = source.get(field)
+            if not isinstance(value, int) or isinstance(value, bool):
                 raise RehashError(f"nexus {field} must be an integer")
+            if not 0 <= value <= 2**64 - 1:
+                raise RehashError(f"nexus {field} must fit an unsigned 64-bit integer")
         if not isinstance(source.get("game_domain"), str) or not source["game_domain"]:
             raise RehashError("invalid nexus game domain")
     if kind in ("github-release", "https"):

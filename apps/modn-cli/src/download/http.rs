@@ -28,6 +28,10 @@ fn classify(error: ureq::Error) -> FetchError {
 
 pub(super) fn fetch_metadata(url: &str) -> anyhow::Result<Box<dyn Read>> {
     #[cfg(test)]
+    if let Some(failure) = super::take_metadata_failure(url) {
+        return Err(failure.into());
+    }
+    #[cfg(test)]
     if let Some(response) = fixture_response(url) {
         return response;
     }
@@ -35,7 +39,8 @@ pub(super) fn fetch_metadata(url: &str) -> anyhow::Result<Box<dyn Read>> {
         .get(url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .call()?;
+        .call()
+        .map_err(classify)?;
     if response.status() != 200 {
         anyhow::bail!("GitHub metadata request returned {}", response.status());
     }

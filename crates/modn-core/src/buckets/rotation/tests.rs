@@ -225,7 +225,7 @@ fn a_statement_cannot_be_replayed_as_another_kind_or_catalog() {
         directory.path(),
         REVOCATION_SIGNATURE_FILE,
         sign(
-            &signer,
+            &revocation,
             &key_statement_bytes(super::KeyChangeKind::Rotated, CATALOG_NAME, &body),
         )
         .as_bytes(),
@@ -240,14 +240,13 @@ fn a_statement_cannot_be_replayed_as_another_kind_or_catalog() {
     .to_string();
     assert!(error.contains("revocation"), "{error}");
 
-    let rotation_body = rotation_body(&signer.public.key_id().to_string(), &replacement.text);
     write(directory.path(), REVOCATION_FILE, &body);
     write(
         directory.path(),
         REVOCATION_SIGNATURE_FILE,
         sign(
             &revocation,
-            &key_statement_bytes(super::KeyChangeKind::Revoked, "other", &rotation_body),
+            &key_statement_bytes(super::KeyChangeKind::Revoked, "other", &body),
         )
         .as_bytes(),
     );

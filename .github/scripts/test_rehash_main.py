@@ -26,6 +26,7 @@ SCRIPTS = Path(__file__).resolve().parent
 REPO = SCRIPTS.parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
+import rehash_bucket  # noqa: E402
 import rehash_main  # noqa: E402
 
 GAME = "fixture-game"
@@ -697,6 +698,36 @@ class CheckCleanupTests(RehashTestCase):
             self.check_staging(),
             "a failed --check left its downloaded archives behind",
         )
+
+
+class ModnResolutionTests(RehashTestCase):
+    def test_resolve_modn_returns_an_absolute_path(self) -> None:
+        binary = self.root / "fake-modn"
+        binary.write_text("", encoding="utf-8")
+        previous = Path.cwd()
+        os.chdir(self.root)
+        try:
+            resolved = rehash_main.resolve_modn("fake-modn")
+        finally:
+            os.chdir(previous)
+        self.assertTrue(resolved.is_absolute(), f"relative path returned: {resolved}")
+        self.assertEqual(resolved, binary.resolve())
+
+
+class NexusSourceIdTests(unittest.TestCase):
+    def test_nexus_ids_outside_the_u64_range_are_refused(self) -> None:
+        for value in (-1, 2**64):
+            with self.subTest(value=value):
+                with self.assertRaises(rehash_bucket.RehashError):
+                    rehash_bucket.validate_source(
+                        {
+                            "kind": "nexus",
+                            "game_domain": "fixture-game",
+                            "mod_id": value,
+                            "file_id": 1,
+                            "file_name": "archive.zip",
+                        }
+                    )
 
 
 class OutputContainmentTests(RehashTestCase):

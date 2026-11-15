@@ -268,7 +268,7 @@ fn install_mod(
             game_id,
             installation,
         };
-        return stack_install::run(stack, state, args, json, progress);
+        return stack_install::run(stack, state, args, json, progress, download_attempts);
     }
     if !args.dry_run {
         match state.existing() {
@@ -424,17 +424,7 @@ fn install_mod(
     let operation_id = store.committed_operation_id().map(str::to_owned);
     install_consent::record(&mut store, &installation, &reference_key, &needed)?;
     if json {
-        let downloads: Vec<_> = download_attempts
-            .iter()
-            .map(|attempt| {
-                serde_json::json!({
-                    "source": attempt.source,
-                    "attempt": attempt.attempt,
-                    "outcome": if attempt.succeeded() { "ok" } else { "failed" },
-                    "reason": attempt.failure.as_ref().map(ToString::to_string),
-                })
-            })
-            .collect();
+        let downloads = download::downloads_json(&download_attempts);
         let mut result = serde_json::json!({
             "package": reference, "installed": package, "downloads": downloads,
         });

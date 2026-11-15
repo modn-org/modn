@@ -349,11 +349,11 @@ impl BucketStore {
             mirrors.clone(),
             trust == ModuleTrustState::Trusted,
         )?;
+        let _retained = stage.keep();
         let imported = match staged {
             Some(staged) => staged.commit()?,
             None => Vec::new(),
         };
-        let _retained = stage.keep();
         Ok(ZipCatalogSync {
             revision,
             pinned,

@@ -1,7 +1,7 @@
 use crate::commands::Cli;
-use crate::download::{TEST_CALLS, TEST_RESPONSES};
+use crate::download::{TEST_CALLS, TEST_METADATA_FAILURES, TEST_RESPONSES};
 use clap::Parser;
-use modn_core::acquisition::{CacheUse, SourceAttempt};
+use modn_core::acquisition::{CacheUse, FetchError, SourceAttempt, SourceTarget};
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::data_dir;
 use modn_core::game_modules::with_module_source;
@@ -253,6 +253,100 @@ fn acquire_with_sources(
     assert_eq!(archives.len(), 1, "the acquired archive was not recorded");
     let archive = archives.into_values().next().expect("acquired archive");
     Ok((attempts, archive))
+}
+
+fn github_package(root: &Path, digest: &str) -> BucketPackage {
+    package_with_sources(
+        root,
+        digest,
+        json!([{
+            "kind": "github-release",
+            "repository": "fixture/project",
+            "tag": "v1",
+            "asset": "example.zip"
+        }]),
+    )
+}
+
+fn github_metadata() -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "tag_name": "v1",
+        "html_url": "https://github.com/fixture/project/releases/tag/v1",
+        "assets": [{"name": "example.zip", "browser_download_url": URL}],
+    }))
+    .expect("metadata JSON")
+}
+
+#[test]
+fn a_transient_metadata_failure_is_retried_before_the_source_is_refused() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (bytes, digest) = archive(temporary.path());
+    let package = github_package(&root, &digest);
+    TEST_RESPONSES.with(|responses| {
+        responses.replace(Some(BTreeMap::from([
+            (METADATA_URL.to_owned(), github_metadata()),
+            (URL.to_owned(), bytes.clone()),
+        ])))
+    });
+    TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+    TEST_METADATA_FAILURES.with(|failures| {
+        failures.replace(Some(BTreeMap::from([(
+            METADATA_URL.to_owned(),
+            vec![FetchError::Timeout],
+        )])))
+    });
+    let candidates = super::fallback::candidates(&package);
+    TEST_RESPONSES.with(|responses| responses.replace(None));
+    TEST_METADATA_FAILURES.with(|failures| failures.replace(None));
+
+    assert!(
+        matches!(candidates[0].target, SourceTarget::Fetch(_)),
+        "a transient metadata failure refused the source instead of retrying: {candidates:?}"
+    );
+    let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
+    assert_eq!(
+        calls.iter().filter(|url| *url == METADATA_URL).count(),
+        2,
+        "the metadata request was not retried: {calls:?}"
+    );
+}
+
+#[test]
+fn a_404_metadata_failure_is_refused_without_a_retry() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (bytes, digest) = archive(temporary.path());
+    let package = github_package(&root, &digest);
+    TEST_RESPONSES.with(|responses| {
+        responses.replace(Some(BTreeMap::from([
+            (METADATA_URL.to_owned(), github_metadata()),
+            (URL.to_owned(), bytes.clone()),
+        ])))
+    });
+    TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+    TEST_METADATA_FAILURES.with(|failures| {
+        failures.replace(Some(BTreeMap::from([(
+            METADATA_URL.to_owned(),
+            vec![FetchError::Http(404)],
+        )])))
+    });
+    let candidates = super::fallback::candidates(&package);
+    TEST_RESPONSES.with(|responses| responses.replace(None));
+    TEST_METADATA_FAILURES.with(|failures| failures.replace(None));
+
+    assert!(
+        matches!(candidates[0].target, SourceTarget::Refused(_)),
+        "a 404 metadata response was not refused: {candidates:?}"
+    );
+    let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
+    assert_eq!(
+        calls.iter().filter(|url| *url == METADATA_URL).count(),
+        1,
+        "a 404 metadata response was retried: {calls:?}"
+    );
 }
 
 #[test]

@@ -3,8 +3,9 @@
 //! `mirrors.json` lists other hosts of the same signed catalog. `relocation.json`
 //! names the new primary host. Both files sit in the catalog root, so the pinned
 //! catalog signature covers them. A sync tries the registered primary first and
-//! then the stored mirrors in order. Only a transport failure moves on to the
-//! next source; a trust failure stops the sync.
+//! then the stored mirrors in order. A failure to open, download or extract a
+//! source moves on to the next source, including a structurally broken archive.
+//! A trust failure during signature verification stops the sync.
 
 use super::git::GitCatalogSource;
 use super::store::{bounded_json, BucketStore, Registration};

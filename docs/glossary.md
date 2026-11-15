@@ -114,8 +114,9 @@ _Avoid_: Automatically refreshed catalog
 
 **Mirror**:
 Another host of the same signed catalog, listed in `mirrors.json`. Sync tries
-the registered primary first and then the stored mirrors in order. Only a
-transport failure moves to the next mirror; a trust failure stops the sync.
+the registered primary first and then the stored mirrors in order. A failure to
+open, download or unpack a source moves to the next mirror, including a broken
+archive. A trust failure during signature verification stops the sync.
 _Avoid_: Another catalog, fallback archive source
 
 **Catalog relocation**:
