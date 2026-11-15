@@ -177,16 +177,19 @@ later. To pin a new revocation key, remove the bucket and sync it again.
 
 At the first sync Modn trusts `catalog.pub` on first use. It checks every
 published `rotation.json` and `revocation.json` for shape, kind, schema version
-and signature domain, then ignores the statement as history. A statement adds no
+and the key ID in the signature file, then ignores the statement as history. It
+verifies no signature at this point. A statement adds no
 trust for a user who never pinned the old key. The output names the ignored
 statements. A malformed statement or an unknown kind or version refuses the
 revision.
 
 Every later sync evaluates each published statement against the pinned signing
 key. A statement applies only when its `from` or `revoked` field names the
-pinned key and the matching pinned key signed the domain-separated statement.
-Every other statement is history and adds no trust. An author may keep it
-published.
+pinned key (matched by key ID) and the matching pinned key signed the
+domain-separated statement. Modn then verifies the signature with the full
+pinned key, so a statement with the same key ID but another key is refused, not
+ignored. Every other statement is history and adds no trust. An author may keep
+it published.
 
 Sync accepts a rotation when all of these hold:
 
