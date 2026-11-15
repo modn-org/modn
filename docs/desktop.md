@@ -244,7 +244,9 @@ It needs Windows 10 or later with WebView2, an unlocked interactive desktop,
 `uv` and Python 3. The `catalog` journey also needs 7-Zip. `--build` needs
 `cargo`; the journeys themselves do not. Without `--build`, pass `--app`,
 `--cli` and `--test-backend`, or set `CARGO_TARGET_DIR` to the directory that
-holds the built binaries.
+holds the built binaries. The `--cli` binary needs the
+`modn-core/test-instruction-budget` feature, so the fixture store and
+content-root overrides apply.
 
 The UI behaviour tests live in `apps/modn-desktop/tests/ui_node.rs` and
 `apps/modn-desktop/tests/js`. When `node` is on `PATH`, the test runs
