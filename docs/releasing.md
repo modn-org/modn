@@ -144,7 +144,7 @@ The refusal check expects the tag version in tag mode and the checkout version i
 Install Python 3, Git, 7-Zip and Node.js before running the gate.
 Desktop verification requires Windows 10 or newer and an unlocked interactive desktop.
 The desktop build doctor requires Rust and build tools, so the gate does not run it.
-The desktop verifier runs against prepared binaries without Rust on PATH.
+The desktop verifier drives prepared binaries; it does not compile them itself.
 Missing prerequisites fail the gate; they are never reported as passing checks.
 Network access is required for GitHub metadata, bucket assets, and mod archives.
 GitHub service failures and rate limits can fail a run.
@@ -915,7 +915,7 @@ Count the `ok:` lines and record the count.
 **Authorize this step.** The app opens one window and writes only to unique `modn-desktop-fixture-*` directories.
 
 Prerequisites: Windows 10 or later, WebView2, an unlocked interactive desktop, Python 3, `uv` and 7-Zip.
-The journeys need no Rust compiler.
+The journeys need no Rust compiler; the next command uses `cargo` once for the verifier CLI.
 Skip the desktop build doctor.
 
 Use the `modn-desktop.exe` and `modn-desktop-test-backend.exe` verifier binaries from Step 2.
