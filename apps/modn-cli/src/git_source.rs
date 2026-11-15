@@ -2,11 +2,10 @@
 //!
 //! Lookups read the commit-keyed cache only. A fetch runs only when the caller
 //! has explicit download or installation consent, like other remote sources.
-use crate::progress::Progress;
 use anyhow::{bail, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse, GitCacheKey, GitSource, Origin};
 use modn_core::buckets::{BucketPackage, PackageSource};
-use modn_core::progress::ProgressEvent;
+use modn_core::progress::{OperationControl, ProgressEvent};
 use std::fs;
 use std::path::PathBuf;
 
@@ -84,7 +83,7 @@ pub(super) fn acquire(
     cache: &ArchiveCache,
     release: &BucketPackage,
     cache_use: CacheUse,
-    progress: &Progress,
+    control: &OperationControl,
 ) -> Result<GitArchive> {
     let Some(source) = source(release) else {
         bail!("{} is not a Git source", release.package.id);
@@ -95,7 +94,6 @@ pub(super) fn acquire(
             return Ok(cached);
         }
     }
-    let control = progress.control();
     let reference = release.reference().to_string();
     control.advance(ProgressEvent::Download {
         package: Some(reference.clone()),

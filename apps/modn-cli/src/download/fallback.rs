@@ -36,9 +36,10 @@ fn nexus_label(game_domain: &str, mod_id: u64, file_id: u64, file_name: &str) ->
 
 /// Resolve GitHub metadata, retrying one transient transport failure.
 ///
-/// The source retry policy covers the metadata request too: a timeout, a
-/// network failure or an HTTP 5xx is retried once. A 404 or a metadata
-/// mismatch is final for the source.
+/// The source retry policy covers the whole metadata request: a timeout, a
+/// network failure or an HTTP 5xx is retried once, also when it appears while
+/// reading the metadata body. A 404 or a metadata mismatch is final for the
+/// source.
 fn resolve_metadata(
     selector: &GithubReleaseAsset,
     fetch: impl Fn(&str) -> anyhow::Result<Box<dyn Read>>,
@@ -46,19 +47,29 @@ fn resolve_metadata(
     let policy = SourcePolicy::default();
     let mut attempt = 0;
     loop {
+        attempt += 1;
         match selector.resolve(&fetch) {
             Ok(url) => return Ok(url),
             Err(error) => {
-                let transient = error
-                    .downcast_ref::<FetchError>()
-                    .is_some_and(super::retryable);
-                if !transient || attempt >= policy.retries() {
-                    return Err(error);
+                if !transient(&error) || attempt > policy.retries() {
+                    return Err(error.context(format!(
+                        "GitHub metadata request failed after {attempt} attempt(s)"
+                    )));
                 }
-                attempt += 1;
             }
         }
     }
+}
+
+/// Whether `error` is a transport failure the source retry policy covers.
+fn transient(error: &anyhow::Error) -> bool {
+    if let Some(error) = error.downcast_ref::<FetchError>() {
+        return super::retryable(error);
+    }
+    error
+        .downcast_ref::<std::io::Error>()
+        .and_then(super::transport_io)
+        .is_some_and(|error| super::retryable(&error))
 }
 
 /// Build the ordered candidates for `release`.
@@ -119,4 +130,103 @@ pub(super) fn first_url(candidates: &[SourceCandidate]) -> Option<&str> {
             SourceTarget::Fetch(url) => Some(url.as_str()),
             _ => None,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_metadata, GithubReleaseAsset};
+    use std::cell::Cell;
+    use std::io::{self, Cursor, Read};
+
+    const EXPECTED: &str = "https://github.com/fixture/project/releases/download/v1/example.zip";
+    const METADATA: &str = r#"{
+        "tag_name": "v1",
+        "html_url": "https://github.com/fixture/project/releases/tag/v1",
+        "assets": [{"name": "example.zip", "browser_download_url": "https://github.com/fixture/project/releases/download/v1/example.zip"}]
+    }"#;
+
+    struct FailingBody {
+        kind: io::ErrorKind,
+        failures: usize,
+        body: &'static [u8],
+        offset: usize,
+    }
+
+    impl Read for FailingBody {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.failures > 0 {
+                self.failures -= 1;
+                return Err(io::Error::new(self.kind, "fixture metadata body failure"));
+            }
+            let start = self.offset.min(self.body.len());
+            let end = (start + buffer.len()).min(self.body.len());
+            buffer[..end - start].copy_from_slice(&self.body[start..end]);
+            self.offset = end;
+            Ok(end - start)
+        }
+    }
+
+    fn selector() -> GithubReleaseAsset {
+        GithubReleaseAsset::new(
+            "fixture/project".to_owned(),
+            "v1".to_owned(),
+            "example.zip".to_owned(),
+        )
+    }
+
+    #[test]
+    fn a_metadata_body_timeout_is_retried_once() {
+        let calls = Cell::new(0_u32);
+        let resolved = resolve_metadata(&selector(), |_url| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                Ok(Box::new(FailingBody {
+                    kind: io::ErrorKind::TimedOut,
+                    failures: 1,
+                    body: METADATA.as_bytes(),
+                    offset: 0,
+                }) as Box<dyn Read>)
+            } else {
+                Ok(Box::new(Cursor::new(METADATA.as_bytes())) as Box<dyn Read>)
+            }
+        })
+        .expect("the retried metadata body resolves the asset");
+        assert_eq!(resolved, EXPECTED);
+        assert_eq!(calls.get(), 2, "the body read was not retried once");
+    }
+
+    #[test]
+    fn a_metadata_body_that_always_ends_early_reports_the_attempts() {
+        let calls = Cell::new(0_u32);
+        let error = resolve_metadata(&selector(), |_url| {
+            calls.set(calls.get() + 1);
+            Ok(Box::new(FailingBody {
+                kind: io::ErrorKind::UnexpectedEof,
+                failures: usize::MAX,
+                body: METADATA.as_bytes(),
+                offset: 0,
+            }) as Box<dyn Read>)
+        })
+        .expect_err("an unreadable metadata body refuses the source");
+        assert_eq!(calls.get(), 2, "the body read was not retried once");
+        assert!(
+            format!("{error:#}").contains("after 2 attempts"),
+            "the error does not list the attempts: {error:#}"
+        );
+    }
+
+    #[test]
+    fn a_404_metadata_answer_is_not_retried() {
+        let calls = Cell::new(0_u32);
+        let error = resolve_metadata(&selector(), |_url| {
+            calls.set(calls.get() + 1);
+            Err(super::FetchError::Http(404).into())
+        })
+        .expect_err("a 404 metadata answer refuses the source");
+        assert_eq!(calls.get(), 1, "a 404 metadata answer was retried");
+        assert!(
+            format!("{error:#}").contains("http 404"),
+            "the 404 is not named: {error:#}"
+        );
+    }
 }
