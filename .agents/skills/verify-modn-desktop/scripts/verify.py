@@ -140,8 +140,10 @@ def main():
 
         return selftest()
     selected = select(parser, args.only)
+    import fixtures  # noqa: PLC0415 - harness imports this module during bootstrap
     import harness  # noqa: PLC0415 - bootstrap must run before uia is imported
 
+    fixtures.KEEP = args.keep
     if args.build:
         build()
     harness.BINARIES.override(app=args.app, cli=args.cli, test_backend=args.test_backend)

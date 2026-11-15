@@ -17,6 +17,8 @@ from bucket_fixture import write_main_bucket
 
 HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+# `--keep` sets this so cleanup keeps the fixture and prints where it is.
+KEEP = False
 
 # Signed Microsoft binaries used as fixture game files. Nothing is compiled, so
 # no unsigned executable exists for Defender to quarantine. `where.exe` is only
@@ -168,6 +170,10 @@ class Fixture:
         return path
 
     def remove(self):
+        if KEEP:
+            print(f"Kept fixture {self.root}")
+            print(f"Kept evidence {self.evidence}")
+            return False
         require(
             self.root.name.startswith("modn-desktop-fixture-")
             and self.root.parent == Path(tempfile.gettempdir()),
