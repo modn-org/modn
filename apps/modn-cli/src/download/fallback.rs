@@ -1,8 +1,11 @@
 //! Ordered source candidates for one release's archive.
 
 use super::http::fetch_metadata;
-use modn_core::acquisition::{GithubReleaseAsset, SourceCandidate, SourceTarget};
+use modn_core::acquisition::{
+    FetchError, GithubReleaseAsset, SourceCandidate, SourcePolicy, SourceTarget,
+};
 use modn_core::buckets::{BucketPackage, PackageSource};
+use std::io::Read;
 
 /// Canonical GitHub release asset URL derived from the pin record.
 pub(super) fn github_url(repository: &str, tag: &str, asset: &str) -> String {
@@ -31,6 +34,33 @@ fn nexus_label(game_domain: &str, mod_id: u64, file_id: u64, file_name: &str) ->
     format!("Nexus Mods: {game_domain} mod {mod_id} file {file_id} ({file_name})")
 }
 
+/// Resolve GitHub metadata, retrying one transient transport failure.
+///
+/// The source retry policy covers the metadata request too: a timeout, a
+/// network failure or an HTTP 5xx is retried once. A 404 or a metadata
+/// mismatch is final for the source.
+fn resolve_metadata(
+    selector: &GithubReleaseAsset,
+    fetch: impl Fn(&str) -> anyhow::Result<Box<dyn Read>>,
+) -> anyhow::Result<String> {
+    let policy = SourcePolicy::default();
+    let mut attempt = 0;
+    loop {
+        match selector.resolve(&fetch) {
+            Ok(url) => return Ok(url),
+            Err(error) => {
+                let transient = error
+                    .downcast_ref::<FetchError>()
+                    .is_some_and(super::retryable);
+                if !transient || attempt >= policy.retries() {
+                    return Err(error);
+                }
+                attempt += 1;
+            }
+        }
+    }
+}
+
 /// Build the ordered candidates for `release`.
 ///
 /// GitHub metadata is resolved here, before the loop starts, so a resolution
@@ -48,9 +78,9 @@ pub(super) fn candidates(release: &BucketPackage) -> Vec<SourceCandidate> {
                 asset,
             } => {
                 let expected = github_url(repository, tag, asset);
-                match GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone())
-                    .resolve(fetch_metadata)
-                {
+                let selector =
+                    GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
+                match resolve_metadata(&selector, fetch_metadata) {
                     Ok(resolved) if resolved == expected => SourceCandidate::fetch(expected),
                     Ok(_) => SourceCandidate::refused(
                         expected,

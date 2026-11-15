@@ -31,7 +31,7 @@ Run `modn catalog keygen` once per author identity. Pass a directory outside the
 catalog, kept off the repository.
 
 ```sh
-modn catalog keygen --out ./author-keys
+modn catalog keygen --out ../author-keys
 ```
 
 It writes `catalog.key` and `catalog.pub`, prints the fingerprint and exits 0.
@@ -176,8 +176,9 @@ modn catalog sign . --key ../author-keys/next.key
 
 `rotate` writes `rotation.json` and `rotation.sig`. `revoke` writes
 `revocation.json` and `revocation.sig`. Both commands refuse a secret key inside
-the catalog directory. A refusal writes nothing. Commit the statement files, the
-new signature and `catalog.pub` together.
+the catalog directory. A refusal writes nothing. Both commands read the catalog
+from a staged copy without a root `.git` entry, so they work in a Git checkout.
+Commit the statement files, the new signature and `catalog.pub` together.
 
 A rotation keeps module trust because the old key vouched for the new key. A
 revocation clears it, so users run `modn bucket trust-modules` again. Sync output
@@ -201,10 +202,15 @@ them.
 
 ```sh
 modn catalog sign . --key ../author-keys/catalog.key
-git add bucket.json mods catalog.sig catalog.pub
+git add --all
 git commit -m "Publish catalog"
 git push origin main
 ```
+
+Stage `bucket.json`, `mods/`, `games/` when present, `catalog.sig`, `catalog.pub`,
+`revocation.pub` when present, and every published `mirrors.json`,
+`relocation.json`, `rotation.json`, `rotation.sig`, `revocation.json` and
+`revocation.sig`. The staged files must match the signed digest.
 
 Keep `catalog.sig` and `catalog.pub` at the root. Commit new signatures with each
 catalog change. A user then registers the catalog once:

@@ -116,13 +116,16 @@ fn hostile_zip_symlink_and_limits_are_refused() {
     let zip = fixture.temp.path().join("symlink.zip");
     let mut writer = zip::ZipWriter::new(fs::File::create(&zip).expect("symlink ZIP"));
     writer
-        .start_file(
-            "link",
-            zip::write::SimpleFileOptions::default().unix_permissions(0o120777),
-        )
+        .add_symlink("link", "target", zip::write::SimpleFileOptions::default())
         .expect("symlink entry");
-    writer.write_all(b"target").expect("symlink bytes");
     writer.finish().expect("symlink ZIP");
+    let mut stored =
+        zip::ZipArchive::new(fs::File::open(&zip).expect("symlink ZIP")).expect("open symlink ZIP");
+    assert!(
+        stored.by_name("link").expect("stored link").is_symlink(),
+        "the fixture entry is a regular file, not a symlink"
+    );
+    drop(stored);
     let output = fixture.sync(&zip);
     assert_refused_without_state(&fixture, &output, "symlink");
     let output = hostile(&fixture, "ratio", |zip| {

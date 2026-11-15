@@ -95,10 +95,10 @@ def resolve_modn(value: str | None) -> Path:
     candidate = value or "modn"
     path = Path(candidate)
     if path.is_file():
-        return path
+        return path.resolve()
     found = shutil.which(candidate)
     if found is not None:
-        return Path(found)
+        return Path(found).resolve()
     raise RehashError(
         f"modn binary not found: {candidate}; pass --modn with a build that has `modn catalog hash`"
     )

@@ -58,12 +58,26 @@ covers both, because the catalog digest covers every root file except
 
 `mirrors.json` lists other hosts of the same catalog:
 
+A ZIP catalog lists ZIP mirrors:
+
 ```json
 {
   "schema_version": 1,
   "mirrors": [
     {"kind": "zip", "url": "https://mirror.example/catalog.zip"},
-    {"kind": "git", "remote": "https://git.example/catalog.git", "revision": "main"}
+    {"kind": "zip", "url": "https://second.example/catalog.zip"}
+  ]
+}
+```
+
+A Git catalog lists Git mirrors:
+
+```json
+{
+  "schema_version": 1,
+  "mirrors": [
+    {"kind": "git", "remote": "https://git.example/catalog.git", "revision": "main"},
+    {"kind": "git", "remote": "https://second.example/catalog.git", "revision": "main"}
   ]
 }
 ```
@@ -239,7 +253,7 @@ each publish, and `modn catalog verify` to check the tree. Replace `<dir>` with
 the catalog path.
 
 ```powershell
-modn catalog keygen --out ./author-keys
+modn catalog keygen --out ../author-keys
 modn catalog sign . --key ../author-keys/catalog.key
 modn catalog verify . --key catalog.pub
 ```

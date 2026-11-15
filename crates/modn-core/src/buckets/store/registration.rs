@@ -3,7 +3,7 @@ use super::BucketStore;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 impl BucketStore {
@@ -27,9 +27,13 @@ impl BucketStore {
                 bail!("unsafe bucket registry");
             }
         }
+        let bytes = serde_json::to_vec(registration)?;
+        if bytes.len() as u64 > MAX_JSON {
+            bail!("bucket registration exceeds size limit");
+        }
         fs::create_dir_all(&dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        serde_json::to_writer(&mut temp, registration)?;
+        temp.as_file_mut().write_all(&bytes)?;
         temp.as_file().sync_all()?;
         temp.persist(dir.join(format!("{name}.json")))?;
         Ok(())
@@ -100,4 +104,40 @@ pub(in crate::buckets) fn bounded_json<T: serde::de::DeserializeOwned>(path: &Pa
     }
     serde_json::from_slice(&bytes)
         .with_context(|| format!("invalid bucket JSON {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn registration(path: &str) -> Registration {
+        Registration {
+            path: PathBuf::from(path),
+            git: None,
+            zip: None,
+            module_trust: None,
+            mirrors: None,
+        }
+    }
+
+    #[test]
+    fn an_oversized_registration_leaves_the_stored_file_unchanged() {
+        let directory = tempfile::tempdir().expect("fixture");
+        let store = BucketStore::new(directory.path());
+        store
+            .write_registration("community", &registration("first"))
+            .expect("initial registration");
+        let path = directory
+            .path()
+            .join("buckets/registrations/community.json");
+        let before = std::fs::read(&path).expect("stored registration");
+
+        let error = store
+            .write_registration("community", &registration(&"x".repeat(40_000)))
+            .expect_err("oversized registration")
+            .to_string();
+
+        assert!(error.contains("exceeds size limit"), "{error}");
+        assert_eq!(std::fs::read(&path).expect("stored registration"), before);
+    }
 }

@@ -363,6 +363,9 @@ impl ArchiveCache {
                                 });
                             }
                             Err(failure) => {
+                                if control.checkpoint().is_err() {
+                                    return Err(cancelled());
+                                }
                                 let retry =
                                     policy.retryable(&failure) && attempt <= policy.retries();
                                 attempts.push(SourceAttempt {

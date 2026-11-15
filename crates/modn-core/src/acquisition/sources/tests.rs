@@ -14,6 +14,7 @@ enum Response {
     TimeoutAfter(Duration),
     Error(FetchError),
     Partial { bytes: Vec<u8>, kind: io::ErrorKind },
+    CancelThenError(OperationControl, io::ErrorKind),
 }
 
 #[derive(Default)]
@@ -68,6 +69,14 @@ impl SourceTransport for Fake {
                 }),
                 None,
             )),
+            Response::CancelThenError(control, kind) => Ok(SourceBody::new(
+                Box::new(CancelThenBody {
+                    token: control.token().clone(),
+                    kind,
+                    sent: false,
+                }),
+                None,
+            )),
         }
     }
 }
@@ -84,6 +93,22 @@ impl Read for TimeoutBody {
             sleep(self.delay);
         }
         Err(io::Error::new(io::ErrorKind::TimedOut, "idle timeout"))
+    }
+}
+
+struct CancelThenBody {
+    token: crate::progress::CancellationToken,
+    kind: io::ErrorKind,
+    sent: bool,
+}
+
+impl Read for CancelThenBody {
+    fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+        if !self.sent {
+            self.sent = true;
+            self.token.cancel();
+        }
+        Err(io::Error::new(self.kind, "body stopped after cancellation"))
     }
 }
 
@@ -388,4 +413,33 @@ fn a_retryable_failure_is_retried_once_then_succeeds() {
     assert_eq!(outcome.attempts.len(), 2);
     assert_eq!(outcome.attempts[0].failure, Some(SourceFailure::Timeout));
     assert!(outcome.attempts[1].succeeded());
+}
+
+#[test]
+fn cancellation_during_a_final_failed_attempt_is_reported_as_cancelled() {
+    let dir = tempdir().unwrap();
+    let cache = ArchiveCache::new(dir.path().join("cache"));
+    let token = crate::progress::CancellationToken::new();
+    let control = OperationControl::new(token, |_| {});
+    let fake = Fake::with([(
+        FIRST,
+        vec![Response::CancelThenError(
+            control.clone(),
+            io::ErrorKind::UnexpectedEof,
+        )],
+    )]);
+    let error = cache
+        .acquire_from_sources(
+            &key(&"0".repeat(64)),
+            CacheUse::Reuse,
+            &[SourceCandidate::fetch(FIRST)],
+            &fake,
+            SourcePolicy::new(Duration::from_secs(1), Duration::from_secs(1), 0),
+            None,
+            &control,
+        )
+        .expect_err("cancelled source");
+    assert_eq!(code_of(&error), Some(ErrorCode::Cancelled), "{error:#}");
+    assert_eq!(fake.calls_for(FIRST), 1);
+    no_partial_files(&cache);
 }

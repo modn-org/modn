@@ -122,6 +122,7 @@ fn verify_refuses_changed_added_and_deleted_files_and_writes_nothing() {
     let signed = sign(&catalog, &keys.join("author.key"));
     assert!(signed.status.success(), "{}", stderr(&signed));
     let state = temp.path().join("state");
+    let original = fs::read(catalog.join("mods/test-game/example.json")).expect("original file");
 
     fs::write(catalog.join("mods/test-game/example.json"), b"{}").expect("modified file");
     let before = snapshot(&catalog);
@@ -148,6 +149,8 @@ fn verify_refuses_changed_added_and_deleted_files_and_writes_nothing() {
     assert_eq!(snapshot(&catalog), before);
     assert!(!state.exists(), "verify wrote manager state");
 
+    fs::write(catalog.join("mods/test-game/example.json"), &original)
+        .expect("restore original file");
     fs::write(catalog.join("mods/test-game/added.json"), b"{}").expect("added file");
     let before = snapshot(&catalog);
     let added = verify(&catalog, &catalog.join(PUBLIC_KEY));

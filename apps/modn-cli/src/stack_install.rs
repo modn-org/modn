@@ -7,7 +7,7 @@ use crate::modules::content_root_appdata;
 use crate::progress::Progress;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
-use modn_core::acquisition::{ArchiveCache, CacheUse};
+use modn_core::acquisition::{ArchiveCache, CacheUse, SourceAttempt};
 use modn_core::approval::Capabilities;
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
 use modn_core::error::{coded, ErrorCode};
@@ -111,6 +111,7 @@ pub(super) fn run(
     args: &InstallArgs,
     json: bool,
     progress: &Progress,
+    mut download_attempts: Vec<SourceAttempt>,
 ) -> Result<()> {
     if progress.enabled() && !args.yes {
         return Err(coded(
@@ -195,7 +196,7 @@ pub(super) fn run(
             bail!("installation cancelled");
         }
     }
-    download::download(
+    download_attempts.extend(download::download(
         stack.cache,
         stack.cache_use,
         &releases,
@@ -204,7 +205,7 @@ pub(super) fn run(
         &args.nxm_links,
         json,
         progress,
-    )?;
+    )?);
     let mut digests = BTreeMap::new();
     let members = releases
         .iter()
@@ -304,6 +305,7 @@ pub(super) fn run(
         let mut result = serde_json::json!({
             "package": reference_of(stack.selected).to_string(),
             "stack": packages,
+            "downloads": download::downloads_json(&download_attempts),
         });
         if let Some(operation_id) = operation_id {
             result["operation_id"] = serde_json::Value::String(operation_id);

@@ -170,12 +170,8 @@ fn with_the_first_origin_removed_the_install_succeeds_from_the_second_archive_or
         bodies: BTreeMap::from([(SECOND.to_owned(), archive.clone())]),
         ..RemovedOrigin::default()
     };
-    let cache = ArchiveCache::new(
-        tempfile::tempdir()
-            .expect("cache root")
-            .path()
-            .join("cache"),
-    );
+    let cache_root = tempfile::tempdir().expect("cache root");
+    let cache = ArchiveCache::new(cache_root.path().join("cache"));
     let outcome = cache
         .acquire_from_sources(
             &key(FIRST, &pin),
@@ -221,12 +217,8 @@ fn a_second_origin_that_does_not_match_the_pin_leaves_no_cache_entry() {
         )]),
         ..RemovedOrigin::default()
     };
-    let cache = ArchiveCache::new(
-        tempfile::tempdir()
-            .expect("cache root")
-            .path()
-            .join("cache"),
-    );
+    let cache_root = tempfile::tempdir().expect("cache root");
+    let cache = ArchiveCache::new(cache_root.path().join("cache"));
     let error = cache
         .acquire_from_sources(
             &key(FIRST, &pin),
