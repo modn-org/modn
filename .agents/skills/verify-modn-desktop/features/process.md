@@ -13,8 +13,7 @@ the commit phase, and never shows raw backend output.
   (`fixture refusal`) never appear in the window tree (journey 8).
 - P4: a blocked plan shows the mapped message, not the backend's message
   (journey 6).
-- P5: a finished write shows its toast and the app exits cleanly (journeys 2
-  and 4).
+- P5: a finished write shows its toast (journeys 2 and 4).
 
 ## How to drive it
 

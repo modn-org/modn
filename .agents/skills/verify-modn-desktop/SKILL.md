@@ -87,9 +87,10 @@ Inside the fixture:
 
 - `state/` is the `--state-dir` profile.
 - `data/` is `LOCALAPPDATA` and the `--data-dir`; it receives the generated
-  bucket contract v2 `main` bucket.
+  bucket contract v2 `main` bucket when a journey needs it.
 - `appdata/` is `MODN_APPDATA`, the content root for installed mods.
-- `steam/` is a fake Steam library with one manifest.
+- `steam/` is a fake Steam library with one manifest for the journeys that
+  detect a store installation.
 - `archives/` holds the ZIP and 7z files the journeys pick.
 
 The verifier never reads the user's real `%LOCALAPPDATA%\modn`, a real game or a
@@ -97,12 +98,13 @@ real store library. The app forwards only its environment allowlist, so each
 journey passes `--state-dir`, `--data-dir` and, when the fixture has modules,
 `--module-dir` explicitly.
 
-Each fixture game executable is a byte copy of a signed Windows binary.
-Nothing is compiled, so no unsigned stub exists for Windows Defender to
-quarantine. The `play` journey copies `mstsc.exe`; it briefly shows a Remote
-Desktop Connection window and stops only the process id that `play` started.
-An earlier compiled stub was flagged as `Trojan:Win32/Bearfoos.A!ml`, a false
-positive. Never add a Defender exclusion.
+A fixture that detects, registers or starts a game uses a byte copy of a signed
+Windows binary. Other fixtures write a short marker for an executable that no
+journey starts. Nothing is compiled, so no unsigned stub exists for Windows
+Defender to quarantine. The `play` journey copies `mstsc.exe`; it briefly shows
+a Remote Desktop Connection window and stops only the process id that `play`
+started. An earlier compiled stub was flagged as `Trojan:Win32/Bearfoos.A!ml`,
+a false positive. Never add a Defender exclusion.
 
 UI Automation addresses only the Modn window of the process id the verifier
 started. Other windows are never enumerated for interaction.
