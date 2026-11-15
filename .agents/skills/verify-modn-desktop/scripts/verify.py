@@ -50,7 +50,7 @@ def parse_args(argv=None):
         help="comma-separated journey names or numbers to run (default: all)",
     )
     parser.add_argument("--keep", action="store_true", help="keep fixtures and evidence")
-    parser.add_argument("--selftest", action="store_true", help="check dialog_for against fake windows")
+    parser.add_argument("--selftest", action="store_true", help="check dialog_for and the CLI override guard against fakes")
     parser.add_argument("--app", metavar="PATH", help="override the built modn-desktop.exe")
     parser.add_argument("--cli", metavar="PATH", help="override the built modn.exe")
     parser.add_argument("--test-backend", metavar="PATH", help="override the built test backend")
@@ -112,6 +112,18 @@ def selftest():
         results["raises_on_timeout"] = time.monotonic() - started >= 0.3
     else:
         results["raises_on_timeout"] = False
+    import harness  # noqa: PLC0415 - harness has bootstrapped the interpreter
+    import tempfile  # noqa: PLC0415 - used only by this check
+
+    with tempfile.TemporaryDirectory() as folder:
+        both = Path(folder) / "both.exe"
+        both.write_bytes(b"x MODN_APPDATA y MODN_STORE_LIBRARIES z")
+        one = Path(folder) / "one.exe"
+        one.write_bytes(b"MODN_APPDATA")
+        results["accepts_a_cli_with_both_overrides"] = harness.lacks_test_overrides(both) == []
+        results["rejects_a_cli_without_one_override"] = harness.lacks_test_overrides(one) == [
+            "MODN_STORE_LIBRARIES"
+        ]
     passed = all(results.values())
     print(json.dumps({"selftest": "passed" if passed else "failed", "checks": results}))
     return 0 if passed else 1
@@ -152,6 +164,13 @@ def main():
     if missing:
         parser.error(
             f"missing binary {missing[0]}; build it with --build or pass --app, --cli or --test-backend"
+        )
+    absent = harness.lacks_test_overrides(harness.BINARIES.cli)
+    if absent:
+        parser.error(
+            f"{harness.BINARIES.cli} was built without modn-core/test-instruction-budget "
+            f"({', '.join(absent)} not found). It would read the real Steam library and "
+            "install into real game folders. Build the verifier CLI with --build."
         )
     runner = harness.Runner(args)
     started = time.monotonic()

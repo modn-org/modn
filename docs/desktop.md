@@ -231,7 +231,9 @@ disposable fixtures: detection, progress, cancel, finishing, lifecycle,
 blocked, approval, no-cli-output, play, remove and catalog. The fixtures supply
 a generated bucket contract v2 `main` bucket, a fake Steam library and the real
 `modn.exe` where a journey needs them. The verifier never reads the real
-`%LOCALAPPDATA%\modn`, a real game or a real store. See the skill for the
+`%LOCALAPPDATA%\modn`, a real game or a real store. It refuses a `modn.exe`
+built without the test overrides, because that binary would use the real Steam
+library and real game folders. See the skill for the
 journey table, evidence and limits.
 
 Run it from the repository root:

@@ -68,6 +68,20 @@ class Binaries:
         return [path for path in self.paths() if not path.is_file()]
 
 
+TEST_OVERRIDES = (b"MODN_APPDATA", b"MODN_STORE_LIBRARIES")
+
+
+def lacks_test_overrides(cli):
+    """Returns the fixture override names that the CLI binary does not contain.
+
+    The CLI compiles these overrides out unless `modn-core/test-instruction-budget`
+    is on. Without them it reads the real Steam library and installs into the
+    real game folders. The names appear in the binary only when the feature is on.
+    """
+    data = Path(cli).read_bytes()
+    return [name.decode() for name in TEST_OVERRIDES if name not in data]
+
+
 BINARIES = Binaries()
 
 
