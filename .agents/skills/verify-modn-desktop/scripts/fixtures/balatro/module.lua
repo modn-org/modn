@@ -72,6 +72,17 @@ local function is_executable_payload(relative)
         or ext == "msi" or ext == "lnk" or ext == "url"
 end
 
+-- A tool executable is the one payload kind the core may approve through
+-- `--allow-executable`: a game-relative `.exe` below a `tools` folder. The
+-- module still proposes it, and the core keeps it blocked until approved.
+local function is_tool_executable(relative)
+    if string.sub(relative, -4) ~= ".exe" then return false end
+    for _, part in ipairs(split_path(relative)) do
+        if part == "tools" then return true end
+    end
+    return false
+end
+
 local function all_under(files, top)
     local prefix = top .. "/"
     for _, file in ipairs(files) do
@@ -183,7 +194,7 @@ function policy.plan(files)
             destination = nil
         end
         if destination ~= nil then
-            if is_executable_payload(path) then
+            if is_executable_payload(path) and not is_tool_executable(destination) then
                 block("EXECUTABLE_PAYLOAD", "Executable payload is not supported: " .. destination)
             else
                 table.insert(operations, {

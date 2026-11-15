@@ -1,0 +1,1 @@
+{"game_id":"tools-game","version":"0.1.0","api_version":3,"min_modn_version":"0.6.0","entrypoint":"module.lua","stores":{"steam":"9999990"},"launch":{"executable":"Game.exe"}}
