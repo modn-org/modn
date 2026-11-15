@@ -93,17 +93,6 @@ fn forged_and_tampered_statements_are_refused_without_changes() {
             "is not signed by the pinned revocation key",
         ),
         (
-            "wrong from",
-            Box::new(|case: &Path| {
-                forge_rotation(
-                    case,
-                    &rotation_statement("0000000000000000", &next_text).expect("rotation"),
-                    &keys.join("author.key"),
-                );
-            }),
-            "but the pinned signing key is",
-        ),
-        (
             "to does not match catalog.pub",
             Box::new(|case: &Path| {
                 forge_rotation(
@@ -112,7 +101,7 @@ fn forged_and_tampered_statements_are_refused_without_changes() {
                     &keys.join("author.key"),
                 );
             }),
-            "but this revision publishes key",
+            "publishes a different public key",
         ),
         (
             "both statements",

@@ -113,7 +113,7 @@ pub(in crate::buckets) fn validate_historical_statements(
         let signer = signature_key_id(&statement.signature, "rotation")?;
         if signer.to_string() != statement.old_key_id {
             bail!(
-                "rotation statement for catalog {catalog_name} is signed by key {signer}, but its from field names {}; the first sync cannot apply it",
+                "rotation statement for catalog {catalog_name} is signed by key {signer}, but its from field names {}; the statement is invalid",
                 statement.old_key_id
             );
         }
@@ -131,7 +131,7 @@ pub(in crate::buckets) fn validate_historical_statements(
         let signer = signature_key_id(&statement.signature, "revocation")?;
         if signer != revocation_key.key_id() {
             bail!(
-                "revocation statement for catalog {catalog_name} is signed by key {signer}, but revocation.pub names {}; the first sync cannot apply it",
+                "revocation statement for catalog {catalog_name} is signed by key {signer}, but revocation.pub names {}; the statement is invalid",
                 revocation_key.key_id()
             );
         }
