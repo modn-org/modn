@@ -107,7 +107,7 @@ The closed gate ran these checks against disposable game installations:
 4. Refuse strict removal of modified owned bytes, then remove them with approved cleanup.
 5. Install and uninstall canonical REDmod content without running a game or deployment tool.
 6. Refuse a fixture main bucket that requires Modn 99.0.0, and preserve the previous bucket.
-7. Run the existing MCP verifier and both desktop verification drivers.
+7. Run the existing MCP verifier and the desktop verifier.
 
 The Release build job builds four verifier binaries from the same commit as `modn.exe`.
 All five binaries use release optimization and a static C runtime.
@@ -141,10 +141,10 @@ Get-ChildItem target/release/modn*.exe | ForEach-Object {
 Local checksums detect changed bytes. They do not certify build provenance.
 The refusal check expects the tag version in tag mode and the checkout version in local mode.
 
-Install Python 3, Git, 7-Zip, Node.js, and `agent-desktop` before running the gate.
+Install Python 3, Git, 7-Zip and Node.js before running the gate.
 Desktop verification requires Windows 10 or newer and an unlocked interactive desktop.
 The desktop build doctor requires Rust and build tools, so the gate does not run it.
-The retained drivers run against prepared binaries without Rust on PATH.
+The desktop verifier drives prepared binaries; it does not compile them itself.
 Missing prerequisites fail the gate; they are never reported as passing checks.
 Network access is required for GitHub metadata, bucket assets, and mod archives.
 GitHub service failures and rate limits can fail a run.
@@ -910,25 +910,35 @@ python .agents/skills/verify-modn/scripts/portable_mvp.py `
 See [Milestone 1 exit gate](#milestone-1-exit-gate) for the closed v1 evidence.
 Count the `ok:` lines and record the count.
 
-#### Step 4: Run the desktop verifiers
+#### Step 4: Run the desktop verifier
 
 **Authorize this step.** The app opens one window and writes only to unique `modn-desktop-fixture-*` directories.
 
-Prerequisites: Python 3, 7-Zip, `agent-desktop` and an unlocked interactive desktop.
-Skip the build doctor; the released drivers need no build toolchain.
-If the automation state fails its DACL check, set a unique `AGENT_DESKTOP_HOME` for the whole run.
+Prerequisites: Windows 10 or later, WebView2, an unlocked interactive desktop, Python 3, `uv` and 7-Zip.
+The journeys need no Rust compiler; the next command uses `cargo` once for the verifier CLI.
+Skip the desktop build doctor.
+
+Use the `modn-desktop.exe` and `modn-desktop-test-backend.exe` verifier binaries from Step 2.
+Do not pass the published `modn.exe` as `--cli`.
+A release build compiles out the `MODN_STORE_LIBRARIES` and `MODN_APPDATA` test overrides (`crates/modn-core/src/stores.rs:143-155`, `crates/modn-core/src/content_root.rs:262-274`).
+Without them, detection reads the real Steam library and the content-root journeys write outside the fixture.
+Build a verifier CLI from the release tag instead:
 
 ```powershell
-agent-desktop skills get desktop > "$live\desktop-skill.json"
-agent-desktop skills get platform > "$live\platform-skill.json"
-agent-desktop status
-python .agents/skills/verify-modn-desktop/scripts/verify.py --app "$live\verifiers\modn-desktop.exe" --backend "$live\release\modn.exe"
-python .agents/skills/verify-modn-desktop/scripts/lifecycle.py --app "$live\verifiers\modn-desktop.exe" --backend "$live\verifiers\modn-desktop-test-backend.exe"
+cargo build --release --locked -p modn-cli --features modn-core/test-instruction-budget
 ```
 
-Expect exit 0 and a JSON summary with `"status": "passed"`, a positive `assertions` count,
-`"command_nonzero": 0`, `"app_exit": 0` and `"fixture_removed": true` for each driver.
-The v0.3.0 fixture run reported 51 and 8 assertions. Record both counts and keep the evidence path.
+Run the verifier against the three prepared binaries:
+
+```powershell
+python .agents/skills/verify-modn-desktop/scripts/verify.py `
+  --app "$live\verifiers\modn-desktop.exe" `
+  --test-backend "$live\verifiers\modn-desktop-test-backend.exe" `
+  --cli target/release/modn.exe
+```
+
+Expect exit 0 and a JSON summary with `"status": "passed"`, `"journeys": 11`, `"passed": 11` and `"failed": 0`.
+The v0.3.0 fixture run reported 51 and 8 assertions for the older drivers. Record the new counts and keep the evidence path.
 
 #### What to record for #89
 
@@ -943,8 +953,7 @@ Windows 11 validation, <date>
 | Command | Exit | Key output line |
 | --- | --- | --- |
 | portable_mvp.py | 0 | its final summary line, no failed check |
-| verify.py | 0 | status: passed, <n> assertions, 0 failures |
-| lifecycle.py | 0 | status: passed, <n> assertions, 0 failures |
+| verify.py | 0 | status: passed, 11 journeys, <n> assertions, 0 failures |
 
 Differences from fixture results
 - <none, or command, observed value and fixture value>

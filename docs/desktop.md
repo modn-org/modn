@@ -224,10 +224,42 @@ tests. They cover argument vectors, refusals, bounded output, the environment
 allowlist, progress order, cancel before and after the commit, and the
 inactivity timeout.
 
-The Tauri desktop verifier is not shipped yet; it is a follow-up. The
-checked-in [desktop verifier skill](../.agents/skills/verify-modn-desktop/SKILL.md)
-still drives the earlier GPUI app, requires `--backend`, and has no `--build`
-option. Do not use it to check this Tauri window.
+The checked-in
+[desktop verifier skill](../.agents/skills/verify-modn-desktop/SKILL.md) drives
+the Tauri window through Windows UI Automation. It runs eleven journeys against
+disposable fixtures: detection, progress, cancel, finishing, lifecycle,
+blocked, approval, no-cli-output, play, remove and catalog. The fixtures supply
+a generated bucket contract v2 `main` bucket, a fake Steam library and the real
+`modn.exe` where a journey needs them. The verifier never reads the real
+`%LOCALAPPDATA%\modn`, a real game or a real store. See the skill for the
+journey table, evidence and limits.
+
+Run it from the repository root:
+
+```powershell
+uv run --no-project python .agents/skills/verify-modn-desktop/scripts/verify.py --build
+```
+
+It needs Windows 10 or later with WebView2, an unlocked interactive desktop,
+`uv` and Python 3. The `catalog` journey also needs 7-Zip. `--build` needs
+`cargo`; the journeys themselves do not. Without `--build`, pass `--app`,
+`--cli` and `--test-backend`, or set `CARGO_TARGET_DIR` to the directory that
+holds the built binaries. The `--cli` binary needs the
+`modn-core/test-instruction-budget` feature, so the fixture store and
+content-root overrides apply.
+
+The UI behaviour tests live in `apps/modn-desktop/tests/ui_node.rs` and
+`apps/modn-desktop/tests/js`. When `node` is on `PATH`, the test runs
+`node --test` and prints the version. When `node` is missing, a local run
+prints a skip message and passes. When `CI` holds a non-empty value, the same
+test fails with a message that names CI, node and PATH. The CI workflow prints
+the Node version from a step that runs `ui_node` with `--nocapture`.
+
+The verifier proves the window and the listed operations on fixtures. It does
+not cover a real game, Windows 10 hardware or a real store client. A
+content-root game cannot exercise the executable ask, because the CLI preview
+ignores an explicit executable approval. That ask runs on a `tools-game`
+fixture instead.
 
 ## Limits
 

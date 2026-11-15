@@ -132,16 +132,19 @@ def build():
 def main():
     parser, args = parse_args()
     if args.list:
-        for number, name, _ in JOURNEYS:
-            print(f"{number} {name}")
+        lines = "".join(f"{number} {name}\n" for number, name, _ in JOURNEYS)
+        sys.stdout.buffer.write(lines.encode())
+        sys.stdout.flush()
         return 0
     if args.selftest:
         import harness  # noqa: F401,PLC0415 - bootstrap must run before uia is imported
 
         return selftest()
     selected = select(parser, args.only)
+    import fixtures  # noqa: PLC0415 - harness imports this module during bootstrap
     import harness  # noqa: PLC0415 - bootstrap must run before uia is imported
 
+    fixtures.KEEP = args.keep
     if args.build:
         build()
     harness.BINARIES.override(app=args.app, cli=args.cli, test_backend=args.test_backend)

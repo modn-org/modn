@@ -58,6 +58,8 @@ shipped behavior.
   end-to-end CLI verification with disposable fixtures.
 - [`../.agents/skills/verify-ownership/SKILL.md`](../.agents/skills/verify-ownership/SKILL.md):
   property checks for destination validation and ownership.
+- [`../.agents/skills/verify-modn-desktop/SKILL.md`](../.agents/skills/verify-modn-desktop/SKILL.md):
+  UI Automation verification of the Tauri desktop window.
 
 When a page disagrees with the code, fix the page in the same change.
 
