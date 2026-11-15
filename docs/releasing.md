@@ -920,8 +920,8 @@ Skip the desktop build doctor.
 
 Use the `modn-desktop.exe` and `modn-desktop-test-backend.exe` verifier binaries from Step 2.
 Do not pass the published `modn.exe` as `--cli`.
-A release build compiles out the `MODN_APPDATA` test override (`crates/modn-core/src/content_root.rs:262-274`).
-The `lifecycle`, `approval` and `catalog` journeys need it to keep content-root writes inside the fixture.
+A release build compiles out the `MODN_STORE_LIBRARIES` and `MODN_APPDATA` test overrides (`crates/modn-core/src/stores.rs:143-155`, `crates/modn-core/src/content_root.rs:262-274`).
+Without them, detection reads the real Steam library and the content-root journeys write outside the fixture.
 Build a verifier CLI from the release tag instead:
 
 ```powershell

@@ -228,10 +228,11 @@ The checked-in
 [desktop verifier skill](../.agents/skills/verify-modn-desktop/SKILL.md) drives
 the Tauri window through Windows UI Automation. It runs eleven journeys against
 disposable fixtures: detection, progress, cancel, finishing, lifecycle,
-blocked, approval, no-cli-output, play, remove and catalog. Each fixture holds
+blocked, approval, no-cli-output, play, remove and catalog. The fixtures supply
 a generated bucket contract v2 `main` bucket, a fake Steam library and the real
-`modn.exe`. The verifier never reads the real `%LOCALAPPDATA%\modn`, a real
-game or a real store. See the skill for the journey table, evidence and limits.
+`modn.exe` where a journey needs them. The verifier never reads the real
+`%LOCALAPPDATA%\modn`, a real game or a real store. See the skill for the
+journey table, evidence and limits.
 
 Run it from the repository root:
 

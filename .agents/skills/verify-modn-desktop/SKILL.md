@@ -32,6 +32,9 @@ Options:
 Without `--build`, the verifier reads `modn-desktop.exe`, `modn.exe` and
 `modn-desktop-test-backend.exe` from `$CARGO_TARGET_DIR/debug` when
 `CARGO_TARGET_DIR` is set, otherwise from `target/debug`.
+Use a `modn.exe` built with `modn-core/test-instruction-budget` for `--cli`.
+That feature supplies the fixture store and content-root overrides. A release
+`modn.exe` compiles them out and can read the real Steam library.
 
 When the interpreter lacks `uiautomation`, the script re-runs itself under
 `uv run --no-project --with uiautomation --with blake3 python`.
