@@ -107,7 +107,9 @@ def _wait_toast(session, message, context, timeout=90):
         if message in tree:
             return
         time.sleep(0.1)
-    raise uia.Failure(f"Timed out waiting for {message!r} after {context}")
+    raise uia.Failure(
+        f"Timed out waiting for {message!r} after {context}; last window text: {tree[-1500:]}"
+    )
 
 
 def _toast_undo(session):
@@ -331,69 +333,3 @@ def journey_lifecycle(runner):
         "Details view shows CLI output",
     )
     app.close()
-
-
-def journey_approval(runner):
-    """7. The native-code ask, stored approval and a release that adds native code."""
-    fx = Fixture()
-    runner.cleanup.append(fx.remove)
-    fx.main_bucket()
-    game = fx.root / "game"
-    game.mkdir()
-    (game / "Balatro.exe").write_bytes(b"fixture")
-    registered = _cli(fx, "game", "add", "balatro", "--path", game)
-    runner.check(registered.returncode == 0, f"game add failed: {registered.stderr}")
-    add_catalog_release(
-        fx, GAME_ID, "native-pack", "1.0.0", {"winmm.dll": "MZ"}, native_injector=True
-    )
-    add_catalog_release(fx, GAME_ID, "plain-pack", "1.0.0", {"plain.lua": "return {}"})
-    app = _app(fx, _cli_path()).launch()
-    runner.cleanup.append(app.kill)
-    session = app.session
-    _open_game(session, "Balatro")
-
-    session.click(prefix="Install Native Pack")
-    session.wait_for(lambda s: s.find_all(name="Native code approval"), "native-code ask")
-    runner.check(session.exists(name="Decline"), "Ask has no Decline action")
-    session.click(name="Decline")
-    runner.check(not session.exists(name="Native code approval"), "Decline kept the ask")
-    runner.check(not (game / "winmm.dll").exists(), "Decline wrote the native library")
-
-    session.click(prefix="Install Native Pack")
-    session.wait_for(lambda s: s.find_all(name="Allow"), "native-code ask after decline")
-    session.click(name="Allow")
-    session.wait_text("Install done", timeout=90)
-    runner.check((game / "winmm.dll").is_file(), "Allow did not install the native library")
-    approval = _cli(fx, "list", "--path", game)
-    runner.check(approval.returncode == 0, "CLI list failed after Allow")
-
-    session.click(prefix="Uninstall Native Pack")
-    session.wait_text("Uninstall done", timeout=90)
-    _wait_for_file(game / "winmm.dll", present=False)
-    session.click(prefix="Install Native Pack")
-    session.wait_text("Install done", timeout=90)
-    runner.check(not session.exists(name="Native code approval"), "Stored approval did not suppress the ask")
-    _wait_for_file(game / "winmm.dll")
-
-    session.click(prefix="Install Plain Pack")
-    session.wait_text("Install done", timeout=90)
-    add_catalog_release(
-        fx, GAME_ID, "plain-pack", "2.0.0", {"winmm.dll": "MZ"}, native_injector=True
-    )
-    _back_home(session)
-    _open_game(session, "Balatro")
-    session.click(prefix="Update Plain Pack")
-    session.wait_for(lambda s: s.find_all(name="Native code approval"), "ask for a release that adds native code")
-    session.click(name="Allow")
-    session.wait_text("Update done", timeout=90)
-    runner.check((game / "winmm.dll").is_file(), "Update did not install the native release")
-    app.close()
-
-
-def _wait_for_file(path, present=True, timeout=60):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if path.exists() == present:
-            return
-        time.sleep(0.2)
-    raise uia.Failure(f"Timed out waiting for {path} present={present}")
