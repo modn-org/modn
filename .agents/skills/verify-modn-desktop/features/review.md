@@ -5,13 +5,18 @@ progress on the same button, and turns that button into Cancel.
 
 ## What to check
 
-- R1: `Install a local archive in <game>` opens the Windows file dialog.
+- R1: `Install a local archive in <game>` opens the Windows file dialog
+  (journey 5 starts with a picker Cancel).
 - R2: while the backend reports progress the button reads `Cancel …` and stays
-  enabled.
+  enabled (journey 2).
 - R3: before the commit, Cancel ends with `Cancelled. Nothing changed.` and
-  writes nothing.
-- R4: after the commit the button is disabled until the write finishes.
-- R5: a blocked plan shows its short reason on the button and opens no dialog.
+  writes nothing (journey 3).
+- R4: after the commit the button is disabled until the write finishes, and a
+  close request shows the native still-working dialog (journey 4).
+- R5: a blocked plan shows its short reason on the button and opens no dialog
+  (journey 6).
+- R6: a genuine 7z archive installs and uninstalls through one click each
+  (journey 11).
 
 ## How to drive it
 
@@ -28,9 +33,9 @@ Win32 dialog control ids 1148 and 1 on the dialog window owned by the launched
 process, then posts `BM_CLICK` to Open.
 
 The test backend selects its progress scenario from the archive path:
-`slow.zip`, `hang-before-commit.zip`, `hang-after-commit.zip` and `refuse.zip`.
-The `mode` file therefore stays `complete`, so the package listing does not
-sleep.
+`slow.zip`, `hang-before-commit.zip`, `hang-after-commit.zip` and
+`refuse.zip`. The `mode` file therefore stays `complete`, so the package
+listing does not sleep.
 
 ## Gotchas
 

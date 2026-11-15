@@ -5,12 +5,16 @@ the commit phase, and never shows raw backend output.
 
 ## What to check
 
-- P1: the commit phase disables the operation button.
-- P2: closing during the commit shows the native `Modn is still working…`
-  dialog and the window stays open.
+- P1: the commit phase disables the operation button (journey 4).
+- P2: closing during the commit shows the native
+  `Modn is still working. Wait for the operation to finish.` dialog and the
+  window stays open (journey 4).
 - P3: stdout noise (`invalid fixture response`) and stderr text
-  (`fixture refusal`, `fixture stderr noise…`) never appear in the window tree.
-- P4: a blocked plan shows the mapped message, not the backend's message.
+  (`fixture refusal`) never appear in the window tree (journey 8).
+- P4: a blocked plan shows the mapped message, not the backend's message
+  (journey 6).
+- P5: a finished write shows its toast and the app exits cleanly (journeys 2
+  and 4).
 
 ## How to drive it
 
@@ -27,17 +31,8 @@ supported games`, then set it to `failure` and scan again. Each backend call
 re-reads the mode file.
 The tree is captured after each scan and searched for the sentinel strings.
 
-## Unreachable paths
+## Cleanup
 
-The native-code ask, the one-click uninstall and both undo paths cannot be
-reached in this app revision:
-
-- `apps/modn-desktop/src/app/commands/args.rs` `install_mod_commit` has no
-  `--file` argument, so a catalog mod with an offline `manual` source cannot
-  install. Every other source kind needs the network.
-- `apps/modn-desktop/tests/fixtures/backend.rs` has no scenario that emits
-  `APPROVAL_REQUIRED` or `NATIVE_INJECTOR_NOT_ALLOWED`.
-- A locally installed archive is not a catalog mod, so no Library tile or Mod
-  details action offers `Uninstall` for it.
-
-Add one of those hooks before extending the verifier with journey 7.
+Every journey registers its cleanup before the first UI action.
+Cleanup answers only `OK` or `Cancel` on a close dialog. It never answers a
+destructive Yes/No confirmation on the user's behalf.
