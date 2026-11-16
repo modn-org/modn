@@ -136,6 +136,43 @@ fn a_verified_cache_hit_installs_without_a_transport_call() {
 }
 
 #[test]
+fn a_dry_run_names_the_first_fetchable_source_not_the_manual_one() {
+    let fixture = Fixture::new();
+    add_bucket(
+        &fixture,
+        json!([
+            {"kind": "manual", "filename": "Example 1.0.zip"},
+            {"kind": "https", "url": FIRST}
+        ]),
+        &"0".repeat(64),
+    );
+    fixture.register();
+
+    let output = install(&fixture, &["--dry-run"]);
+    assert!(output.status.success(), "{}", error(&output));
+    let value: Value = serde_json::from_slice(&output.stdout).expect("dry-run JSON");
+    let needed = value["archive_needed"]
+        .as_str()
+        .expect("dry run names the needed download");
+    assert!(needed.contains(FIRST), "{needed}");
+    assert!(!needed.contains("manually"), "{needed}");
+
+    let text = fixture.run(&[
+        "install",
+        "test-game/example",
+        "--dry-run",
+        "--path",
+        fixture.game.to_str().expect("game path"),
+    ]);
+    assert!(text.status.success(), "{}", error(&text));
+    let stdout = String::from_utf8_lossy(&text.stdout);
+    assert!(stdout.contains("when you install it"), "{stdout}");
+    assert!(!stdout.contains("then add --file <archive>"), "{stdout}");
+    assert!(stdout.contains(FIRST), "{stdout}");
+    assert!(cache_files(&fixture).is_empty());
+}
+
+#[test]
 fn a_manual_only_source_is_reported_without_a_download() {
     let fixture = Fixture::new();
     add_bucket(
