@@ -77,9 +77,7 @@ fn transport_io(error: &std::io::Error) -> Option<FetchError> {
         std::io::ErrorKind::ConnectionReset
         | std::io::ErrorKind::ConnectionAborted
         | std::io::ErrorKind::BrokenPipe
-        | std::io::ErrorKind::UnexpectedEof => {
-            Some(FetchError::Network(error.to_string()))
-        }
+        | std::io::ErrorKind::UnexpectedEof => Some(FetchError::Network(error.to_string())),
         _ => None,
     }
 }

@@ -97,8 +97,22 @@ pub(super) fn download_into(
                             ),
                         );
                     }
-                    match git_source::acquire(cache, release, cache_use, control) {
+                    match git_source::acquire_named(
+                        cache,
+                        release,
+                        &repository,
+                        &commit,
+                        cache_use,
+                        control,
+                    ) {
                         Ok(archive) => {
+                            record(
+                                text,
+                                report,
+                                &reference,
+                                &mut attempts,
+                                SourceAttempt::ok(format!("git {repository} commit {commit}"), 1),
+                            );
                             archives.insert(reference.clone(), archive.path);
                             digests.insert(reference.clone(), archive.blake3);
                             served = true;
@@ -147,6 +161,13 @@ pub(super) fn download_into(
                         control,
                     ) {
                         Ok(path) => {
+                            record(
+                                text,
+                                report,
+                                &reference,
+                                &mut attempts,
+                                SourceAttempt::ok(label, 1),
+                            );
                             archives.insert(reference.clone(), path);
                             served = true;
                             break;
@@ -194,20 +215,19 @@ pub(super) fn download_into(
                             break;
                         }
                         Err(error) if cancelled(&error) => return Err(error),
-                        Err(error) => {
-                            match attempts_of(&error) {
-                                Some(failed) => {
-                                    for attempt in failed {
-                                        note_attempt(text, report, &reference, &attempt);
-                                        attempts.push(attempt);
-                                    }
-                                }
-                                None => {
-                                    return Err(error
-                                        .context(format!("source {reference} was not tried")))
+                        Err(error) => match attempts_of(&error) {
+                            Some(failed) => {
+                                for attempt in failed {
+                                    note_attempt(text, report, &reference, &attempt);
+                                    attempts.push(attempt);
                                 }
                             }
-                        }
+                            None => {
+                                return Err(
+                                    error.context(format!("source {reference} was not tried"))
+                                )
+                            }
+                        },
                     }
                 }
             }
@@ -293,7 +313,10 @@ fn cancelled(error: &anyhow::Error) -> bool {
 
 /// Classify a Git or Nexus failure like any other source attempt.
 fn classify(error: &anyhow::Error) -> SourceFailure {
-    if let Some(fetch) = error.chain().find_map(|cause| cause.downcast_ref::<FetchError>()) {
+    if let Some(fetch) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<FetchError>())
+    {
         return fetch.clone().into();
     }
     SourceFailure::Refused(format!("{error:#}"))

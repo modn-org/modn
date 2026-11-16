@@ -106,6 +106,14 @@ fn file_url(path: &Path) -> String {
 }
 
 fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
+    add_bucket_sources(
+        fixture,
+        root,
+        serde_json::json!([{"kind": "git", "repository": "fixture/project", "commit": commit}]),
+    );
+}
+
+fn add_bucket_sources(fixture: &Fixture, root: &Path, sources: Value) {
     let bucket = root.join("git-fixture");
     let records = bucket.join("mods/test-game");
     fs::create_dir_all(&records).expect("bucket directory");
@@ -120,7 +128,7 @@ fn add_bucket(fixture: &Fixture, root: &Path, commit: &str) {
         "game": "test-game",
         "name": "Git Package",
         "version": "1.0",
-        "sources": [{"kind": "git", "repository": "fixture/project", "commit": commit}],
+        "sources": sources,
     });
     fs::write(
         records.join("git-package.json"),
@@ -375,4 +383,45 @@ fn a_no_cache_cancel_keeps_the_previous_git_cache_entry() {
             .any(|name| name.contains(&format!("-{previous}.zip"))),
         "the previous archive must still be cached"
     );
+}
+
+#[test]
+fn a_failed_git_first_source_falls_back_to_the_next_git_source() {
+    let fixture = Fixture::new();
+    let repository = repository(fixture.temp.path());
+    add_bucket_sources(
+        &fixture,
+        fixture.temp.path(),
+        serde_json::json!([
+            {"kind": "git", "repository": "fixture/missing", "commit": repository.commit},
+            {"kind": "git", "repository": "fixture/project", "commit": repository.commit}
+        ]),
+    );
+    fixture.register();
+    let game = fixture.game.to_str().expect("game path").to_owned();
+
+    let output = run(
+        &fixture,
+        &repository.base,
+        &["install", "test-game/git-package", "--path", &game, "--yes"],
+    );
+
+    assert!(output.status.success(), "{}", error(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.contains("git fixture/missing commit ")
+                && line.contains("attempt 1:")
+                && line.contains("refused:")),
+        "the report omits the failed first Git source: {stderr}"
+    );
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.contains("git fixture/project commit ")
+                && line.trim_end().ends_with(": ok")),
+        "the report omits the serving Git source: {stderr}"
+    );
+    assert!(fixture.game.join("addons/git-source.plugin").is_file());
 }

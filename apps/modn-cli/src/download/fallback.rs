@@ -279,5 +279,4 @@ mod tests {
             "the 404 is not named: {error:#}"
         );
     }
-
 }

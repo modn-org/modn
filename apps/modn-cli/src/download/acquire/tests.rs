@@ -133,7 +133,10 @@ fn partial_files(root: &Path) -> Vec<PathBuf> {
     entries
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "download"))
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "download")
+        })
         .collect()
 }
 
@@ -169,7 +172,8 @@ fn a_cancel_during_a_nexus_attempt_stops_before_the_cached_https_fallback() {
     TEST_RESPONSES.with(|responses| responses.replace(Some(BTreeMap::new())));
     let control = cancelled_control();
 
-    let (result, text) = with_nexus_key(|| acquire(&root, &package, CacheUse::Reuse, &control, false));
+    let (result, text) =
+        with_nexus_key(|| acquire(&root, &package, CacheUse::Reuse, &control, false));
 
     TEST_RESPONSES.with(|responses| responses.replace(None));
     super::super::nexus_download::set_responses(BTreeMap::new());
@@ -237,9 +241,10 @@ fn a_failed_nexus_attempt_is_reported_before_the_serving_https_source() {
     });
     let control = OperationControl::default();
 
-    let (result, text) = crate::nexus_auth::with_test_key(crate::nexus_auth::TestKey::Missing, || {
-        acquire(&root, &package, CacheUse::Refresh, &control, true)
-    });
+    let (result, text) =
+        crate::nexus_auth::with_test_key(crate::nexus_auth::TestKey::Missing, || {
+            acquire(&root, &package, CacheUse::Refresh, &control, true)
+        });
 
     TEST_RESPONSES.with(|responses| responses.replace(None));
     result.expect("the https source supplies the archive");
@@ -258,10 +263,8 @@ fn a_failed_nexus_attempt_is_reported_before_the_serving_https_source() {
     assert!(!text.contains(API_KEY), "the text report leaks the API key");
 }
 
-const METADATA: &str =
-    "https://api.github.com/repos/fixture/project/releases/tags/v1";
-const ASSET: &str =
-    "https://github.com/fixture/project/releases/download/v1/example.zip";
+const METADATA: &str = "https://api.github.com/repos/fixture/project/releases/tags/v1";
+const ASSET: &str = "https://github.com/fixture/project/releases/download/v1/example.zip";
 
 fn https_then_github(root: &Path, digest: &str) -> BucketPackage {
     package(

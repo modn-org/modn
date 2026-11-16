@@ -36,7 +36,15 @@ pub(super) fn cached(cache: &ArchiveCache, release: &BucketPackage) -> Result<Op
     let Some(source) = source(release) else {
         return Ok(None);
     };
-    let key = key(release, &source);
+    cached_source(cache, release, &source)
+}
+
+fn cached_source(
+    cache: &ArchiveCache,
+    release: &BucketPackage,
+    source: &GitSource,
+) -> Result<Option<GitArchive>> {
+    let key = key(release, source);
     Ok(cache
         .git_cached(&key)?
         .map(|(path, blake3)| GitArchive { path, blake3 }))
@@ -88,9 +96,35 @@ pub(super) fn acquire(
     let Some(source) = source(release) else {
         bail!("{} is not a Git source", release.package.id);
     };
-    let key = key(release, &source);
+    acquire_source(cache, release, &source, cache_use, control)
+}
+
+/// Return a verified cached archive, or fetch `source`'s pinned commit.
+///
+/// The ordered download loop names each Git source of a release, so the
+/// attempt uses that entry and not the record's primary source.
+pub(super) fn acquire_named(
+    cache: &ArchiveCache,
+    release: &BucketPackage,
+    repository: &str,
+    commit: &str,
+    cache_use: CacheUse,
+    control: &OperationControl,
+) -> Result<GitArchive> {
+    let source = GitSource::new(repository.to_owned(), commit.to_owned());
+    acquire_source(cache, release, &source, cache_use, control)
+}
+
+fn acquire_source(
+    cache: &ArchiveCache,
+    release: &BucketPackage,
+    source: &GitSource,
+    cache_use: CacheUse,
+    control: &OperationControl,
+) -> Result<GitArchive> {
+    let key = key(release, source);
     if cache_use == CacheUse::Reuse {
-        if let Some(cached) = cached(cache, release)? {
+        if let Some(cached) = cached_source(cache, release, source)? {
             return Ok(cached);
         }
     }

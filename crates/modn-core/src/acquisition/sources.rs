@@ -241,6 +241,16 @@ impl SourceAttempt {
         }
     }
 
+    /// An attempt that supplied verified bytes.
+    #[must_use]
+    pub fn ok(source: impl Into<String>, attempt: u32) -> Self {
+        Self {
+            source: source.into(),
+            attempt,
+            failure: None,
+        }
+    }
+
     /// Whether the attempt supplied verified bytes.
     #[must_use]
     pub fn succeeded(&self) -> bool {

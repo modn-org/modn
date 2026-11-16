@@ -379,7 +379,10 @@ pub fn code_of(error: &anyhow::Error) -> Option<ErrorCode> {
     if error.downcast_ref::<NativeInjectorNotAllowed>().is_some() {
         return Some(ErrorCode::NativeInjectorNotAllowed);
     }
-    if error.downcast_ref::<crate::acquisition::SourcesError>().is_some() {
+    if error
+        .downcast_ref::<crate::acquisition::SourcesError>()
+        .is_some()
+    {
         return Some(ErrorCode::DownloadFailed);
     }
     if let Some(coded) = error.downcast_ref::<CodedError>() {
