@@ -2,11 +2,10 @@
 //!
 //! Lookups read the commit-keyed cache only. A fetch runs only when the caller
 //! has explicit download or installation consent, like other remote sources.
-use crate::progress::Progress;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use modn_core::acquisition::{ArchiveCache, CacheUse, GitCacheKey, GitSource, Origin};
 use modn_core::buckets::{BucketPackage, PackageSource};
-use modn_core::progress::ProgressEvent;
+use modn_core::progress::{OperationControl, ProgressEvent};
 use std::fs;
 use std::path::PathBuf;
 
@@ -37,7 +36,15 @@ pub(super) fn cached(cache: &ArchiveCache, release: &BucketPackage) -> Result<Op
     let Some(source) = source(release) else {
         return Ok(None);
     };
-    let key = key(release, &source);
+    cached_source(cache, release, &source)
+}
+
+fn cached_source(
+    cache: &ArchiveCache,
+    release: &BucketPackage,
+    source: &GitSource,
+) -> Result<Option<GitArchive>> {
+    let key = key(release, source);
     Ok(cache
         .git_cached(&key)?
         .map(|(path, blake3)| GitArchive { path, blake3 }))
@@ -80,22 +87,35 @@ fn entry_names(cache: &ArchiveCache, key: &GitCacheKey<'_>) -> Result<Vec<String
 /// Git. A cancellation observed after the fetch and pack finishes removes the
 /// newly fetched cache entry, or keeps a previous entry it replaced, so a
 /// cancelled install changes no cache state for either cache use.
-pub(super) fn acquire(
+/// Return a verified cached archive, or fetch `source`'s pinned commit.
+///
+/// The ordered download loop names each Git source of a release, so the
+/// attempt uses that entry and not the record's primary source.
+pub(super) fn acquire_named(
     cache: &ArchiveCache,
     release: &BucketPackage,
+    repository: &str,
+    commit: &str,
     cache_use: CacheUse,
-    progress: &Progress,
+    control: &OperationControl,
 ) -> Result<GitArchive> {
-    let Some(source) = source(release) else {
-        bail!("{} is not a Git source", release.package.id);
-    };
-    let key = key(release, &source);
+    let source = GitSource::new(repository.to_owned(), commit.to_owned());
+    acquire_source(cache, release, &source, cache_use, control)
+}
+
+fn acquire_source(
+    cache: &ArchiveCache,
+    release: &BucketPackage,
+    source: &GitSource,
+    cache_use: CacheUse,
+    control: &OperationControl,
+) -> Result<GitArchive> {
+    let key = key(release, source);
     if cache_use == CacheUse::Reuse {
-        if let Some(cached) = cached(cache, release)? {
+        if let Some(cached) = cached_source(cache, release, source)? {
             return Ok(cached);
         }
     }
-    let control = progress.control();
     let reference = release.reference().to_string();
     control.advance(ProgressEvent::Download {
         package: Some(reference.clone()),

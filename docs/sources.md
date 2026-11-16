@@ -131,14 +131,19 @@ Deterministic command tests cover metadata identity, URL and hash failures befor
 Tags and asset names accept ASCII letters, digits, dots, underscores, and hyphens.
 `latest`, authentication, pagination, arbitrary providers, and release discovery remain unsupported.
 Artifact retries and timeouts follow the artifact source fallback below.
+That policy also covers the metadata request, including a timeout or reset while reading its body: one extra attempt, and never for an HTTP 404.
+Metadata for a GitHub fallback is requested only when the ordered loop reaches that source.
 
 ## Artifact source fallback
 
 A package record lists its `sources` in the order Modn tries them.
 Modn tries each fetchable source in list order.
 It moves to the next source after a timeout, a network failure, an HTTP failure or a BLAKE3 mismatch.
-A `nexus` source is one attempt in that order; a Nexus failure is reported and the next source runs.
+A `git` or `nexus` source is one attempt in that same order, with the same failure classes as a fetch.
+A failed Git or Nexus attempt is reported and the next source runs.
 The first source whose bytes match the record's `blake3` pin supplies the archive.
+A cancelled operation stops the whole acquisition at once, for every source kind: Modn tries no later source, retries nothing and keeps no cache entry.
+Cancellation is checked before each source and after each failed attempt.
 A `manual` source is never started automatically.
 If only manual sources remain, Modn prints the manual step as before.
 A verified cache entry for the pin is used before any network attempt.
