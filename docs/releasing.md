@@ -939,7 +939,9 @@ python .agents/skills/verify-modn-desktop/scripts/verify.py `
 ```
 
 Expect exit 0 and a JSON summary with `"status": "passed"`, `"journeys": 11`, `"passed": 11` and `"failed": 0`.
-The v0.3.0 fixture run reported 51 and 8 assertions for the older drivers. Record the new counts and keep the evidence path.
+Each journey prints an `evidence: <path>` line, and each result in the summary repeats that path in `evidence`.
+Record those paths; the run keeps evidence without `--keep`.
+The v0.3.0 fixture run reported 51 and 8 assertions for the older drivers. Record the new counts.
 
 #### What to record for #89
 

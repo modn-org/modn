@@ -1,6 +1,6 @@
 ---
 name: verify-modn-desktop
-description: Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z.
+description: "Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z."
 ---
 
 # Verify Modn Desktop
@@ -27,7 +27,8 @@ Options:
 - `--keep` keeps the fixture directory of the run and prints every kept path.
 - `--app PATH`, `--cli PATH` and `--test-backend PATH` replace one built binary
   each.
-- `--selftest` checks the dialog helper against fake window lists and exits.
+- `--selftest` checks the dialog helper, failure tracking, evidence reporting
+  and skill front matter against fakes, then exits.
 
 Without `--build`, the verifier reads `modn-desktop.exe`, `modn.exe` and
 `modn-desktop-test-backend.exe` from `$CARGO_TARGET_DIR/debug` when
@@ -39,18 +40,21 @@ folders. The verifier searches the CLI binary for the `MODN_APPDATA` and
 `MODN_STORE_LIBRARIES` names. It exits with status 2 before any journey runs
 when a name is missing.
 
-When the interpreter lacks `uiautomation`, the script re-runs itself under
-`uv run --no-project --with uiautomation --with blake3 python`.
+When the interpreter lacks a required package, the script re-runs itself under
+`uv run --no-project --with uiautomation --with blake3 --with pyyaml python`.
 It runs the selected journeys in order, each against a fresh fixture.
 It exits 0 only when every selected journey passes.
+Each journey prints its status and an `evidence: <path>` line.
 The last line is one JSON summary with `status`, `journeys`, `passed`, `failed`,
 `assertions`, `seconds` and `results`.
+Each result carries the same `evidence` paths as a list.
 
 ## Prerequisites
 
 - Windows 10 or later with an unlocked interactive desktop and WebView2. A
   service session has no window to drive.
-- `uv` and Python 3 on `PATH`.
+- `uv` and Python 3 on `PATH`. `uv` fetches `uiautomation`, `blake3` and
+  `pyyaml` when the interpreter lacks them.
 - 7-Zip (`7z`) on `PATH` or in `%ProgramFiles%\7-Zip` for the `catalog`
   journey.
 - No Rust compiler for the journeys. `--build` needs `cargo`.
@@ -116,17 +120,22 @@ started. Other windows are never enumerated for interaction.
 
 The evidence directory is always kept. It holds the `uia-*.txt` snapshots,
 `launch.json`, `app-stderr.txt` and the journey JSON files.
-With `--keep`, the fixture directory stays too and the run prints both paths.
+Each journey prints its evidence path as an `evidence: <path>` line, and its
+result in the JSON summary repeats the path in `evidence`.
+Record those paths, whether or not the run uses `--keep`.
+With `--keep`, the fixture directory stays too and the run prints its path.
 Classify this evidence as **sensitive**: paths and backend output can identify
 local data. Review it before you upload it.
 
 ## Cleanup
 
-Each journey registers its cleanup before the first UI action. Cleanup closes
-the app through its window, waits for the process and kills only the process
-the verifier started. Cleanup removes only the validated
-`modn-desktop-fixture-*` directory, unless `--keep` is set. A failed assertion
-still closes the app and cleans up.
+Each journey registers its cleanup before the first UI action. A passing
+journey ends with `App.close`: it asks the window to close, answers only OK or
+Cancel on an extra dialog, waits up to 45 seconds, and kills the process only
+when the wait times out. A failed journey runs the registered `App.kill`, which
+terminates only the process the verifier started, by pid, at once. Cleanup
+removes only the validated `modn-desktop-fixture-*` directory, unless `--keep`
+is set. A failed assertion still kills the app and cleans up.
 
 ## Limits
 

@@ -19,17 +19,20 @@ TARGET = Path(os.environ["CARGO_TARGET_DIR"]) if os.environ.get("CARGO_TARGET_DI
 
 
 def bootstrap():
-    """Re-runs under uv with uiautomation when the interpreter lacks it."""
-    try:
-        import uiautomation  # noqa: F401
+    """Re-runs under uv while the interpreter lacks a required package."""
+    for name in ("uiautomation", "yaml"):
+        try:
+            __import__(name)
+        except ImportError:
+            break
+    else:
         return
-    except ImportError:
-        pass
     if os.environ.get("MODN_UIA_BOOTSTRAP") == "1":
-        raise SystemExit("uiautomation is unavailable")
+        raise SystemExit(f"{name} is unavailable")
     os.environ["MODN_UIA_BOOTSTRAP"] = "1"
     command = [
-        "uv", "run", "--no-project", "--with", "uiautomation", "--with", "blake3", "python",
+        "uv", "run", "--no-project", "--with", "uiautomation", "--with", "blake3",
+        "--with", "pyyaml", "python",
         str(Path(sys.argv[0]).resolve()), *sys.argv[1:],
     ]
     raise SystemExit(subprocess.call(command))
@@ -180,11 +183,13 @@ class Runner:
     def journey(self, name, function):
         started = time.monotonic()
         mark = len(self.cleanup)
+        evidence_mark = len(fixtures.CREATED)
         error_message = None
         try:
             function()
         except Exception as error:  # noqa: BLE001 - every failure is recorded
-            error_message = str(error)
+            # The message can be empty, so the type name keeps the failure visible.
+            error_message = f"{type(error).__name__}: {error}" if str(error) else type(error).__name__
         actions = self.cleanup[mark:]
         del self.cleanup[mark:]
         failures = self.clean(actions)
@@ -196,12 +201,16 @@ class Runner:
             status = f"failed: cleanup: {'; '.join(failures)}"
         else:
             status = "passed"
+        evidence = [str(path) for path in fixtures.CREATED[evidence_mark:]]
         self.results.append({
             "journey": name,
             "status": status,
             "seconds": round(time.monotonic() - started, 1),
+            "evidence": evidence,
         })
         print(f"  {name}: {status}")
+        for path in evidence:
+            print(f"  evidence: {path}")
 
     def clean(self, actions=None):
         failures = []

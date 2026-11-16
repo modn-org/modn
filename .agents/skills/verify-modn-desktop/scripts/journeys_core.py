@@ -174,6 +174,16 @@ def journey_blocked(runner):
 
 SCAN_BUTTON = "Scan this PC for supported games"
 BACKEND_NOISE = ("invalid fixture response", "fixture refusal")
+DIAGNOSTICS_COPIED = "Diagnostics copied."
+
+
+def diagnostics_copied(toast):
+    """True when the Copy diagnostics toast reports success.
+
+    The click also stops early on an error toast, so the journey must read the
+    returned line instead of assuming that any toast means success.
+    """
+    return DIAGNOSTICS_COPIED in (toast or "")
 
 
 def _scan(session):
@@ -288,10 +298,11 @@ def journey_play(runner):
         session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
         session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
         runner.check(session.exists(name="Operation history"), "History section is missing")
-        toast = click_until(session, "Copy diagnostics", ("Diagnostics copied.", "Something went wrong"))
-        runner.check(True, f"Copy diagnostics reported: {toast}")
+        toast = click_until(
+            session, "Copy diagnostics", (DIAGNOSTICS_COPIED, "Something went wrong")
+        )
         (fx.evidence / "diagnostics-toast.txt").write_text(toast, encoding="utf-8")
-        runner.check(True, "Copy diagnostics confirmed in the UI")
+        runner.check(diagnostics_copied(toast), f"Copy diagnostics reported: {toast}")
         app.close()
     finally:
         for pid in image_pids(exe):
