@@ -333,6 +333,27 @@ impl BucketStore {
         bounded_json(&self.root.join("registrations").join(format!("{name}.json")))
     }
 
+    /// Remove one superseded catalog snapshot that this store created.
+    ///
+    /// The removal is best effort: the registration already points at the new
+    /// tree, so a leftover directory is waste, not a correctness problem. A path
+    /// outside the store root is never touched.
+    pub(super) fn retire_catalog_snapshot(&self, path: &Path) {
+        let Some(snapshot) = path
+            .ancestors()
+            .find(|candidate| candidate.parent() == Some(self.root.as_path()))
+        else {
+            return;
+        };
+        let owned = snapshot.file_name().is_some_and(|name| {
+            let name = name.to_string_lossy();
+            name.starts_with("zip-catalog-") || name.starts_with("git-catalog-")
+        });
+        if owned {
+            let _ = fs::remove_dir_all(snapshot);
+        }
+    }
+
     /// Forget a registered bucket without touching its source or game files.
     pub fn remove(&self, name: &str) -> Result<()> {
         if !valid_id(name) || name == "main" {

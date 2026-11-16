@@ -157,7 +157,8 @@ pub(super) fn acquisition(source: &PackageSource) -> String {
 }
 
 /// One ordered source, as the plan names it.
-pub(super) fn source_label(source: &PackageSource) -> String {    match source {
+pub(super) fn source_label(source: &PackageSource) -> String {
+    match source {
         PackageSource::Manual { filename } => format!("manual: {filename}"),
         PackageSource::Nexus {
             game_domain,
@@ -441,7 +442,10 @@ mod tests {
         };
         let value = report_json(&report, None, &[], &[], None, &[]).expect("report");
         let needed = value["archive_needed"].as_str().expect("archive needed");
-        assert!(needed.contains("https://example.invalid/example.zip"), "{needed}");
+        assert!(
+            needed.contains("https://example.invalid/example.zip"),
+            "{needed}"
+        );
         let text = report_text(&report, None, &[], &[], None, &[]);
         assert!(text.contains("when you install it"), "{text}");
         assert!(!text.contains("then add --file <archive>"), "{text}");

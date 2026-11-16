@@ -321,7 +321,10 @@ fn a_rotation_naming_a_revoked_key_is_refused() {
     let error = sync(&store, "community")
         .expect_err("a rotation cannot re-authorize a revoked key")
         .to_string();
-    assert!(error.contains("was revoked by the offline revocation key"), "{error}");
+    assert!(
+        error.contains("was revoked by the offline revocation key"),
+        "{error}"
+    );
     assert_eq!(
         fs::read(registration(state.path())).expect("registration"),
         before
@@ -396,7 +399,6 @@ fn a_rotated_away_key_refuses_an_unaccompanied_revision() {
 
 #[test]
 fn two_statements_that_apply_to_the_pinned_key_are_refused() {
-
     let pinned = test_key();
     let replacement = test_key();
     let revoked_to = test_key();

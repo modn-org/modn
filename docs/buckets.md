@@ -107,6 +107,15 @@ When a mirror serves the revision, the registration keeps the registered
 primary and the output names the failed primary and the serving mirror.
 Every verified revision replaces the stored mirror list with its own list.
 
+A verified revision whose catalog digest (ZIP) or commit (Git) matches the
+registered revision reuses the registered snapshot and discards the staging
+copy. A changed revision publishes a new snapshot. After the registration write
+succeeds, sync removes the superseded ZIP snapshot and keeps only the active
+one. Git keeps one tree per commit. When a step after the registration switch
+fails, for example a staged game module cannot be committed, sync restores the
+previous registration and removes the new snapshot, so the previous catalog
+files and registration stay byte for byte.
+
 After a revision verifies with the pinned key, a `relocation.json` whose primary
 differs from the registered primary publishes the catalog and updates the
 registration's primary in one atomic registration write. The output says
@@ -306,7 +315,11 @@ signer key ID; a mismatch writes nothing.
 The trust record stores the signer key ID for the whole bucket. It does not
 record one game. A new game module in the same trusted bucket needs no new
 acknowledgement. A rotation keeps the trust record and moves it to the new key.
-A revocation clears the trust record, and its modules become untrusted.
+A retention release imported under the old key stays usable, because the old key
+vouched for the new one. A revocation clears the trust record, and its modules
+become untrusted. A module release imported under the revoked key also stays
+untrusted after `trust-modules` with the replacement key; publish a new release
+signed by the replacement key to supply module code again.
 
 `bucket untrust-modules` removes the trust record and leaves the bucket
 registered. Modules retained from that bucket are refused at use. Run
