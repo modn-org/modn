@@ -5,6 +5,7 @@ app driver and helpers live in `harness.py`.
 """
 
 import json
+import sys
 import time
 
 import uia
@@ -186,6 +187,38 @@ def diagnostics_copied(toast):
     return DIAGNOSTICS_COPIED in (toast or "")
 
 
+DIAGNOSTICS_ATTEMPTS = 3
+
+
+def copy_diagnostics(session, fx):
+    """Clicks Copy diagnostics with the window in the foreground.
+
+    The clipboard write fails when the window has no focus. The app then shows
+    its error toast, which says to try again. The click is repeated up to three
+    times, each after the error toast has expired. Every toast goes to
+    `diagnostics-toast.txt`, and the caller fails the journey when none of them
+    reports success.
+    """
+    seen = []
+    for _ in range(DIAGNOSTICS_ATTEMPTS):
+        session.focus()
+        toast = click_until(
+            session, "Copy diagnostics", (DIAGNOSTICS_COPIED, "Something went wrong")
+        )
+        seen.append(toast)
+        if diagnostics_copied(toast):
+            break
+        session.wait_for(
+            lambda s: "Something went wrong" not in s.text(),
+            "the error toast to expire",
+            timeout=15,
+        )
+    (fx.evidence / "diagnostics-toast.txt").write_text("\n".join(seen), encoding="utf-8")
+    if len(seen) > 1:
+        print(f"play: Copy diagnostics needed {len(seen)} attempts: {seen}", file=sys.stderr)
+    return seen[-1]
+
+
 def _scan(session):
     """Waits for the rendered Scan button, then clicks it once."""
     session.wait_for(
@@ -298,10 +331,7 @@ def journey_play(runner):
         session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
         session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
         runner.check(session.exists(name="Operation history"), "History section is missing")
-        toast = click_until(
-            session, "Copy diagnostics", (DIAGNOSTICS_COPIED, "Something went wrong")
-        )
-        (fx.evidence / "diagnostics-toast.txt").write_text(toast, encoding="utf-8")
+        toast = copy_diagnostics(session, fx)
         runner.check(diagnostics_copied(toast), f"Copy diagnostics reported: {toast}")
         app.close()
     finally:

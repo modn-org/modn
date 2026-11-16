@@ -105,6 +105,30 @@ class _FakeToastSession:
         return self.visible_polls > 0
 
 
+class _FakeDiagnosticsSession:
+    """Shows the next scripted toast after each click and clears it on a wait."""
+
+    def __init__(self, toasts):
+        self.toasts = list(toasts)
+        self.clicks = 0
+        self.focused = 0
+        self.line = ""
+
+    def focus(self):
+        self.focused += 1
+
+    def click(self, name=None, **kwargs):
+        self.line = self.toasts[self.clicks]
+        self.clicks += 1
+
+    def text(self):
+        return self.line
+
+    def wait_for(self, predicate, description, timeout=30):
+        self.line = ""
+        return True
+
+
 class _FakeNamedToasts:
     """Shows only the controls named in `visible`."""
 
@@ -149,6 +173,23 @@ def selftest():
     results["diagnostics_error_fails"] = not journeys_core.diagnostics_copied(
         "Something went wrong"
     )
+
+    # Copy diagnostics: focus first, retry after an error toast, fail when none succeeds.
+    import journeys_core  # noqa: PLC0415 - pure helpers only
+
+    with tempfile.TemporaryDirectory() as folder:
+        fx = type("Fx", (), {"evidence": Path(folder)})()
+        retried = _FakeDiagnosticsSession(["Something went wrong. Try again.", "Diagnostics copied."])
+        results["diagnostics_retries_after_error_toast"] = (
+            journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(retried, fx))
+            and retried.clicks == 2
+            and retried.focused == 2
+        )
+        failing = _FakeDiagnosticsSession(["Something went wrong. Try again."] * 3)
+        results["diagnostics_fails_after_three_error_toasts"] = (
+            not journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(failing, fx))
+            and failing.clicks == journeys_core.DIAGNOSTICS_ATTEMPTS
+        )
 
     # V1: the toast guard returns once the toast is gone and fails while it stays.
     harness.wait_toasts_gone(_FakeToastSession(0), "Undo done", "selftest", timeout=0.3)
