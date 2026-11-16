@@ -88,6 +88,7 @@ pub(super) fn download_into(
         }
         let first = attempts.len();
         let mut served = false;
+        let mut specific: Option<anyhow::Error> = None;
         for planned in fallback::plan(release) {
             control.checkpoint()?;
             match planned {
@@ -123,17 +124,20 @@ pub(super) fn download_into(
                             break;
                         }
                         Err(error) if cancelled(&error) => return Err(error),
-                        Err(error) => record(
-                            text,
-                            report,
-                            &reference,
-                            &mut attempts,
-                            SourceAttempt::failed(
-                                format!("git {repository} commit {commit}"),
-                                1,
-                                classify(&error),
-                            ),
-                        ),
+                        Err(error) => {
+                            record(
+                                text,
+                                report,
+                                &reference,
+                                &mut attempts,
+                                SourceAttempt::failed(
+                                    format!("git {repository} commit {commit}"),
+                                    1,
+                                    classify(&error),
+                                ),
+                            );
+                            specific = Some(error);
+                        }
                     }
                 }
                 Planned::Nexus {
@@ -177,13 +181,16 @@ pub(super) fn download_into(
                             break;
                         }
                         Err(error) if cancelled(&error) => return Err(error),
-                        Err(error) => record(
-                            text,
-                            report,
-                            &reference,
-                            &mut attempts,
-                            SourceAttempt::failed(label, 1, classify(&error)),
-                        ),
+                        Err(error) => {
+                            record(
+                                text,
+                                report,
+                                &reference,
+                                &mut attempts,
+                                SourceAttempt::failed(label, 1, classify(&error)),
+                            );
+                            specific = Some(error);
+                        }
                     }
                 }
                 Planned::Fetch(fetch) => {
@@ -237,6 +244,13 @@ pub(super) fn download_into(
             }
         }
         if !served && attempts.len() > first {
+            // A lone Git or Nexus source keeps its own error and code; with
+            // other attempts, one error names every source that failed.
+            if attempts.len() == first + 1 {
+                if let Some(error) = specific {
+                    return Err(error);
+                }
+            }
             return Err(anyhow::Error::new(SourcesError::new(
                 reference.clone(),
                 attempts[first..].to_vec(),

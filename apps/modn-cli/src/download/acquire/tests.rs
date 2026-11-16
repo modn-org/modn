@@ -101,6 +101,16 @@ fn cancelled_control() -> OperationControl {
     OperationControl::new(token, |_event| {})
 }
 
+fn cancel_on_download() -> OperationControl {
+    let token = CancellationToken::new();
+    let cancel = token.clone();
+    OperationControl::new(token, move |event| {
+        if matches!(event, modn_core::progress::ProgressEvent::Download { .. }) {
+            cancel.cancel();
+        }
+    })
+}
+
 fn acquire(
     root: &Path,
     package: &BucketPackage,
@@ -166,14 +176,13 @@ fn a_cancel_during_a_nexus_attempt_stops_before_the_cached_https_fallback() {
     fs::create_dir_all(&root).expect("manager directory");
     let (bytes, digest) = archive(temporary.path());
     let package = nexus_then_https(&root, &digest);
-    seed_cache(&root, FIRST, &bytes);
     nexus_responses(&bytes);
     TEST_CALLS.with(|calls| calls.borrow_mut().clear());
     TEST_RESPONSES.with(|responses| responses.replace(Some(BTreeMap::new())));
-    let control = cancelled_control();
+    let control = cancel_on_download();
 
     let (result, text) =
-        with_nexus_key(|| acquire(&root, &package, CacheUse::Reuse, &control, false));
+        with_nexus_key(|| acquire(&root, &package, CacheUse::Refresh, &control, false));
 
     TEST_RESPONSES.with(|responses| responses.replace(None));
     super::super::nexus_download::set_responses(BTreeMap::new());
