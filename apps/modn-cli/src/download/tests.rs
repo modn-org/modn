@@ -202,7 +202,7 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
 
 const FALLBACK_URL: &str = "https://fixture.invalid/example.zip";
 
-fn package_with_sources(root: &Path, digest: &str, sources: serde_json::Value) -> BucketPackage {
+pub(super) fn package_with_sources(root: &Path, digest: &str, sources: serde_json::Value) -> BucketPackage {
     let bucket = root.join("buckets/main");
     let game = bucket.join("mods/test-game");
     fs::create_dir_all(&game).expect("bucket directory");
@@ -240,12 +240,14 @@ fn acquire_with_sources(
     let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
+    let mut served = BTreeMap::new();
     let attempts = super::download(
         &cache,
         CacheUse::Refresh,
         &[package],
         &mut archives,
         &mut digests,
+        &mut served,
         &[],
         true,
         &crate::progress::Progress::start(None),
@@ -299,7 +301,7 @@ fn a_transient_metadata_failure_is_retried_before_the_source_is_refused() {
     });
     let candidates = super::fallback::plan(&package);
     let candidate = match candidates.into_iter().next().expect("one source") {
-        super::fallback::Planned::Fetch(fetch) => fetch.resolve(),
+        (super::fallback::Planned::Fetch(fetch), _) => fetch.resolve(),
         _ => panic!("the GitHub source is not a fetch entry"),
     };
     TEST_RESPONSES.with(|responses| responses.replace(None));
@@ -339,7 +341,7 @@ fn a_404_metadata_failure_is_refused_without_a_retry() {
     });
     let candidates = super::fallback::plan(&package);
     let candidate = match candidates.into_iter().next().expect("one source") {
-        super::fallback::Planned::Fetch(fetch) => fetch.resolve(),
+        (super::fallback::Planned::Fetch(fetch), _) => fetch.resolve(),
         _ => panic!("the GitHub source is not a fetch entry"),
     };
     TEST_RESPONSES.with(|responses| responses.replace(None));

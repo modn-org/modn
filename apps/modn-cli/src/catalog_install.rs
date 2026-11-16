@@ -167,7 +167,9 @@ fn install_mod(
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
     catalog_approval::check_native_approvals(&selected, &order, args, state_path)?;
     let mut archives = match_archives(&args.file, &selected, &order)?;
+    let supplied = archives.clone();
     let mut digests = BTreeMap::new();
+    let mut served = BTreeMap::new();
     let cache = download::cache_for(state_path)?;
     let cache_use = if args.no_cache {
         CacheUse::Refresh
@@ -177,6 +179,7 @@ fn install_mod(
             order.iter().chain([&selected]),
             &mut archives,
             &mut digests,
+            &mut served,
         )?;
         CacheUse::Reuse
     };
@@ -232,6 +235,7 @@ fn install_mod(
             &installing,
             &mut archives,
             &mut digests,
+            &mut served,
             &args.nxm_links,
             json,
             progress,
@@ -262,6 +266,8 @@ fn install_mod(
             dependencies: &dependencies,
             archives,
             digests,
+            served,
+            supplied,
             catalog,
             cache: &cache,
             cache_use,
@@ -287,8 +293,12 @@ fn install_mod(
     }
     if !args.dry_run && !archives.contains_key(&reference) {
         if interactive {
-            let source = dependency_plan::acquisition(selected.package.primary_source());
-            let download = format!("{reference} {}; {source}", selected.package.version);
+            let download = dependency_plan::download_line(
+                &reference,
+                &selected.package.version,
+                &selected.package.sources,
+                selected.package.primary_source(),
+            );
             if !install_consent::confirm_download(
                 &[download],
                 &mut io::stdin().lock(),
@@ -303,6 +313,7 @@ fn install_mod(
             &[&selected],
             &mut archives,
             &mut digests,
+            &mut served,
             &args.nxm_links,
             json,
             progress,
@@ -412,7 +423,12 @@ fn install_mod(
     store.set_history_context(
         HistoryContext::new(game_id.clone(), installation.clone()).with_source(
             &reference_of(&selected),
-            selected.package.primary_source().clone(),
+            download::serving_source(
+                &reference,
+                &supplied,
+                &served,
+                selected.package.primary_source(),
+            ),
         ),
     );
     let package = store.install_catalog_release_with_permissions(

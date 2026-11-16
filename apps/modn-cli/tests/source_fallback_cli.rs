@@ -187,3 +187,132 @@ fn a_manual_only_source_is_reported_without_a_download() {
     assert!(stderr.contains("manually"), "{stderr}");
     assert!(cache_files(&fixture).is_empty());
 }
+
+fn seed_url_cache(fixture: &Fixture, url: &str, archive: &std::path::Path) {
+    let cache = fixture.state.join("cache");
+    fs::create_dir_all(&cache).expect("cache directory");
+    let url_hash = &blake3::hash(url.as_bytes()).to_hex()[..7];
+    fs::write(
+        cache.join(format!("test-game#example#1.0#{url_hash}.zip")),
+        fs::read(archive).expect("archive bytes"),
+    )
+    .expect("seeded cache entry");
+}
+
+fn history_source(fixture: &Fixture) -> Value {
+    let output = fixture.run(&["--json", "history"]);
+    assert!(output.status.success(), "{}", error(&output));
+    let operations: Value = serde_json::from_slice(&output.stdout).expect("history JSON");
+    operations[0]["packages"][0]["release_after"]["source"].clone()
+}
+
+#[test]
+fn a_https_fallback_is_recorded_as_the_serving_source_and_undo_uses_its_cache() {
+    let fixture = Fixture::new();
+    let (archive, pin) = fixture.archive();
+    add_bucket(
+        &fixture,
+        json!([
+            {"kind": "manual", "filename": "Example 1.0.zip"},
+            {"kind": "https", "url": FIRST}
+        ]),
+        &pin,
+    );
+    seed_url_cache(&fixture, FIRST, &archive);
+    fixture.register();
+
+    let output = install(&fixture, &["--yes"]);
+    assert!(output.status.success(), "{}", error(&output));
+    let source = history_source(&fixture);
+    assert_eq!(source["kind"], "https", "{source}");
+    assert_eq!(source["url"], FIRST);
+
+    let removed = fixture.run(&[
+        "uninstall",
+        "example",
+        "--path",
+        fixture.game.to_str().expect("game path"),
+        "--yes",
+    ]);
+    assert!(removed.status.success(), "{}", error(&removed));
+    assert!(!fixture.game.join("addons/example.plugin").exists());
+
+    let undone = fixture.run(&["undo", "--yes"]);
+    assert!(
+        undone.status.success(),
+        "undo must restore the https archive from the cache: {}",
+        error(&undone)
+    );
+    assert!(fixture.game.join("addons/example.plugin").is_file());
+}
+
+#[test]
+fn a_user_supplied_archive_is_recorded_as_a_manual_source() {
+    let fixture = Fixture::new();
+    let (archive, pin) = fixture.archive();
+    add_bucket(
+        &fixture,
+        json!([
+            {"kind": "manual", "filename": "Example 1.0.zip"},
+            {"kind": "https", "url": FIRST}
+        ]),
+        &pin,
+    );
+    fixture.register();
+
+    let output = fixture.run_paths(
+        &[
+            "--json",
+            "install",
+            "test-game/example",
+            "--yes",
+            "--file",
+        ],
+        &[archive.as_path()],
+    );
+    assert!(output.status.success(), "{}", error(&output));
+    let source = history_source(&fixture);
+    assert_eq!(source["kind"], "manual", "{source}");
+    assert_eq!(source["filename"], "example.zip");
+}
+
+#[test]
+fn a_dry_run_reports_a_cached_secondary_nexus_archive() {
+    let fixture = Fixture::new();
+    let (archive, pin) = fixture.archive();
+    add_bucket(
+        &fixture,
+        json!([
+            {
+                "kind": "nexus",
+                "game_domain": "cyberpunk2077",
+                "mod_id": 6945,
+                "file_id": 111111,
+                "file_name": "First.zip"
+            },
+            {
+                "kind": "nexus",
+                "game_domain": "cyberpunk2077",
+                "mod_id": 6945,
+                "file_id": 222222,
+                "file_name": "Second.zip"
+            }
+        ]),
+        &pin,
+    );
+    seed_url_cache(
+        &fixture,
+        "nexus://cyberpunk2077/mods/6945/files/222222/Second.zip",
+        &archive,
+    );
+    fixture.register();
+
+    let output = install(&fixture, &["--dry-run"]);
+    assert!(output.status.success(), "{}", error(&output));
+    let value: Value = serde_json::from_slice(&output.stdout).expect("dry-run JSON");
+    assert!(
+        !value["plan"].is_null(),
+        "the dry run did not report the cached archive: {value}"
+    );
+    assert!(value["archive_needed"].is_null(), "{value}");
+}

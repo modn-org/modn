@@ -2,7 +2,7 @@
 
 use super::download_into;
 use crate::download::{TEST_CALLS, TEST_RESPONSES};
-use modn_core::acquisition::{CacheUse, NexusApiKey, SourceAttempt};
+use modn_core::acquisition::{CacheUse, NexusApiKey, NexusFile, SourceAttempt};
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::data_dir;
 use modn_core::error::{code_of, ErrorCode};
@@ -118,9 +118,25 @@ fn acquire(
     control: &OperationControl,
     text: bool,
 ) -> (anyhow::Result<Vec<SourceAttempt>>, String) {
+    let (result, report, _) = acquire_with_served(root, package, cache_use, control, text);
+    (result, report)
+}
+
+fn acquire_with_served(
+    root: &Path,
+    package: &BucketPackage,
+    cache_use: CacheUse,
+    control: &OperationControl,
+    text: bool,
+) -> (
+    anyhow::Result<Vec<SourceAttempt>>,
+    String,
+    BTreeMap<String, modn_core::buckets::PackageSource>,
+) {
     let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
+    let mut served = BTreeMap::new();
     let mut report = Vec::new();
     let result = download_into(
         &cache,
@@ -128,12 +144,13 @@ fn acquire(
         &[package],
         &mut archives,
         &mut digests,
+        &mut served,
         &[],
         text,
         &mut report,
         control,
     );
-    (result, String::from_utf8(report).expect("UTF-8 report"))
+    (result, String::from_utf8(report).expect("UTF-8 report"), served)
 }
 
 fn partial_files(root: &Path) -> Vec<PathBuf> {
@@ -310,5 +327,112 @@ fn a_succeeding_primary_makes_no_metadata_request_for_a_github_fallback() {
     assert!(
         !calls.iter().any(|url| url == METADATA),
         "an unused GitHub fallback fetched provider metadata: {calls:?}"
+    );
+}
+
+fn two_nexus_sources(root: &Path, digest: &str) -> BucketPackage {
+    package(
+        root,
+        digest,
+        json!([
+            {
+                "kind": "nexus",
+                "game_domain": "cyberpunk2077",
+                "mod_id": 6945,
+                "file_id": 111111,
+                "file_name": "First.zip"
+            },
+            {
+                "kind": "nexus",
+                "game_domain": "cyberpunk2077",
+                "mod_id": 6945,
+                "file_id": 222222,
+                "file_name": "Second.zip"
+            }
+        ]),
+    )
+}
+
+fn second_cache_url() -> String {
+    NexusFile::new("cyberpunk2077", 6945, 222222, "Second.zip")
+        .expect("fixture Nexus file")
+        .cache_url()
+}
+
+#[test]
+fn a_cached_secondary_nexus_archive_installs_without_a_key_or_request() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (bytes, digest) = archive(temporary.path());
+    let package = two_nexus_sources(&root, &digest);
+    seed_cache(&root, &second_cache_url(), &bytes);
+    TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+    TEST_RESPONSES.with(|responses| responses.replace(Some(BTreeMap::new())));
+    super::super::nexus_download::set_responses(BTreeMap::new());
+
+    let (result, text, served) =
+        crate::nexus_auth::with_test_key(crate::nexus_auth::TestKey::Missing, || {
+            acquire_with_served(
+                &root,
+                &package,
+                CacheUse::Reuse,
+                &OperationControl::default(),
+                false,
+            )
+        });
+
+    TEST_RESPONSES.with(|responses| responses.replace(None));
+    let attempts = result.expect("the cached second Nexus archive supplies the release");
+    assert!(attempts.is_empty(), "the cache hit made a request: {attempts:?} {text}");
+    assert!(
+        TEST_CALLS.with(|calls| calls.borrow().is_empty()),
+        "the cache hit contacted a provider"
+    );
+    let reference = crate::catalog_install::reference_of(&package).to_string();
+    assert!(
+        matches!(
+            served.get(&reference),
+            Some(modn_core::buckets::PackageSource::Nexus { file_id: 222222, .. })
+        ),
+        "the serving source is not the second Nexus source"
+    );
+}
+
+#[test]
+fn a_dry_run_cache_probe_reuses_a_secondary_nexus_archive() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (bytes, digest) = archive(temporary.path());
+    let package = two_nexus_sources(&root, &digest);
+    seed_cache(&root, &second_cache_url(), &bytes);
+    TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+    let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
+    let mut archives = BTreeMap::new();
+    let mut digests = BTreeMap::new();
+    let mut served = BTreeMap::new();
+
+    crate::download::add_cached(
+        &cache,
+        [&package],
+        &mut archives,
+        &mut digests,
+        &mut served,
+    )
+    .expect("the dry-run cache probe");
+
+    let reference = crate::catalog_install::reference_of(&package).to_string();
+    assert!(archives.contains_key(&reference), "the dry run missed the archive");
+    assert!(
+        matches!(
+            served.get(&reference),
+            Some(modn_core::buckets::PackageSource::Nexus { file_id: 222222, .. })
+        ),
+        "the dry run did not name the second Nexus source"
+    );
+    assert!(
+        TEST_CALLS.with(|calls| calls.borrow().is_empty()),
+        "the dry-run cache probe made a request"
     );
 }

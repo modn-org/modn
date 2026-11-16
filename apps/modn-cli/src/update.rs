@@ -23,6 +23,12 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// The source that `modn update` will try first, or the declared primary.
+fn planned_source(release: &BucketPackage) -> &PackageSource {
+    crate::dependency_plan::fetchable_source(&release.package.sources)
+        .unwrap_or(release.package.primary_source())
+}
+
 /// What makes two releases the same release for `modn update`.
 ///
 /// An archive record pins the archive BLAKE3. A Git-only record pins a commit;
@@ -307,12 +313,18 @@ pub(super) fn run(
     let cache = download::cache_for(state_path)?;
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
+    let mut served = BTreeMap::new();
     let cache_use = if args.no_cache {
         CacheUse::Refresh
     } else {
-        download::add_cached(&cache, [&target], &mut archives, &mut digests)?;
+        download::add_cached(&cache, [&target], &mut archives, &mut digests, &mut served)?;
         CacheUse::Reuse
     };
+    let supplied: BTreeMap<String, PathBuf> = args
+        .file
+        .iter()
+        .map(|file| (label.clone(), file.clone()))
+        .collect();
     if let Some(file) = &args.file {
         archives.insert(label.clone(), supplied_archive(file, &target, &digests)?);
     }
@@ -322,8 +334,9 @@ pub(super) fn run(
     };
     let fetch = !up_to_date && !archives.contains_key(&label) && (args.download || !args.dry_run);
     if fetch && blockers.is_empty() {
+        let planned = planned_source(&target);
         if !download::downloadable(&target) {
-            let source = acquisition(target.package.primary_source());
+            let source = acquisition(planned);
             bail!("{label}: {source}, then use modn update {label} --file <archive>");
         }
         state.validate_download(cache.root(), &protected)?;
@@ -331,7 +344,7 @@ pub(super) fn run(
             let download = format!(
                 "{label} {}; {}",
                 target.package.version,
-                acquisition(target.package.primary_source())
+                acquisition(planned)
             );
             if !install_consent::confirm_download(
                 &[download],
@@ -347,6 +360,7 @@ pub(super) fn run(
             &[&target],
             &mut archives,
             &mut digests,
+            &mut served,
             &args.nxm_links,
             json,
             progress,
@@ -394,7 +408,7 @@ pub(super) fn run(
             .map(|candidate| FileChanges::new(&old, &candidate.plan)),
         plan: candidate.as_ref().map(|candidate| &candidate.plan),
         archive_needed: (archive.is_none() && !up_to_date)
-            .then(|| acquisition(target.package.primary_source())),
+            .then(|| acquisition(planned_source(&target))),
         dependents: &dependents,
         blockers: &blockers,
         unapproved_declared_executables: candidate
@@ -442,8 +456,10 @@ pub(super) fn run(
     let mut store = state.open_writable(&protected)?;
     store.set_control(progress.control().clone());
     store.set_history_context(
-        HistoryContext::new(game_id.clone(), game.clone())
-            .with_source(&reference, target.package.primary_source().clone()),
+        HistoryContext::new(game_id.clone(), game.clone()).with_source(
+            &reference,
+            download::serving_source(&label, &supplied, &served, target.package.primary_source()),
+        ),
     );
     let package = store.update_catalog_release(
         &game,

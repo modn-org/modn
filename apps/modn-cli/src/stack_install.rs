@@ -9,7 +9,7 @@ use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse, SourceAttempt};
 use modn_core::approval::Capabilities;
-use modn_core::buckets::{BucketPackage, BucketSnapshot};
+use modn_core::buckets::{BucketPackage, BucketSnapshot, PackageSource};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
 use modn_core::planning::{
@@ -26,6 +26,8 @@ pub(super) struct Stack<'a> {
     pub(super) dependencies: &'a [PlannedDependency],
     pub(super) archives: BTreeMap<String, PathBuf>,
     pub(super) digests: BTreeMap<String, String>,
+    pub(super) served: BTreeMap<String, PackageSource>,
+    pub(super) supplied: BTreeMap<String, PathBuf>,
     pub(super) catalog: &'a BucketSnapshot,
     pub(super) cache: &'a ArchiveCache,
     pub(super) cache_use: CacheUse,
@@ -88,11 +90,13 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
                     .contains_key(&reference_of(release).to_string())
         })
         .map(|release| {
+            let planned = dependency_plan::fetchable_source(&release.package.sources)
+                .unwrap_or(release.package.primary_source());
             format!(
                 "  dependency not installed: {} {}; {}",
                 reference_of(release),
                 release.package.version,
-                dependency_plan::acquisition(release.package.primary_source())
+                dependency_plan::acquisition(planned)
             )
         })
         .collect();
@@ -122,10 +126,14 @@ pub(super) fn run(
     let releases = releases(&stack)?;
     let mut history = HistoryContext::new(stack.game_id.clone(), stack.installation.clone());
     for release in &releases {
-        history = history.with_source(
-            &reference_of(release),
-            release.package.primary_source().clone(),
+        let reference = reference_of(release);
+        let source = download::serving_source(
+            &reference.to_string(),
+            &stack.supplied,
+            &stack.served,
+            release.package.primary_source(),
         );
+        history = history.with_source(&reference, source);
     }
     download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes && !progress.enabled();
@@ -178,7 +186,9 @@ pub(super) fn run(
             let download = if stack.archives.contains_key(&reference) {
                 String::new()
             } else {
-                match download::source_label(release) {
+                let planned = dependency_plan::fetchable_source(&release.package.sources)
+                    .unwrap_or(release.package.primary_source());
+                match download::source_label(planned) {
                     Some(source) => format!(" (downloads its archive from {source})"),
                     None => " (downloads its archive)".to_owned(),
                 }
@@ -202,6 +212,7 @@ pub(super) fn run(
         &releases,
         &mut stack.archives,
         &mut stack.digests,
+        &mut stack.served,
         &args.nxm_links,
         json,
         progress,

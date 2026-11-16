@@ -393,7 +393,7 @@ fn a_failed_git_first_source_falls_back_to_the_next_git_source() {
         &fixture,
         fixture.temp.path(),
         serde_json::json!([
-            {"kind": "git", "repository": "fixture/missing", "commit": repository.commit},
+            {"kind": "git", "repository": "fixture/missing", "commit": repository.later},
             {"kind": "git", "repository": "fixture/project", "commit": repository.commit}
         ]),
     );
@@ -422,6 +422,31 @@ fn a_failed_git_first_source_falls_back_to_the_next_git_source() {
             .any(|line| line.contains("git fixture/project commit ")
                 && line.trim_end().ends_with(": ok")),
         "the report omits the serving Git source: {stderr}"
+    );
+    assert!(fixture.game.join("addons/git-source.plugin").is_file());
+
+    let history = fixture.run(&["--json", "history"]);
+    assert!(history.status.success(), "{}", error(&history));
+    let operations: Value = serde_json::from_slice(&history.stdout).expect("history JSON");
+    let source = &operations[0]["packages"][0]["release_after"]["source"];
+    assert_eq!(source["repository"], "fixture/project");
+    assert_eq!(source["commit"], repository.commit.as_str());
+
+    let removed = fixture.run(&[
+        "uninstall",
+        "git-package",
+        "--path",
+        &game,
+        "--yes",
+    ]);
+    assert!(removed.status.success(), "{}", error(&removed));
+    assert!(!fixture.game.join("addons/git-source.plugin").exists());
+
+    let undone = fixture.run(&["undo", "--yes"]);
+    assert!(
+        undone.status.success(),
+        "undo must find the archive of the serving Git source: {}",
+        error(&undone)
     );
     assert!(fixture.game.join("addons/git-source.plugin").is_file());
 }

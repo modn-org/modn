@@ -13,8 +13,8 @@ use crate::nexus_auth;
 use crate::nxm::NxmLink;
 use crate::progress::Progress;
 use modn_core::acquisition::{
-    ArchiveCache, CacheUse, FetchError, NexusFile, SourceAttempt, SourceFailure, SourcePolicy,
-    SourcesError,
+    ArchiveCache, CacheUse, FetchError, GitSource, NexusFile, SourceAttempt, SourceFailure,
+    SourcePolicy, SourcesError,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::error::{code_of, ErrorCode};
@@ -34,6 +34,7 @@ pub(crate) fn download(
     releases: &[&BucketPackage],
     archives: &mut BTreeMap<String, PathBuf>,
     digests: &mut BTreeMap<String, String>,
+    served: &mut BTreeMap<String, PackageSource>,
     links: &[NxmLink],
     json: bool,
     progress: &Progress,
@@ -46,6 +47,7 @@ pub(crate) fn download(
         releases,
         archives,
         digests,
+        served,
         links,
         text,
         &mut report,
@@ -63,6 +65,7 @@ pub(super) fn download_into(
     releases: &[&BucketPackage],
     archives: &mut BTreeMap<String, PathBuf>,
     digests: &mut BTreeMap<String, String>,
+    served: &mut BTreeMap<String, PackageSource>,
     links: &[NxmLink],
     text: bool,
     report: &mut dyn Write,
@@ -78,18 +81,19 @@ pub(super) fn download_into(
             continue;
         }
         if cache_use == CacheUse::Reuse {
-            if let Some((path, digest)) = cached(cache, release)? {
+            if let Some((path, digest, source)) = cached_archive(cache, release)? {
                 archives.insert(reference.clone(), path);
                 if let Some(digest) = digest {
-                    digests.insert(reference, digest);
+                    digests.insert(reference.clone(), digest);
                 }
+                served.insert(reference, source);
                 continue;
             }
         }
         let first = attempts.len();
-        let mut served = false;
+        let mut served_now = false;
         let mut specific: Option<anyhow::Error> = None;
-        for planned in fallback::plan(release) {
+        for (planned, source) in fallback::plan(release) {
             control.checkpoint()?;
             match planned {
                 Planned::Git { repository, commit } => {
@@ -120,7 +124,8 @@ pub(super) fn download_into(
                             );
                             archives.insert(reference.clone(), archive.path);
                             digests.insert(reference.clone(), archive.blake3);
-                            served = true;
+                            served.insert(reference.clone(), source.clone());
+                            served_now = true;
                             break;
                         }
                         Err(error) if cancelled(&error) => return Err(error),
@@ -177,7 +182,8 @@ pub(super) fn download_into(
                                 SourceAttempt::ok(label, 1),
                             );
                             archives.insert(reference.clone(), path);
-                            served = true;
+                            served.insert(reference.clone(), source.clone());
+                            served_now = true;
                             break;
                         }
                         Err(error) if cancelled(&error) => return Err(error),
@@ -222,7 +228,8 @@ pub(super) fn download_into(
                                 attempts.push(attempt);
                             }
                             archives.insert(reference.clone(), outcome.acquired.path);
-                            served = true;
+                            served.insert(reference.clone(), source.clone());
+                            served_now = true;
                             break;
                         }
                         Err(error) if cancelled(&error) => return Err(error),
@@ -243,7 +250,7 @@ pub(super) fn download_into(
                 }
             }
         }
-        if !served && attempts.len() > first {
+        if !served_now && attempts.len() > first {
             // A lone Git or Nexus source keeps its own error and code; with
             // other attempts, one error names every source that failed.
             if attempts.len() == first + 1 {
@@ -262,30 +269,62 @@ pub(super) fn download_into(
 
 /// Return a verified cache entry for `release`, in source list order.
 ///
-/// A Git entry also reports the packed digest that its name records.
-fn cached(
+/// Every source is probed with its own cache key before any network or
+/// credential step runs. A Git entry also reports the packed digest that its
+/// name records. The returned source supplied the cached archive.
+pub(super) fn cached_archive(
     cache: &ArchiveCache,
     release: &BucketPackage,
-) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
-    if let Some(archive) = git_source::cached(cache, release)? {
-        return Ok(Some((archive.path, Some(archive.blake3))));
-    }
-    if let PackageSource::Nexus {
-        game_domain,
-        mod_id,
-        file_id,
-        file_name,
-    } = release.package.primary_source()
-    {
-        let url = NexusFile::new(game_domain, *mod_id, *file_id, file_name)?.cache_url();
-        if let Some(path) = cache.cached(&key(release, &url))? {
-            return Ok(Some((path, None)));
+) -> anyhow::Result<Option<(PathBuf, Option<String>, PackageSource)>> {
+    // A source-specific entry proves which source stored those bytes.
+    for source in &release.package.sources {
+        match source {
+            PackageSource::Git { repository, commit } => {
+                let git = GitSource::new(repository.clone(), commit.clone());
+                if let Some(archive) = git_source::cached_source(cache, release, &git)? {
+                    return Ok(Some((archive.path, Some(archive.blake3), source.clone())));
+                }
+            }
+            _ => {
+                let Some(url) = fallback::cache_url(source)? else {
+                    continue;
+                };
+                let key = key(release, &url);
+                let expected = cache.path(&key);
+                if !expected.is_file() {
+                    continue;
+                }
+                if let Some(path) = cache.cached(&key)? {
+                    if path == expected {
+                        return Ok(Some((path, None, source.clone())));
+                    }
+                }
+            }
         }
     }
-    for url in fallback::urls(release) {
-        if let Some(path) = cache.cached(&key(release, &url))? {
-            return Ok(Some((path, None)));
-        }
+    // No source-specific entry: a verified entry with the same pin may hold
+    // the bytes under another source's name. Name the source that owns it.
+    for source in &release.package.sources {
+        let Some(url) = fallback::cache_url(source)? else {
+            continue;
+        };
+        let probe = key(release, &url);
+        let Some(path) = cache.cached(&probe)? else {
+            continue;
+        };
+        let owner = release
+            .package
+            .sources
+            .iter()
+            .find(|candidate| {
+                fallback::cache_url(candidate)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|url| cache.path(&key(release, &url)) == path)
+            })
+            .cloned()
+            .unwrap_or_else(|| source.clone());
+        return Ok(Some((path, None, owner)));
     }
     Ok(None)
 }

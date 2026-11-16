@@ -100,7 +100,8 @@ pub(super) fn plan(
                 blake3: download::digest(release, digests)
                     .unwrap_or_default()
                     .to_owned(),
-                source: release.package.primary_source().clone(),
+                source: planned_source(&release.package.sources, release.package.primary_source())
+                    .clone(),
                 state,
             }
         })
@@ -203,6 +204,21 @@ fn planned_source<'a>(
     fetchable_source(sources).unwrap_or(primary)
 }
 
+/// The download consent line for one release that still needs its archive.
+///
+/// It names the same fetchable source that the dry-run report selects.
+pub(super) fn download_line(
+    reference: &str,
+    version: &str,
+    sources: &[PackageSource],
+    primary: &PackageSource,
+) -> String {
+    format!(
+        "{reference} {version}; {}",
+        acquisition(planned_source(sources, primary))
+    )
+}
+
 pub(super) struct ArchivePreview<'a> {
     pub(super) plan: &'a InstallPlan,
     pub(super) unapproved_declared_executables: &'a [String],
@@ -281,7 +297,7 @@ fn report_json(
     Ok(serde_json::json!({
         "package": report.reference,
         "version": report.version,
-        "source": report.primary.clone(),
+        "source": planned_source(report.sources, report.primary).clone(),
         "sources": source_labels(report.sources),
         "plan": archive.as_ref().map(|preview| preview.plan),
         "archive_needed": archive
