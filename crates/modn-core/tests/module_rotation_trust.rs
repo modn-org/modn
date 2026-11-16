@@ -140,7 +140,20 @@ impl Catalog {
         .expect("manifest");
         fs::write(
             directory.join("module.lua"),
-            format!("return {{game_id='fixture-game', api_version=3, version='{version}'}}"),
+            format!(
+                "return {{
+    game_id = 'fixture-game',
+    api_version = 3,
+    version = '{version}',
+    marker = 'fixture',
+    validate = function() return true end,
+    scan = function(limit)
+        return {{incomplete=false, scan_issues={{}}, redmod_available=false,
+            mods={{}}, framework_signals={{}}}}
+    end,
+    doctor = function(input) return {{}} end,
+}}"
+            ),
         )
         .expect("script");
     }
@@ -189,6 +202,25 @@ fn next_key() -> (KeyPair, String, String) {
     (pair, public, key_id)
 }
 
+/// True when `doctor` reports the active module's bucket as untrusted.
+fn doctor_reports_untrusted() -> bool {
+    let root = tempfile::tempdir().expect("root");
+    let installation = root.path().join("game");
+    fs::create_dir_all(&installation).expect("installation");
+    let store =
+        modn_core::state::Store::open(&root.path().join("state/state.sqlite")).expect("state");
+    modn_core::inventory::doctor_with_ownership_appdata(
+        &store,
+        "fixture-game",
+        &installation,
+        None,
+    )
+    .expect("doctor")
+    .diagnostics
+    .iter()
+    .any(|diagnostic| diagnostic.code == "MODULE_SOURCE_UNTRUSTED")
+}
+
 #[test]
 fn a_key_rotation_keeps_a_retained_module_release_usable() {
     main_bucket::seeded(|| {
@@ -232,6 +264,10 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
 
         modn_core::game_modules::content_root_spec("fixture-game")
             .expect("a rotation keeps the retained release usable");
+        assert!(
+            !doctor_reports_untrusted(),
+            "doctor accepts a release kept under a previous signer"
+        );
         let trusted = store.trusted_module_sources().expect("trusted sources");
         assert_eq!(trusted.len(), 1);
         assert_eq!(trusted[0].signer_key_id, next_key_id);
@@ -299,6 +335,10 @@ fn a_revocation_keeps_the_revoked_release_untrusted() {
             .expect_err("a release imported under the revoked key stays untrusted")
             .to_string();
         assert!(error.contains("not a trusted module source"), "{error}");
+        assert!(
+            doctor_reports_untrusted(),
+            "doctor refuses a release signed by the revoked key"
+        );
 
         catalog.write_module("2.0.0");
         sign_catalog(catalog.directory.path(), &next_pair);

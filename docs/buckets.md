@@ -108,13 +108,20 @@ primary and the output names the failed primary and the serving mirror.
 Every verified revision replaces the stored mirror list with its own list.
 
 A verified revision whose catalog digest (ZIP) or commit (Git) matches the
-registered revision reuses the registered snapshot and discards the staging
-copy. A changed revision publishes a new snapshot. After the registration write
-succeeds, sync removes the superseded ZIP snapshot and keeps only the active
-one. Git keeps one tree per commit. When a step after the registration switch
-fails, for example a staged game module cannot be committed, sync restores the
-previous registration and removes the new snapshot, so the previous catalog
-files and registration stay byte for byte.
+registered revision, and whose `catalog.pub` and `catalog.sig` bytes match too,
+reuses the registered snapshot and discards the staging copy. A changed digest
+or a changed signer publishes a new snapshot. Sync records the superseded tree
+as retired and does not delete it in that run: `bucket list`, `bucket show` and
+`install` read a registration and then open the tree it names without the sync
+lock, so a tree outlives the registration switch that replaced it. The next
+sync of any catalog in that store removes retired trees while it holds the sync
+lock, and it never removes a tree that a registration names. `bucket remove`
+deletes a store-created tree for that bucket after the registration file is
+gone; a local folder source and a tree that another registration names stay.
+When a step after the registration switch fails, for example a staged game
+module cannot be committed, sync restores the previous registration and removes
+the new snapshot. If the restore itself fails, sync keeps the new tree, because
+the registration may still point at it, and reports both errors.
 
 After a revision verifies with the pinned key, a `relocation.json` whose primary
 differs from the registered primary publishes the catalog and updates the

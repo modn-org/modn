@@ -228,6 +228,7 @@ impl BucketStore {
             "catalog sync already running",
             LOCK_WAIT,
         )?;
+        self.purge_retired_catalog_snapshots();
         let previous = self.zip_revision(name)?;
         if previous.is_none() && self.registrations()?.contains_key(name) {
             bail!(
@@ -334,7 +335,10 @@ impl BucketStore {
         };
         let unchanged = previous
             .as_ref()
-            .is_some_and(|previous| previous.digest == revision.digest);
+            .is_some_and(|previous| previous.digest == revision.digest)
+            && previous_registration.as_ref().is_some_and(|registration| {
+                super::git::same_signing_files(&registration.path, &catalog)
+            });
         let published_path = match (&previous_registration, unchanged) {
             (Some(registration), true) => registration.path.clone(),
             _ => catalog.clone(),
@@ -375,13 +379,17 @@ impl BucketStore {
                 Ok(imported) => imported,
                 Err(error) => {
                     let restored = self.restore_registration(name, registration_before.as_deref());
-                    if let Some(retained) = &retained {
-                        let _ = fs::remove_dir_all(retained);
-                    }
                     return match restored {
-                        Ok(()) => Err(error),
+                        // Only the restored registration justifies removing the
+                        // new tree: a failed restore may leave it referenced.
+                        Ok(()) => {
+                            if let Some(retained) = &retained {
+                                let _ = fs::remove_dir_all(retained);
+                            }
+                            Err(error)
+                        }
                         Err(restore_error) => Err(error.context(format!(
-                            "the previous registration could not be restored: {restore_error:#}"
+                            "the previous registration could not be restored; the new catalog tree is kept: {restore_error:#}"
                         ))),
                     };
                 }

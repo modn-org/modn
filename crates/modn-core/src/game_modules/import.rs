@@ -13,10 +13,20 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Test seam: the next catalog module commit fails before moving any release.
+/// Test seam: the next catalog module commit fails for one registry root.
 #[cfg(test)]
-pub(crate) static FAIL_NEXT_CATALOG_COMMIT: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+pub(crate) static FAIL_NEXT_CATALOG_COMMIT: std::sync::Mutex<BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(BTreeSet::new());
+
+/// Consume an armed failure for `root`. Other registries keep their outcome.
+#[cfg(test)]
+fn injected_commit_failure(root: &Path) -> bool {
+    let mut armed = match FAIL_NEXT_CATALOG_COMMIT.lock() {
+        Ok(armed) => armed,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    armed.remove(root)
+}
 
 mod catalog;
 mod staging;
@@ -185,7 +195,7 @@ impl StagedCatalogImport {
             ignored: _,
         } = self;
         #[cfg(test)]
-        if FAIL_NEXT_CATALOG_COMMIT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        if injected_commit_failure(&registry.root()) {
             drop(staging);
             bail!("injected catalog module commit failure");
         }
@@ -354,5 +364,25 @@ mod tests {
         );
         assert!(fs::symlink_metadata(&old_target).is_err());
         assert!(old_staged.join("module.json").is_file());
+    }
+
+    #[test]
+    fn an_armed_commit_failure_is_scoped_to_one_registry() {
+        let here = PathBuf::from("fixture-registry-here");
+        let elsewhere = PathBuf::from("fixture-registry-elsewhere");
+        *super::FAIL_NEXT_CATALOG_COMMIT
+            .lock()
+            .expect("seam") = BTreeSet::from([here.clone()]);
+        let (armed, other) = std::thread::scope(|scope| {
+            let first = scope.spawn(|| super::injected_commit_failure(&here));
+            let second = scope.spawn(|| super::injected_commit_failure(&elsewhere));
+            (first.join().expect("thread"), second.join().expect("thread"))
+        });
+        assert!(armed, "the armed registry consumes the failure");
+        assert!(!other, "another registry keeps its own outcome");
+        assert!(
+            !super::injected_commit_failure(&here),
+            "the failure fires once"
+        );
     }
 }
