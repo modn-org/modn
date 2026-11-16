@@ -227,6 +227,10 @@ impl<'a> ReportInput<'a> {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "A dry-run report keeps the selected release, plan and attempts explicit"
+)]
 pub(super) fn report(
     reference: &str,
     selected: &BucketPackage,
