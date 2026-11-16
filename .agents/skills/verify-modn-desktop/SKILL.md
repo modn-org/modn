@@ -1,6 +1,6 @@
 ---
 name: verify-modn-desktop
-description: "Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z.""
+description: "Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z."
 ---
 
 # Verify Modn Desktop
