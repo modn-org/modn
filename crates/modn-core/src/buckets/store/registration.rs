@@ -21,22 +21,58 @@ impl BucketStore {
         {
             bail!("injected registration write failure");
         }
+        let bytes = serde_json::to_vec(registration)?;
+        if bytes.len() as u64 > MAX_JSON {
+            bail!("bucket registration exceeds size limit");
+        }
+        self.write_registration_bytes(name, &bytes)
+    }
+
+    /// Atomically write exact registration bytes, bypassing the test seam.
+    fn write_registration_bytes(&self, name: &str, bytes: &[u8]) -> Result<()> {
         let dir = self.root.join("registrations");
         if let Ok(meta) = fs::symlink_metadata(&dir) {
             if !meta.is_dir() || meta.file_type().is_symlink() {
                 bail!("unsafe bucket registry");
             }
         }
-        let bytes = serde_json::to_vec(registration)?;
-        if bytes.len() as u64 > MAX_JSON {
-            bail!("bucket registration exceeds size limit");
-        }
         fs::create_dir_all(&dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
-        temp.as_file_mut().write_all(&bytes)?;
+        temp.as_file_mut().write_all(bytes)?;
         temp.as_file().sync_all()?;
         temp.persist(dir.join(format!("{name}.json")))?;
         Ok(())
+    }
+
+    /// The stored registration bytes, or `None` when the bucket is not registered.
+    pub(in crate::buckets) fn stored_registration_bytes(
+        &self,
+        name: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        match fs::read(self.root.join("registrations").join(format!("{name}.json"))) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Put a registration file back exactly as it was, or remove it when it did not exist.
+    pub(in crate::buckets) fn restore_registration(
+        &self,
+        name: &str,
+        bytes: Option<&[u8]>,
+    ) -> Result<()> {
+        match bytes {
+            Some(bytes) => self.write_registration_bytes(name, bytes),
+            None => {
+                let path = self.root.join("registrations").join(format!("{name}.json"));
+                match fs::remove_file(path) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(error.into()),
+                }
+            }
+        }
     }
 
     pub(in crate::buckets) fn registered_git(

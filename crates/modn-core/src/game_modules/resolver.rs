@@ -84,7 +84,11 @@ fn ensure_source_trusted(store: &BucketStore, game: &str, source: &ModuleSource)
         return Ok(());
     }
     let trusted = store.trusted_module_sources()?.into_iter().any(|trusted| {
-        trusted.bucket == bucket && Some(&trusted.signer_key_id) == source.signer_key_id.as_ref()
+        trusted.bucket == bucket
+            && source
+                .signer_key_id
+                .as_deref()
+                .is_some_and(|signer| trusted.authorizes(signer))
     });
     if !trusted {
         bail!(

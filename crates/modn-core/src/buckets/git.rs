@@ -213,7 +213,8 @@ impl BucketStore {
     /// Explicitly fetch, check out, verify and validate a community catalog before publication.
     /// New catalogs require `source`; updates reuse the registered source when it is absent.
     /// A failed fetch, checkout, verification or validation leaves the old registration and tree intact.
-    /// Publication atomically replaces one registration file. Old trees are retained.
+    /// Publication atomically replaces one registration file. An unchanged commit reuses
+    /// the published tree; a new commit keeps its own tree.
     pub fn sync_git(
         &self,
         name: &str,
@@ -326,6 +327,18 @@ impl BucketStore {
             signer: verification.signer,
         };
         let key_change = verification.key_change;
+        let previous_registration = match &previous {
+            Some(_) => Some(self.registration(name)?),
+            None => None,
+        };
+        let unchanged = previous
+            .as_ref()
+            .is_some_and(|previous| previous.commit == revision.commit);
+        let published_path = match (&previous_registration, unchanged) {
+            (Some(registration), true) => registration.path.clone(),
+            _ => catalog.clone(),
+        };
+        let registration_before = self.stored_registration_bytes(name)?;
         let staged = if trust == ModuleTrustState::Trusted {
             Some(stage_catalog_modules_at(
                 &crate::data_dir::profile_directory()?,
@@ -342,14 +355,32 @@ impl BucketStore {
         };
         self.publish_git(
             name,
-            catalog,
+            published_path,
             revision.clone(),
             mirrors.clone(),
             trust == ModuleTrustState::Trusted,
         )?;
-        let _retained = stage.keep();
+        let retained = if unchanged && previous_registration.is_some() {
+            None
+        } else {
+            Some(stage.keep())
+        };
         let imported = match staged {
-            Some(staged) => staged.commit()?,
+            Some(staged) => match staged.commit() {
+                Ok(imported) => imported,
+                Err(error) => {
+                    let restored = self.restore_registration(name, registration_before.as_deref());
+                    if let Some(retained) = &retained {
+                        let _ = fs::remove_dir_all(retained);
+                    }
+                    return match restored {
+                        Ok(()) => Err(error),
+                        Err(restore_error) => Err(error.context(format!(
+                            "the previous registration could not be restored: {restore_error:#}"
+                        ))),
+                    };
+                }
+            },
             None => Vec::new(),
         };
         Ok(GitCatalogSync {
@@ -388,6 +419,8 @@ fn clone_catalog(attempt: &Path, source: &GitCatalogSource) -> Result<(PathBuf, 
     Ok((catalog, commit))
 }
 
+#[cfg(test)]
+mod snapshot_tests;
 #[cfg(test)]
 mod statement_tests;
 #[cfg(test)]

@@ -13,6 +13,11 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Test seam: the next catalog module commit fails before moving any release.
+#[cfg(test)]
+pub(crate) static FAIL_NEXT_CATALOG_COMMIT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 mod catalog;
 mod staging;
 
@@ -179,6 +184,11 @@ impl StagedCatalogImport {
             mut reports,
             ignored: _,
         } = self;
+        #[cfg(test)]
+        if FAIL_NEXT_CATALOG_COMMIT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            drop(staging);
+            bail!("injected catalog module commit failure");
+        }
         let mut moved = Vec::with_capacity(staged.len());
         let mut switched = Vec::new();
         let mut created = Vec::new();

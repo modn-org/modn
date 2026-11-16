@@ -107,6 +107,15 @@ When a mirror serves the revision, the registration keeps the registered
 primary and the output names the failed primary and the serving mirror.
 Every verified revision replaces the stored mirror list with its own list.
 
+A verified revision whose catalog digest (ZIP) or commit (Git) matches the
+registered revision reuses the registered snapshot and discards the staging
+copy. A changed revision publishes a new snapshot. After the registration write
+succeeds, sync removes the superseded ZIP snapshot and keeps only the active
+one. Git keeps one tree per commit. When a step after the registration switch
+fails, for example a staged game module cannot be committed, sync restores the
+previous registration and removes the new snapshot, so the previous catalog
+files and registration stay byte for byte.
+
 After a revision verifies with the pinned key, a `relocation.json` whose primary
 differs from the registered primary publishes the catalog and updates the
 registration's primary in one atomic registration write. The output says
@@ -199,9 +208,15 @@ Sync accepts a rotation when all of these hold:
   bytes, and `catalog.sig` verifies with it.
 
 Sync then pins the public key text from the signed statement, not the revision's
-`catalog.pub`, and records the old key ID in `previous_signers`. The old key
-vouched for the new key, so module trust follows the new signer. The output
-prints `signing key rotated: <old> -> <new>`.
+`catalog.pub`, and records the old key ID in `previous_signers`. Modn also drops
+the new key ID from `previous_signers` and `revoked_signers`, so a rotation may
+name a key that an earlier rotation retired. The old key vouched for the new key,
+so module trust follows the new signer. The output prints
+`signing key rotated: <old> -> <new>`.
+
+A rotation that names a key in `revoked_signers` is refused. Only the offline
+revocation key can re-authorize a revoked key. The pinned key is never recorded
+as retired, so the current key always verifies its own revisions.
 
 Sync accepts a revocation when all of these hold:
 
@@ -211,7 +226,9 @@ Sync accepts a revocation when all of these hold:
   public key bytes, and `catalog.sig` verifies with it.
 
 Sync then pins the public key text from the signed statement and records the old
-key ID in `revoked_signers`. Module trust is cleared, because the user must
+key ID in `revoked_signers`. The replacement key ID is removed from both
+`previous_signers` and `revoked_signers`, so a revocation re-authorizes a key
+that an earlier rotation retired. Module trust is cleared, because the user must
 trust modules again explicitly. The output prints
 `signing key revoked: <old> replaced by <new>`.
 
@@ -224,9 +241,10 @@ differ from the pinned key or the key a statement names, and a revision signed b
 a key in `previous_signers` or `revoked_signers`. Every refusal keeps the
 previous registration and catalog byte for byte.
 
-A revision that repeats an already accepted statement is history, because its
-old key no longer matches the pin. The registration still records the BLAKE3 of
-the applied `rotation.json` or `revocation.json`.
+A revision that repeats a statement this pin already applied is history, because
+the registration records the BLAKE3 of the applied `rotation.json` or
+`revocation.json`. Such a revision syncs normally with the current key. A
+statement whose old key no longer matches the pin is also history.
 
 `bucket list --json` reports `signer_key_id`, `revocation_key_id` when pinned,
 and the `previous_signers` and `revoked_signers` arrays when non-empty.
@@ -297,7 +315,11 @@ signer key ID; a mismatch writes nothing.
 The trust record stores the signer key ID for the whole bucket. It does not
 record one game. A new game module in the same trusted bucket needs no new
 acknowledgement. A rotation keeps the trust record and moves it to the new key.
-A revocation clears the trust record, and its modules become untrusted.
+A retention release imported under the old key stays usable, because the old key
+vouched for the new one. A revocation clears the trust record, and its modules
+become untrusted. A module release imported under the revoked key also stays
+untrusted after `trust-modules` with the replacement key; publish a new release
+signed by the replacement key to supply module code again.
 
 `bucket untrust-modules` removes the trust record and leaves the bucket
 registered. Modules retained from that bucket are refused at use. Run

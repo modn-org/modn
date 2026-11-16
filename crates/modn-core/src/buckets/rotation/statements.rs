@@ -41,10 +41,23 @@ pub(in crate::buckets) fn apply_key_statements(
         statements.push(parse_revocation(catalog_name, body, signature)?);
     }
     let pinned_id = pinned.signer.key_id().to_string();
+    let applied: Vec<usize> = statements
+        .iter()
+        .enumerate()
+        .filter(|(_, statement)| {
+            pinned
+                .applied
+                .iter()
+                .any(|digest| *digest == body_digest(&statement.body))
+        })
+        .map(|(index, _)| index)
+        .collect();
     let applies: Vec<usize> = statements
         .iter()
         .enumerate()
-        .filter(|(_, statement)| statement.old_key_id.eq_ignore_ascii_case(&pinned_id))
+        .filter(|(index, statement)| {
+            !applied.contains(index) && statement.old_key_id.eq_ignore_ascii_case(&pinned_id)
+        })
         .map(|(index, _)| index)
         .collect();
     let ignored = statements
@@ -194,6 +207,11 @@ fn parse_rotation(catalog_name: &str, body: Vec<u8>, signature: String) -> Resul
     let new_key = CatalogPublicKey::parse(&statement.to).with_context(|| {
         format!("rotation statement for catalog {catalog_name} names an invalid key")
     })?;
+    if old_key_id.eq_ignore_ascii_case(&new_key.key_id().to_string()) {
+        bail!(
+            "rotation statement for catalog {catalog_name} names key {old_key_id} as both from and to; it changes nothing"
+        );
+    }
     Ok(Statement {
         kind: KeyChangeKind::Rotated,
         old_key_id,
@@ -217,6 +235,11 @@ fn parse_revocation(catalog_name: &str, body: Vec<u8>, signature: String) -> Res
     let new_key = CatalogPublicKey::parse(&statement.replacement).with_context(|| {
         format!("revocation statement for catalog {catalog_name} names an invalid replacement key")
     })?;
+    if old_key_id.eq_ignore_ascii_case(&new_key.key_id().to_string()) {
+        bail!(
+            "revocation statement for catalog {catalog_name} names key {old_key_id} as both revoked and replacement; it changes nothing"
+        );
+    }
     Ok(Statement {
         kind: KeyChangeKind::Revoked,
         old_key_id,

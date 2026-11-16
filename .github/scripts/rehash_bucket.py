@@ -235,6 +235,14 @@ def check_field_types(record: Record) -> None:
         raise RehashError(f"{record.filename}: field native_injector must be a boolean")
     if "homepage" in value and not isinstance(value["homepage"], str):
         raise RehashError(f"{record.filename}: field homepage must be a string")
+    if "executables" in value:
+        executables = value["executables"]
+        if not isinstance(executables, list) or not all(
+            isinstance(item, str) for item in executables
+        ):
+            raise RehashError(
+                f"{record.filename}: field executables must be a list of strings"
+            )
 
 
 def convert_record(record: Record) -> Converted:

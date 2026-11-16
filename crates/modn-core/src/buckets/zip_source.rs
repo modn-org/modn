@@ -328,6 +328,22 @@ impl BucketStore {
             signer: verification.signer,
         };
         let key_change = verification.key_change;
+        let previous_registration = match &previous {
+            Some(_) => Some(self.registration(name)?),
+            None => None,
+        };
+        let unchanged = previous
+            .as_ref()
+            .is_some_and(|previous| previous.digest == revision.digest);
+        let published_path = match (&previous_registration, unchanged) {
+            (Some(registration), true) => registration.path.clone(),
+            _ => catalog.clone(),
+        };
+        let superseded = match (&previous_registration, unchanged) {
+            (Some(registration), false) => Some(registration.path.clone()),
+            _ => None,
+        };
+        let registration_before = self.stored_registration_bytes(name)?;
         let staged = if trust == ModuleTrustState::Trusted {
             Some(stage_catalog_modules_at(
                 &crate::data_dir::profile_directory()?,
@@ -344,16 +360,37 @@ impl BucketStore {
         };
         self.publish_zip(
             name,
-            catalog,
+            published_path,
             revision.clone(),
             mirrors.clone(),
             trust == ModuleTrustState::Trusted,
         )?;
-        let _retained = stage.keep();
+        let retained = if unchanged && previous_registration.is_some() {
+            None
+        } else {
+            Some(stage.keep())
+        };
         let imported = match staged {
-            Some(staged) => staged.commit()?,
+            Some(staged) => match staged.commit() {
+                Ok(imported) => imported,
+                Err(error) => {
+                    let restored = self.restore_registration(name, registration_before.as_deref());
+                    if let Some(retained) = &retained {
+                        let _ = fs::remove_dir_all(retained);
+                    }
+                    return match restored {
+                        Ok(()) => Err(error),
+                        Err(restore_error) => Err(error.context(format!(
+                            "the previous registration could not be restored: {restore_error:#}"
+                        ))),
+                    };
+                }
+            },
             None => Vec::new(),
         };
+        if let Some(superseded) = superseded {
+            self.retire_catalog_snapshot(&superseded);
+        }
         Ok(ZipCatalogSync {
             revision,
             pinned,
@@ -407,5 +444,7 @@ impl BucketStore {
 }
 #[cfg(test)]
 mod key_tests;
+#[cfg(test)]
+mod snapshot_tests;
 #[cfg(test)]
 mod tests;

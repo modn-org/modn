@@ -322,6 +322,7 @@ fn install_mod(
             &dependencies,
             &conflicts,
             Some(&check),
+            &download_attempts,
             json,
         );
     };
@@ -378,6 +379,7 @@ fn install_mod(
             &dependencies,
             &conflicts,
             Some(&check),
+            &download_attempts,
             json,
         );
     }

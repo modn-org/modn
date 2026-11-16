@@ -87,10 +87,13 @@ impl CatalogSigner {
         text: String,
     ) -> Self {
         let mut signer = self.clone();
+        signer.forget_retired(&change.to);
+        signer.forget_retired(&change.from);
         signer.previous_signers.push(change.from.clone());
         signer.key_id = change.to.clone();
         signer.public_key = text;
         signer.applied_rotation = Some(change.body_digest.clone());
+        signer.assert_pinned_not_retired();
         signer
     }
 
@@ -100,11 +103,43 @@ impl CatalogSigner {
         text: String,
     ) -> Self {
         let mut signer = self.clone();
+        signer.forget_retired(&change.to);
+        signer.forget_retired(&change.from);
         signer.revoked_signers.push(change.from.clone());
         signer.key_id = change.to.clone();
         signer.public_key = text;
         signer.applied_revocation = Some(change.body_digest.clone());
+        signer.assert_pinned_not_retired();
         signer
+    }
+
+    /// Drop one key identifier from both retired-key lists.
+    ///
+    /// A rotation or revocation statement that names an earlier key as its
+    /// successor re-authorizes that key: it is current again, not retired.
+    fn forget_retired(&mut self, key_id: &str) {
+        self.previous_signers
+            .retain(|retired| !retired.eq_ignore_ascii_case(key_id));
+        self.revoked_signers
+            .retain(|retired| !retired.eq_ignore_ascii_case(key_id));
+    }
+
+    fn is_retired(&self, key_id: &str) -> bool {
+        self.previous_signers
+            .iter()
+            .chain(self.revoked_signers.iter())
+            .any(|retired| retired.eq_ignore_ascii_case(key_id))
+    }
+
+    /// The current signer must never appear as retired.
+    ///
+    /// A pin whose current key is listed as retired refuses its own revisions,
+    /// so the rule is enforced here and checked by tests.
+    fn assert_pinned_not_retired(&self) {
+        debug_assert!(
+            !self.is_retired(&self.key_id),
+            "the pinned signing key must not be a retired key"
+        );
     }
 }
 
@@ -191,9 +226,17 @@ pub(in crate::buckets) fn verify_catalog_tree(
         revocation_public.as_ref().map(|(key, _)| key),
     )?;
     let catalog_name = crate::buckets::signature::catalog_name(root)?;
+    let applied: Vec<&str> = [
+        previous.applied_rotation.as_deref(),
+        previous.applied_revocation.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let keys = crate::buckets::rotation::PinnedKeys {
         signer: &pinned,
         revocation: pinned_revocation.as_ref(),
+        applied,
     };
     let outcome = crate::buckets::rotation::apply_key_statements(
         root,
@@ -216,6 +259,16 @@ pub(in crate::buckets) fn verify_catalog_tree(
     verify_catalog_directory(root, &change.new_key)?;
     let signer = match change.kind {
         crate::buckets::rotation::KeyChangeKind::Rotated => {
+            if previous
+                .revoked_signers
+                .iter()
+                .any(|revoked| revoked.eq_ignore_ascii_case(&change.to))
+            {
+                bail!(
+                    "Rotation statement for bucket {name} names key {}, which was revoked by the offline revocation key; only the offline revocation key can re-authorize a revoked key.",
+                    change.to
+                );
+            }
             previous.rotated_to(&change, change.new_key_text.clone())
         }
         crate::buckets::rotation::KeyChangeKind::Revoked => {

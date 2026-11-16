@@ -81,6 +81,30 @@ pub struct TrustedModuleSource {
     pub bucket: String,
     /// Pinned signer key ID accepted for module code.
     pub signer_key_id: String,
+    /// Keys that this catalog rotated away from, oldest first.
+    pub previous_signers: Vec<String>,
+    /// Keys that the offline revocation key revoked.
+    pub revoked_signers: Vec<String>,
+}
+
+impl TrustedModuleSource {
+    /// True when a retained module release signed by `key_id` stays authorized.
+    ///
+    /// A rotation carries trust from the old key to the new one, so a release
+    /// imported under an earlier signer stays usable. A revoked key never does:
+    /// only a release signed by the replacement key is accepted.
+    #[must_use]
+    pub fn authorizes(&self, key_id: &str) -> bool {
+        self.signer_key_id.eq_ignore_ascii_case(key_id)
+            || (self
+                .previous_signers
+                .iter()
+                .any(|previous| previous.eq_ignore_ascii_case(key_id))
+                && !self
+                    .revoked_signers
+                    .iter()
+                    .any(|revoked| revoked.eq_ignore_ascii_case(key_id)))
+    }
 }
 
 impl BucketStore {
@@ -258,6 +282,8 @@ impl BucketStore {
                 sources.push(TrustedModuleSource {
                     bucket,
                     signer_key_id: signer.key_id.clone(),
+                    previous_signers: signer.previous_signers.clone(),
+                    revoked_signers: signer.revoked_signers.clone(),
                 });
             }
         }
