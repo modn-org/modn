@@ -24,6 +24,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 /// Acquire the archive of every release the cache does not already hold.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the step keeps the cache, package set, report sink and cancellation explicit"
+)]
 pub(crate) fn download(
     cache: &ArchiveCache,
     cache_use: CacheUse,
@@ -252,19 +256,17 @@ fn cached(
     if let Some(archive) = git_source::cached(cache, release)? {
         return Ok(Some((archive.path, Some(archive.blake3))));
     }
-    match release.package.primary_source() {
-        PackageSource::Nexus {
-            game_domain,
-            mod_id,
-            file_id,
-            file_name,
-        } => {
-            let url = NexusFile::new(game_domain, *mod_id, *file_id, file_name)?.cache_url();
-            if let Some(path) = cache.cached(&key(release, &url))? {
-                return Ok(Some((path, None)));
-            }
+    if let PackageSource::Nexus {
+        game_domain,
+        mod_id,
+        file_id,
+        file_name,
+    } = release.package.primary_source()
+    {
+        let url = NexusFile::new(game_domain, *mod_id, *file_id, file_name)?.cache_url();
+        if let Some(path) = cache.cached(&key(release, &url))? {
+            return Ok(Some((path, None)));
         }
-        _ => {}
     }
     for url in fallback::urls(release) {
         if let Some(path) = cache.cached(&key(release, &url))? {

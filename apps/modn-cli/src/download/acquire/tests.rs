@@ -264,7 +264,6 @@ fn a_failed_nexus_attempt_is_reported_before_the_serving_https_source() {
 }
 
 const METADATA: &str = "https://api.github.com/repos/fixture/project/releases/tags/v1";
-const ASSET: &str = "https://github.com/fixture/project/releases/download/v1/example.zip";
 
 fn https_then_github(root: &Path, digest: &str) -> BucketPackage {
     package(
@@ -280,15 +279,6 @@ fn https_then_github(root: &Path, digest: &str) -> BucketPackage {
             }
         ]),
     )
-}
-
-fn github_metadata() -> Vec<u8> {
-    serde_json::to_vec(&json!({
-        "tag_name": "v1",
-        "html_url": "https://github.com/fixture/project/releases/tag/v1",
-        "assets": [{"name": "example.zip", "browser_download_url": ASSET}],
-    }))
-    .expect("metadata JSON")
 }
 
 #[test]

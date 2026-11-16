@@ -2,7 +2,7 @@
 //!
 //! Lookups read the commit-keyed cache only. A fetch runs only when the caller
 //! has explicit download or installation consent, like other remote sources.
-use anyhow::{bail, Result};
+use anyhow::Result;
 use modn_core::acquisition::{ArchiveCache, CacheUse, GitCacheKey, GitSource, Origin};
 use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::progress::{OperationControl, ProgressEvent};
@@ -87,18 +87,6 @@ fn entry_names(cache: &ArchiveCache, key: &GitCacheKey<'_>) -> Result<Vec<String
 /// Git. A cancellation observed after the fetch and pack finishes removes the
 /// newly fetched cache entry, or keeps a previous entry it replaced, so a
 /// cancelled install changes no cache state for either cache use.
-pub(super) fn acquire(
-    cache: &ArchiveCache,
-    release: &BucketPackage,
-    cache_use: CacheUse,
-    control: &OperationControl,
-) -> Result<GitArchive> {
-    let Some(source) = source(release) else {
-        bail!("{} is not a Git source", release.package.id);
-    };
-    acquire_source(cache, release, &source, cache_use, control)
-}
-
 /// Return a verified cached archive, or fetch `source`'s pinned commit.
 ///
 /// The ordered download loop names each Git source of a release, so the
