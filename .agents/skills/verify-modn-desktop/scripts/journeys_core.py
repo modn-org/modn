@@ -11,6 +11,7 @@ import time
 import uia
 from fixtures import PLAY_SOURCE, Fixture, image_pids, signed_copy, snapshot, stop_pid
 from harness import BINARIES, App, cli, click_until, test_backend_state
+from windows import watch_windows
 
 
 # ---------------------------------------------------------------- journeys
@@ -188,13 +189,15 @@ def diagnostics_copied(toast):
 
 
 DIAGNOSTICS_ATTEMPTS = 3
+PLAY_WINDOW_WATCH_SECONDS = 1.5
 
 
 def copy_diagnostics(session, fx):
-    """Clicks Copy diagnostics with the window in the foreground.
+    """Clicks Copy diagnostics with the window and the button focused.
 
-    The clipboard write fails when the window has no focus. The app then shows
-    its error toast, which says to try again. The click is repeated up to three
+    A UI Automation click does not focus the page, and the clipboard write
+    fails when the document has no focus. The app then shows its error toast,
+    which says to try again. The click is repeated up to three
     times, each after the error toast has expired. Every toast goes to
     `diagnostics-toast.txt`, and the caller fails the journey when none of them
     reports success.
@@ -202,6 +205,8 @@ def copy_diagnostics(session, fx):
     seen = []
     for _ in range(DIAGNOSTICS_ATTEMPTS):
         session.focus()
+        session.find(name="Copy diagnostics").SetFocus()
+        time.sleep(0.5)
         toast = click_until(
             session, "Copy diagnostics", (DIAGNOSTICS_COPIED, "Something went wrong")
         )
@@ -290,7 +295,7 @@ def journey_play(runner):
         while time.monotonic() < deadline and not started:
             started = image_pids(exe)
             if not started:
-                time.sleep(0.2)
+                time.sleep(0.05)
         seen_after = time.monotonic() - clicked
         (fx.evidence / "journey-play.json").write_text(
             json.dumps(
@@ -305,6 +310,8 @@ def journey_play(runner):
             encoding="utf-8",
         )
         runner.check(bool(started), f"Play did not start {exe}")
+        shown = watch_windows(started, PLAY_WINDOW_WATCH_SECONDS)
+        runner.check(not shown, f"The play fixture showed a window or dialog: {shown}")
         for pid in started:
             stop_pid(pid)
         deadline = time.monotonic() + 15
@@ -320,6 +327,7 @@ def journey_play(runner):
                     "image": str(exe),
                     "started_pids": started,
                     "first_seen_seconds": round(seen_after, 2),
+                    "fixture_windows": shown,
                     "stopped_pids": started,
                     "remaining_pids": remaining,
                     "snapshot_unchanged": snapshot(game) == before,

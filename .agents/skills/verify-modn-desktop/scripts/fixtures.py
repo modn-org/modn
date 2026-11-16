@@ -4,6 +4,7 @@ Every path lives under a fresh temporary directory. No real game, Steam
 library or `%LOCALAPPDATA%\\modn` state is read or written.
 """
 
+import ctypes
 import hashlib
 import json
 import os
@@ -11,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from ctypes import wintypes
 from pathlib import Path
 
 from bucket_fixture import write_main_bucket
@@ -25,11 +27,14 @@ CREATED = []
 
 # Signed Microsoft binaries used as fixture game files. Nothing is compiled, so
 # no unsigned executable exists for Defender to quarantine. `where.exe` is only
-# a marker file that detection and removal journeys never start. `mstsc.exe`
-# stays alive for more than three seconds when started with no arguments and no
-# console input, which the play journey proves by process image path.
+# a marker file that detection and removal journeys never start. `systeminfo.exe`
+# is a console program, so the hidden console of `modn play` gives it no window.
+# It reads system facts and stays alive for about three seconds with no
+# arguments, null stdio and the small environment the app forwards, which the
+# play journey proves by process image path. A copied GUI binary such as
+# `mstsc.exe` has no language resource file and shows an error dialog.
 MARKER_SOURCE = "where.exe"
-PLAY_SOURCE = "mstsc.exe"
+PLAY_SOURCE = "systeminfo.exe"
 
 
 def require(condition, message):
@@ -76,19 +81,33 @@ def signed_copy(target, source):
 
 
 def image_pids(image):
-    """Process ids whose full image path equals `image`, queried through CIM."""
-    env = dict(os.environ)
-    env["MODN_PROCESS_IMAGE"] = str(image)
-    result = run(
-        [
-            "powershell", "-NoProfile", "-NonInteractive", "-Command",
-            "@(Get-CimInstance Win32_Process | Where-Object "
-            "{ $_.ExecutablePath -ieq $env:MODN_PROCESS_IMAGE }).ProcessId",
-        ],
-        env=env,
+    """Process ids whose full image path equals `image`, read through Win32.
+
+    The lookup takes milliseconds, so a poll every 50 ms sees a process that
+    lives for one second. A CIM query takes more than one second and missed it.
+    """
+    kernel32 = ctypes.windll.kernel32
+    ids = (wintypes.DWORD * 8192)()
+    used = wintypes.DWORD()
+    require(
+        ctypes.windll.psapi.EnumProcesses(ids, ctypes.sizeof(ids), ctypes.byref(used)),
+        "Process lookup failed: EnumProcesses",
     )
-    require(result.returncode == 0, f"Process lookup failed: {result.stderr.strip()}")
-    return [int(line) for line in result.stdout.split() if line.strip().isdigit()]
+    wanted = os.path.normcase(os.path.realpath(str(image)))
+    found = []
+    for pid in ids[: used.value // ctypes.sizeof(wintypes.DWORD)]:
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            continue
+        try:
+            size = wintypes.DWORD(1024)
+            path = ctypes.create_unicode_buffer(1024)
+            if kernel32.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size)):
+                if os.path.normcase(os.path.realpath(path.value)) == wanted:
+                    found.append(pid)
+        finally:
+            kernel32.CloseHandle(handle)
+    return found
 
 
 def stop_pid(pid):

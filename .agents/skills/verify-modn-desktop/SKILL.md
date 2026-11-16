@@ -71,7 +71,7 @@ Each result carries the same `evidence` paths as a list.
 | 6 | `blocked` | the disabled button reads `Modn blocked this operation. Open details for the reason.` and opens no dialog | no backend text reaches the window tree | none |
 | 7 | `approval` | an ask reads `This change needs your approval.` with `Allow native code through the native injector.` or `Allow these executables:`; `Decline` writes nothing; a release that adds native code asks again | `state.sqlite` table `mod_approvals` stores one row per mod; CLI lists the version | an ask and a `Decline` change no game or content bytes; `Allow` writes the archive bytes |
 | 8 | `no-cli-output` | two scans run while the backend prints invalid JSON and then fails; the window stays open | `invalid fixture response` and `fixture refusal` never appear | none |
-| 9 | `play` | `Play balatro` starts the fixture executable; details show history; `Copy diagnostics` shows `Diagnostics copied.` after the window is brought to the foreground (up to three clicks, every toast kept in `diagnostics-toast.txt`) | the started process id is found by image path and stopped | the game folder is unchanged |
+| 9 | `play` | `Play balatro` starts the fixture executable; details show history; `Copy diagnostics` shows `Diagnostics copied.` after the window and the button take focus, because the clipboard write needs a focused document (up to three clicks, every toast kept in `diagnostics-toast.txt`) | the started process id is found by image path and stopped | the game folder is unchanged |
 | 10 | `remove` | `Remove from Modn` opens the native Yes/No dialog; `No` keeps the registration and `Yes` unregisters it | `modn game list` lists and then omits `balatro` | the game folder is unchanged after both answers |
 | 11 | `catalog` | a catalog install, an update to `Update available`, a toast undo and a genuine 7z install and uninstall each take one click | CLI lists version 1.0.0, then 2.0.0, then 1.0.0 | installed bytes match each release; undo and uninstall restore the earlier bytes |
 
@@ -108,10 +108,13 @@ journey passes `--state-dir`, `--data-dir` and, when the fixture has modules,
 A fixture that detects, registers or starts a game uses a byte copy of a signed
 Windows binary. Other fixtures write a short marker for an executable that no
 journey starts. Nothing is compiled, so no unsigned stub exists for Windows
-Defender to quarantine. The `play` journey copies `mstsc.exe`; it briefly shows
-a Remote Desktop Connection window and stops only the process id that `play`
+Defender to quarantine. The `play` journey copies `driverquery.exe`, a console
+program that lists drivers read-only. The hidden console of `modn play` gives it
+no window, and the journey fails when any visible window or dialog of the
+fixture image appears. The journey stops only the process id that `play`
 started. An earlier compiled stub was flagged as `Trojan:Win32/Bearfoos.A!ml`,
-a false positive. Never add a Defender exclusion.
+a false positive, and a copied `mstsc.exe` showed error dialogs. Never add a
+Defender exclusion.
 
 UI Automation addresses only the Modn window of the process id the verifier
 started. Other windows are never enumerated for interaction.

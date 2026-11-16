@@ -30,10 +30,11 @@ The real-CLI journeys register a fixture game with
 `Balatro.exe` under `steam/steamapps/common/Balatro`.
 
 For play, the fixture game folder holds a byte copy of the signed Windows
-binary `mstsc.exe`. That copy briefly shows a Remote Desktop Connection
-window. The journey finds the process id by image path and stops only that
-process id, so no real game ever starts and the store URI branch is never
-taken.
+binary `driverquery.exe`. That console program shows no window under the
+hidden console of `modn play`, and the journey fails when a visible window of
+the fixture image appears. The journey finds the process id by image path and
+stops only that process id, so no real game ever starts and the store URI
+branch is never taken.
 
 `MODN_STORE_LIBRARIES` names a JSON file (`{"steam_roots": [ … ]}`); the core
 reads that variable as a path, not as inline JSON.

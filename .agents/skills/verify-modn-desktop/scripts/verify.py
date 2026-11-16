@@ -117,6 +117,9 @@ class _FakeDiagnosticsSession:
     def focus(self):
         self.focused += 1
 
+    def find(self, **kwargs):
+        return type("Control", (), {"SetFocus": lambda control: None})()
+
     def click(self, name=None, **kwargs):
         self.line = self.toasts[self.clicks]
         self.clicks += 1
@@ -190,6 +193,34 @@ def selftest():
             not journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(failing, fx))
             and failing.clicks == journeys_core.DIAGNOSTICS_ATTEMPTS
         )
+
+    # The play fixture must show no window: the watcher reports one and the real
+    # enumerator runs on this desktop.
+    import windows  # noqa: PLC0415 - pure helpers only
+
+    results["fixture_window_is_reported"] = windows.watch_windows(
+        [1], 0.2, enum=lambda pids: ["Remote Desktop Connection"]
+    ) == ["Remote Desktop Connection"]
+    results["quiet_fixture_reports_no_window"] = windows.watch_windows([1], 0.2, enum=lambda pids: []) == []
+    results["window_enumeration_runs"] = windows.visible_windows_of([0]) == []
+
+    import fixtures  # noqa: PLC0415 - pure helpers only
+
+    with tempfile.TemporaryDirectory() as folder:
+        probe = fixtures.signed_copy(Path(folder) / "probe.exe", "ping.exe")
+        process = subprocess.Popen(
+            [str(probe), "-n", "3", "127.0.0.1"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        try:
+            time.sleep(0.3)
+            results["image_pids_finds_a_running_copy"] = fixtures.image_pids(probe) == [process.pid]
+        finally:
+            process.kill()
+            process.wait(timeout=10)
+        results["image_pids_is_empty_when_stopped"] = fixtures.image_pids(probe) == []
 
     # V1: the toast guard returns once the toast is gone and fails while it stays.
     harness.wait_toasts_gone(_FakeToastSession(0), "Undo done", "selftest", timeout=0.3)
