@@ -5,6 +5,7 @@ import sqlite3
 import time
 
 import uia
+from harness import wait_toasts_gone
 from lifecycle import _cli, _leaks
 
 TOAST_MESSAGES = ("Install done", "Uninstall done", "Update done", "Undo done")
@@ -142,11 +143,7 @@ def wait_toast_no_ask(session, message, context, timeout=90):
 
 def clear_toasts(session, timeout=15):
     """Lets a toast expire so the next wait cannot match a stale message."""
-    session.wait_for(
-        lambda s: not any(s.exists(name=message) for message in TOAST_MESSAGES),
-        "toasts to expire",
-        timeout=timeout,
-    )
+    wait_toasts_gone(session, TOAST_MESSAGES, "the next step", timeout)
 
 
 def check_bytes(runner, base, files, context):

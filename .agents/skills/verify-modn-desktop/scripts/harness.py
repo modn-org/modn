@@ -88,6 +88,26 @@ def lacks_test_overrides(cli):
 BINARIES = Binaries()
 
 
+def wait_toasts_gone(session, names, context, timeout=15):
+    """Waits until no control has one of `names`, so a later wait cannot match it.
+
+    A toast lives for eight seconds, and a toast action removes its toast before
+    the action runs. Two operations with the same toast text can overlap, and the
+    second wait would then return before its operation ends. Every toast guard
+    of the journeys uses this one helper.
+    """
+    if isinstance(names, str):
+        names = (names,)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not any(session.exists(name=name) for name in names):
+            return
+        time.sleep(0.1)
+    raise uia.Failure(
+        f"A toast named {list(names)!r} was still visible before {context} after {timeout} seconds"
+    )
+
+
 class App:
     """One launched `modn-desktop.exe`, addressed only by its process id."""
 

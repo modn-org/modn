@@ -11,6 +11,7 @@ import time
 import uia
 from catalog_fixture import add_catalog_release
 from fixtures import Fixture, snapshot
+from harness import wait_toasts_gone
 
 GAME_ID = "balatro"
 PICKER_TITLE = "Choose a local ZIP or 7z archive"
@@ -109,22 +110,6 @@ def _wait_toast(session, message, context, timeout=90):
         time.sleep(0.1)
     raise uia.Failure(
         f"Timed out waiting for {message!r} after {context}; last window text: {tree[-1500:]}"
-    )
-
-
-def _wait_toast_gone(session, message, context, timeout=12):
-    """Waits until no toast shows `message`, so a later wait cannot match it.
-
-    A toast lives for eight seconds. Two operations with the same toast text can
-    overlap, and the second wait would then return before its operation ends.
-    """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not session.exists(name=message):
-            return
-        time.sleep(0.1)
-    raise uia.Failure(
-        f"The toast {message!r} was still visible before {context} after {timeout} seconds"
     )
 
 
@@ -262,9 +247,10 @@ def journey_lifecycle(runner):
         lambda s: [c for c in s.find_all(name="Install Demo Pack") if c.IsEnabled],
         "enabled Install Demo Pack",
     )
-    # The archive install toast can still be visible. Wait it out so the next
-    # wait cannot match it before the catalog install finishes.
-    _wait_toast_gone(session, "Install done", "the catalog install")
+    # The `Undo` click of step 3 removed the archive install toast (toast.js
+    # removes a toast before it runs its action). Prove that no `Install done`
+    # toast remains, so the next wait can only match the catalog install.
+    wait_toasts_gone(session, "Install done", "the catalog install")
     session.click(name="Install Demo Pack")
     _wait_toast(session, "Install done", "catalog install")
     runner.check(_bytes_state(fx, game) == installed, "The catalog install wrote other bytes")
@@ -291,7 +277,7 @@ def journey_lifecycle(runner):
     runner.check(bool(matches), "History has no undo for the uninstall")
     # The toast undo of step 3 can still show "Undo done". Wait it out so the
     # history undo cannot return on the earlier toast.
-    _wait_toast_gone(session, "Undo done", "the history undo")
+    wait_toasts_gone(session, "Undo done", "the history undo")
     session.activate(matches[0])
     _wait_toast(session, "Undo done", "history undo")
     runner.check(

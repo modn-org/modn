@@ -12,6 +12,7 @@ from pathlib import Path
 import uia
 from catalog_fixture import add_catalog_release
 from fixtures import Fixture, require, run
+from harness import wait_toasts_gone
 from lifecycle import (
     GAME_ID,
     _app,
@@ -149,11 +150,7 @@ def journey_catalog(runner):
     _assert_clean_ui(runner, session, "catalog-1-install")
     # A toast action lives for eight seconds. Let the install toast expire so
     # the update toast is the only Undo on screen, and the click is unambiguous.
-    session.wait_for(
-        lambda s: not s.exists(name="Install done"),
-        "the catalog install toast to expire",
-        timeout=15,
-    )
+    wait_toasts_gone(session, "Install done", "the catalog update")
 
     # 2. A newer release advertises an update after the Library reloads.
     add_catalog_release(fx, GAME_ID, DEMO_ID, "2.0.0", V2_FILES, name=DEMO_NAME)

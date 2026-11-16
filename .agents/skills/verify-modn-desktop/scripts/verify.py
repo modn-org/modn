@@ -105,6 +105,16 @@ class _FakeToastSession:
         return self.visible_polls > 0
 
 
+class _FakeNamedToasts:
+    """Shows only the controls named in `visible`."""
+
+    def __init__(self, visible):
+        self.visible = set(visible)
+
+    def exists(self, name=None, prefix=None, control_type=None):
+        return name in self.visible
+
+
 def selftest():
     """Checks the helpers the journeys rely on against fakes and temp files."""
     import shutil  # noqa: PLC0415 - used only by the evidence check
@@ -141,16 +151,23 @@ def selftest():
     )
 
     # V1: the toast guard returns once the toast is gone and fails while it stays.
-    lifecycle._wait_toast_gone(_FakeToastSession(0), "Undo done", "selftest", timeout=0.3)
+    harness.wait_toasts_gone(_FakeToastSession(0), "Undo done", "selftest", timeout=0.3)
+    harness.wait_toasts_gone(_FakeToastSession(0), ("Install done", "Undo done"), "selftest", timeout=0.3)
     results["toast_guard_passes_when_gone"] = True
     try:
-        lifecycle._wait_toast_gone(
-            _FakeToastSession(10**6), "Undo done", "selftest", timeout=0.3
-        )
+        harness.wait_toasts_gone(_FakeToastSession(10**6), "Undo done", "selftest", timeout=0.3)
     except uia.Failure:
         results["toast_guard_fails_when_stale"] = True
     else:
         results["toast_guard_fails_when_stale"] = False
+    try:
+        harness.wait_toasts_gone(
+            _FakeNamedToasts({"Undo done"}), ("Install done", "Undo done"), "selftest", timeout=0.3
+        )
+    except uia.Failure:
+        results["toast_guard_checks_every_name"] = True
+    else:
+        results["toast_guard_checks_every_name"] = False
 
     # V3: a failure with an empty message still fails the journey.
     def raise_assertion():
@@ -189,9 +206,11 @@ def selftest():
 
     # V4: the front matter of this skill, and of every sibling, is valid YAML.
     def front_matter(path):
-        text = Path(path).read_text(encoding="utf-8")
+        parts = Path(path).read_text(encoding="utf-8").split("---", 2)
+        if len(parts) < 3:
+            return {}
         try:
-            data = yaml.safe_load(text.split("---", 2)[1])
+            data = yaml.safe_load(parts[1])
         except yaml.YAMLError:
             return {}
         return data if isinstance(data, dict) else {}
@@ -209,6 +228,13 @@ def selftest():
     with tempfile.TemporaryDirectory() as folder:
         both = Path(folder) / "both.exe"
         both.write_bytes(b"x MODN_APPDATA y MODN_STORE_LIBRARIES z")
+        bare = Path(folder) / "bare.md"
+        bare.write_text("# A skill without front matter\n", encoding="utf-8")
+        open_only = Path(folder) / "open-only.md"
+        open_only.write_text("---\nname: x\n", encoding="utf-8")
+        results["front_matter_without_markers_is_invalid"] = (
+            front_matter(bare) == {} and front_matter(open_only) == {}
+        )
         one = Path(folder) / "one.exe"
         one.write_bytes(b"MODN_APPDATA")
         results["accepts_a_cli_with_both_overrides"] = harness.lacks_test_overrides(both) == []
