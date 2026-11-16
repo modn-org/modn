@@ -105,35 +105,6 @@ class _FakeToastSession:
         return self.visible_polls > 0
 
 
-class _FakeDiagnosticsSession:
-    """Shows the next scripted toast after each click and clears it on a wait."""
-
-    def __init__(self, toasts):
-        self.toasts = list(toasts)
-        self.clicks = 0
-        self.focused = 0
-        self.line = ""
-        self.window = type("Window", (), {"NativeWindowHandle": 0})()
-
-    def front(self, hwnd):
-        self.focused += 1
-        return True
-
-    def find(self, **kwargs):
-        return type("Control", (), {"SetFocus": lambda control: None})()
-
-    def click(self, name=None, **kwargs):
-        self.line = self.toasts[self.clicks]
-        self.clicks += 1
-
-    def text(self):
-        return self.line
-
-    def wait_for(self, predicate, description, timeout=30):
-        self.line = ""
-        return True
-
-
 class _FakeNamedToasts:
     """Shows only the controls named in `visible`."""
 
@@ -179,22 +150,10 @@ def selftest():
         "Something went wrong"
     )
 
-    # Copy diagnostics: focus first, retry after an error toast, fail when none succeeds.
-    import journeys_core  # noqa: PLC0415 - pure helpers only
+    # Copy diagnostics: fakes for the foreground hold and the retry.
+    import selftest_diagnostics  # noqa: PLC0415 - fake desktop only
 
-    with tempfile.TemporaryDirectory() as folder:
-        fx = type("Fx", (), {"evidence": Path(folder)})()
-        retried = _FakeDiagnosticsSession(["Something went wrong. Try again.", "Diagnostics copied."])
-        results["diagnostics_retries_after_error_toast"] = (
-            journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(retried, fx, front=retried.front))
-            and retried.clicks == 2
-            and retried.focused == 2
-        )
-        failing = _FakeDiagnosticsSession(["Something went wrong. Try again."] * 3)
-        results["diagnostics_fails_after_three_error_toasts"] = (
-            not journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(failing, fx, front=failing.front))
-            and failing.clicks == journeys_core.DIAGNOSTICS_ATTEMPTS
-        )
+    results.update(selftest_diagnostics.checks())
 
     # The play fixture must show no window: the watcher reports one and the real
     # enumerator runs on this desktop.

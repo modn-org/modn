@@ -10,8 +10,8 @@ import time
 
 import uia
 from fixtures import PLAY_SOURCE, Fixture, image_pids, signed_copy, snapshot, stop_pid
-from harness import BINARIES, App, cli, click_until, test_backend_state
-from windows import bring_to_front, foreground_info, watch_windows
+from harness import BINARIES, App, cli, test_backend_state
+from windows import foreground_info, take_foreground, watch_windows
 
 
 # ---------------------------------------------------------------- journeys
@@ -177,6 +177,7 @@ def journey_blocked(runner):
 SCAN_BUTTON = "Scan this PC for supported games"
 BACKEND_NOISE = ("invalid fixture response", "fixture refusal")
 DIAGNOSTICS_COPIED = "Diagnostics copied."
+DIAGNOSTICS_ERROR = "Something went wrong"
 
 
 def diagnostics_copied(toast):
@@ -190,42 +191,132 @@ def diagnostics_copied(toast):
 
 DIAGNOSTICS_ATTEMPTS = 3
 PLAY_WINDOW_WATCH_SECONDS = 1.5
+HOLD_SAMPLES = 3
+HOLD_INTERVAL = 0.1
+ACQUIRE_SECONDS = 20.0
+TOAST_SECONDS = 8.0
+KEEP_INTERVAL = 0.05
 
 
-def copy_diagnostics(session, fx, front=bring_to_front):
-    """Clicks Copy diagnostics with the window in the foreground and the button focused.
+def desktop_in_use(info):
+    """The failure text for a window that keeps the foreground."""
+    title = info["title"] or "<untitled>"
+    return (
+        f"The desktop is in use: {title!r} (pid {info['pid']}) held the foreground. "
+        "Keep the desktop idle while the verifier runs."
+    )
 
-    A UI Automation click does not focus the page, and the clipboard write
-    fails when the document has no focus, for example when another app such as
-    the editor holds the foreground. The app then shows its error toast, which
-    says to try again. The click is repeated up to three
-    times, each after the error toast has expired. Every toast goes to
-    `diagnostics-toast.txt`, and the caller fails the journey when none of them
-    reports success.
+
+def hold_foreground(hwnd, front, holder, clock, sleep, deadline, samples=HOLD_SAMPLES,
+                    interval=HOLD_INTERVAL, trace=None):
+    """Waits until `hwnd` has held the foreground for `samples` consecutive samples.
+
+    Each missed sample takes the foreground back and restarts the series, so one
+    activation is not enough. Returns `(True, info)` when the window held it,
+    and `(False, info)` once `deadline` passes, with the last holder in `info`.
     """
-    seen = []
-    for _ in range(DIAGNOSTICS_ATTEMPTS):
-        in_front = front(session.window.NativeWindowHandle)
-        session.find(name="Copy diagnostics").SetFocus()
-        time.sleep(0.5)
-        holder = foreground_info()
-        toast = click_until(
-            session, "Copy diagnostics", (DIAGNOSTICS_COPIED, "Something went wrong")
-        )
-        seen.append(
-            f"{toast} [window in front: {in_front}; foreground: {holder['title']!r} pid {holder['pid']}]"
-        )
+    streak = 0
+    info = holder()
+    while clock() < deadline:
+        info = holder()
+        if trace is not None:
+            trace(info, info["hwnd"] == hwnd)
+        if info["hwnd"] == hwnd:
+            streak += 1
+            if streak >= samples:
+                return True, info
+        else:
+            streak = 0
+            front(hwnd)
+        sleep(interval)
+    return False, info
+
+
+def watch_toast(session, hwnd, front, holder, clock, sleep, timeout=TOAST_SECONDS, trace=None):
+    """Polls the window text for a toast, and keeps the window in the foreground.
+
+    The page calls the backend before it writes the clipboard, so the window
+    must still have the foreground when the write runs. Every poll restores the
+    foreground first. Returns the first toast line, or an empty string.
+    """
+    deadline = clock() + timeout
+    while clock() < deadline:
+        info = holder()
+        if trace is not None:
+            trace(info, info["hwnd"] == hwnd)
+        if info["hwnd"] != hwnd:
+            front(hwnd)
+        for line in session.text().splitlines():
+            if DIAGNOSTICS_COPIED in line or DIAGNOSTICS_ERROR in line:
+                return line
+        sleep(KEEP_INTERVAL)
+    return ""
+
+
+def _write_diagnostics(fx, notes, samples):
+    """Records every toast and every foreground sample in the journey evidence."""
+    (fx.evidence / "diagnostics-toast.txt").write_text("\n".join(notes), encoding="utf-8")
+    lines = [f"{stamp:.3f} held={held} {title!r} pid {pid}" for stamp, title, pid, held in samples]
+    (fx.evidence / "diagnostics-foreground.txt").write_text("\n".join(lines), encoding="utf-8")
+
+
+def _activate(session, button):
+    """Invokes the button, and rebuilds a stale node instead of failing the click."""
+    try:
+        session.activate(button)
+        return button
+    except Exception:
+        fresh = session.find(name="Copy diagnostics")
+        session.activate(fresh)
+        return fresh
+
+
+def copy_diagnostics(session, fx, front=take_foreground, holder=foreground_info,
+                     clock=time.monotonic, sleep=time.sleep):
+    """Clicks Copy diagnostics while the window holds the foreground.
+
+    The clipboard write fails unless the page document has focus, and the
+    document has focus only while its window has the foreground. A UI
+    Automation click neither focuses the page nor holds the foreground, so the
+    helper focuses the button, waits until the window has held the foreground
+    for three samples, and clicks at once. It restores the foreground during
+    the wait for the toast. Every toast and every foreground sample goes to the
+    evidence directory.
+
+    Returns the success toast after at most three clicks. Raises `uia.Failure`
+    with the holder and the idle hint when the foreground cannot be held within
+    `ACQUIRE_SECONDS`, or when every click reports the error toast.
+    """
+    hwnd = session.window.NativeWindowHandle
+    notes = []
+    samples = []
+
+    def trace(info, held):
+        samples.append((time.monotonic(), info["title"], info["pid"], held))
+
+    button = session.find(name="Copy diagnostics")
+    button.SetFocus()
+    deadline = clock() + ACQUIRE_SECONDS
+    for attempt in range(1, DIAGNOSTICS_ATTEMPTS + 1):
+        held, info = hold_foreground(hwnd, front, holder, clock, sleep, deadline, trace=trace)
+        if not held:
+            _write_diagnostics(fx, notes, samples)
+            raise uia.Failure(desktop_in_use(info))
+        button = _activate(session, button)
+        toast = watch_toast(session, hwnd, front, holder, clock, sleep, trace=trace)
+        notes.append(f"attempt {attempt}: {toast} [foreground: {info['title']!r} pid {info['pid']}]")
         if diagnostics_copied(toast):
-            break
-        session.wait_for(
-            lambda s: "Something went wrong" not in s.text(),
-            "the error toast to expire",
-            timeout=15,
-        )
-    (fx.evidence / "diagnostics-toast.txt").write_text("\n".join(seen), encoding="utf-8")
-    if len(seen) > 1:
-        print(f"play: Copy diagnostics needed {len(seen)} attempts: {seen}", file=sys.stderr)
-    return seen[-1]
+            _write_diagnostics(fx, notes, samples)
+            if attempt > 1:
+                print(f"play: Copy diagnostics needed {attempt} attempts", file=sys.stderr)
+            return toast
+        session.wait_for(lambda s: DIAGNOSTICS_ERROR not in s.text(), "the error toast to expire", 15)
+    _write_diagnostics(fx, notes, samples)
+    raise uia.Failure(
+        "Copy diagnostics did not report success after "
+        f"{DIAGNOSTICS_ATTEMPTS} clicks: {' | '.join(notes)}. "
+        "Keep the desktop idle while the verifier runs."
+    )
 
 
 def _scan(session):

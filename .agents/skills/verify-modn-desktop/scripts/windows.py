@@ -1,4 +1,8 @@
-"""Visible top-level windows of given process ids, read through EnumWindows."""
+"""Visible top-level windows and the foreground, read through user32.
+
+No function here types, moves the pointer or clicks. `take_foreground` only
+asks Windows to activate a window for the focus-sensitive clipboard write.
+"""
 
 import ctypes
 import time
@@ -38,32 +42,40 @@ def foreground_info():
     return {"hwnd": hwnd, "pid": owner.value, "title": title.value}
 
 
-def bring_to_front(hwnd, timeout=10):
-    """Gives `hwnd` the foreground, also when another app holds the foreground lock.
+def take_foreground(hwnd):
+    """Makes one attempt to give `hwnd` the foreground and reports whether it has it.
 
-    The thread of the foreground window lends its input state for one call, so
-    `SetForegroundWindow` is allowed. Returns True when `hwnd` is in the
-    foreground within `timeout` seconds. Nothing is typed or clicked.
+    The thread of the current foreground window lends its input state for the
+    two calls, so `SetForegroundWindow` is allowed while another app holds the
+    foreground lock. Nothing is typed, moved or clicked.
     """
+    if _USER32.GetForegroundWindow() == hwnd:
+        return True
     kernel32 = ctypes.windll.kernel32
-    deadline = time.monotonic() + timeout
+    current = _USER32.GetForegroundWindow()
+    lender = _USER32.GetWindowThreadProcessId(current, None) if current else 0
+    mine = kernel32.GetCurrentThreadId()
+    attached = bool(lender and lender != mine and _USER32.AttachThreadInput(mine, lender, True))
+    try:
+        if _USER32.IsIconic(hwnd):
+            _USER32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        _USER32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            _USER32.AttachThreadInput(mine, lender, False)
+    return _USER32.GetForegroundWindow() == hwnd
+
+
+def bring_to_front(hwnd, timeout=10.0, interval=0.2, front=None, clock=time.monotonic, sleep=time.sleep):
+    """Repeats `take_foreground` until `hwnd` has the foreground or `timeout` passes."""
+    front = take_foreground if front is None else front
+    deadline = clock() + timeout
     while True:
-        current = _USER32.GetForegroundWindow()
-        if current == hwnd:
+        if front(hwnd):
             return True
-        if time.monotonic() >= deadline:
+        if clock() >= deadline:
             return False
-        lender = _USER32.GetWindowThreadProcessId(current, None) if current else 0
-        mine = kernel32.GetCurrentThreadId()
-        attached = bool(lender and lender != mine and _USER32.AttachThreadInput(mine, lender, True))
-        try:
-            if _USER32.IsIconic(hwnd):
-                _USER32.ShowWindow(hwnd, 9)  # SW_RESTORE
-            _USER32.SetForegroundWindow(hwnd)
-        finally:
-            if attached:
-                _USER32.AttachThreadInput(mine, lender, False)
-        time.sleep(0.2)
+        sleep(interval)
 
 
 def watch_windows(pids, seconds, enum=visible_windows_of, interval=0.05):
