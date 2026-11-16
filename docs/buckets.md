@@ -199,9 +199,15 @@ Sync accepts a rotation when all of these hold:
   bytes, and `catalog.sig` verifies with it.
 
 Sync then pins the public key text from the signed statement, not the revision's
-`catalog.pub`, and records the old key ID in `previous_signers`. The old key
-vouched for the new key, so module trust follows the new signer. The output
-prints `signing key rotated: <old> -> <new>`.
+`catalog.pub`, and records the old key ID in `previous_signers`. Modn also drops
+the new key ID from `previous_signers` and `revoked_signers`, so a rotation may
+name a key that an earlier rotation retired. The old key vouched for the new key,
+so module trust follows the new signer. The output prints
+`signing key rotated: <old> -> <new>`.
+
+A rotation that names a key in `revoked_signers` is refused. Only the offline
+revocation key can re-authorize a revoked key. The pinned key is never recorded
+as retired, so the current key always verifies its own revisions.
 
 Sync accepts a revocation when all of these hold:
 
@@ -211,7 +217,9 @@ Sync accepts a revocation when all of these hold:
   public key bytes, and `catalog.sig` verifies with it.
 
 Sync then pins the public key text from the signed statement and records the old
-key ID in `revoked_signers`. Module trust is cleared, because the user must
+key ID in `revoked_signers`. The replacement key ID is removed from both
+`previous_signers` and `revoked_signers`, so a revocation re-authorizes a key
+that an earlier rotation retired. Module trust is cleared, because the user must
 trust modules again explicitly. The output prints
 `signing key revoked: <old> replaced by <new>`.
 
@@ -224,9 +232,10 @@ differ from the pinned key or the key a statement names, and a revision signed b
 a key in `previous_signers` or `revoked_signers`. Every refusal keeps the
 previous registration and catalog byte for byte.
 
-A revision that repeats an already accepted statement is history, because its
-old key no longer matches the pin. The registration still records the BLAKE3 of
-the applied `rotation.json` or `revocation.json`.
+A revision that repeats a statement this pin already applied is history, because
+the registration records the BLAKE3 of the applied `rotation.json` or
+`revocation.json`. Such a revision syncs normally with the current key. A
+statement whose old key no longer matches the pin is also history.
 
 `bucket list --json` reports `signer_key_id`, `revocation_key_id` when pinned,
 and the `previous_signers` and `revoked_signers` arrays when non-empty.

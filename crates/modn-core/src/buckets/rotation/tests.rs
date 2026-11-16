@@ -58,6 +58,7 @@ fn pinned<'a>(signer: &'a TestKey, revocation: Option<&'a TestKey>) -> PinnedKey
     PinnedKeys {
         signer: &signer.public,
         revocation: revocation.map(|key| &key.public),
+        applied: Vec::new(),
     }
 }
 

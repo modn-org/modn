@@ -146,6 +146,8 @@ pub(super) struct PinnedKeys<'a> {
     pub(super) signer: &'a CatalogPublicKey,
     /// The offline revocation key pinned at first sync, when the catalog named one.
     pub(super) revocation: Option<&'a CatalogPublicKey>,
+    /// BLAKE3 digests of the statements this pin already applied.
+    pub(super) applied: Vec<&'a str>,
 }
 
 /// An accepted statement and the key that this revision must be signed by.
