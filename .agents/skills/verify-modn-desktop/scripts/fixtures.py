@@ -19,6 +19,9 @@ HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
 # `--keep` sets this so cleanup keeps the fixture and prints where it is.
 KEEP = False
+# Evidence directories made in this process, in creation order. The runner
+# reports the ones a journey created with its result.
+CREATED = []
 
 # Signed Microsoft binaries used as fixture game files. Nothing is compiled, so
 # no unsigned executable exists for Defender to quarantine. `where.exe` is only
@@ -114,6 +117,7 @@ class Fixture:
         for folder in (self.state, self.data, self.modules, self.archives, self.root / "appdata"):
             folder.mkdir(parents=True, exist_ok=True)
         self.evidence.mkdir(exist_ok=True)
+        CREATED.append(self.evidence)
 
     # -- environment ----------------------------------------------------
     def environment(self):

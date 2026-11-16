@@ -94,9 +94,28 @@ class _FakeSession:
         return [_FakeWindow(name) for name in self.names]
 
 
+class _FakeToastSession:
+    """The `exists` surface the toast guard reads."""
+
+    def __init__(self, visible_polls):
+        self.visible_polls = visible_polls
+
+    def exists(self, name=None, prefix=None, control_type=None):
+        self.visible_polls -= 1
+        return self.visible_polls > 0
+
+
 def selftest():
-    """Checks `dialog_for` ordering and timeout against fake window lists."""
+    """Checks the helpers the journeys rely on against fakes and temp files."""
+    import shutil  # noqa: PLC0415 - used only by the evidence check
+    import tempfile  # noqa: PLC0415 - used only by the CLI override check
+
+    import fixtures  # noqa: PLC0415 - harness has bootstrapped the interpreter
+    import harness  # noqa: PLC0415 - harness has bootstrapped the interpreter
+    import journeys_core  # noqa: PLC0415 - pure helpers only
+    import lifecycle  # noqa: PLC0415 - pure helpers only
     import uia  # noqa: PLC0415 - harness has bootstrapped the interpreter
+    import yaml  # noqa: PLC0415 - bootstrapped with the other packages
 
     results = {}
     results["ignores_untitled"] = (
@@ -112,8 +131,80 @@ def selftest():
         results["raises_on_timeout"] = time.monotonic() - started >= 0.3
     else:
         results["raises_on_timeout"] = False
-    import harness  # noqa: PLC0415 - harness has bootstrapped the interpreter
-    import tempfile  # noqa: PLC0415 - used only by this check
+
+    # V2: an error toast must not count as a copied diagnostics report.
+    results["diagnostics_success_passes"] = journeys_core.diagnostics_copied(
+        "Diagnostics copied."
+    )
+    results["diagnostics_error_fails"] = not journeys_core.diagnostics_copied(
+        "Something went wrong"
+    )
+
+    # V1: the toast guard returns once the toast is gone and fails while it stays.
+    lifecycle._wait_toast_gone(_FakeToastSession(0), "Undo done", "selftest", timeout=0.3)
+    results["toast_guard_passes_when_gone"] = True
+    try:
+        lifecycle._wait_toast_gone(
+            _FakeToastSession(10**6), "Undo done", "selftest", timeout=0.3
+        )
+    except uia.Failure:
+        results["toast_guard_fails_when_stale"] = True
+    else:
+        results["toast_guard_fails_when_stale"] = False
+
+    # V3: a failure with an empty message still fails the journey.
+    def raise_assertion():
+        raise AssertionError()
+
+    def raise_exception():
+        raise Exception()
+
+    runner = harness.Runner(None)
+    runner.journey("empty-assertion", raise_assertion)
+    runner.journey("empty-exception", raise_exception)
+    runner.journey("normal", lambda: None)
+    statuses = [result["status"] for result in runner.results]
+    results["empty_assertion_fails"] = statuses[0].startswith("failed")
+    results["empty_exception_fails"] = statuses[1].startswith("failed")
+    results["normal_journey_passes"] = statuses[2] == "passed"
+
+    # V5: each journey result carries the evidence directory it created.
+    holder = {}
+
+    def journey_with_fixture():
+        holder["fixture"] = fixtures.Fixture()
+
+    runner = harness.Runner(None)
+    runner.journey("evidence", journey_with_fixture)
+    fixture = holder["fixture"]
+    try:
+        results["result_carries_evidence"] = runner.results[0].get("evidence") == [
+            str(fixture.evidence)
+        ]
+    finally:
+        shutil.rmtree(fixture.root, ignore_errors=True)
+        shutil.rmtree(fixture.evidence, ignore_errors=True)
+        if fixture.evidence in fixtures.CREATED:
+            fixtures.CREATED.remove(fixture.evidence)
+
+    # V4: the front matter of this skill, and of every sibling, is valid YAML.
+    def front_matter(path):
+        text = Path(path).read_text(encoding="utf-8")
+        try:
+            data = yaml.safe_load(text.split("---", 2)[1])
+        except yaml.YAMLError:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    skill = Path(__file__).resolve().parents[1] / "SKILL.md"
+    own = front_matter(skill)
+    results["front_matter_name"] = isinstance(own.get("name"), str)
+    results["front_matter_description"] = isinstance(own.get("description"), str)
+    results["all_skill_front_matter"] = all(
+        isinstance(front_matter(path).get("name"), str)
+        and isinstance(front_matter(path).get("description"), str)
+        for path in sorted(skill.parent.parent.glob("*/SKILL.md"))
+    )
 
     with tempfile.TemporaryDirectory() as folder:
         both = Path(folder) / "both.exe"
