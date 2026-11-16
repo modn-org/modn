@@ -113,9 +113,11 @@ class _FakeDiagnosticsSession:
         self.clicks = 0
         self.focused = 0
         self.line = ""
+        self.window = type("Window", (), {"NativeWindowHandle": 0})()
 
-    def focus(self):
+    def front(self, hwnd):
         self.focused += 1
+        return True
 
     def find(self, **kwargs):
         return type("Control", (), {"SetFocus": lambda control: None})()
@@ -184,13 +186,13 @@ def selftest():
         fx = type("Fx", (), {"evidence": Path(folder)})()
         retried = _FakeDiagnosticsSession(["Something went wrong. Try again.", "Diagnostics copied."])
         results["diagnostics_retries_after_error_toast"] = (
-            journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(retried, fx))
+            journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(retried, fx, front=retried.front))
             and retried.clicks == 2
             and retried.focused == 2
         )
         failing = _FakeDiagnosticsSession(["Something went wrong. Try again."] * 3)
         results["diagnostics_fails_after_three_error_toasts"] = (
-            not journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(failing, fx))
+            not journeys_core.diagnostics_copied(journeys_core.copy_diagnostics(failing, fx, front=failing.front))
             and failing.clicks == journeys_core.DIAGNOSTICS_ATTEMPTS
         )
 

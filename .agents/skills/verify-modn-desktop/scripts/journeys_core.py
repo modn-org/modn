@@ -11,7 +11,7 @@ import time
 import uia
 from fixtures import PLAY_SOURCE, Fixture, image_pids, signed_copy, snapshot, stop_pid
 from harness import BINARIES, App, cli, click_until, test_backend_state
-from windows import watch_windows
+from windows import bring_to_front, foreground_info, watch_windows
 
 
 # ---------------------------------------------------------------- journeys
@@ -192,25 +192,29 @@ DIAGNOSTICS_ATTEMPTS = 3
 PLAY_WINDOW_WATCH_SECONDS = 1.5
 
 
-def copy_diagnostics(session, fx):
-    """Clicks Copy diagnostics with the window and the button focused.
+def copy_diagnostics(session, fx, front=bring_to_front):
+    """Clicks Copy diagnostics with the window in the foreground and the button focused.
 
     A UI Automation click does not focus the page, and the clipboard write
-    fails when the document has no focus. The app then shows its error toast,
-    which says to try again. The click is repeated up to three
+    fails when the document has no focus, for example when another app such as
+    the editor holds the foreground. The app then shows its error toast, which
+    says to try again. The click is repeated up to three
     times, each after the error toast has expired. Every toast goes to
     `diagnostics-toast.txt`, and the caller fails the journey when none of them
     reports success.
     """
     seen = []
     for _ in range(DIAGNOSTICS_ATTEMPTS):
-        session.focus()
+        in_front = front(session.window.NativeWindowHandle)
         session.find(name="Copy diagnostics").SetFocus()
         time.sleep(0.5)
+        holder = foreground_info()
         toast = click_until(
             session, "Copy diagnostics", (DIAGNOSTICS_COPIED, "Something went wrong")
         )
-        seen.append(toast)
+        seen.append(
+            f"{toast} [window in front: {in_front}; foreground: {holder['title']!r} pid {holder['pid']}]"
+        )
         if diagnostics_copied(toast):
             break
         session.wait_for(
