@@ -1,4 +1,8 @@
-//! Ordered source candidates for one release's archive.
+//! Ordered source plan for one release's archive.
+//!
+//! The plan is built without network access. A GitHub release asset resolves
+//! its provider metadata only when the ordered loop reaches it, so an unused
+//! fallback costs no request.
 
 use super::http::fetch_metadata;
 use modn_core::acquisition::{
@@ -28,10 +32,6 @@ pub(super) fn urls(release: &BucketPackage) -> Vec<String> {
             _ => None,
         })
         .collect()
-}
-
-fn nexus_label(game_domain: &str, mod_id: u64, file_id: u64, file_name: &str) -> String {
-    format!("Nexus Mods: {game_domain} mod {mod_id} file {file_id} ({file_name})")
 }
 
 /// Resolve GitHub metadata, retrying one transient transport failure.
@@ -72,25 +72,46 @@ fn transient(error: &anyhow::Error) -> bool {
         .is_some_and(|error| super::retryable(&error))
 }
 
-/// Build the ordered candidates for `release`.
-///
-/// GitHub metadata is resolved here, before the loop starts, so a resolution
-/// failure is one refused source and the next source still runs.
-pub(super) fn candidates(release: &BucketPackage) -> Vec<SourceCandidate> {
-    release
-        .package
-        .sources
-        .iter()
-        .map(|source| match source {
-            PackageSource::Https { url } => SourceCandidate::fetch(url.clone()),
-            PackageSource::GithubRelease {
+/// One entry of a release's ordered source list.
+pub(super) enum Planned {
+    /// A pinned Git commit, acquired through the Git path.
+    Git { repository: String, commit: String },
+    /// A Nexus Mods file, acquired through the Nexus path.
+    Nexus {
+        game_domain: String,
+        mod_id: u64,
+        file_id: u64,
+        file_name: String,
+    },
+    /// A fetchable, manual or refused source, in list order.
+    Fetch(FetchPlan),
+}
+
+/// A source that needs no ordered-attempt path of its own.
+pub(super) enum FetchPlan {
+    /// A candidate the loop can pass to the archive cache.
+    Ready(SourceCandidate),
+    /// A GitHub release asset whose metadata stays unresolved until reached.
+    Github {
+        repository: String,
+        tag: String,
+        asset: String,
+        expected: String,
+    },
+}
+
+impl FetchPlan {
+    /// Resolve this entry into the candidate the loop tries.
+    pub(super) fn resolve(self) -> SourceCandidate {
+        match self {
+            Self::Ready(candidate) => candidate,
+            Self::Github {
                 repository,
                 tag,
                 asset,
+                expected,
             } => {
-                let expected = github_url(repository, tag, asset);
-                let selector =
-                    GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
+                let selector = GithubReleaseAsset::new(repository, tag, asset);
                 match resolve_metadata(&selector, fetch_metadata) {
                     Ok(resolved) if resolved == expected => SourceCandidate::fetch(expected),
                     Ok(_) => SourceCandidate::refused(
@@ -103,33 +124,62 @@ pub(super) fn candidates(release: &BucketPackage) -> Vec<SourceCandidate> {
                     ),
                 }
             }
-            PackageSource::Manual { filename } => SourceCandidate::manual(filename.clone()),
-            PackageSource::Git { repository, commit } => SourceCandidate::refused(
-                format!("git {repository} commit {commit}"),
-                "git sources use the pinned-commit path",
-            ),
+        }
+    }
+}
+
+/// Build the ordered plan for `release` without a network request.
+pub(super) fn plan(release: &BucketPackage) -> Vec<Planned> {
+    release
+        .package
+        .sources
+        .iter()
+        .map(|source| match source {
+            PackageSource::Git { repository, commit } => Planned::Git {
+                repository: repository.clone(),
+                commit: commit.clone(),
+            },
             PackageSource::Nexus {
                 game_domain,
                 mod_id,
                 file_id,
                 file_name,
-            } => SourceCandidate::refused(
-                nexus_label(game_domain, *mod_id, *file_id, file_name),
-                "a Nexus download needs an nxm link",
-            ),
-            _ => SourceCandidate::refused("unknown source", "unknown release source"),
+            } => Planned::Nexus {
+                game_domain: game_domain.clone(),
+                mod_id: *mod_id,
+                file_id: *file_id,
+                file_name: file_name.clone(),
+            },
+            PackageSource::GithubRelease {
+                repository,
+                tag,
+                asset,
+            } => Planned::Fetch(FetchPlan::Github {
+                repository: repository.clone(),
+                tag: tag.clone(),
+                asset: asset.clone(),
+                expected: github_url(repository, tag, asset),
+            }),
+            PackageSource::Https { url } => {
+                Planned::Fetch(FetchPlan::Ready(SourceCandidate::fetch(url.clone())))
+            }
+            PackageSource::Manual { filename } => {
+                Planned::Fetch(FetchPlan::Ready(SourceCandidate::manual(filename.clone())))
+            }
+            _ => Planned::Fetch(FetchPlan::Ready(SourceCandidate::refused(
+                "unknown source",
+                "unknown release source",
+            ))),
         })
         .collect()
 }
 
-/// The first URL the loop would try, used for the cache-entry name.
-pub(super) fn first_url(candidates: &[SourceCandidate]) -> Option<&str> {
-    candidates
-        .iter()
-        .find_map(|candidate| match &candidate.target {
-            SourceTarget::Fetch(url) => Some(url.as_str()),
-            _ => None,
-        })
+/// The URL a fetch candidate names, used for the cache entry.
+pub(super) fn fetch_url(candidate: &SourceCandidate) -> &str {
+    match &candidate.target {
+        SourceTarget::Fetch(url) => url.as_str(),
+        _ => candidate.label.as_str(),
+    }
 }
 
 #[cfg(test)]
@@ -210,7 +260,7 @@ mod tests {
         .expect_err("an unreadable metadata body refuses the source");
         assert_eq!(calls.get(), 2, "the body read was not retried once");
         assert!(
-            format!("{error:#}").contains("after 2 attempts"),
+            format!("{error:#}").contains("after 2 attempt(s)"),
             "the error does not list the attempts: {error:#}"
         );
     }
@@ -229,4 +279,5 @@ mod tests {
             "the 404 is not named: {error:#}"
         );
     }
+
 }

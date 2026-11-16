@@ -382,14 +382,10 @@ impl ArchiveCache {
                 }
             }
         }
-        Err(coded(
-            ErrorCode::DownloadFailed,
-            SourcesError {
-                reference,
-                attempts,
-            }
-            .to_string(),
-        ))
+        Err(anyhow::Error::new(SourcesError {
+            reference,
+            attempts,
+        }))
     }
 
     fn copy_source(

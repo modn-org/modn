@@ -257,3 +257,56 @@ fn a_failed_nexus_attempt_is_reported_before_the_serving_https_source() {
     );
     assert!(!text.contains(API_KEY), "the text report leaks the API key");
 }
+
+const METADATA: &str =
+    "https://api.github.com/repos/fixture/project/releases/tags/v1";
+const ASSET: &str =
+    "https://github.com/fixture/project/releases/download/v1/example.zip";
+
+fn https_then_github(root: &Path, digest: &str) -> BucketPackage {
+    package(
+        root,
+        digest,
+        json!([
+            {"kind": "https", "url": FIRST},
+            {
+                "kind": "github-release",
+                "repository": "fixture/project",
+                "tag": "v1",
+                "asset": "example.zip"
+            }
+        ]),
+    )
+}
+
+fn github_metadata() -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "tag_name": "v1",
+        "html_url": "https://github.com/fixture/project/releases/tag/v1",
+        "assets": [{"name": "example.zip", "browser_download_url": ASSET}],
+    }))
+    .expect("metadata JSON")
+}
+
+#[test]
+fn a_succeeding_primary_makes_no_metadata_request_for_a_github_fallback() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (bytes, digest) = archive(temporary.path());
+    let package = https_then_github(&root, &digest);
+    TEST_RESPONSES
+        .with(|responses| responses.replace(Some(BTreeMap::from([(FIRST.to_owned(), bytes)]))));
+    TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+    let control = OperationControl::default();
+
+    let (result, _) = acquire(&root, &package, CacheUse::Refresh, &control, false);
+
+    let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
+    TEST_RESPONSES.with(|responses| responses.replace(None));
+    result.expect("the primary https source supplies the archive");
+    assert!(
+        !calls.iter().any(|url| url == METADATA),
+        "an unused GitHub fallback fetched provider metadata: {calls:?}"
+    );
+}

@@ -297,13 +297,17 @@ fn a_transient_metadata_failure_is_retried_before_the_source_is_refused() {
             vec![FetchError::Timeout],
         )])))
     });
-    let candidates = super::fallback::candidates(&package);
+    let candidates = super::fallback::plan(&package);
+    let candidate = match candidates.into_iter().next().expect("one source") {
+        super::fallback::Planned::Fetch(fetch) => fetch.resolve(),
+        _ => panic!("the GitHub source is not a fetch entry"),
+    };
     TEST_RESPONSES.with(|responses| responses.replace(None));
     TEST_METADATA_FAILURES.with(|failures| failures.replace(None));
 
     assert!(
-        matches!(candidates[0].target, SourceTarget::Fetch(_)),
-        "a transient metadata failure refused the source instead of retrying: {candidates:?}"
+        matches!(candidate.target, SourceTarget::Fetch(_)),
+        "a transient metadata failure refused the source instead of retrying: {candidate:?}"
     );
     let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
     assert_eq!(
@@ -333,13 +337,17 @@ fn a_404_metadata_failure_is_refused_without_a_retry() {
             vec![FetchError::Http(404)],
         )])))
     });
-    let candidates = super::fallback::candidates(&package);
+    let candidates = super::fallback::plan(&package);
+    let candidate = match candidates.into_iter().next().expect("one source") {
+        super::fallback::Planned::Fetch(fetch) => fetch.resolve(),
+        _ => panic!("the GitHub source is not a fetch entry"),
+    };
     TEST_RESPONSES.with(|responses| responses.replace(None));
     TEST_METADATA_FAILURES.with(|failures| failures.replace(None));
 
     assert!(
-        matches!(candidates[0].target, SourceTarget::Refused(_)),
-        "a 404 metadata response was not refused: {candidates:?}"
+        matches!(candidate.target, SourceTarget::Refused(_)),
+        "a 404 metadata response was not refused: {candidate:?}"
     );
     let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
     assert_eq!(

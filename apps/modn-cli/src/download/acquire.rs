@@ -1,6 +1,10 @@
 //! Ordered acquisition of release archives with text reporting and cancellation.
+//!
+//! Every source kind is one attempt in the release's list order. Git and
+//! Nexus attempts classify their failure like a fetch attempt, a later source
+//! still runs, and a cancellation stops the whole acquisition.
 
-use super::fallback;
+use super::fallback::{self, Planned};
 use super::key;
 use super::nexus_label;
 use crate::catalog_install::reference_of;
@@ -8,7 +12,10 @@ use crate::git_source;
 use crate::nexus_auth;
 use crate::nxm::NxmLink;
 use crate::progress::Progress;
-use modn_core::acquisition::{ArchiveCache, CacheUse, NexusFile, SourceAttempt, SourcePolicy};
+use modn_core::acquisition::{
+    ArchiveCache, CacheUse, FetchError, NexusFile, SourceAttempt, SourceFailure, SourcePolicy,
+    SourcesError,
+};
 use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::error::{code_of, ErrorCode};
 use modn_core::progress::OperationControl;
@@ -66,143 +73,267 @@ pub(super) fn download_into(
         if archives.contains_key(&reference) {
             continue;
         }
-        if let PackageSource::Git { repository, commit } = release.package.primary_source() {
-            if text {
-                note(
-                    report,
-                    format!(
-                        "Fetching {reference} {} commit {commit} from {repository}",
-                        release.package.version
-                    ),
-                );
+        if cache_use == CacheUse::Reuse {
+            if let Some((path, digest)) = cached(cache, release)? {
+                archives.insert(reference.clone(), path);
+                if let Some(digest) = digest {
+                    digests.insert(reference, digest);
+                }
+                continue;
             }
-            let archive = git_source::acquire(cache, release, cache_use, control)?;
-            archives.insert(reference.clone(), archive.path);
-            digests.insert(reference, archive.blake3);
-            continue;
         }
-        let mut nexus_failure: Option<anyhow::Error> = None;
-        if let PackageSource::Nexus {
+        let first = attempts.len();
+        let mut served = false;
+        for planned in fallback::plan(release) {
+            control.checkpoint()?;
+            match planned {
+                Planned::Git { repository, commit } => {
+                    if text {
+                        note(
+                            report,
+                            format!(
+                                "Fetching {reference} {} commit {commit} from {repository}",
+                                release.package.version
+                            ),
+                        );
+                    }
+                    match git_source::acquire(cache, release, cache_use, control) {
+                        Ok(archive) => {
+                            archives.insert(reference.clone(), archive.path);
+                            digests.insert(reference.clone(), archive.blake3);
+                            served = true;
+                            break;
+                        }
+                        Err(error) if cancelled(&error) => return Err(error),
+                        Err(error) => record(
+                            text,
+                            report,
+                            &reference,
+                            &mut attempts,
+                            SourceAttempt::failed(
+                                format!("git {repository} commit {commit}"),
+                                1,
+                                classify(&error),
+                            ),
+                        ),
+                    }
+                }
+                Planned::Nexus {
+                    game_domain,
+                    mod_id,
+                    file_id,
+                    file_name,
+                } => {
+                    let label = nexus_label(&game_domain, mod_id, file_id, &file_name);
+                    if text {
+                        note(
+                            report,
+                            format!(
+                                "Downloading {reference} {} from {label}",
+                                release.package.version
+                            ),
+                        );
+                    }
+                    match nexus_archive(
+                        cache,
+                        cache_use,
+                        release,
+                        &reference,
+                        &game_domain,
+                        mod_id,
+                        file_id,
+                        &file_name,
+                        links,
+                        control,
+                    ) {
+                        Ok(path) => {
+                            archives.insert(reference.clone(), path);
+                            served = true;
+                            break;
+                        }
+                        Err(error) if cancelled(&error) => return Err(error),
+                        Err(error) => record(
+                            text,
+                            report,
+                            &reference,
+                            &mut attempts,
+                            SourceAttempt::failed(label, 1, classify(&error)),
+                        ),
+                    }
+                }
+                Planned::Fetch(fetch) => {
+                    let candidate = fetch.resolve();
+                    if text && text_announces(&candidate.target) {
+                        note(
+                            report,
+                            format!(
+                                "Downloading {reference} {} from {}",
+                                release.package.version, candidate.label
+                            ),
+                        );
+                    }
+                    let cache_key = key(release, fallback::fetch_url(&candidate));
+                    let single = std::slice::from_ref(&candidate);
+                    let outcome = cache.acquire_from_sources(
+                        &cache_key,
+                        cache_use,
+                        single,
+                        &super::HttpTransport,
+                        SourcePolicy::default(),
+                        Some(reference.clone()),
+                        control,
+                    );
+                    match outcome {
+                        Ok(outcome) => {
+                            for attempt in outcome.attempts {
+                                note_attempt(text, report, &reference, &attempt);
+                                attempts.push(attempt);
+                            }
+                            archives.insert(reference.clone(), outcome.acquired.path);
+                            served = true;
+                            break;
+                        }
+                        Err(error) if cancelled(&error) => return Err(error),
+                        Err(error) => {
+                            match attempts_of(&error) {
+                                Some(failed) => {
+                                    for attempt in failed {
+                                        note_attempt(text, report, &reference, &attempt);
+                                        attempts.push(attempt);
+                                    }
+                                }
+                                None => {
+                                    return Err(error
+                                        .context(format!("source {reference} was not tried")))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !served && attempts.len() > first {
+            return Err(anyhow::Error::new(SourcesError::new(
+                reference.clone(),
+                attempts[first..].to_vec(),
+            )));
+        }
+    }
+    Ok(attempts)
+}
+
+/// Return a verified cache entry for `release`, in source list order.
+///
+/// A Git entry also reports the packed digest that its name records.
+fn cached(
+    cache: &ArchiveCache,
+    release: &BucketPackage,
+) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
+    if let Some(archive) = git_source::cached(cache, release)? {
+        return Ok(Some((archive.path, Some(archive.blake3))));
+    }
+    match release.package.primary_source() {
+        PackageSource::Nexus {
             game_domain,
             mod_id,
             file_id,
             file_name,
-        } = release.package.primary_source()
-        {
-            let file = NexusFile::new(game_domain, *mod_id, *file_id, file_name)?;
-            let link = super::nexus_download::matching_link(links, game_domain, *mod_id, *file_id);
-            let url = file.cache_url();
-            let cache_key = key(release, &url);
-            if text {
-                note(
-                    report,
-                    format!(
-                        "Downloading {reference} {} from {}",
-                        cache_key.version,
-                        nexus_label(game_domain, *mod_id, *file_id, file_name)
-                    ),
-                );
-            }
-            if cache_use == CacheUse::Reuse {
-                if let Some(path) = cache.cached(&cache_key)? {
-                    archives.insert(reference, path);
-                    continue;
-                }
-            }
-            let outcome = (|| -> anyhow::Result<()> {
-                let api_key = nexus_auth::load_key()?;
-                let download_url = super::nexus_download::resolve(&file, &api_key, link)?;
-                let acquired = cache.acquire_with_control(
-                    &cache_key,
-                    cache_use,
-                    Some(reference.clone()),
-                    control,
-                    |_cache_url| super::nexus_download::open(&download_url),
-                )?;
-                archives.insert(reference.clone(), acquired.path);
-                Ok(())
-            })();
-            if let Err(error) = outcome {
-                let label = nexus_label(game_domain, *mod_id, *file_id, file_name);
-                attempts.push(SourceAttempt::failed(
-                    label,
-                    1,
-                    modn_core::acquisition::SourceFailure::Refused(format!("{error:#}")),
-                ));
-                nexus_failure = Some(error);
-            } else {
-                continue;
+        } => {
+            let url = NexusFile::new(game_domain, *mod_id, *file_id, file_name)?.cache_url();
+            if let Some(path) = cache.cached(&key(release, &url))? {
+                return Ok(Some((path, None)));
             }
         }
-        if cache_use == CacheUse::Reuse {
-            let mut hit = None;
-            for url in fallback::urls(release) {
-                if let Some(path) = cache.cached(&key(release, &url))? {
-                    hit = Some(path);
-                    break;
-                }
-            }
-            if let Some(path) = hit {
-                archives.insert(reference, path);
-                continue;
-            }
-        }
-        let all_candidates = fallback::candidates(release);
-        let candidates = match nexus_failure {
-            Some(_) => &all_candidates[1..],
-            None => &all_candidates[..],
-        };
-        if candidates.is_empty() {
-            if let Some(error) = nexus_failure {
-                return Err(error);
-            }
-            continue;
-        }
-        let first_url = fallback::first_url(candidates).map(str::to_owned);
-        let has_fetch = first_url.is_some();
-        let Some(url) = first_url.or_else(|| candidates.first().map(|c| c.label.clone())) else {
-            continue;
-        };
-        let cache_key = key(release, &url);
-        if has_fetch && text {
-            note(
-                report,
-                format!(
-                    "Downloading {reference} {} from {}",
-                    cache_key.version, cache_key.url
-                ),
-            );
-        }
-        let outcome = cache
-            .acquire_from_sources(
-                &cache_key,
-                cache_use,
-                candidates,
-                &super::HttpTransport,
-                SourcePolicy::default(),
-                Some(reference.clone()),
-                control,
-            )
-            .map_err(|error| match &nexus_failure {
-                Some(nexus) => error.context(format!("the Nexus attempt failed first: {nexus:#}")),
-                None => error,
-            })?;
-        for attempt in &outcome.attempts {
-            if text {
-                note(
-                    report,
-                    format!(
-                        "Source {reference}: {}: {}",
-                        attempt.source,
-                        attempt.describe()
-                    ),
-                );
-            }
-        }
-        attempts.extend(outcome.attempts);
-        archives.insert(reference, outcome.acquired.path);
+        _ => {}
     }
-    Ok(attempts)
+    for url in fallback::urls(release) {
+        if let Some(path) = cache.cached(&key(release, &url))? {
+            return Ok(Some((path, None)));
+        }
+    }
+    Ok(None)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Nexus attempt keeps the cache, release, provider fields, links and cancellation explicit"
+)]
+fn nexus_archive(
+    cache: &ArchiveCache,
+    cache_use: CacheUse,
+    release: &BucketPackage,
+    reference: &str,
+    game_domain: &str,
+    mod_id: u64,
+    file_id: u64,
+    file_name: &str,
+    links: &[NxmLink],
+    control: &OperationControl,
+) -> anyhow::Result<PathBuf> {
+    let file = NexusFile::new(game_domain, mod_id, file_id, file_name)?;
+    let link = super::nexus_download::matching_link(links, game_domain, mod_id, file_id);
+    let url = file.cache_url();
+    let cache_key = key(release, &url);
+    let api_key = nexus_auth::load_key()?;
+    let download_url = super::nexus_download::resolve(&file, &api_key, link)?;
+    let acquired = cache.acquire_with_control(
+        &cache_key,
+        cache_use,
+        Some(reference.to_owned()),
+        control,
+        |_cache_url| super::nexus_download::open(&download_url),
+    )?;
+    Ok(acquired.path)
+}
+
+/// Whether one cancelled error ends the whole acquisition.
+fn cancelled(error: &anyhow::Error) -> bool {
+    code_of(error) == Some(ErrorCode::Cancelled)
+}
+
+/// Classify a Git or Nexus failure like any other source attempt.
+fn classify(error: &anyhow::Error) -> SourceFailure {
+    if let Some(fetch) = error.chain().find_map(|cause| cause.downcast_ref::<FetchError>()) {
+        return fetch.clone().into();
+    }
+    SourceFailure::Refused(format!("{error:#}"))
+}
+
+/// The attempts of a failed ordered fetch, when the cache reported them.
+fn attempts_of(error: &anyhow::Error) -> Option<Vec<SourceAttempt>> {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<SourcesError>())
+        .map(|sources| sources.attempts().to_vec())
+}
+
+/// Whether the ordered loop announces this candidate before it tries it.
+fn text_announces(target: &modn_core::acquisition::SourceTarget) -> bool {
+    matches!(target, modn_core::acquisition::SourceTarget::Fetch(_))
+}
+
+fn record(
+    text: bool,
+    report: &mut dyn Write,
+    reference: &str,
+    attempts: &mut Vec<SourceAttempt>,
+    attempt: SourceAttempt,
+) {
+    note_attempt(text, report, reference, &attempt);
+    attempts.push(attempt);
+}
+
+fn note_attempt(text: bool, report: &mut dyn Write, reference: &str, attempt: &SourceAttempt) {
+    if text {
+        note(
+            report,
+            format!(
+                "Source {reference}: {}: {}",
+                attempt.source,
+                attempt.describe()
+            ),
+        );
+    }
 }
 
 fn note(report: &mut dyn Write, line: String) {
