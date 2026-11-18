@@ -1,3 +1,6 @@
+#[path = "support/git_fixture.rs"]
+mod git_fixture;
+
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
@@ -10,6 +13,8 @@ mod tree;
 
 use serde_json::{json, Value};
 use std::fs;
+use std::path::Path;
+use std::process::Output;
 use support::{error, Fixture};
 
 const FIRST: &str = "https://127.0.0.1:1/primary.zip";
@@ -315,4 +320,89 @@ fn a_dry_run_reports_a_cached_secondary_nexus_archive() {
         "the dry run did not report the cached archive: {value}"
     );
     assert!(value["archive_needed"].is_null(), "{value}");
+}
+
+/// Write a bucket whose first Git source fails and whose second one serves.
+fn add_git_fallback_bucket(fixture: &Fixture, root: &Path, commit: &str) {
+    let bucket = root.join("git-fallback-fixture");
+    let game = bucket.join("mods/test-game");
+    fs::create_dir_all(&game).expect("bucket directory");
+    fs::write(
+        bucket.join("bucket.json"),
+        br#"{"schema_version":2,"name":"git-fallback-fixture","title":"Git fallback fixture"}"#,
+    )
+    .expect("bucket metadata");
+    let manifest = json!({
+        "schema_version": 2,
+        "id": "git-package",
+        "game": "test-game",
+        "name": "Git Package",
+        "version": "1.0",
+        "sources": [
+            {"kind": "git", "repository": "fixture/missing", "commit": commit},
+            {"kind": "git", "repository": "fixture/project", "commit": commit},
+        ],
+    });
+    fs::write(
+        game.join("git-package.json"),
+        serde_json::to_vec(&manifest).expect("manifest JSON"),
+    )
+    .expect("manifest");
+    let result = fixture.run_paths(&["bucket", "add", "git-fallback-fixture"], &[&bucket]);
+    assert!(result.status.success(), "{}", error(&result));
+}
+
+/// Run the CLI against the local Git fixture remotes.
+fn run_git(fixture: &Fixture, base: &Path, args: &[&str]) -> Output {
+    let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
+    command
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .env("MODN_TEST_GIT_REMOTE_BASE", git_fixture::file_url(base))
+        .args(args);
+    command.output().expect("run CLI")
+}
+
+#[test]
+fn a_git_fallback_is_recorded_as_the_serving_source_and_undo_uses_its_cache() {
+    let fixture = Fixture::new();
+    let repository = git_fixture::repository(fixture.temp.path());
+    add_git_fallback_bucket(&fixture, fixture.temp.path(), &repository.commit);
+    fixture.register();
+    let game = fixture.game.to_str().expect("game path");
+    let plugin = fixture.game.join("addons/git-source.plugin");
+
+    let installed = run_git(
+        &fixture,
+        &repository.base,
+        &[
+            "--json",
+            "install",
+            "test-game/git-package",
+            "--path",
+            game,
+            "--yes",
+        ],
+    );
+    assert!(installed.status.success(), "{}", error(&installed));
+    let source = history_source(&fixture);
+    assert_eq!(source["kind"], "git", "{source}");
+    assert_eq!(source["repository"], "fixture/project", "{source}");
+    assert_eq!(source["commit"], repository.commit, "{source}");
+    assert_eq!(fs::read(&plugin).expect("installed plugin"), b"pinned-release");
+
+    let removed = fixture.run(&["uninstall", "git-package", "--path", game, "--yes"]);
+    assert!(removed.status.success(), "{}", error(&removed));
+    assert!(!plugin.exists());
+    let hidden = fixture.temp.path().join("project.git-hidden");
+    fs::rename(repository.base.join("fixture/project.git"), &hidden).expect("hide the remote");
+
+    let undone = fixture.run(&["undo", "--yes"]);
+    assert!(
+        undone.status.success(),
+        "undo must restore the serving Git source archive from the cache: {}",
+        error(&undone)
+    );
+    assert_eq!(fs::read(&plugin).expect("restored plugin"), b"pinned-release");
 }

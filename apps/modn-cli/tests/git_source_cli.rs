@@ -399,9 +399,20 @@ fn stalling_git_program(root: &Path) -> std::path::PathBuf {
 }
 
 /// Run the CLI with a stubbed Git fetch and a 2 s fetch deadline.
-fn run_with_stalled_git(fixture: &Fixture, base: &Path, args: &[&str]) -> std::process::Output {
+///
+/// The stderr stream goes to a file and the helper reports when the process
+/// exited. A killed batch stub can leave a descendant that holds a pipe open,
+/// so a pipe capture would measure the descendant, not the command.
+fn run_with_stalled_git(
+    fixture: &Fixture,
+    base: &Path,
+    args: &[&str],
+) -> (std::process::Output, std::time::Duration) {
     let program = stalling_git_program(fixture.temp.path());
-    main_bucket::command(env!("CARGO_BIN_EXE_modn"))
+    let capture = fixture.temp.path().join("stalled-stderr.txt");
+    let stderr = fs::File::create(&capture).expect("stderr capture");
+    let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
+    command
         .arg("--state-dir")
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
@@ -409,8 +420,19 @@ fn run_with_stalled_git(fixture: &Fixture, base: &Path, args: &[&str]) -> std::p
         .env("MODN_TEST_GIT_FETCH_PROGRAM", &program)
         .env("MODN_TEST_GIT_FETCH_TIMEOUT_MS", "2000")
         .args(args)
-        .output()
-        .expect("run CLI")
+        .stdout(std::process::Stdio::null())
+        .stderr(stderr);
+    let mut child = command.spawn().expect("run CLI");
+    let started = std::time::Instant::now();
+    let status = child.wait().expect("wait for CLI");
+    (
+        std::process::Output {
+            status,
+            stdout: Vec::new(),
+            stderr: fs::read(&capture).expect("captured stderr"),
+        },
+        started.elapsed(),
+    )
 }
 
 #[test]
@@ -420,9 +442,8 @@ fn a_stalled_first_git_fetch_times_out_and_the_next_source_serves() {
     add_stalled_then_serving_bucket(&fixture, fixture.temp.path(), &repository.commit);
     fixture.register();
     let plugin = installed_plugin(&fixture);
-    let started = std::time::Instant::now();
 
-    let output = run_with_stalled_git(
+    let (output, elapsed) = run_with_stalled_git(
         &fixture,
         &repository.base,
         &[
@@ -435,12 +456,11 @@ fn a_stalled_first_git_fetch_times_out_and_the_next_source_serves() {
     );
 
     assert!(output.status.success(), "{}", error(&output));
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(20),
-        "the stalled fetch blocked the ordered fallback: {:?}",
-        started.elapsed()
-    );
     let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        elapsed < std::time::Duration::from_secs(20),
+        "the stalled fetch blocked the ordered fallback: {elapsed:?}\n{stderr}"
+    );
     assert!(
         stderr
             .lines()

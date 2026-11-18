@@ -30,6 +30,9 @@ struct TreeEntry {
 /// How often the fetch loop checks whether its child exited.
 const FETCH_POLL: Duration = Duration::from_millis(25);
 
+/// How long the timeout path waits for a killed child to be reaped.
+const FETCH_KILL_GRACE: Duration = Duration::from_millis(500);
+
 /// Wall-clock bound for one Git fetch: the connect timeout plus one idle window.
 ///
 /// The value matches the connect and idle timeouts that `docs/sources.md`
@@ -78,8 +81,17 @@ fn fetch_commit(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Re
         }
         std::thread::sleep(FETCH_POLL);
     }
-    let status = child.wait()?;
     if timed_out {
+        // A killed child that is a wrapper can outlive its own kill until a
+        // descendant lets go of it, so the timeout path reaps only inside a
+        // short grace window and never waits for that descendant.
+        let deadline = Instant::now() + FETCH_KILL_GRACE;
+        while Instant::now() < deadline {
+            if child.try_wait()?.is_some() {
+                break;
+            }
+            std::thread::sleep(FETCH_POLL);
+        }
         // A killed child's own children may still hold the stderr pipe open,
         // so the reader thread is left to end on its own. The timeout path
         // must not wait for a descendant that outlives the fetch.
@@ -88,6 +100,7 @@ fn fetch_commit(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Re
             limit.as_millis()
         )));
     }
+    let status = child.wait()?;
     let stderr = reader.join().unwrap_or_default();
     if !status.success() {
         bail!(
@@ -101,18 +114,10 @@ fn fetch_commit(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Re
 /// Spawn the Git fetch child for `fetch_commit`.
 ///
 /// A test build may replace the program through `MODN_TEST_GIT_FETCH_PROGRAM`,
-/// which production builds never read.
+/// which production builds never read. The replacement keeps the fixed
+/// configuration, working directory and environment of the real command, so a
+/// stub can forward every argument it does not handle to the real Git.
 fn fetch_child(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Result<Child> {
-    #[cfg(any(test, feature = "test-instruction-budget"))]
-    if let Some(program) = std::env::var_os("MODN_TEST_GIT_FETCH_PROGRAM") {
-        return std::process::Command::new(program)
-            .args(["fetch", url, commit])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("GIT_SOURCE_FETCH_FAILED: cannot run the test Git program");
-    }
     let mut command = git::command(environment);
     command
         .arg("-c")
@@ -126,9 +131,38 @@ fn fetch_child(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Res
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    #[cfg(any(test, feature = "test-instruction-budget"))]
+    if let Some(program) = std::env::var_os("MODN_TEST_GIT_FETCH_PROGRAM") {
+        command = replace_program(command, program);
+    }
     command
         .spawn()
         .context("GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH")
+}
+
+/// Reuse a prepared Git command with a test program in place of `git`.
+#[cfg(any(test, feature = "test-instruction-budget"))]
+fn replace_program(command: std::process::Command, program: std::ffi::OsString) -> std::process::Command {
+    let mut replaced = std::process::Command::new(program);
+    replaced
+        .args(command.get_args())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    if let Some(directory) = command.get_current_dir() {
+        replaced.current_dir(directory);
+    }
+    for (key, value) in command.get_envs() {
+        match value {
+            Some(value) => {
+                replaced.env(key, value);
+            }
+            None => {
+                replaced.env_remove(key);
+            }
+        }
+    }
+    replaced
 }
 
 /// Fetch `commit` from `url` and pack its tree into `staging/archive.zip`.
