@@ -335,9 +335,6 @@ fn a_failed_registration_restore_keeps_the_published_snapshot() {
         error.contains("injected catalog module commit failure"),
         "{error}"
     );
-    assert!(error.contains("could not be restored"), "{error}");
-    assert!(error.contains("the new catalog tree is kept"), "{error}");
-
     let registration = store.registration("community").expect("registration");
     assert_ne!(
         registration.path, before,
@@ -350,6 +347,8 @@ fn a_failed_registration_restore_keeps_the_published_snapshot() {
             crate::buckets::ModuleTrustState::Untrusted,
         )
         .expect("the registration still resolves");
+    assert!(error.contains("could not be restored"), "{error}");
+    assert!(error.contains("the new catalog tree is kept"), "{error}");
 }
 
 #[test]
