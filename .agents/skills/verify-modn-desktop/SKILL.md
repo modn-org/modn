@@ -53,15 +53,9 @@ Each result carries the same `evidence` paths as a list.
 ## Prerequisites
 
 - Windows 10 or later with an unlocked interactive desktop and WebView2. A
-  service session has no window to drive.
-- An idle desktop. Another app can hold the Windows foreground, and a webview
-  writes the clipboard only while its document has focus. The `play` journey
-  takes the foreground back and holds it across the click, but it cannot win
-  against a person who types or clicks in another window. When another app
-  keeps the foreground for 20 seconds, the journey fails with
-  `The desktop is in use: '<title>' (pid <pid>) held the foreground.` and the
-  hint `Keep the desktop idle while the verifier runs.` Do not use the desktop
-  yourself during a run.
+  service session has no window to drive. Journeys click through UI Automation
+  without taking the foreground, so you can keep using the desktop while they
+  run.
 - `uv` and Python 3 on `PATH`. `uv` fetches `uiautomation`, `blake3` and
   `pyyaml` when the interpreter lacks them.
 - 7-Zip (`7z`) on `PATH` or in `%ProgramFiles%\7-Zip` for the `catalog`
@@ -80,7 +74,7 @@ Each result carries the same `evidence` paths as a list.
 | 6 | `blocked` | the disabled button reads `Modn blocked this operation. Open details for the reason.` and opens no dialog | no backend text reaches the window tree | none |
 | 7 | `approval` | an ask reads `This change needs your approval.` with `Allow native code through the native injector.` or `Allow these executables:`; `Decline` writes nothing; a release that adds native code asks again | `state.sqlite` table `mod_approvals` stores one row per mod; CLI lists the version | an ask and a `Decline` change no game or content bytes; `Allow` writes the archive bytes |
 | 8 | `no-cli-output` | two scans run while the backend prints invalid JSON and then fails; the window stays open | `invalid fixture response` and `fixture refusal` never appear | none |
-| 9 | `play` | `Play balatro` starts the fixture executable; details show history; `Copy diagnostics` shows `Diagnostics copied.` The helper waits until the Modn window has held the foreground for three samples, because the clipboard write needs a focused document, then clicks and keeps the foreground while the page calls the backend. Up to three clicks run. Every toast and every foreground sample stay in `diagnostics-toast.txt` and `diagnostics-foreground.txt`. | the started process id is found by image path and stopped | the game folder is unchanged |
+| 9 | `play` | `Play balatro` starts the fixture executable; details show history; one UI Automation click on `Copy diagnostics` shows `Diagnostics copied.` and the clipboard holds the doctor report. The Rust command writes the clipboard, so no window needs the foreground, and an error toast fails the journey. The journey saves the clipboard text before the click and restores it afterwards on a best-effort basis. | the started process id is found by image path and stopped | the game folder is unchanged |
 | 10 | `remove` | `Remove from Modn` opens the native Yes/No dialog; `No` keeps the registration and `Yes` unregisters it | `modn game list` lists and then omits `balatro` | the game folder is unchanged after both answers |
 | 11 | `catalog` | a catalog install, an update to `Update available`, a toast undo and a genuine 7z install and uninstall each take one click | CLI lists version 1.0.0, then 2.0.0, then 1.0.0 | installed bytes match each release; undo and uninstall restore the earlier bytes |
 
@@ -132,9 +126,8 @@ started. Other windows are never enumerated for interaction.
 
 The evidence directory is always kept. It holds the `uia-*.txt` snapshots,
 `launch.json`, `app-stderr.txt` and the journey JSON files.
-The `play` journey also writes `diagnostics-toast.txt` and
-`diagnostics-foreground.txt`, which name every toast and the foreground holder
-of every sample.
+The `play` journey also writes `diagnostics.json`, which records the clipboard
+report's keys and the fixture installation it names.
 Each journey prints its evidence path as an `evidence: <path>` line, and its
 result in the JSON summary repeats the path in `evidence`.
 Record those paths, whether or not the run uses `--keep`.

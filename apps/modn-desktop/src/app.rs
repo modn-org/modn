@@ -17,7 +17,6 @@ pub(crate) fn run() {
     };
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState::new(backend))
         .invoke_handler(tauri::generate_handler![
             commands::games::list_games,

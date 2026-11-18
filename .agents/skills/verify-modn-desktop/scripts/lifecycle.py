@@ -165,7 +165,6 @@ def _expand_details(session):
         if session.find_all(name="File plan"):
             return
         time.sleep(0.1)
-    session.focus()
     uia.auto.Click(*_center(control))
 
 

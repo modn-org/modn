@@ -6,7 +6,6 @@ use crate::app::error::CommandError;
 use crate::app::state::AppState;
 use serde_json::Value;
 use std::sync::Arc;
-use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
@@ -64,13 +63,25 @@ pub(crate) async fn diagnostics(state: tauri::State<'_, AppState>) -> Result<Str
 /// document and keeps working while another window holds the foreground.
 #[tauri::command]
 pub(crate) async fn copy_diagnostics(
-    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), CommandError> {
     let report = doctor_report(&state).await?;
-    app.clipboard()
-        .write_text(report)
-        .map_err(|_| CommandError::clipboard_failed())
+    write_clipboard(&report, system_clipboard)
+}
+
+/// Gives `text` to `write` and maps a refusal to the stable clipboard code.
+///
+/// Tests pass a fake writer, so they never touch the machine's clipboard.
+fn write_clipboard(
+    text: &str,
+    write: impl FnOnce(&str) -> Result<(), ()>,
+) -> Result<(), CommandError> {
+    write(text).map_err(|()| CommandError::clipboard_failed())
+}
+
+/// Writes one Unicode text block through the Windows clipboard API.
+fn system_clipboard(text: &str) -> Result<(), ()> {
+    clipboard_win::set_clipboard_string(text).map_err(|_| ())
 }
 
 /// Builds the doctor report text that support asks for.
@@ -80,6 +91,32 @@ async fn doctor_report(state: &AppState) -> Result<String, CommandError> {
     let report = run_blocking(&busy, move || backend.call(&args::diagnostics())).await?;
     serde_json::to_string_pretty(&report)
         .map_err(|error| CommandError::from(anyhow::Error::from(error)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_clipboard;
+
+    #[test]
+    fn clipboard_write_passes_the_report_text() {
+        let mut copied = String::new();
+        let result = write_clipboard("{\"scan\":{}}", |text| {
+            copied.push_str(text);
+            Ok(())
+        });
+        assert!(result.is_ok());
+        assert_eq!(copied, "{\"scan\":{}}");
+    }
+
+    #[test]
+    fn clipboard_write_maps_a_refusal_to_the_stable_code() {
+        let error = write_clipboard("report", |_| Err(())).expect_err("the writer refused");
+        assert_eq!(error.code, "CLIPBOARD_FAILED");
+        assert_eq!(
+            error.message,
+            "Modn could not copy diagnostics to the clipboard."
+        );
+    }
 }
 
 /// Shows the native archive picker. The dialog callback fires on the main

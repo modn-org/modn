@@ -1,30 +1,32 @@
 """Fake-desktop checks for the Copy diagnostics helper, run by `--selftest`.
 
-No real window is used: the foreground, the focused button and the toasts are
-fakes, so the checks also run on a machine without a desktop.
+No real window or clipboard is used: the button, the toasts and the clipboard
+are fakes, so the checks also run on a machine without a desktop.
 """
 
 import itertools
-import tempfile
-from pathlib import Path
+import json
 
 import journeys_core
 import uia
-import windows
+
+REPORT = {
+    "scan": {"installation": "C:\\fixture\\game"},
+    "diagnostics": [],
+    "created_directories": [],
+}
 
 
 class FakeSession:
-    """Shows the next scripted toast after each click of the focused button."""
+    """Shows one scripted toast per click of the scripted button."""
 
     def __init__(self, toasts):
         self.toasts = list(toasts)
         self.clicks = 0
         self.line = ""
-        self.window = type("Window", (), {"NativeWindowHandle": 7})()
-        self.button = type("Control", (), {"SetFocus": lambda control: None})()
 
     def find(self, **kwargs):
-        return self.button
+        return object()
 
     def activate(self, control):
         self.line = self.toasts[min(self.clicks, len(self.toasts) - 1)]
@@ -33,29 +35,21 @@ class FakeSession:
     def text(self):
         return self.line
 
-    def wait_for(self, predicate, description, timeout=30):
-        self.line = ""
-        return True
 
+class FakeClipboard:
+    """Returns scripted reads and records every restore write."""
 
-class Foreground:
-    """A desktop whose foreground is either the Modn window (7) or the editor."""
+    def __init__(self, reads):
+        self.reads = list(reads)
+        self.writes = []
 
-    def __init__(self, hold, sticky=False):
-        self.current = 7 if hold else 99
-        self.sticky = sticky
-        self.takes = 0
+    def read(self):
+        if len(self.reads) > 1:
+            return self.reads.pop(0)
+        return self.reads[0]
 
-    def front(self, hwnd):
-        self.takes += 1
-        if not self.sticky:
-            self.current = hwnd
-        return not self.sticky
-
-    def holder(self):
-        if self.current == 7:
-            return {"hwnd": 7, "pid": 20912, "title": "Modn"}
-        return {"hwnd": 99, "pid": 16544, "title": "T3 Code (Beta)"}
+    def write(self, text):
+        self.writes.append(text)
 
 
 def checks():
@@ -67,85 +61,58 @@ def checks():
     def quiet(seconds):
         return None
 
+    def run(session, clipboard, write=None):
+        return journeys_core.copy_diagnostics(
+            session,
+            clipboard.read,
+            write or clipboard.write,
+            clock=fake_clock(),
+            sleep=quiet,
+        )
+
     results = {}
-    with tempfile.TemporaryDirectory() as folder:
-        fx = type("Fx", (), {"evidence": Path(folder)})()
+    session = FakeSession(["Diagnostics copied."])
+    clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT)])
+    report = run(session, clipboard)
+    results["diagnostics_clicks_once"] = session.clicks == 1
+    results["diagnostics_reads_the_report"] = report["scan"]["installation"] == "C:\\fixture\\game"
+    results["diagnostics_restores_the_previous_clipboard"] = clipboard.writes == ["old clipboard"]
 
-        def run_copy(session, foreground, clock):
-            return journeys_core.copy_diagnostics(
-                session, fx, front=foreground.front, holder=foreground.holder,
-                clock=clock, sleep=quiet,
-            )
-
-        steady = Foreground(hold=True)
-        held, info = journeys_core.hold_foreground(
-            7, steady.front, steady.holder, fake_clock(), quiet, 5.0
+    session = FakeSession(["Something went wrong. Try again."])
+    clipboard = FakeClipboard(["old clipboard", "unchanged"])
+    try:
+        run(session, clipboard)
+    except uia.Failure as error:
+        results["diagnostics_fails_on_an_error_toast"] = (
+            session.clicks == 1 and "Something went wrong" in str(error)
         )
-        results["hold_accepts_a_steady_window"] = held and steady.takes == 0 and info["pid"] == 20912
+    else:
+        results["diagnostics_fails_on_an_error_toast"] = False
+    results["diagnostics_restores_after_an_error"] = clipboard.writes == ["old clipboard"]
 
-        flapping = Foreground(hold=True)
-        flapping.script = [7, 99] * 10
-        flapping.holder = lambda: {
-            "hwnd": flapping.script.pop(0),
-            "pid": 16544,
-            "title": "T3 Code (Beta)",
-        }
-        held, info = journeys_core.hold_foreground(
-            7, flapping.front, flapping.holder, fake_clock(), quiet, 5.0
+    session = FakeSession(["Diagnostics copied."])
+    clipboard = FakeClipboard(["old clipboard", "not a report"])
+    try:
+        run(session, clipboard)
+    except uia.Failure as error:
+        results["diagnostics_requires_the_report_on_the_clipboard"] = (
+            "doctor report" in str(error) and clipboard.writes == ["old clipboard"]
         )
-        results["hold_needs_consecutive_samples"] = not held and flapping.takes >= 1
+    else:
+        results["diagnostics_requires_the_report_on_the_clipboard"] = False
 
-        retried = FakeSession(["Something went wrong. Try again.", "Diagnostics copied."])
-        results["diagnostics_retries_after_error_toast"] = (
-            run_copy(retried, Foreground(hold=True), fake_clock()) == "Diagnostics copied."
-            and retried.clicks == 2
-        )
+    def refuse(text):
+        raise OSError("clipboard is busy")
 
-        failing = FakeSession(["Something went wrong. Try again."] * 3)
-        try:
-            run_copy(failing, Foreground(hold=True), fake_clock())
-        except uia.Failure as error:
-            results["diagnostics_fails_after_three_error_toasts"] = (
-                failing.clicks == journeys_core.DIAGNOSTICS_ATTEMPTS
-                and "Keep the desktop idle" in str(error)
-            )
-        else:
-            results["diagnostics_fails_after_three_error_toasts"] = False
-
-        try:
-            run_copy(FakeSession(["Diagnostics copied."]), Foreground(hold=False, sticky=True), fake_clock())
-        except uia.Failure as error:
-            results["diagnostics_names_the_holder"] = (
-                "T3 Code (Beta)" in str(error) and "Keep the desktop idle" in str(error)
-            )
-        else:
-            results["diagnostics_names_the_holder"] = False
-
-        keeper = Foreground(hold=False)
-        toast_session = FakeSession(["Diagnostics copied."])
-        toast_session.line = "Diagnostics copied."
-        kept = journeys_core.watch_toast(
-            toast_session, 7, keeper.front, keeper.holder, fake_clock(), quiet
-        )
-        results["toast_wait_restores_the_foreground"] = kept == "Diagnostics copied." and keeper.takes >= 1
-
-        run_copy(FakeSession(["Something went wrong.", "Diagnostics copied."]), Foreground(hold=True), fake_clock())
-        toasts = (Path(folder) / "diagnostics-toast.txt").read_text(encoding="utf-8")
-        samples = (Path(folder) / "diagnostics-foreground.txt").read_text(encoding="utf-8")
-        results["diagnostics_records_every_toast"] = "attempt 1" in toasts and "attempt 2" in toasts
-        results["diagnostics_records_foreground_samples"] = "Modn" in samples
-
-    tried = []
-
-    def flaky_front(hwnd):
-        tried.append(hwnd)
-        return len(tried) >= 3
-
-    results["bring_to_front_retries"] = (
-        windows.bring_to_front(7, timeout=5, front=flaky_front, clock=fake_clock(), sleep=quiet)
-        and len(tried) == 3
+    session = FakeSession(["Diagnostics copied."])
+    clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT)])
+    results["diagnostics_ignores_a_failed_restore"] = (
+        run(session, clipboard, write=refuse)["scan"]["installation"] == "C:\\fixture\\game"
     )
-    results["bring_to_front_reports_a_timeout"] = not windows.bring_to_front(
-        7, timeout=2, front=lambda hwnd: False, clock=fake_clock(), sleep=quiet
+
+    results["diagnostics_report_rejects_other_json"] = (
+        journeys_core.diagnostics_report('{"scan": {}}') is None
+        and journeys_core.diagnostics_report("[]") is None
+        and journeys_core.diagnostics_report("not json") is None
     )
     return results

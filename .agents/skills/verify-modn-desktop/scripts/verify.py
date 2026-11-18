@@ -150,7 +150,7 @@ def selftest():
         "Something went wrong"
     )
 
-    # Copy diagnostics: fakes for the foreground hold and the retry.
+    # Copy diagnostics: fakes for the one click, the toast and the clipboard.
     import selftest_diagnostics  # noqa: PLC0415 - fake desktop only
 
     results.update(selftest_diagnostics.checks())
