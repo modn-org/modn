@@ -266,13 +266,7 @@ fn a_user_supplied_archive_is_recorded_as_a_manual_source() {
     fixture.register();
 
     let output = fixture.run_paths(
-        &[
-            "--json",
-            "install",
-            "test-game/example",
-            "--yes",
-            "--file",
-        ],
+        &["--json", "install", "test-game/example", "--yes", "--file"],
         &[archive.as_path()],
     );
     assert!(output.status.success(), "{}", error(&output));
@@ -390,7 +384,10 @@ fn a_git_fallback_is_recorded_as_the_serving_source_and_undo_uses_its_cache() {
     assert_eq!(source["kind"], "git", "{source}");
     assert_eq!(source["repository"], "fixture/project", "{source}");
     assert_eq!(source["commit"], repository.commit, "{source}");
-    assert_eq!(fs::read(&plugin).expect("installed plugin"), b"pinned-release");
+    assert_eq!(
+        fs::read(&plugin).expect("installed plugin"),
+        b"pinned-release"
+    );
 
     let removed = fixture.run(&["uninstall", "git-package", "--path", game, "--yes"]);
     assert!(removed.status.success(), "{}", error(&removed));
@@ -404,5 +401,8 @@ fn a_git_fallback_is_recorded_as_the_serving_source_and_undo_uses_its_cache() {
         "undo must restore the serving Git source archive from the cache: {}",
         error(&undone)
     );
-    assert_eq!(fs::read(&plugin).expect("restored plugin"), b"pinned-release");
+    assert_eq!(
+        fs::read(&plugin).expect("restored plugin"),
+        b"pinned-release"
+    );
 }

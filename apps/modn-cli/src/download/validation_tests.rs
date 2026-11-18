@@ -68,7 +68,10 @@ fn an_unrelated_other_io_error_is_not_retried() {
     })
     .expect_err("an unrelated body error refuses the source");
     assert_eq!(calls.get(), 1, "an unrelated body error was retried");
-    assert!(format!("{error:#}").contains("after 1 attempt(s)"), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("after 1 attempt(s)"),
+        "{error:#}"
+    );
 }
 
 struct UnrelatedBody;
@@ -93,7 +96,9 @@ fn a_successful_body_still_resolves() {
 
 fn link(mod_id: u64, file_id: u64) -> crate::nxm::NxmLink {
     crate::nxm::parse(
-        &format!("nxm://cyberpunk2077/mods/{mod_id}/files/{file_id}?key=fixturekey&expires=9999999999"),
+        &format!(
+            "nxm://cyberpunk2077/mods/{mod_id}/files/{file_id}?key=fixturekey&expires=9999999999"
+        ),
         1,
     )
     .expect("fixture nxm link")
@@ -130,13 +135,12 @@ fn validate_links_accepts_a_secondary_nexus_source() {
 
 #[test]
 fn the_download_consent_line_names_the_first_fetchable_source() {
-    let sources: Vec<modn_core::buckets::PackageSource> = serde_json::from_value(
-        serde_json::json!([
+    let sources: Vec<modn_core::buckets::PackageSource> =
+        serde_json::from_value(serde_json::json!([
             {"kind": "manual", "filename": "Example 1.0.zip"},
             {"kind": "https", "url": "https://example.invalid/example.zip"}
-        ]),
-    )
-    .expect("sources");
+        ]))
+        .expect("sources");
     let line = crate::dependency_plan::download_line(
         "community/test-game/example",
         "1.0",

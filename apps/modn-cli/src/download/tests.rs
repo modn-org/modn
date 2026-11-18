@@ -202,7 +202,11 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
 
 const FALLBACK_URL: &str = "https://fixture.invalid/example.zip";
 
-pub(super) fn package_with_sources(root: &Path, digest: &str, sources: serde_json::Value) -> BucketPackage {
+pub(super) fn package_with_sources(
+    root: &Path,
+    digest: &str,
+    sources: serde_json::Value,
+) -> BucketPackage {
     let bucket = root.join("buckets/main");
     let game = bucket.join("mods/test-game");
     fs::create_dir_all(&game).expect("bucket directory");

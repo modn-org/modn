@@ -171,9 +171,9 @@ pub(super) fn plan(release: &BucketPackage) -> Vec<(Planned, PackageSource)> {
                 PackageSource::Https { url } => {
                     Planned::Fetch(FetchPlan::Ready(SourceCandidate::fetch(url.clone())))
                 }
-                PackageSource::Manual { filename } => Planned::Fetch(FetchPlan::Ready(
-                    SourceCandidate::manual(filename.clone()),
-                )),
+                PackageSource::Manual { filename } => {
+                    Planned::Fetch(FetchPlan::Ready(SourceCandidate::manual(filename.clone())))
+                }
                 _ => Planned::Fetch(FetchPlan::Ready(SourceCandidate::refused(
                     "unknown source",
                     "unknown release source",

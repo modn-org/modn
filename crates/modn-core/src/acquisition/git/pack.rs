@@ -142,7 +142,10 @@ fn fetch_child(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Res
 
 /// Reuse a prepared Git command with a test program in place of `git`.
 #[cfg(any(test, feature = "test-instruction-budget"))]
-fn replace_program(command: std::process::Command, program: std::ffi::OsString) -> std::process::Command {
+fn replace_program(
+    command: std::process::Command,
+    program: std::ffi::OsString,
+) -> std::process::Command {
     let mut replaced = std::process::Command::new(program);
     replaced
         .args(command.get_args())

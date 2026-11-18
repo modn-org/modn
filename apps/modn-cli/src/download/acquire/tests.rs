@@ -150,7 +150,11 @@ fn acquire_with_served(
         &mut report,
         control,
     );
-    (result, String::from_utf8(report).expect("UTF-8 report"), served)
+    (
+        result,
+        String::from_utf8(report).expect("UTF-8 report"),
+        served,
+    )
 }
 
 fn partial_files(root: &Path) -> Vec<PathBuf> {
@@ -384,7 +388,10 @@ fn a_cached_secondary_nexus_archive_installs_without_a_key_or_request() {
 
     TEST_RESPONSES.with(|responses| responses.replace(None));
     let attempts = result.expect("the cached second Nexus archive supplies the release");
-    assert!(attempts.is_empty(), "the cache hit made a request: {attempts:?} {text}");
+    assert!(
+        attempts.is_empty(),
+        "the cache hit made a request: {attempts:?} {text}"
+    );
     assert!(
         TEST_CALLS.with(|calls| calls.borrow().is_empty()),
         "the cache hit contacted a provider"
@@ -393,7 +400,10 @@ fn a_cached_secondary_nexus_archive_installs_without_a_key_or_request() {
     assert!(
         matches!(
             served.get(&reference),
-            Some(modn_core::buckets::PackageSource::Nexus { file_id: 222222, .. })
+            Some(modn_core::buckets::PackageSource::Nexus {
+                file_id: 222222,
+                ..
+            })
         ),
         "the serving source is not the second Nexus source"
     );
@@ -413,21 +423,21 @@ fn a_dry_run_cache_probe_reuses_a_secondary_nexus_archive() {
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();
 
-    crate::download::add_cached(
-        &cache,
-        [&package],
-        &mut archives,
-        &mut digests,
-        &mut served,
-    )
-    .expect("the dry-run cache probe");
+    crate::download::add_cached(&cache, [&package], &mut archives, &mut digests, &mut served)
+        .expect("the dry-run cache probe");
 
     let reference = crate::catalog_install::reference_of(&package).to_string();
-    assert!(archives.contains_key(&reference), "the dry run missed the archive");
+    assert!(
+        archives.contains_key(&reference),
+        "the dry run missed the archive"
+    );
     assert!(
         matches!(
             served.get(&reference),
-            Some(modn_core::buckets::PackageSource::Nexus { file_id: 222222, .. })
+            Some(modn_core::buckets::PackageSource::Nexus {
+                file_id: 222222,
+                ..
+            })
         ),
         "the dry run did not name the second Nexus source"
     );

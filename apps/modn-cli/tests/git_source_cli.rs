@@ -475,5 +475,8 @@ fn a_stalled_first_git_fetch_times_out_and_the_next_source_serves() {
                 && line.trim_end().ends_with(": ok")),
         "the report omits the serving Git source: {stderr}"
     );
-    assert_eq!(fs::read(&plugin).expect("installed plugin"), b"pinned-release");
+    assert_eq!(
+        fs::read(&plugin).expect("installed plugin"),
+        b"pinned-release"
+    );
 }

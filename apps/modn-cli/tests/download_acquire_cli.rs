@@ -432,13 +432,7 @@ fn a_failed_git_first_source_falls_back_to_the_next_git_source() {
     assert_eq!(source["repository"], "fixture/project");
     assert_eq!(source["commit"], repository.commit.as_str());
 
-    let removed = fixture.run(&[
-        "uninstall",
-        "git-package",
-        "--path",
-        &game,
-        "--yes",
-    ]);
+    let removed = fixture.run(&["uninstall", "git-package", "--path", &game, "--yes"]);
     assert!(removed.status.success(), "{}", error(&removed));
     assert!(!fixture.game.join("addons/git-source.plugin").exists());
 
