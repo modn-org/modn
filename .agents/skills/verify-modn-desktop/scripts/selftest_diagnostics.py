@@ -115,4 +115,7 @@ def checks():
         and journeys_core.diagnostics_report("[]") is None
         and journeys_core.diagnostics_report("not json") is None
     )
+    results["same_path_ignores_the_verbatim_prefix"] = journeys_core.same_path(
+        "\\\\?\\C:\\fixture\\game", "C:\\fixture\\game"
+    )
     return results

@@ -5,9 +5,9 @@ app driver and helpers live in `harness.py`.
 """
 
 import json
+import os
 import sys
 import time
-from pathlib import Path
 
 import clipboard
 import uia
@@ -182,6 +182,7 @@ DIAGNOSTICS_COPIED = "Diagnostics copied."
 DIAGNOSTICS_ERROR = "Something went wrong"
 REPORT_KEYS = ("scan", "diagnostics", "created_directories")
 TOAST_SECONDS = 15.0
+PLAY_WINDOW_WATCH_SECONDS = 1.5
 
 
 def diagnostics_copied(toast):
@@ -204,6 +205,19 @@ def diagnostics_report(text):
     if any(key not in value for key in REPORT_KEYS):
         return None
     return value
+
+
+def same_path(left, right):
+    """True when two Windows paths name one location.
+
+    The CLI reports a verbatim path such as `\\\\?\\C:\\game` while the fixture
+    holds `C:\\game`; the prefix and the letter case do not change the target.
+    """
+    def normalized(value):
+        text = os.path.normcase(os.path.abspath(str(value)))
+        return text[4:] if text.startswith("\\\\?\\") else text
+
+    return normalized(left) == normalized(right)
 
 
 def wait_toast(session, clock=time.monotonic, sleep=time.sleep, timeout=TOAST_SECONDS):
@@ -366,7 +380,7 @@ def journey_play(runner):
         report = copy_diagnostics(session, clipboard.read_text, clipboard.write_text)
         installation = report.get("scan", {}).get("installation")
         runner.check(
-            isinstance(installation, str) and Path(installation).resolve() == game.resolve(),
+            isinstance(installation, str) and same_path(installation, game),
             f"Clipboard doctor report names {installation!r}, not {game}",
         )
         (fx.evidence / "diagnostics.json").write_text(
