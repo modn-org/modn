@@ -333,10 +333,17 @@ impl BucketStore {
         };
         let unchanged = previous
             .as_ref()
-            .is_some_and(|previous| previous.commit == revision.commit);
+            .is_some_and(|previous| previous.commit == revision.commit)
+            && previous_registration
+                .as_ref()
+                .is_some_and(|registration| same_signing_files(&registration.path, &catalog));
         let published_path = match (&previous_registration, unchanged) {
             (Some(registration), true) => registration.path.clone(),
             _ => catalog.clone(),
+        };
+        let superseded = match (&previous_registration, unchanged) {
+            (Some(registration), false) => Some(registration.path.clone()),
+            _ => None,
         };
         let registration_before = self.stored_registration_bytes(name)?;
         let staged = if trust == ModuleTrustState::Trusted {
@@ -370,19 +377,29 @@ impl BucketStore {
                 Ok(imported) => imported,
                 Err(error) => {
                     let restored = self.restore_registration(name, registration_before.as_deref());
-                    if let Some(retained) = &retained {
-                        let _ = fs::remove_dir_all(retained);
-                    }
                     return match restored {
-                        Ok(()) => Err(error),
+                        // Only the restored registration justifies removing the
+                        // new tree: a failed restore may leave it referenced.
+                        Ok(()) => {
+                            if let Some(retained) = &retained {
+                                let _ = fs::remove_dir_all(retained);
+                            }
+                            Err(error)
+                        }
                         Err(restore_error) => Err(error.context(format!(
-                            "the previous registration could not be restored: {restore_error:#}"
+                            "the previous registration could not be restored; the new catalog tree is kept: {restore_error:#}"
                         ))),
                     };
                 }
             },
             None => Vec::new(),
         };
+        // Publish first: a failed sync must leave the previous state in place,
+        // so only a committed registration purges an earlier sync's retired trees.
+        self.purge_retired_catalog_snapshots();
+        if let Some(superseded) = superseded {
+            self.retire_catalog_snapshot(&superseded);
+        }
         Ok(GitCatalogSync {
             revision,
             pinned,
@@ -398,6 +415,20 @@ impl BucketStore {
             },
         })
     }
+}
+
+/// True when a published tree carries the same pinned key and signature files.
+///
+/// The catalog digest excludes `catalog.pub` and `catalog.sig`, so a rotation
+/// with unchanged content keeps the digest. A tree is reusable only when those
+/// two files match too.
+pub(super) fn same_signing_files(published: &Path, staged: &Path) -> bool {
+    ["catalog.pub", "catalog.sig"].iter().all(|name| {
+        match (fs::read(published.join(name)), fs::read(staged.join(name))) {
+            (Ok(published), Ok(staged)) => published == staged,
+            _ => false,
+        }
+    })
 }
 
 fn clone_catalog(attempt: &Path, source: &GitCatalogSource) -> Result<(PathBuf, String)> {
@@ -419,6 +450,8 @@ fn clone_catalog(attempt: &Path, source: &GitCatalogSource) -> Result<(PathBuf, 
     Ok((catalog, commit))
 }
 
+#[cfg(test)]
+mod replay_tests;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]

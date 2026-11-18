@@ -3,6 +3,7 @@ mod git;
 mod lock;
 mod manifest;
 mod mirrors;
+mod retire;
 mod rotation;
 mod signature;
 mod snapshot;

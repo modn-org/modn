@@ -13,10 +13,17 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Test seam: the next catalog module commit fails before moving any release.
+/// Test seam: the next catalog module commit fails for one registry root.
 #[cfg(test)]
-pub(crate) static FAIL_NEXT_CATALOG_COMMIT: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+pub(crate) static FAIL_NEXT_CATALOG_COMMIT: std::sync::Mutex<BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(BTreeSet::new());
+
+/// Consume an armed failure for `root`. Other registries keep their outcome.
+#[cfg(test)]
+fn injected_commit_failure(root: &Path) -> bool {
+    let mut armed = FAIL_NEXT_CATALOG_COMMIT.lock().expect("seam lock");
+    armed.remove(root)
+}
 
 mod catalog;
 mod staging;
@@ -185,7 +192,7 @@ impl StagedCatalogImport {
             ignored: _,
         } = self;
         #[cfg(test)]
-        if FAIL_NEXT_CATALOG_COMMIT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        if injected_commit_failure(&registry.root()) {
             drop(staging);
             bail!("injected catalog module commit failure");
         }
@@ -354,5 +361,36 @@ mod tests {
         );
         assert!(fs::symlink_metadata(&old_target).is_err());
         assert!(old_staged.join("module.json").is_file());
+    }
+
+    #[test]
+    fn an_armed_commit_failure_is_scoped_to_one_registry() {
+        let here = PathBuf::from("fixture-registry-here");
+        let elsewhere = PathBuf::from("fixture-registry-elsewhere");
+        // Insert, never replace: another test's armed root must survive.
+        super::FAIL_NEXT_CATALOG_COMMIT
+            .lock()
+            .expect("seam")
+            .insert(here.clone());
+        // Another test's registry commits first. A process-wide seam would spend
+        // the armed failure here and leave `here` unaffected.
+        let other_failed = std::thread::scope(|scope| {
+            scope
+                .spawn(|| super::injected_commit_failure(&elsewhere))
+                .join()
+                .expect("thread")
+        });
+        assert!(
+            !other_failed,
+            "arming one registry does not fail another registry's commit"
+        );
+        assert!(
+            super::injected_commit_failure(&here),
+            "the armed registry still fails"
+        );
+        assert!(
+            !super::injected_commit_failure(&here),
+            "the failure fires once"
+        );
     }
 }

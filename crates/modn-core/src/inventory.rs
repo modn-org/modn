@@ -273,7 +273,11 @@ fn module_source_diagnostics(game_id: &str) -> Result<Vec<Diagnostic>> {
             let trusted = bucket == "main"
                 || trusted.iter().any(|source| {
                     source.bucket == bucket
-                        && Some(&source.signer_key_id) == release.source.signer_key_id.as_ref()
+                        && release
+                            .source
+                            .signer_key_id
+                            .as_deref()
+                            .is_some_and(|signer| source.authorizes(signer))
                 });
             if !trusted {
                 diagnostics.push(Diagnostic {

@@ -334,7 +334,10 @@ impl BucketStore {
         };
         let unchanged = previous
             .as_ref()
-            .is_some_and(|previous| previous.digest == revision.digest);
+            .is_some_and(|previous| previous.digest == revision.digest)
+            && previous_registration.as_ref().is_some_and(|registration| {
+                super::git::same_signing_files(&registration.path, &catalog)
+            });
         let published_path = match (&previous_registration, unchanged) {
             (Some(registration), true) => registration.path.clone(),
             _ => catalog.clone(),
@@ -375,19 +378,26 @@ impl BucketStore {
                 Ok(imported) => imported,
                 Err(error) => {
                     let restored = self.restore_registration(name, registration_before.as_deref());
-                    if let Some(retained) = &retained {
-                        let _ = fs::remove_dir_all(retained);
-                    }
                     return match restored {
-                        Ok(()) => Err(error),
+                        // Only the restored registration justifies removing the
+                        // new tree: a failed restore may leave it referenced.
+                        Ok(()) => {
+                            if let Some(retained) = &retained {
+                                let _ = fs::remove_dir_all(retained);
+                            }
+                            Err(error)
+                        }
                         Err(restore_error) => Err(error.context(format!(
-                            "the previous registration could not be restored: {restore_error:#}"
+                            "the previous registration could not be restored; the new catalog tree is kept: {restore_error:#}"
                         ))),
                     };
                 }
             },
             None => Vec::new(),
         };
+        // Publish first: a failed sync must leave the previous state in place,
+        // so only a committed registration purges an earlier sync's retired trees.
+        self.purge_retired_catalog_snapshots();
         if let Some(superseded) = superseded {
             self.retire_catalog_snapshot(&superseded);
         }
@@ -444,6 +454,8 @@ impl BucketStore {
 }
 #[cfg(test)]
 mod key_tests;
+#[cfg(test)]
+mod removal_tests;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]

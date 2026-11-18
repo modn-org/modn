@@ -62,6 +62,13 @@ impl BucketStore {
         name: &str,
         bytes: Option<&[u8]>,
     ) -> Result<()> {
+        #[cfg(test)]
+        if self
+            .fail_next_registration_restore
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            bail!("injected registration restore failure");
+        }
         match bytes {
             Some(bytes) => self.write_registration_bytes(name, bytes),
             None => {

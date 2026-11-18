@@ -80,6 +80,12 @@ pub struct BucketStore {
     /// Test seam: the next registration write fails before any file changes.
     #[cfg(test)]
     pub(super) fail_next_registration_write: std::sync::atomic::AtomicBool,
+    /// Test seam: the next registration restore fails before any file changes.
+    #[cfg(test)]
+    pub(super) fail_next_registration_restore: std::sync::atomic::AtomicBool,
+    /// Test seam: the next registration removal fails before any file changes.
+    #[cfg(test)]
+    pub(super) fail_next_registration_remove: std::sync::atomic::AtomicBool,
 }
 
 impl BucketStore {
@@ -90,6 +96,10 @@ impl BucketStore {
             root: state_root.join("buckets"),
             #[cfg(test)]
             fail_next_registration_write: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            fail_next_registration_restore: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            fail_next_registration_remove: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -331,40 +341,6 @@ impl BucketStore {
             bail!("bucket is not registered: {name}");
         }
         bounded_json(&self.root.join("registrations").join(format!("{name}.json")))
-    }
-
-    /// Remove one superseded catalog snapshot that this store created.
-    ///
-    /// The removal is best effort: the registration already points at the new
-    /// tree, so a leftover directory is waste, not a correctness problem. A path
-    /// outside the store root is never touched.
-    pub(super) fn retire_catalog_snapshot(&self, path: &Path) {
-        let Some(snapshot) = path
-            .ancestors()
-            .find(|candidate| candidate.parent() == Some(self.root.as_path()))
-        else {
-            return;
-        };
-        let owned = snapshot.file_name().is_some_and(|name| {
-            let name = name.to_string_lossy();
-            name.starts_with("zip-catalog-") || name.starts_with("git-catalog-")
-        });
-        if owned {
-            let _ = fs::remove_dir_all(snapshot);
-        }
-    }
-
-    /// Forget a registered bucket without touching its source or game files.
-    pub fn remove(&self, name: &str) -> Result<()> {
-        if !valid_id(name) || name == "main" {
-            bail!("cannot remove the reserved main bucket");
-        }
-        if !self.registrations()?.contains_key(name) {
-            bail!("bucket is not registered: {name}");
-        }
-        let file = self.root.join("registrations").join(format!("{name}.json"));
-        fs::remove_file(file)?;
-        Ok(())
     }
 
     /// List the local main bucket and registered local buckets.

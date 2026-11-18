@@ -184,7 +184,10 @@ A rotation keeps module trust because the old key vouched for the new key. A
 revocation clears it, so users run `modn bucket trust-modules` again. Sync output
 names both fingerprints.
 
-A rotation may return to a key that an earlier rotation retired. Modn records
+A rotation may return to a key that an earlier rotation retired, but it needs a
+new statement. Modn applies each rotation or revocation statement once and
+refuses a revision that republishes an applied statement for the pinned key, so
+a retired key cannot regain trust by replaying an old statement. Modn records
 only the key that the current revision rotated away from, so the current key is
 never listed as retired. A rotation cannot name a key in `revoked_signers`; only
 the offline revocation key can re-authorize a revoked key. A revocation may name
