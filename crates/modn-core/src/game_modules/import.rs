@@ -367,17 +367,27 @@ mod tests {
     fn an_armed_commit_failure_is_scoped_to_one_registry() {
         let here = PathBuf::from("fixture-registry-here");
         let elsewhere = PathBuf::from("fixture-registry-elsewhere");
-        *super::FAIL_NEXT_CATALOG_COMMIT.lock().expect("seam") = BTreeSet::from([here.clone()]);
-        let (armed, other) = std::thread::scope(|scope| {
-            let first = scope.spawn(|| super::injected_commit_failure(&here));
-            let second = scope.spawn(|| super::injected_commit_failure(&elsewhere));
-            (
-                first.join().expect("thread"),
-                second.join().expect("thread"),
-            )
+        // Insert, never replace: another test's armed root must survive.
+        super::FAIL_NEXT_CATALOG_COMMIT
+            .lock()
+            .expect("seam")
+            .insert(here.clone());
+        // Another test's registry commits first. A process-wide seam would spend
+        // the armed failure here and leave `here` unaffected.
+        let other_failed = std::thread::scope(|scope| {
+            scope
+                .spawn(|| super::injected_commit_failure(&elsewhere))
+                .join()
+                .expect("thread")
         });
-        assert!(armed, "the armed registry consumes the failure");
-        assert!(!other, "another registry keeps its own outcome");
+        assert!(
+            !other_failed,
+            "arming one registry does not fail another registry's commit"
+        );
+        assert!(
+            super::injected_commit_failure(&here),
+            "the armed registry still fails"
+        );
         assert!(
             !super::injected_commit_failure(&here),
             "the failure fires once"
