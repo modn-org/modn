@@ -6,7 +6,7 @@
 
 use super::http::fetch_metadata;
 use modn_core::acquisition::{
-    FetchError, GithubReleaseAsset, SourceCandidate, SourcePolicy, SourceTarget,
+    FetchError, GithubReleaseAsset, NexusFile, SourceCandidate, SourcePolicy, SourceTarget,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::io::Read;
@@ -16,22 +16,26 @@ pub(super) fn github_url(repository: &str, tag: &str, asset: &str) -> String {
     format!("https://github.com/{repository}/releases/download/{tag}/{asset}")
 }
 
-/// Every URL Modn can try without provider metadata.
-pub(super) fn urls(release: &BucketPackage) -> Vec<String> {
-    release
-        .package
-        .sources
-        .iter()
-        .filter_map(|source| match source {
-            PackageSource::Https { url } => Some(url.clone()),
-            PackageSource::GithubRelease {
-                repository,
-                tag,
-                asset,
-            } => Some(github_url(repository, tag, asset)),
-            _ => None,
-        })
-        .collect()
+/// The credential-free cache URL of a source, when it has one.
+///
+/// A Git source is keyed by its commit and is probed separately. A manual
+/// source has no cache entry until the user supplies the archive.
+pub(super) fn cache_url(source: &PackageSource) -> anyhow::Result<Option<String>> {
+    Ok(match source {
+        PackageSource::Https { url } => Some(url.clone()),
+        PackageSource::GithubRelease {
+            repository,
+            tag,
+            asset,
+        } => Some(github_url(repository, tag, asset)),
+        PackageSource::Nexus {
+            game_domain,
+            mod_id,
+            file_id,
+            file_name,
+        } => Some(NexusFile::new(game_domain, *mod_id, *file_id, file_name)?.cache_url()),
+        _ => None,
+    })
 }
 
 /// Resolve GitHub metadata, retrying one transient transport failure.
@@ -40,7 +44,7 @@ pub(super) fn urls(release: &BucketPackage) -> Vec<String> {
 /// network failure or an HTTP 5xx is retried once, also when it appears while
 /// reading the metadata body. A 404 or a metadata mismatch is final for the
 /// source.
-fn resolve_metadata(
+pub(super) fn resolve_metadata(
     selector: &GithubReleaseAsset,
     fetch: impl Fn(&str) -> anyhow::Result<Box<dyn Read>>,
 ) -> anyhow::Result<String> {
@@ -129,47 +133,53 @@ impl FetchPlan {
 }
 
 /// Build the ordered plan for `release` without a network request.
-pub(super) fn plan(release: &BucketPackage) -> Vec<Planned> {
+///
+/// Each entry carries the source it came from, so a successful attempt can
+/// record the source that served the archive.
+pub(super) fn plan(release: &BucketPackage) -> Vec<(Planned, PackageSource)> {
     release
         .package
         .sources
         .iter()
-        .map(|source| match source {
-            PackageSource::Git { repository, commit } => Planned::Git {
-                repository: repository.clone(),
-                commit: commit.clone(),
-            },
-            PackageSource::Nexus {
-                game_domain,
-                mod_id,
-                file_id,
-                file_name,
-            } => Planned::Nexus {
-                game_domain: game_domain.clone(),
-                mod_id: *mod_id,
-                file_id: *file_id,
-                file_name: file_name.clone(),
-            },
-            PackageSource::GithubRelease {
-                repository,
-                tag,
-                asset,
-            } => Planned::Fetch(FetchPlan::Github {
-                repository: repository.clone(),
-                tag: tag.clone(),
-                asset: asset.clone(),
-                expected: github_url(repository, tag, asset),
-            }),
-            PackageSource::Https { url } => {
-                Planned::Fetch(FetchPlan::Ready(SourceCandidate::fetch(url.clone())))
-            }
-            PackageSource::Manual { filename } => {
-                Planned::Fetch(FetchPlan::Ready(SourceCandidate::manual(filename.clone())))
-            }
-            _ => Planned::Fetch(FetchPlan::Ready(SourceCandidate::refused(
-                "unknown source",
-                "unknown release source",
-            ))),
+        .map(|source| {
+            let planned = match source {
+                PackageSource::Git { repository, commit } => Planned::Git {
+                    repository: repository.clone(),
+                    commit: commit.clone(),
+                },
+                PackageSource::Nexus {
+                    game_domain,
+                    mod_id,
+                    file_id,
+                    file_name,
+                } => Planned::Nexus {
+                    game_domain: game_domain.clone(),
+                    mod_id: *mod_id,
+                    file_id: *file_id,
+                    file_name: file_name.clone(),
+                },
+                PackageSource::GithubRelease {
+                    repository,
+                    tag,
+                    asset,
+                } => Planned::Fetch(FetchPlan::Github {
+                    repository: repository.clone(),
+                    tag: tag.clone(),
+                    asset: asset.clone(),
+                    expected: github_url(repository, tag, asset),
+                }),
+                PackageSource::Https { url } => {
+                    Planned::Fetch(FetchPlan::Ready(SourceCandidate::fetch(url.clone())))
+                }
+                PackageSource::Manual { filename } => {
+                    Planned::Fetch(FetchPlan::Ready(SourceCandidate::manual(filename.clone())))
+                }
+                _ => Planned::Fetch(FetchPlan::Ready(SourceCandidate::refused(
+                    "unknown source",
+                    "unknown release source",
+                ))),
+            };
+            (planned, source.clone())
         })
         .collect()
 }

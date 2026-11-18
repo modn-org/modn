@@ -160,8 +160,8 @@ fn undo_update_restores_the_previous_release_from_the_cache() {
     fixture.bucket("deps", "test-game", "example", &v1_hash, &[]);
     manifest(&fixture, "example", "1.0", &v1_hash, https(v1_url));
     fixture.register();
-    assert!(install(&fixture, "example", &[&v1]).status.success());
     cache(&fixture, "example", "1.0", v1_url, &v1);
+    assert!(install(&fixture, "example", &[]).status.success());
 
     manifest(&fixture, "example", "2.0", &v2_hash, https(v2_url));
     let updated = fixture.run_paths(
@@ -199,8 +199,8 @@ fn undo_uninstall_restores_the_recorded_release() {
     fixture.bucket("deps", "test-game", "example", &v1_hash, &[]);
     manifest(&fixture, "example", "1.0", &v1_hash, https(url));
     fixture.register();
-    assert!(install(&fixture, "example", &[&v1]).status.success());
     cache(&fixture, "example", "1.0", url, &v1);
+    assert!(install(&fixture, "example", &[]).status.success());
     let addon = fixture.game.join("addons/example.plugin");
     assert!(fixture
         .run(&["uninstall", "example", "--yes"])

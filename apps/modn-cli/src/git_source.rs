@@ -4,7 +4,7 @@
 //! has explicit download or installation consent, like other remote sources.
 use anyhow::Result;
 use modn_core::acquisition::{ArchiveCache, CacheUse, GitCacheKey, GitSource, Origin};
-use modn_core::buckets::{BucketPackage, PackageSource};
+use modn_core::buckets::BucketPackage;
 use modn_core::progress::{OperationControl, ProgressEvent};
 use std::fs;
 use std::path::PathBuf;
@@ -12,15 +12,6 @@ use std::path::PathBuf;
 pub(super) struct GitArchive {
     pub(super) path: PathBuf,
     pub(super) blake3: String,
-}
-
-fn source(release: &BucketPackage) -> Option<GitSource> {
-    match release.package.primary_source() {
-        PackageSource::Git { repository, commit } => {
-            Some(GitSource::new(repository.clone(), commit.clone()))
-        }
-        _ => None,
-    }
 }
 
 fn key<'a>(release: &'a BucketPackage, source: &'a GitSource) -> GitCacheKey<'a> {
@@ -32,14 +23,7 @@ fn key<'a>(release: &'a BucketPackage, source: &'a GitSource) -> GitCacheKey<'a>
     )
 }
 
-pub(super) fn cached(cache: &ArchiveCache, release: &BucketPackage) -> Result<Option<GitArchive>> {
-    let Some(source) = source(release) else {
-        return Ok(None);
-    };
-    cached_source(cache, release, &source)
-}
-
-fn cached_source(
+pub(super) fn cached_source(
     cache: &ArchiveCache,
     release: &BucketPackage,
     source: &GitSource,

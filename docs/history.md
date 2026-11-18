@@ -22,6 +22,9 @@ UTC timestamp. For each package it holds:
 
 A source descriptor uses the bucket manifest shape: `manual`, `https`,
 `github-release`, `nexus` or `git`. A standalone archive is a `manual` source.
+The descriptor records the serving source, which is the source that supplied
+the archive, not the first source in the release list. Undo looks for the
+cached archive under that recorded source.
 The descriptor is stored in the record, so undo does not need the bucket
 snapshot or catalog revision that produced it.
 
@@ -101,8 +104,10 @@ archive cache before a later check refuses:
 - A later operation on the same installation touched one of the target's
   packages or files. The error names that newer operation; undo it first. A
   second undo of the same target is refused for the same reason.
-- The target release has a `manual` source, so Modn has no URL to fetch again.
-  Install the archive with `modn install --file` instead.
+- The recorded serving source of the target release is `manual`, so Modn has no
+  URL to fetch again. Install the archive with `modn install --file` instead.
+  A release whose first source is `manual` but whose archive came from a later
+  fetchable source still restores from that source.
 - The target release has a `git` or `nexus` source and its archive is no
   longer cached. Undo restores these releases only from the archive cache; a
   Nexus download needs a new nxm link. Reinstall the release from the catalog.

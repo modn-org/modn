@@ -53,8 +53,10 @@ A registration made before catalog signing fails with a request to remove the
 bucket and sync it again.
 `modn bucket list` shows the pinned key ID after the catalog title.
 
-Git must be installed. This MVP has no credentials or network timeout policy.
-Git sync serializes other Git sync calls: a second sync waits up to 2 seconds
+Git must be installed. Git operations keep no credentials and never prompt.
+A package Git fetch is bounded: it fails as a `timeout` attempt after the
+connect and idle timeouts below, also when the remote never answers. Catalog
+sync serializes other Git sync calls: a second sync waits up to 2 seconds
 for the first to finish, then fails with the already running error. It does not
 coordinate concurrent local registration edits.
 Catalog metadata does not approve executable installation or grant game writes.
@@ -142,6 +144,10 @@ It moves to the next source after a timeout, a network failure, an HTTP failure 
 A `git` or `nexus` source is one attempt in that same order, with the same failure classes as a fetch.
 A failed Git or Nexus attempt is reported and the next source runs.
 The first source whose bytes match the record's `blake3` pin supplies the archive.
+That source is the serving source, and it need not be the first source in the list.
+Modn records the serving source in the install or update history record, so undo looks for the cached archive under that source.
+Modn probes the cache key of every source, in list order, before any network or credential step.
+A user-supplied `--file` archive is recorded as a `manual` source.
 A cancelled operation stops the whole acquisition at once, for every source kind: Modn tries no later source, retries nothing and keeps no cache entry.
 Cancellation is checked before each source and after each failed attempt.
 A `manual` source is never started automatically.
@@ -157,6 +163,11 @@ A verified cache entry for the pin is used before any network attempt.
 Modn never retries an HTTP 4xx answer or a BLAKE3 mismatch.
 It adds no flag or environment variable for these values.
 The constants are `CONNECT_TIMEOUT`, `READ_INACTIVITY_TIMEOUT` and `RETRIES_PER_SOURCE` in `modn_core::acquisition`.
+The same connect and idle values bound one Git fetch: the wall-clock deadline is their sum, Git also stops a transfer below one byte per second, and a stalled fetch is killed and reported as a `timeout` attempt, so the next source still runs.
+
+An `--nxm` link is accepted when it names any Nexus source of a release that the command installs or updates, not only the first one.
+A link that names no such source is refused.
+The download consent prompt and the dry run name the first fetchable source, which can be a later source when the first one is `manual`.
 
 Modn reports each source it tried and why it failed.
 The failure classes are:
