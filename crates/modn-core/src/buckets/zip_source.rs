@@ -228,7 +228,6 @@ impl BucketStore {
             "catalog sync already running",
             LOCK_WAIT,
         )?;
-        self.purge_retired_catalog_snapshots();
         let previous = self.zip_revision(name)?;
         if previous.is_none() && self.registrations()?.contains_key(name) {
             bail!(
@@ -396,6 +395,9 @@ impl BucketStore {
             },
             None => Vec::new(),
         };
+        // Publish first: a failed sync must leave the previous state in place,
+        // so only a committed registration purges an earlier sync's retired trees.
+        self.purge_retired_catalog_snapshots();
         if let Some(superseded) = superseded {
             self.retire_catalog_snapshot(&superseded);
         }

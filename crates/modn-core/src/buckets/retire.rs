@@ -4,8 +4,9 @@
 //! previous registration named. `BucketStore::snapshot` and `BucketStore::list`
 //! read a registration and then open the path it names without the sync lock,
 //! so a tree must outlive the switch that replaced it. Retiring records the
-//! tree; the next sync removes recorded trees while it holds the sync lock, and
-//! it never removes a tree that a registration names.
+//! tree; the next sync that publishes a revision removes recorded trees after
+//! its registration write, while it holds the sync lock. A failed sync removes
+//! nothing, and a tree that a registration names is never removed.
 
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
@@ -38,7 +39,8 @@ impl BucketStore {
 
     /// Remove the catalog trees that an earlier sync retired.
     ///
-    /// The caller holds the sync lock. A tree that any current registration
+    /// The caller holds the sync lock and has already published its own
+    /// registration, so a failed sync never reaches this step. A tree that any current registration
     /// names is kept for a later sync. Removal is best effort: a tree that
     /// cannot be removed stays recorded, because it is waste, not a
     /// correctness problem.

@@ -114,8 +114,9 @@ or a changed signer publishes a new snapshot. Sync records the superseded tree
 as retired and does not delete it in that run: `bucket list`, `bucket show` and
 `install` read a registration and then open the tree it names without the sync
 lock, so a tree outlives the registration switch that replaced it. The next
-sync of any catalog in that store removes retired trees while it holds the sync
-lock, and it never removes a tree that a registration names. `bucket remove`
+sync that publishes a revision in that store removes retired trees after its own
+registration write, while it holds the sync lock. A sync that fails removes
+nothing, and a tree that a registration names is never removed. `bucket remove`
 deletes a store-created tree for that bucket after the registration file is
 gone; a local folder source and a tree that another registration names stay.
 When a step after the registration switch fails, for example a staged game
