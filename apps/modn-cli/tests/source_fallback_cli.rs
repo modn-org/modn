@@ -273,7 +273,7 @@ fn a_user_supplied_archive_is_recorded_as_a_manual_source() {
     assert!(output.status.success(), "{}", error(&output));
     let source = history_source(&fixture);
     assert_eq!(source["kind"], "manual", "{source}");
-    assert_eq!(source["filename"], "example.zip");
+    assert_eq!(source["filename"], "fixture.zip");
 }
 
 #[test]

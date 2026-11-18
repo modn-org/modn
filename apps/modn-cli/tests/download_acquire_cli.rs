@@ -393,7 +393,7 @@ fn a_failed_git_first_source_falls_back_to_the_next_git_source() {
         &fixture,
         fixture.temp.path(),
         serde_json::json!([
-            {"kind": "git", "repository": "fixture/missing", "commit": repository.later},
+            {"kind": "git", "repository": "fixture/missing", "commit": repository.commit},
             {"kind": "git", "repository": "fixture/project", "commit": repository.commit}
         ]),
     );
