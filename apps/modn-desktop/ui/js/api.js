@@ -291,7 +291,7 @@ export async function play({ gameId, path }) {
 }
 
 /**
- * Support text for Copy diagnostics.
+ * Returns the doctor report without copying it.
  * @returns {Promise<string>}
  */
 export async function diagnostics() {
