@@ -93,6 +93,26 @@ async fn doctor_report(state: &AppState) -> Result<String, CommandError> {
         .map_err(|error| CommandError::from(anyhow::Error::from(error)))
 }
 
+/// Shows the native archive picker. The dialog callback fires on the main
+/// thread; this command waits on a worker so the webview stays responsive.
+#[tauri::command]
+pub(crate) async fn pick_archive(app: tauri::AppHandle) -> Result<Option<String>, CommandError> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_title("Choose a local ZIP or 7z archive")
+        .add_filter("Mod archives", &["zip", "7z"])
+        .pick_file(move |file| {
+            let _ = sender.send(file);
+        });
+    let picked = tauri::async_runtime::spawn_blocking(move || receiver.recv().ok().flatten())
+        .await
+        .map_err(|_| CommandError::backend_failed())?;
+    Ok(picked
+        .and_then(|file| file.into_path().ok())
+        .map(|path| path.to_string_lossy().into_owned()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::write_clipboard;
@@ -117,24 +137,4 @@ mod tests {
             "Modn could not copy diagnostics to the clipboard."
         );
     }
-}
-
-/// Shows the native archive picker. The dialog callback fires on the main
-/// thread; this command waits on a worker so the webview stays responsive.
-#[tauri::command]
-pub(crate) async fn pick_archive(app: tauri::AppHandle) -> Result<Option<String>, CommandError> {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    app.dialog()
-        .file()
-        .set_title("Choose a local ZIP or 7z archive")
-        .add_filter("Mod archives", &["zip", "7z"])
-        .pick_file(move |file| {
-            let _ = sender.send(file);
-        });
-    let picked = tauri::async_runtime::spawn_blocking(move || receiver.recv().ok().flatten())
-        .await
-        .map_err(|_| CommandError::backend_failed())?;
-    Ok(picked
-        .and_then(|file| file.into_path().ok())
-        .map(|path| path.to_string_lossy().into_owned()))
 }

@@ -180,6 +180,7 @@ SCAN_BUTTON = "Scan this PC for supported games"
 BACKEND_NOISE = ("invalid fixture response", "fixture refusal")
 DIAGNOSTICS_COPIED = "Diagnostics copied."
 DIAGNOSTICS_ERROR = "Something went wrong"
+DIAGNOSTICS_CLIPBOARD_FAILED = "Modn could not copy diagnostics to the clipboard."
 REPORT_KEYS = ("scan", "diagnostics", "created_directories")
 TOAST_SECONDS = 15.0
 PLAY_WINDOW_WATCH_SECONDS = 1.5
@@ -225,22 +226,46 @@ def wait_toast(session, clock=time.monotonic, sleep=time.sleep, timeout=TOAST_SE
     deadline = clock() + timeout
     while clock() < deadline:
         for line in session.text().splitlines():
-            if DIAGNOSTICS_COPIED in line or DIAGNOSTICS_ERROR in line:
+            if (
+                DIAGNOSTICS_COPIED in line
+                or DIAGNOSTICS_ERROR in line
+                or DIAGNOSTICS_CLIPBOARD_FAILED in line
+            ):
                 return line
         sleep(0.05)
     raise uia.Failure(f"Copy diagnostics showed no toast within {timeout} seconds")
 
 
+def _restore_clipboard(previous, read_clipboard, write_clipboard):
+    """Puts `previous` back only while the clipboard still holds our report.
+
+    The human may copy other text while the journey runs, so a restore could
+    overwrite it. A read failure means no restore and no exception.
+    """
+    try:
+        current = read_clipboard()
+    except Exception:
+        return
+    if current == previous or diagnostics_report(current) is None:
+        return
+    try:
+        write_clipboard(previous)
+    except Exception:
+        pass
+
+
 def copy_diagnostics(
     session, read_clipboard, write_clipboard, clock=time.monotonic, sleep=time.sleep
 ):
-    """Clicks Copy diagnostics once and returns the toast and clipboard report.
+    """Activates Copy diagnostics once and returns the toast and clipboard report.
 
-    The click uses the UI Automation Invoke pattern, so it needs no foreground
-    and changes no focus. The system clipboard is saved before the click and
-    restored afterwards on a best-effort basis; a restore failure never fails
-    the journey. Raises `uia.Failure` when the toast reports an error, or when
-    the clipboard does not hold the doctor report.
+    The activation uses UI Automation patterns, so it needs no foreground and
+    changes no focus. The system clipboard is saved before the activation. It is
+    restored only when a fresh read still shows this journey's doctor report,
+    and the text differs from the saved text; text the human copied meanwhile
+    stays. A restore failure never fails the journey. Raises `uia.Failure` when
+    the toast reports an error or clipboard failure, or when the clipboard does
+    not hold the doctor report.
     """
     previous = read_clipboard()
     try:
@@ -255,11 +280,7 @@ def copy_diagnostics(
             )
         return toast, report
     finally:
-        if previous:
-            try:
-                write_clipboard(previous)
-            except Exception:
-                pass
+        _restore_clipboard(previous, read_clipboard, write_clipboard)
 
 
 def _scan(session):

@@ -18,7 +18,8 @@ the game in one click; a registered card opens the game's Library.
 - O6: `Play balatro` launches the fixture executable (journey 9).
 - O7: Mod details shows the file plan and operation history (journeys 5 and
   9), and `Copy diagnostics` confirms with `Diagnostics copied.` (journey 9).
-  The Rust command writes the clipboard, so the click needs no foreground.
+  The Rust command writes the clipboard, so the activation needs no focused
+  webview and works while another app holds the foreground.
 - O8: `Remove from Modn` opens a native Yes/No dialog; `No` keeps the
   registration, `Yes` unregisters it, and the game folder stays unchanged
   (journey 10).
@@ -31,9 +32,10 @@ The real-CLI journeys register a fixture game with
 `Balatro.exe` under `steam/steamapps/common/Balatro`.
 
 For play, the fixture game folder holds a byte copy of the signed Windows
-binary `driverquery.exe`. That console program shows no window under the
-hidden console of `modn play`, and the journey fails when a visible window of
-the fixture image appears. The journey finds the process id by image path and
+binary `systeminfo.exe`. That console program reads system facts and stays
+alive about three seconds with the small environment the app forwards, and the
+hidden console of `modn play` gives it no window. The journey fails when a
+visible window of the fixture image appears. The journey finds the process id by image path and
 stops only that process id, so no real game ever starts and the store URI
 branch is never taken.
 
