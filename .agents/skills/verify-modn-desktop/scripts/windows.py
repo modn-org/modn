@@ -11,22 +11,39 @@ _USER32 = ctypes.windll.user32 if hasattr(ctypes, "windll") else None
 _ENUM = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM) if _USER32 else None
 
 
-def visible_windows_of(pids):
-    """Returns the titles of the visible top-level windows that `pids` own."""
+def _last_error(user32):
+    """The error saved by a failed `EnumWindows`, from the fake or user32."""
+    code = getattr(user32, "last_error", None)
+    if code is not None:
+        return code
+    return ctypes.GetLastError()
+
+
+def visible_windows_of(pids, user32=None):
+    """Returns the titles of the visible top-level windows that `pids` own.
+
+    A zero `EnumWindows` result raises `OSError`, so a failed enumeration is
+    never reported as an empty desktop.
+    """
+    user32 = user32 or _USER32
     wanted = set(pids)
     found = []
 
     def callback(hwnd, _):
         owner = wintypes.DWORD()
-        _USER32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value in wanted and _USER32.IsWindowVisible(hwnd):
-            length = _USER32.GetWindowTextLengthW(hwnd)
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value in wanted and user32.IsWindowVisible(hwnd):
+            length = user32.GetWindowTextLengthW(hwnd)
             title = ctypes.create_unicode_buffer(length + 1)
-            _USER32.GetWindowTextW(hwnd, title, length + 1)
+            user32.GetWindowTextW(hwnd, title, length + 1)
             found.append(title.value or "<untitled>")
         return True
 
-    _USER32.EnumWindows(_ENUM(callback), 0)
+    completed = user32.EnumWindows(_ENUM(callback), 0)
+    if not completed:
+        code = _last_error(user32)
+        error = ctypes.WinError(code)
+        raise OSError(f"EnumWindows failed with Win32 error {code}: {error}") from error
     return found
 
 

@@ -208,11 +208,19 @@ class Session:
         except Exception:
             pass
         try:
-            point = control.GetClickablePoint()
-            auto.Click(point.x, point.y)
+            control.GetSelectionItemPattern().Select()
             return
-        except Exception as error:
-            raise Failure(f"Cannot activate {control.Name}: {error}") from error
+        except Exception:
+            pass
+        try:
+            control.GetExpandCollapsePattern().Expand()
+            return
+        except Exception:
+            pass
+        raise Failure(
+            f"Cannot activate {control.Name}: no working UI Automation pattern "
+            "(Invoke, LegacyIAccessible, SelectionItem, ExpandCollapse)"
+        )
 
     def click(self, name=None, prefix=None, control_type="ButtonControl", window=None):
         control = self.find(name=name, prefix=prefix, control_type=control_type, window=window)

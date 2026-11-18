@@ -139,13 +139,21 @@ def _history_buttons(session):
     return session.find_all(prefix="Undo ", control_type="ButtonControl", window=lists[0])
 
 
-def _center(control):
-    point = control.GetClickablePoint()
-    return point if isinstance(point, tuple) else (point.x, point.y)
+def _file_plan_visible(session, seconds=3):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if session.find_all(name="File plan"):
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def _expand_details(session):
-    """Opens the Details summary, which ignores the Invoke pattern."""
+    """Opens the Details summary through UI Automation patterns only.
+
+    The summary ignores the Invoke pattern, so ExpandCollapse is tried first.
+    The remaining patterns follow, and a failure names every pattern tried.
+    """
     session.wait_for(lambda s: s.find_all(name="Details"), "Details summary")
     candidates = session.find_all(name="Details")
     control = candidates[0]
@@ -160,12 +168,18 @@ def _expand_details(session):
         control.GetExpandCollapsePattern().Expand()
     except Exception:
         pass
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        if session.find_all(name="File plan"):
-            return
-        time.sleep(0.1)
-    uia.auto.Click(*_center(control))
+    if _file_plan_visible(session):
+        return
+    try:
+        session.activate(control)
+    except uia.Failure:
+        pass
+    if _file_plan_visible(session):
+        return
+    raise uia.Failure(
+        f"Cannot expand Details: ExpandCollapse, Invoke, LegacyIAccessible and "
+        f"SelectionItem did not reveal File plan on {control.Name!r}"
+    )
 
 
 def journey_lifecycle(runner):

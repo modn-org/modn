@@ -155,6 +155,11 @@ def selftest():
 
     results.update(selftest_diagnostics.checks())
 
+    # The scripts and docs must stay free of physical input and stale names.
+    import selftest_scripts  # noqa: PLC0415 - fakes and files only
+
+    results.update(selftest_scripts.checks())
+
     # The play fixture must show no window: the watcher reports one and the real
     # enumerator runs on this desktop.
     import windows  # noqa: PLC0415 - pure helpers only

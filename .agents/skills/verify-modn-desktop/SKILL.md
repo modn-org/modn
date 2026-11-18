@@ -27,9 +27,9 @@ Options:
 - `--keep` keeps the fixture directory of the run and prints every kept path.
 - `--app PATH`, `--cli PATH` and `--test-backend PATH` replace one built binary
   each.
-- `--selftest` checks the dialog helper, the Copy diagnostics click, clipboard
-  and restore, failure tracking, evidence reporting and skill front matter
-  against fakes, then exits.
+- `--selftest` checks the dialog helper, the Copy diagnostics activation,
+  clipboard and restore, failure tracking, evidence reporting and skill front
+  matter against fakes, then exits.
 
 Without `--build`, the verifier reads `modn-desktop.exe`, `modn.exe` and
 `modn-desktop-test-backend.exe` from `$CARGO_TARGET_DIR/debug` when
@@ -53,9 +53,11 @@ Each result carries the same `evidence` paths as a list.
 ## Prerequisites
 
 - Windows 10 or later with an unlocked interactive desktop and WebView2. A
-  service session has no window to drive. Journeys click through UI Automation
-  without taking the foreground, so you can keep using the desktop while they
-  run.
+  service session has no window to drive. Journeys act only through UI
+  Automation patterns and window messages sent to windows the verifier owns.
+  They never move the pointer, type, or change the focus or the foreground, so
+  another app can cover the Modn window or hold the foreground while a journey
+  runs.
 - `uv` and Python 3 on `PATH`. `uv` fetches `uiautomation`, `blake3` and
   `pyyaml` when the interpreter lacks them.
 - 7-Zip (`7z`) on `PATH` or in `%ProgramFiles%\7-Zip` for the `catalog`
@@ -74,7 +76,7 @@ Each result carries the same `evidence` paths as a list.
 | 6 | `blocked` | the disabled button reads `Modn blocked this operation. Open details for the reason.` and opens no dialog | no backend text reaches the window tree | none |
 | 7 | `approval` | an ask reads `This change needs your approval.` with `Allow native code through the native injector.` or `Allow these executables:`; `Decline` writes nothing; a release that adds native code asks again | `state.sqlite` table `mod_approvals` stores one row per mod; CLI lists the version | an ask and a `Decline` change no game or content bytes; `Allow` writes the archive bytes |
 | 8 | `no-cli-output` | two scans run while the backend prints invalid JSON and then fails; the window stays open | `invalid fixture response` and `fixture refusal` never appear | none |
-| 9 | `play` | `Play balatro` starts the fixture executable; details show history; one UI Automation click on `Copy diagnostics` shows `Diagnostics copied.` and the clipboard holds the doctor report. The Rust command writes the clipboard, so no window needs the foreground, and an error toast fails the journey. The journey saves the clipboard text before the click and restores it afterwards on a best-effort basis. | the started process id is found by image path and stopped | the game folder is unchanged |
+| 9 | `play` | `Play balatro` starts the fixture executable; details show history; one UI Automation activation of `Copy diagnostics` shows `Diagnostics copied.` and the clipboard holds the doctor report. The Rust command writes the clipboard, so the activation needs no focused webview and works while another app holds the foreground, and an error toast fails the journey. The journey saves the clipboard text before the activation and restores it only when the clipboard still holds that journey's report. | the started process id is found by image path and stopped | the game folder is unchanged |
 | 10 | `remove` | `Remove from Modn` opens the native Yes/No dialog; `No` keeps the registration and `Yes` unregisters it | `modn game list` lists and then omits `balatro` | the game folder is unchanged after both answers |
 | 11 | `catalog` | a catalog install, an update to `Update available`, a toast undo and a genuine 7z install and uninstall each take one click | CLI lists version 1.0.0, then 2.0.0, then 1.0.0 | installed bytes match each release; undo and uninstall restore the earlier bytes |
 
@@ -111,9 +113,11 @@ journey passes `--state-dir`, `--data-dir` and, when the fixture has modules,
 A fixture that detects, registers or starts a game uses a byte copy of a signed
 Windows binary. Other fixtures write a short marker for an executable that no
 journey starts. Nothing is compiled, so no unsigned stub exists for Windows
-Defender to quarantine. The `play` journey copies `driverquery.exe`, a console
-program that lists drivers read-only. The hidden console of `modn play` gives it
-no window, and the journey fails when any visible window or dialog of the
+Defender to quarantine. For `play`, the fixture is a byte copy of the signed
+`systeminfo.exe`, a console program that reads system facts and stays alive
+about three seconds with the small environment the app forwards. The hidden
+console of `modn play` gives it no window, and the journey fails when any
+visible window or dialog of the
 fixture image appears. The journey stops only the process id that `play`
 started. An earlier compiled stub was flagged as `Trojan:Win32/Bearfoos.A!ml`,
 a false positive, and a copied `mstsc.exe` showed error dialogs. Never add a

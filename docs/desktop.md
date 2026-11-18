@@ -131,7 +131,8 @@ main action.
 **Copy diagnostics** runs `modn doctor` through the backend and copies the
 pretty-printed JSON report. The Rust command writes the system clipboard, so
 the copy needs no focused webview and works while another app holds the
-foreground.
+foreground. A verifier journey restores earlier clipboard text only when the
+clipboard still holds the report that journey copied.
 
 ## One-click operations
 
