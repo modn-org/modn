@@ -291,11 +291,19 @@ export async function play({ gameId, path }) {
 }
 
 /**
- * Support text for Copy diagnostics. Later task.
+ * Support text for Copy diagnostics.
  * @returns {Promise<string>}
  */
 export async function diagnostics() {
   return invoke('diagnostics', {});
+}
+
+/**
+ * Copies the doctor report to the system clipboard in the Tauri process.
+ * @returns {Promise<void>}
+ */
+export async function copyDiagnostics() {
+  return invoke('copy_diagnostics', {});
 }
 
 /**

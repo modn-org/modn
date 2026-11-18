@@ -20,6 +20,7 @@ const COMMANDS: &[&str] = &[
     "remove_game",
     "play",
     "diagnostics",
+    "copy_diagnostics",
     "cancel_run",
 ];
 

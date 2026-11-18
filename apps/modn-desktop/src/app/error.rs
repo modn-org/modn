@@ -100,6 +100,11 @@ impl CommandError {
         Self::new("BACKEND_FAILED")
     }
 
+    /// Reports a clipboard write the system refused.
+    pub(crate) fn clipboard_failed() -> Self {
+        Self::new("CLIPBOARD_FAILED")
+    }
+
     /// Reports a cancel that arrived before the write started.
     pub(crate) fn cancelled() -> Self {
         Self::new("CANCELLED")
@@ -257,6 +262,7 @@ fn short_message(code: &str) -> &'static str {
         "PENDING_TRANSACTION" => "An earlier operation needs recovery.",
         "STATE_ERROR" | "IO_ERROR" => "Modn could not read or write its files.",
         "CANCELLED" => "The operation was cancelled.",
+        "CLIPBOARD_FAILED" => "Modn could not copy diagnostics to the clipboard.",
         _ => "The operation could not be completed.",
     }
 }

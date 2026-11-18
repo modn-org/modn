@@ -6,6 +6,7 @@ use crate::app::error::CommandError;
 use crate::app::state::AppState;
 use serde_json::Value;
 use std::sync::Arc;
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
@@ -51,9 +52,29 @@ pub(crate) async fn plan_install(
     run_blocking(&busy, move || backend.call(&args)).await
 }
 
-/// Returns the doctor report as pretty JSON text for the clipboard.
+/// Returns the doctor report as pretty JSON text.
 #[tauri::command]
 pub(crate) async fn diagnostics(state: tauri::State<'_, AppState>) -> Result<String, CommandError> {
+    doctor_report(&state).await
+}
+
+/// Copies the doctor report to the Windows clipboard.
+///
+/// The write runs in the process, not in the webview, so it needs no focused
+/// document and keeps working while another window holds the foreground.
+#[tauri::command]
+pub(crate) async fn copy_diagnostics(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CommandError> {
+    let report = doctor_report(&state).await?;
+    app.clipboard()
+        .write_text(report)
+        .map_err(|_| CommandError::clipboard_failed())
+}
+
+/// Builds the doctor report text that support asks for.
+async fn doctor_report(state: &AppState) -> Result<String, CommandError> {
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let report = run_blocking(&busy, move || backend.call(&args::diagnostics())).await?;

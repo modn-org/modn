@@ -17,6 +17,7 @@ pub(crate) fn run() {
     };
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState::new(backend))
         .invoke_handler(tauri::generate_handler![
             commands::games::list_games,
@@ -37,6 +38,7 @@ pub(crate) fn run() {
             commands::games::remove_game,
             commands::games::play,
             commands::library::diagnostics,
+            commands::library::copy_diagnostics,
             commands::operations::cancel_run,
         ])
         .setup(move |app| {
