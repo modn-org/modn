@@ -161,3 +161,30 @@ fn node_version_runs_the_tests() {
         );
     }
 }
+
+#[test]
+fn the_ui_calls_the_rust_clipboard_command() {
+    let api = fs::read_to_string(Path::new(ROOT).join("ui/js/api.js")).expect("API module");
+    assert!(
+        api.contains("invoke('copy_diagnostics', {})"),
+        "the API must invoke the copy_diagnostics command"
+    );
+    let mut pending = vec![Path::new(ROOT).join("ui/js")];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).expect("UI script directory") {
+            let path = entry.expect("UI script entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("js") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).expect("UI script");
+            assert!(
+                !text.contains("navigator.clipboard"),
+                "{path:?} must use the Rust clipboard command"
+            );
+        }
+    }
+}

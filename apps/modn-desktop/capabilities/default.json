@@ -23,6 +23,7 @@
     "allow-remove-game",
     "allow-play",
     "allow-diagnostics",
+    "allow-copy-diagnostics",
     "allow-cancel-run"
   ]
 }

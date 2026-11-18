@@ -40,6 +40,7 @@ const MESSAGES = {
   UNDO_SOURCE_MANUAL: 'Modn cannot undo a manual source.',
   UNDO_FAILED: 'The undo did not finish.',
   DOCTOR_FAILED: 'Modn could not read diagnostics.',
+  CLIPBOARD_FAILED: 'Modn could not copy diagnostics to the clipboard.',
 };
 
 /**

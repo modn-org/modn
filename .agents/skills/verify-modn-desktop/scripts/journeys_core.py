@@ -5,13 +5,15 @@ app driver and helpers live in `harness.py`.
 """
 
 import json
+import os
 import sys
 import time
 
+import clipboard
 import uia
 from fixtures import PLAY_SOURCE, Fixture, image_pids, signed_copy, snapshot, stop_pid
-from harness import BINARIES, App, cli, click_until, test_backend_state
-from windows import bring_to_front, foreground_info, watch_windows
+from harness import BINARIES, App, cli, test_backend_state
+from windows import watch_windows
 
 
 # ---------------------------------------------------------------- journeys
@@ -177,55 +179,87 @@ def journey_blocked(runner):
 SCAN_BUTTON = "Scan this PC for supported games"
 BACKEND_NOISE = ("invalid fixture response", "fixture refusal")
 DIAGNOSTICS_COPIED = "Diagnostics copied."
-
-
-def diagnostics_copied(toast):
-    """True when the Copy diagnostics toast reports success.
-
-    The click also stops early on an error toast, so the journey must read the
-    returned line instead of assuming that any toast means success.
-    """
-    return DIAGNOSTICS_COPIED in (toast or "")
-
-
-DIAGNOSTICS_ATTEMPTS = 3
+DIAGNOSTICS_ERROR = "Something went wrong"
+REPORT_KEYS = ("scan", "diagnostics", "created_directories")
+TOAST_SECONDS = 15.0
 PLAY_WINDOW_WATCH_SECONDS = 1.5
 
 
-def copy_diagnostics(session, fx, front=bring_to_front):
-    """Clicks Copy diagnostics with the window in the foreground and the button focused.
+def diagnostics_copied(toast):
+    """True when the Copy diagnostics toast reports success."""
+    return DIAGNOSTICS_COPIED in (toast or "")
 
-    A UI Automation click does not focus the page, and the clipboard write
-    fails when the document has no focus, for example when another app such as
-    the editor holds the foreground. The app then shows its error toast, which
-    says to try again. The click is repeated up to three
-    times, each after the error toast has expired. Every toast goes to
-    `diagnostics-toast.txt`, and the caller fails the journey when none of them
-    reports success.
+
+def diagnostics_report(text):
+    """Returns the doctor report in `text`, or None when `text` is not one.
+
+    The clipboard must hold the pretty-printed doctor JSON. A JSON object with
+    the report's keys proves the Rust write; any other text does not.
     """
-    seen = []
-    for _ in range(DIAGNOSTICS_ATTEMPTS):
-        in_front = front(session.window.NativeWindowHandle)
-        session.find(name="Copy diagnostics").SetFocus()
-        time.sleep(0.5)
-        holder = foreground_info()
-        toast = click_until(
-            session, "Copy diagnostics", (DIAGNOSTICS_COPIED, "Something went wrong")
-        )
-        seen.append(
-            f"{toast} [window in front: {in_front}; foreground: {holder['title']!r} pid {holder['pid']}]"
-        )
-        if diagnostics_copied(toast):
-            break
-        session.wait_for(
-            lambda s: "Something went wrong" not in s.text(),
-            "the error toast to expire",
-            timeout=15,
-        )
-    (fx.evidence / "diagnostics-toast.txt").write_text("\n".join(seen), encoding="utf-8")
-    if len(seen) > 1:
-        print(f"play: Copy diagnostics needed {len(seen)} attempts: {seen}", file=sys.stderr)
-    return seen[-1]
+    try:
+        value = json.loads(text or "")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    if any(key not in value for key in REPORT_KEYS):
+        return None
+    return value
+
+
+def same_path(left, right):
+    """True when two Windows paths name one location.
+
+    The CLI reports a verbatim path such as `\\\\?\\C:\\game` while the fixture
+    holds `C:\\game`; the prefix and the letter case do not change the target.
+    """
+    def normalized(value):
+        text = os.path.normcase(os.path.abspath(str(value)))
+        return text[4:] if text.startswith("\\\\?\\") else text
+
+    return normalized(left) == normalized(right)
+
+
+def wait_toast(session, clock=time.monotonic, sleep=time.sleep, timeout=TOAST_SECONDS):
+    """Returns the first Copy diagnostics toast line, or raises `uia.Failure`."""
+    deadline = clock() + timeout
+    while clock() < deadline:
+        for line in session.text().splitlines():
+            if DIAGNOSTICS_COPIED in line or DIAGNOSTICS_ERROR in line:
+                return line
+        sleep(0.05)
+    raise uia.Failure(f"Copy diagnostics showed no toast within {timeout} seconds")
+
+
+def copy_diagnostics(
+    session, read_clipboard, write_clipboard, clock=time.monotonic, sleep=time.sleep
+):
+    """Clicks Copy diagnostics once and returns the toast and clipboard report.
+
+    The click uses the UI Automation Invoke pattern, so it needs no foreground
+    and changes no focus. The system clipboard is saved before the click and
+    restored afterwards on a best-effort basis; a restore failure never fails
+    the journey. Raises `uia.Failure` when the toast reports an error, or when
+    the clipboard does not hold the doctor report.
+    """
+    previous = read_clipboard()
+    try:
+        session.activate(session.find(name="Copy diagnostics"))
+        toast = wait_toast(session, clock=clock, sleep=sleep)
+        if not diagnostics_copied(toast):
+            raise uia.Failure(f"Copy diagnostics reported: {toast}")
+        report = diagnostics_report(read_clipboard())
+        if report is None:
+            raise uia.Failure(
+                "Copy diagnostics did not put the doctor report on the clipboard"
+            )
+        return toast, report
+    finally:
+        if previous:
+            try:
+                write_clipboard(previous)
+            except Exception:
+                pass
 
 
 def _scan(session):
@@ -343,8 +377,23 @@ def journey_play(runner):
         session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
         session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
         runner.check(session.exists(name="Operation history"), "History section is missing")
-        toast = copy_diagnostics(session, fx)
-        runner.check(diagnostics_copied(toast), f"Copy diagnostics reported: {toast}")
+        toast, report = copy_diagnostics(session, clipboard.read_text, clipboard.write_text)
+        installation = report.get("scan", {}).get("installation")
+        runner.check(
+            isinstance(installation, str) and same_path(installation, game),
+            f"Clipboard doctor report names {installation!r}, not {game}",
+        )
+        (fx.evidence / "diagnostics.json").write_text(
+            json.dumps(
+                {
+                    "toast": toast,
+                    "report_keys": sorted(report),
+                    "installation": installation,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         app.close()
     finally:
         for pid in image_pids(exe):

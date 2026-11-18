@@ -18,6 +18,7 @@ the game in one click; a registered card opens the game's Library.
 - O6: `Play balatro` launches the fixture executable (journey 9).
 - O7: Mod details shows the file plan and operation history (journeys 5 and
   9), and `Copy diagnostics` confirms with `Diagnostics copied.` (journey 9).
+  The Rust command writes the clipboard, so the click needs no foreground.
 - O8: `Remove from Modn` opens a native Yes/No dialog; `No` keeps the
   registration, `Yes` unregisters it, and the game folder stays unchanged
   (journey 10).

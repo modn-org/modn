@@ -364,20 +364,6 @@ uia.answer_dialog = answer_dialog
 uia.dismiss = dismiss
 
 
-def click_until(session, name, needles, attempts=2, timeout=20):
-    """Clicks a control until one of `needles` appears, because a re-render can
-    detach the node that UI Automation found."""
-    for _ in range(attempts):
-        session.click(name=name)
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            for line in session.text().splitlines():
-                if any(needle in line for needle in needles):
-                    return line
-            time.sleep(0.2)
-    raise uia.Failure(f"Timed out waiting for {needles}")
-
-
 def install_via_dialog(session, archive):
     session.click(prefix="Install a local archive in")
     uia.set_file_dialog(uia.dialog_for(session), archive, session)

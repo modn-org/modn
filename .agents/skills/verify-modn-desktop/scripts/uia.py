@@ -93,11 +93,6 @@ class Session:
                 continue
         return windows
 
-    def focus(self):
-        """Brings the owned window to the foreground, so the clipboard works."""
-        ctypes.windll.user32.SetForegroundWindow(self.window.NativeWindowHandle)
-        time.sleep(0.3)
-
     def request_close(self):
         """Posts WM_CLOSE to the owned window only, as a user would."""
         require(self.window is not None, "No window to close")

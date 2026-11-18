@@ -14,7 +14,7 @@ Windows targets only. `cargo build -p modn-desktop --locked` builds
 `tauri.conf.json` sets `frontendDist` to `ui`, so the executable embeds the
 frontend. The UI is plain HTML, CSS and ES modules in `apps/modn-desktop/ui/`.
 It uses no bundler, no package manager and no Node toolchain. `build.rs`
-declares the 19 commands to `tauri-build`.
+declares the 20 commands to `tauri-build`.
 
 On other platforms the entry point prints that Modn Desktop requires Windows
 and exits 1. Linux builds compile no webview library.
@@ -26,7 +26,7 @@ The webview runs under a strict content security policy. It allows only
 `data:`. It connects only to `ipc:` and `http://ipc.localhost`. Object, base,
 frame and form sources are `'none'`.
 
-The main window capability grants `core:default` and the app's own 19 commands.
+The main window capability grants `core:default` and the app's own 20 commands.
 `build.rs`, `capabilities/default.json` and `ui/js/api.js` list the same names,
 and the command tests compare those lists. The app loads one plugin,
 `tauri-plugin-dialog`, for native pickers and messages. No filesystem, shell or
@@ -129,7 +129,9 @@ main action.
 
 **History** lists the operations of this mod, newest first, each with **Undo**.
 **Copy diagnostics** runs `modn doctor` through the backend and copies the
-pretty-printed JSON report.
+pretty-printed JSON report. The Rust command writes the system clipboard, so
+the copy needs no focused webview and works while another app holds the
+foreground.
 
 ## One-click operations
 
@@ -285,6 +287,7 @@ recovery commands.
 ## Licensing
 
 Modn Desktop uses Tauri 2 and its official crates, which are licensed under
-Apache-2.0 OR MIT. The root `Cargo.lock` records the full dependency graph. See
+Apache-2.0 OR MIT, and `clipboard-win`, which is licensed under BSL-1.0. The
+root `Cargo.lock` records the full dependency graph. See
 the [third-party notices](../apps/modn-desktop/THIRD_PARTY_NOTICES.md). A binary
 distributor must audit the locked graph and keep the required notices.

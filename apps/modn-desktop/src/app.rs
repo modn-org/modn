@@ -37,6 +37,7 @@ pub(crate) fn run() {
             commands::games::remove_game,
             commands::games::play,
             commands::library::diagnostics,
+            commands::library::copy_diagnostics,
             commands::operations::cancel_run,
         ])
         .setup(move |app| {
