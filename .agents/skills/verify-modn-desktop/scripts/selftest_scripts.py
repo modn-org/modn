@@ -68,6 +68,9 @@ class NoPatternControl:
     GetSelectionItemPattern = _missing
     GetExpandCollapsePattern = _missing
 
+    def GetClickablePoint(self):
+        return type("Point", (), {"x": 1, "y": 1})()
+
 
 class FakeUser32:
     """A user32 seam whose EnumWindows result and errors are scripted."""
@@ -196,4 +199,14 @@ def checks():
     )
 
     results["play_docs_name_the_play_source"] = _docs_name_the_play_source()
+
+    claims = " ".join(
+        (SCRIPTS.parent / name).read_text(encoding="utf-8")
+        for name in ("SKILL.md", "features/ownership.md")
+    )
+    results["background_claim_is_precise"] = (
+        "never move the pointer" in claims
+        and "without taking the foreground" not in claims
+        and "keep using the desktop" not in claims
+    )
     return results
