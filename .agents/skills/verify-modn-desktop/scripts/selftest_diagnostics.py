@@ -15,6 +15,11 @@ REPORT = {
     "diagnostics": [],
     "created_directories": [],
 }
+OTHER_REPORT = {
+    "scan": {"installation": "C:\\fixture\\other"},
+    "diagnostics": [],
+    "created_directories": [],
+}
 
 
 class FakeSession:
@@ -37,27 +42,45 @@ class FakeSession:
 
 
 class FakeClipboard:
-    """Returns scripted reads and records every restore write.
+    """Serves scripted snapshots and restores under one sequence number.
 
-    `fail_on_read` makes that read number raise, for the failed finally read.
+    Each read returns the next scripted `(text, bump)` and raises the sequence
+    number by `bump`, as an app write does. `restore` writes only while the
+    number still equals its argument, like the real lock check; a `human_text`
+    set before the call simulates a copy that lands first.
     """
 
     def __init__(self, reads, fail_on_read=None):
         self.reads = list(reads)
         self.writes = []
+        self.restores = []
         self.reads_made = 0
+        self.sequence = 0
+        self.text = ""
         self.fail_on_read = fail_on_read
+        self.human_text = None
 
     def read(self):
         self.reads_made += 1
         if self.reads_made == self.fail_on_read:
             raise OSError("clipboard is busy")
-        if len(self.reads) > 1:
-            return self.reads.pop(0)
-        return self.reads[0]
+        text, bump = self.reads[min(self.reads_made - 1, len(self.reads) - 1)]
+        self.sequence += bump
+        self.text = text
+        return text, self.sequence
 
-    def write(self, text):
+    def restore(self, text, sequence):
+        self.restores.append((text, sequence))
+        if self.human_text is not None:
+            self.sequence += 1
+            self.text = self.human_text
+            self.human_text = None
+        if self.sequence != sequence:
+            return False
+        self.text = text
         self.writes.append(text)
+        self.sequence += 1
+        return True
 
 
 def checks():
@@ -69,39 +92,57 @@ def checks():
     def quiet(seconds):
         return None
 
-    def run(session, clipboard, write=None, clock=None):
+    def run(session, clipboard, restore=None, clock=None):
         return journeys_core.copy_diagnostics(
             session,
             clipboard.read,
-            write or clipboard.write,
+            restore or clipboard.restore,
             clock=clock or fake_clock(),
             sleep=quiet,
         )
 
-    results = {}
+    def installation(report):
+        return report["scan"]["installation"]
+
+    # (a) Nobody copied: one restore with the earlier text and the sequence of
+    # the read that proved the app write.
     session = FakeSession(["Diagnostics copied."])
-    clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT)])
+    clipboard = FakeClipboard([("old clipboard", 0), (json.dumps(REPORT), 1)])
     toast, report = run(session, clipboard)
+    results = {}
     results["diagnostics_clicks_once"] = session.clicks == 1
     results["diagnostics_reports_the_success_toast"] = toast == "Diagnostics copied."
-    results["diagnostics_reads_the_report"] = report["scan"]["installation"] == "C:\\fixture\\game"
-    results["diagnostics_restores_the_previous_clipboard"] = clipboard.writes == ["old clipboard"]
+    results["diagnostics_reads_the_report"] = installation(report) == "C:\\fixture\\game"
+    results["diagnostics_restores_the_previous_clipboard"] = (
+        clipboard.restores == [("old clipboard", 1)]
+        and clipboard.writes == ["old clipboard"]
+        and clipboard.text == "old clipboard"
+    )
 
-    # (a) The human copied other text before the restore: no write.
+    # (b) The human copied text after the app write, before the restore.
     session = FakeSession(["Diagnostics copied."])
-    clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT), "human text"])
+    clipboard = FakeClipboard([("old clipboard", 0), (json.dumps(REPORT), 1)])
+    clipboard.human_text = "human text"
     run(session, clipboard)
-    results["diagnostics_keeps_text_the_human_copied"] = clipboard.writes == []
+    results["diagnostics_keeps_text_the_human_copied_after_the_write"] = (
+        clipboard.writes == [] and clipboard.text == "human text"
+    )
 
-    # (b) The clipboard still holds the report: restored exactly once.
+    # (b) The human copied another valid doctor report: it still stays.
+    human_report = json.dumps(OTHER_REPORT)
     session = FakeSession(["Diagnostics copied."])
-    clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT)])
-    run(session, clipboard)
-    results["diagnostics_restores_once_when_the_report_stays"] = clipboard.writes == ["old clipboard"]
+    clipboard = FakeClipboard([("old clipboard", 0), (json.dumps(REPORT), 1)])
+    clipboard.human_text = human_report
+    _, report = run(session, clipboard)
+    results["diagnostics_keeps_another_report_the_human_copied"] = (
+        installation(report) == "C:\\fixture\\game"
+        and clipboard.writes == []
+        and clipboard.text == human_report
+    )
 
-    # (c) An error toast with an unchanged clipboard: no write.
+    # (c) An error toast with an unchanged clipboard: no restore at all.
     session = FakeSession(["Something went wrong. Try again."])
-    clipboard = FakeClipboard(["old clipboard", "unchanged"])
+    clipboard = FakeClipboard([("old clipboard", 0)])
     try:
         run(session, clipboard)
     except uia.Failure as error:
@@ -110,41 +151,9 @@ def checks():
         )
     else:
         results["diagnostics_fails_on_an_error_toast"] = False
-    results["diagnostics_does_not_restore_after_an_error"] = clipboard.writes == []
+    results["diagnostics_does_not_restore_after_an_error"] = clipboard.restores == []
 
-    # (d) The read in `finally` raises: no write and the result is unchanged.
-    session = FakeSession(["Diagnostics copied."])
-    clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT)], fail_on_read=3)
-    try:
-        _, report = run(session, clipboard)
-    except Exception:
-        results["diagnostics_survives_a_failed_final_read"] = False
-    else:
-        results["diagnostics_survives_a_failed_final_read"] = (
-            report["scan"]["installation"] == "C:\\fixture\\game" and clipboard.writes == []
-        )
-
-    session = FakeSession(["Diagnostics copied."])
-    clipboard = FakeClipboard(["old clipboard", "not a report"])
-    try:
-        run(session, clipboard)
-    except uia.Failure as error:
-        results["diagnostics_requires_the_report_on_the_clipboard"] = (
-            "doctor report" in str(error) and clipboard.writes == []
-        )
-    else:
-        results["diagnostics_requires_the_report_on_the_clipboard"] = False
-
-    def refuse(text):
-        raise OSError("clipboard is busy")
-
-    session = FakeSession(["Diagnostics copied."])
-    clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT)])
-    results["diagnostics_ignores_a_failed_restore"] = (
-        run(session, clipboard, write=refuse)[1]["scan"]["installation"] == "C:\\fixture\\game"
-    )
-
-    # J4: the clipboard-failure toast fails at once, with its own text.
+    # (c) The clipboard-failure toast fails at once and restores nothing.
     ticks = []
 
     def ticking_clock():
@@ -152,7 +161,7 @@ def checks():
         return len(ticks) * 0.05
 
     session = FakeSession([journeys_core.DIAGNOSTICS_CLIPBOARD_FAILED])
-    clipboard = FakeClipboard(["old clipboard", "old clipboard"])
+    clipboard = FakeClipboard([("old clipboard", 0)])
     try:
         run(session, clipboard, clock=ticking_clock)
     except uia.Failure as error:
@@ -161,7 +170,46 @@ def checks():
         )
     else:
         results["diagnostics_fails_on_a_clipboard_failure"] = False
-    results["diagnostics_clipboard_failure_writes_nothing"] = clipboard.writes == []
+    results["diagnostics_clipboard_failure_restores_nothing"] = clipboard.restores == []
+
+    # (c) A read without a report proves no app write: no restore.
+    session = FakeSession(["Diagnostics copied."])
+    clipboard = FakeClipboard([("old clipboard", 0), ("not a report", 1)])
+    try:
+        run(session, clipboard)
+    except uia.Failure as error:
+        results["diagnostics_requires_the_report_on_the_clipboard"] = (
+            "doctor report" in str(error) and clipboard.restores == []
+        )
+    else:
+        results["diagnostics_requires_the_report_on_the_clipboard"] = False
+
+    # (c) The report read itself fails: the error stays and no restore runs.
+    session = FakeSession(["Diagnostics copied."])
+    clipboard = FakeClipboard(
+        [("old clipboard", 0), (json.dumps(REPORT), 1)], fail_on_read=2
+    )
+    try:
+        run(session, clipboard)
+    except OSError:
+        results["diagnostics_does_not_restore_after_a_failed_report_read"] = (
+            clipboard.restores == []
+        )
+    else:
+        results["diagnostics_does_not_restore_after_a_failed_report_read"] = False
+
+    # (d) A restore that raises is best effort: toast and report still return.
+    def refuse(text, sequence):
+        raise OSError("clipboard is busy")
+
+    session = FakeSession(["Diagnostics copied."])
+    clipboard = FakeClipboard([("old clipboard", 0), (json.dumps(REPORT), 1)])
+    toast, report = run(session, clipboard, restore=refuse)
+    results["diagnostics_ignores_a_failed_restore"] = (
+        toast == "Diagnostics copied."
+        and installation(report) == "C:\\fixture\\game"
+        and clipboard.writes == []
+    )
 
     results["diagnostics_report_rejects_other_json"] = (
         journeys_core.diagnostics_report('{"scan": {}}') is None
