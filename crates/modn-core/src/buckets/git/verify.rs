@@ -100,7 +100,9 @@ impl CatalogSigner {
         signer.key_id = change.to.clone();
         signer.public_key = text;
         signer.applied_rotation = Some(change.body_digest.clone());
-        signer.applied_key_statements.push(change.body_digest.clone());
+        signer
+            .applied_key_statements
+            .push(change.body_digest.clone());
         signer.assert_pinned_not_retired();
         signer
     }
@@ -117,7 +119,9 @@ impl CatalogSigner {
         signer.key_id = change.to.clone();
         signer.public_key = text;
         signer.applied_revocation = Some(change.body_digest.clone());
-        signer.applied_key_statements.push(change.body_digest.clone());
+        signer
+            .applied_key_statements
+            .push(change.body_digest.clone());
         signer.assert_pinned_not_retired();
         signer
     }

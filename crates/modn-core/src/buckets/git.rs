@@ -429,7 +429,8 @@ pub(super) fn same_signing_files(published: &Path, staged: &Path) -> bool {
     })
 }
 
-fn clone_catalog(attempt: &Path, source: &GitCatalogSource) -> Result<(PathBuf, String)> {    git(
+fn clone_catalog(attempt: &Path, source: &GitCatalogSource) -> Result<(PathBuf, String)> {
+    git(
         attempt,
         &[
             "clone",
@@ -448,10 +449,10 @@ fn clone_catalog(attempt: &Path, source: &GitCatalogSource) -> Result<(PathBuf, 
 }
 
 #[cfg(test)]
+mod replay_tests;
+#[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
 mod statement_tests;
-#[cfg(test)]
-mod replay_tests;
 #[cfg(test)]
 mod tests;

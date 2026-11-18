@@ -209,16 +209,11 @@ fn doctor_reports_untrusted() -> bool {
     fs::create_dir_all(&installation).expect("installation");
     let store =
         modn_core::state::Store::open(&root.path().join("state/state.sqlite")).expect("state");
-    modn_core::inventory::doctor_with_ownership_appdata(
-        &store,
-        "fixture-game",
-        &installation,
-        None,
-    )
-    .expect("doctor")
-    .diagnostics
-    .iter()
-    .any(|diagnostic| diagnostic.code == "MODULE_SOURCE_UNTRUSTED")
+    modn_core::inventory::doctor_with_ownership_appdata(&store, "fixture-game", &installation, None)
+        .expect("doctor")
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "MODULE_SOURCE_UNTRUSTED")
 }
 
 #[test]

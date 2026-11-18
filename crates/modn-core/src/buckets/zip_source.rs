@@ -453,6 +453,8 @@ impl BucketStore {
 #[cfg(test)]
 mod key_tests;
 #[cfg(test)]
+mod removal_tests;
+#[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
 mod tests;

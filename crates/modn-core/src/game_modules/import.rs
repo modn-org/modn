@@ -370,13 +370,14 @@ mod tests {
     fn an_armed_commit_failure_is_scoped_to_one_registry() {
         let here = PathBuf::from("fixture-registry-here");
         let elsewhere = PathBuf::from("fixture-registry-elsewhere");
-        *super::FAIL_NEXT_CATALOG_COMMIT
-            .lock()
-            .expect("seam") = BTreeSet::from([here.clone()]);
+        *super::FAIL_NEXT_CATALOG_COMMIT.lock().expect("seam") = BTreeSet::from([here.clone()]);
         let (armed, other) = std::thread::scope(|scope| {
             let first = scope.spawn(|| super::injected_commit_failure(&here));
             let second = scope.spawn(|| super::injected_commit_failure(&elsewhere));
-            (first.join().expect("thread"), second.join().expect("thread"))
+            (
+                first.join().expect("thread"),
+                second.join().expect("thread"),
+            )
         });
         assert!(armed, "the armed registry consumes the failure");
         assert!(!other, "another registry keeps its own outcome");

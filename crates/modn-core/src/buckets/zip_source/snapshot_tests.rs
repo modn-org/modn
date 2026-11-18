@@ -12,15 +12,17 @@ use std::sync::atomic::Ordering;
 
 const PRIMARY: &str = "https://primary.example/catalog.zip";
 
-fn source() -> ZipCatalogSource {
+pub(super) fn source() -> ZipCatalogSource {
     ZipCatalogSource::new(PRIMARY.to_owned())
 }
 
-fn fetch(bytes: Vec<u8>) -> impl FnMut(&ZipCatalogSource) -> anyhow::Result<Box<dyn Read>> {
+pub(super) fn fetch(
+    bytes: Vec<u8>,
+) -> impl FnMut(&ZipCatalogSource) -> anyhow::Result<Box<dyn Read>> {
     move |_| Ok(Box::new(Cursor::new(bytes.clone())) as Box<dyn Read>)
 }
 
-fn snapshot_of(state: &Path, published: &Path) -> PathBuf {
+pub(super) fn snapshot_of(state: &Path, published: &Path) -> PathBuf {
     published
         .ancestors()
         .find(|candidate| candidate.parent() == Some(&state.join("buckets")))
@@ -47,7 +49,7 @@ fn sync(store: &BucketStore, bytes: Vec<u8>) -> anyhow::Result<crate::buckets::Z
     store.sync_zip_with_signer("community", None, fetch(bytes))
 }
 
-fn first_sync(state: &Path, catalog: &Path, key: &SigningKey) -> Vec<u8> {
+pub(super) fn first_sync(state: &Path, catalog: &Path, key: &SigningKey) -> Vec<u8> {
     write_catalog(catalog, "https://mirror.example/catalog.zip", key);
     let bytes = pack_catalog(catalog);
     let store = BucketStore::new(state);
@@ -73,7 +75,6 @@ fn an_unchanged_digest_reuses_the_published_snapshot() {
     assert_eq!(registration_bytes(state.path()), before_registration);
     assert_eq!(snapshots(state.path()).len(), 1, "one active snapshot");
 }
-
 #[test]
 fn a_changed_digest_retires_the_superseded_snapshot_at_the_next_sync() {
     let state = tempfile::tempdir().expect("state");
@@ -113,7 +114,6 @@ fn a_changed_digest_retires_the_superseded_snapshot_at_the_next_sync() {
         "a tree retired by this sync waits for the next one"
     );
 }
-
 #[test]
 fn a_reader_that_loaded_the_registration_before_a_sync_keeps_its_tree() {
     let state = tempfile::tempdir().expect("state");
@@ -156,29 +156,6 @@ fn a_reader_that_loaded_the_registration_before_a_sync_keeps_its_tree() {
         .expect("the reader keeps its tree after the switch");
     assert_eq!(read, old);
 }
-
-#[test]
-fn cleanup_keeps_a_tree_that_the_registration_names() {
-    let state = tempfile::tempdir().expect("state");
-    let catalog = tempfile::tempdir().expect("catalog");
-    let key = signing_key();
-    let _bytes = first_sync(state.path(), catalog.path(), &key);
-    let (active, _) = published_snapshot(state.path());
-    let snapshot = snapshot_of(state.path(), &active);
-    let name = snapshot
-        .file_name()
-        .expect("snapshot name")
-        .to_string_lossy();
-    let marker = state.path().join("buckets/.retired-catalogs");
-    fs::write(&marker, serde_json::json!([name]).to_string()).expect("marker");
-
-    let store = BucketStore::new(state.path());
-    store.purge_retired_catalog_snapshots();
-
-    assert!(active.is_dir(), "the registered tree is never removed");
-    assert!(marker.is_file(), "the entry waits for a later sync");
-}
-
 #[test]
 fn a_failed_registration_write_keeps_the_registered_snapshot() {
     let state = tempfile::tempdir().expect("state");
@@ -264,7 +241,6 @@ fn trust_modules(state: &Path, store: &BucketStore) {
         });
     });
 }
-
 #[test]
 fn a_failed_module_commit_restores_the_previous_registration() {
     let state = tempfile::tempdir().expect("state");
@@ -301,7 +277,6 @@ fn a_failed_module_commit_restores_the_previous_registration() {
         vec![snapshot_of(state.path(), &before.0)]
     );
 }
-
 #[test]
 fn a_failed_registration_restore_keeps_the_published_snapshot() {
     let state = tempfile::tempdir().expect("state");
@@ -350,7 +325,6 @@ fn a_failed_registration_restore_keeps_the_published_snapshot() {
     assert!(error.contains("could not be restored"), "{error}");
     assert!(error.contains("the new catalog tree is kept"), "{error}");
 }
-
 #[test]
 fn a_signer_rotation_with_unchanged_content_publishes_a_new_snapshot() {
     let state = tempfile::tempdir().expect("state");
@@ -399,70 +373,4 @@ fn a_signer_rotation_with_unchanged_content_publishes_a_new_snapshot() {
         revision.expect("zip revision").signer.key_id,
         new.public.key_id().to_string()
     );
-}
-
-#[test]
-fn removing_a_bucket_removes_only_its_own_snapshot() {
-    let state = tempfile::tempdir().expect("state");
-    let first = tempfile::tempdir().expect("first catalog");
-    let key = signing_key();
-    write_catalog(first.path(), "https://mirror.example/one.zip", &key);
-    let store = BucketStore::new(state.path());
-    store
-        .sync_zip_with_signer(
-            "community",
-            Some(ZipCatalogSource::new(
-                "https://primary.example/one.zip".to_owned(),
-            )),
-            fetch(pack_catalog(first.path())),
-        )
-        .expect("community sync");
-    let community = snapshot_of(state.path(), &published_snapshot(state.path()).0);
-
-    let second = tempfile::tempdir().expect("second catalog");
-    fs::create_dir_all(second.path().join("mods/test-game")).expect("catalog directory");
-    fs::write(
-        second.path().join("bucket.json"),
-        r#"{"schema_version":2,"name":"second","title":"Second"}"#,
-    )
-    .expect("bucket metadata");
-    fs::write(second.path().join("mods/test-game/example.json"), RECORD).expect("record");
-    let statement = crate::buckets::catalog_statement(second.path()).expect("statement");
-    fs::write(second.path().join("catalog.pub"), &key.text).expect("public key");
-    fs::write(
-        second.path().join("catalog.sig"),
-        super::tests::sign_bytes(&key, statement.as_bytes()),
-    )
-    .expect("signature");
-    store
-        .sync_zip_with_signer(
-            "second",
-            Some(ZipCatalogSource::new(
-                "https://primary.example/two.zip".to_owned(),
-            )),
-            fetch(pack_catalog(second.path())),
-        )
-        .expect("second sync");
-    let other = snapshot_of(
-        state.path(),
-        &store.registration("second").expect("second registration").path,
-    );
-
-    let local = tempfile::tempdir().expect("local bucket");
-    fs::write(
-        local.path().join("bucket.json"),
-        r#"{"schema_version":2,"name":"local","title":"Local"}"#,
-    )
-    .expect("local metadata");
-    store.add("local", local.path()).expect("local bucket");
-
-    store.remove("community").expect("remove");
-
-    assert!(!state
-        .path()
-        .join("buckets/registrations/community.json")
-        .exists());
-    assert!(!community.exists(), "the removed bucket's snapshot is gone");
-    assert!(other.is_dir(), "another bucket's snapshot stays");
-    assert!(local.path().is_dir(), "a local folder source stays");
 }
