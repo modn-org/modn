@@ -79,14 +79,16 @@ fn undo_of_an_update_restores_the_recorded_dependency_link() {
         json!({"kind": "manual", "filename": "rival.zip"}),
     );
     fixture.register();
+    cache(&fixture, "test-game", "base", "1.0", base_url, &base);
+    cache(&fixture, "test-game", "top", "1.0", top_url, &top_v1);
 
-    let installed_base = install(&fixture, "base", &base, &[]);
+    let installed_base = run(&fixture, &["--json", "install", "base", "--yes"], &[]);
     assert!(
         installed_base.status.success(),
         "{}",
         error(&installed_base)
     );
-    let installed_top = install(&fixture, "top", &top_v1, &[]);
+    let installed_top = run(&fixture, &["--json", "install", "top", "--yes"], &[]);
     assert!(installed_top.status.success(), "{}", error(&installed_top));
 
     write_manifest(
@@ -104,7 +106,6 @@ fn undo_of_an_update_restores_the_recorded_dependency_link() {
     declare_conflicts(&fixture, "deps", "test-game", "top", &["rival"]);
     let updated = run(&fixture, &["--json", "update", "top", "--yes"], &[&top_v2]);
     assert!(updated.status.success(), "{}", error(&updated));
-    cache(&fixture, "test-game", "top", "1.0", top_url, &top_v1);
     let operations = history(&fixture);
     let target = id_of(&operations[0]);
     assert_eq!(operations[0]["kind"], "update");
@@ -150,6 +151,7 @@ fn undo_of_an_uninstall_restores_catalog_identity_and_dependency_links() {
         "top-v2",
         &[("Demo/package/plugins/top.plugin", "two")],
     );
+    let base_url = "https://example.invalid/base-1.0.zip";
     let top_url = "https://example.invalid/top-1.0.zip";
     write_manifest(
         &fixture,
@@ -161,7 +163,7 @@ fn undo_of_an_uninstall_restores_catalog_identity_and_dependency_links() {
         &[],
         &[],
         false,
-        https("https://example.invalid/base-1.0.zip"),
+        https(base_url),
     );
     write_manifest(
         &fixture,
@@ -176,9 +178,14 @@ fn undo_of_an_uninstall_restores_catalog_identity_and_dependency_links() {
         https(top_url),
     );
     fixture.register();
-    assert!(install(&fixture, "base", &base, &[]).status.success());
-    assert!(install(&fixture, "top", &top_v1, &[]).status.success());
+    cache(&fixture, "test-game", "base", "1.0", base_url, &base);
     cache(&fixture, "test-game", "top", "1.0", top_url, &top_v1);
+    assert!(run(&fixture, &["--json", "install", "base", "--yes"], &[])
+        .status
+        .success());
+    assert!(run(&fixture, &["--json", "install", "top", "--yes"], &[])
+        .status
+        .success());
 
     let removed = fixture.run(&["--json", "uninstall", "top", "--yes"]);
     assert!(removed.status.success(), "{}", error(&removed));
@@ -240,11 +247,17 @@ fn undo_of_an_uninstall_restores_an_approved_tool_executable() {
     );
     fixture.register();
     cache(&fixture, "test-game", "tool", "1.0", url, &tool);
-    let installed = install(
+    let installed = run(
         &fixture,
-        "tool",
-        &tool,
-        &["--allow-executable", "engine/tools/scc.exe"],
+        &[
+            "--json",
+            "install",
+            "tool",
+            "--yes",
+            "--allow-executable",
+            "engine/tools/scc.exe",
+        ],
+        &[],
     );
     assert!(installed.status.success(), "{}", error(&installed));
     let executable = fixture.game.join("engine/tools/scc.exe");

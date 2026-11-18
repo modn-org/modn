@@ -59,11 +59,8 @@ fn cache(state: &Path, game: &str, id: &str, version: &str, url: &str, archive: 
     .expect("cache entry");
 }
 
-fn install(fixture: &Fixture, target: &str, archive: &Path) -> Output {
-    fixture.run_paths(
-        &["--json", "install", target, "--yes", "--file"],
-        &[archive],
-    )
+fn install(fixture: &Fixture, target: &str) -> Output {
+    fixture.run(&["--json", "install", target, "--yes"])
 }
 
 fn install_into(fixture: &Fixture, game: &Path, archive: &Path) -> Output {
@@ -252,9 +249,9 @@ fn undo_refuses_a_policy_that_moves_a_recorded_file_to_another_root() {
         false,
     );
     fixture.register();
-    let installed = install(&fixture, "example", &package);
-    assert!(installed.status.success(), "{}", error(&installed));
     cache(&fixture.state, "test-game", "example", "1.0", url, &package);
+    let installed = install(&fixture, "example");
+    assert!(installed.status.success(), "{}", error(&installed));
     let addon = fixture.game.join("addons/example.plugin");
     assert!(addon.is_file());
     assert!(fixture
@@ -317,9 +314,9 @@ fn undo_update_refuses_a_changed_member_selection_before_commit() {
     manifest(&fixture, "example", "1.0", &v1_hash, https(v1_url));
     write_module(&fixture, 3, "v1/example.plugin", "game", false);
     fixture.register();
-    let installed = install(&fixture, "example", &v1);
-    assert!(installed.status.success(), "{}", error(&installed));
     cache(&fixture.state, "test-game", "example", "1.0", v1_url, &v1);
+    let installed = install(&fixture, "example");
+    assert!(installed.status.success(), "{}", error(&installed));
     let addon = fixture.game.join("addons/example.plugin");
     assert_eq!(fs::read_to_string(&addon).expect("v1"), "one");
 
@@ -369,13 +366,7 @@ fn undo_uninstall_restores_below_the_appdata_content_root() {
         url,
         &package,
     );
-    fixture.ok(&[
-        "install",
-        "fixture",
-        "--yes",
-        "--file",
-        package.to_str().expect("archive path"),
-    ]);
+    fixture.ok(&["install", "fixture", "--yes"]);
     let restored = fixture.content("Pkg/core.lua");
     assert!(restored.is_file(), "installed below the content root");
 
