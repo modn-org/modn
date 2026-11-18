@@ -151,6 +151,10 @@ def selftest():
     )
 
     # Copy diagnostics: fakes for the one click, the toast and the clipboard.
+    import selftest_clipboard  # noqa: PLC0415 - fake Win32 only
+
+    results.update(selftest_clipboard.checks())
+
     import selftest_diagnostics  # noqa: PLC0415 - fake desktop only
 
     results.update(selftest_diagnostics.checks())

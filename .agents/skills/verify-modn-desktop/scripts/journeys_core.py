@@ -236,51 +236,53 @@ def wait_toast(session, clock=time.monotonic, sleep=time.sleep, timeout=TOAST_SE
     raise uia.Failure(f"Copy diagnostics showed no toast within {timeout} seconds")
 
 
-def _restore_clipboard(previous, read_clipboard, write_clipboard):
-    """Puts `previous` back only while the clipboard still holds our report.
+def _restore_clipboard(previous, sequence, restore_clipboard):
+    """Puts `previous` back when the clipboard still holds the app's write.
 
-    The human may copy other text while the journey runs, so a restore could
-    overwrite it. A read failure means no restore and no exception.
+    The real restore rechecks the sequence number under one clipboard lock and
+    writes nothing when anyone copied since. A restore failure is best effort
+    and never fails the journey.
     """
     try:
-        current = read_clipboard()
-    except Exception:
-        return
-    if current == previous or diagnostics_report(current) is None:
-        return
-    try:
-        write_clipboard(previous)
+        restore_clipboard(previous, sequence)
     except Exception:
         pass
 
 
 def copy_diagnostics(
-    session, read_clipboard, write_clipboard, clock=time.monotonic, sleep=time.sleep
+    session, read_clipboard, restore_clipboard, clock=time.monotonic, sleep=time.sleep
 ):
     """Activates Copy diagnostics once and returns the toast and clipboard report.
 
     The activation uses UI Automation patterns, so it needs no foreground and
-    changes no focus. The system clipboard is saved before the activation. It is
-    restored only when a fresh read still shows this journey's doctor report,
-    and the text differs from the saved text; text the human copied meanwhile
-    stays. A restore failure never fails the journey. Raises `uia.Failure` when
-    the toast reports an error or clipboard failure, or when the clipboard does
-    not hold the doctor report.
+    changes no focus. The clipboard text and its Windows sequence number are
+    read before the activation. The read after the success toast that holds a
+    doctor report proves the app's write, and its sequence number is kept. In
+    the finally, the earlier text goes back only when it differs and only while
+    that number is still unchanged; text copied afterwards, even another
+    doctor report, stays. A restore failure never fails the journey. Raises
+    `uia.Failure` when the toast reports an error or clipboard failure, or when
+    the clipboard does not hold the doctor report.
     """
-    previous = read_clipboard()
+    previous_text, _ = read_clipboard()
+    sequence = None
+    found_text = previous_text
     try:
         session.activate(session.find(name="Copy diagnostics"))
         toast = wait_toast(session, clock=clock, sleep=sleep)
         if not diagnostics_copied(toast):
             raise uia.Failure(f"Copy diagnostics reported: {toast}")
-        report = diagnostics_report(read_clipboard())
+        found_text, found_sequence = read_clipboard()
+        report = diagnostics_report(found_text)
         if report is None:
             raise uia.Failure(
                 "Copy diagnostics did not put the doctor report on the clipboard"
             )
+        sequence = found_sequence
         return toast, report
     finally:
-        _restore_clipboard(previous, read_clipboard, write_clipboard)
+        if sequence is not None and previous_text != found_text:
+            _restore_clipboard(previous_text, sequence, restore_clipboard)
 
 
 def _scan(session):
@@ -398,7 +400,9 @@ def journey_play(runner):
         session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
         session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
         runner.check(session.exists(name="Operation history"), "History section is missing")
-        toast, report = copy_diagnostics(session, clipboard.read_text, clipboard.write_text)
+        toast, report = copy_diagnostics(
+            session, clipboard.read_snapshot, clipboard.restore_if_unchanged
+        )
         installation = report.get("scan", {}).get("installation")
         runner.check(
             isinstance(installation, str) and same_path(installation, game),
