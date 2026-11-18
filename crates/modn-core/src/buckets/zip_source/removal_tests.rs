@@ -1,5 +1,5 @@
 //! Catalog tree removal when a bucket ends.
-use super::snapshot_tests::{fetch, first_sync, snapshot_of, source};
+use super::snapshot_tests::{fetch, first_sync, snapshot_of};
 use super::tests::{pack_catalog, published_snapshot, signing_key, write_catalog, RECORD};
 use crate::buckets::{BucketStore, ZipCatalogSource};
 use std::fs;

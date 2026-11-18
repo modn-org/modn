@@ -21,10 +21,7 @@ pub(crate) static FAIL_NEXT_CATALOG_COMMIT: std::sync::Mutex<BTreeSet<PathBuf>> 
 /// Consume an armed failure for `root`. Other registries keep their outcome.
 #[cfg(test)]
 fn injected_commit_failure(root: &Path) -> bool {
-    let mut armed = match FAIL_NEXT_CATALOG_COMMIT.lock() {
-        Ok(armed) => armed,
-        Err(poisoned) => poisoned.into_inner(),
-    };
+    let mut armed = FAIL_NEXT_CATALOG_COMMIT.lock().expect("seam lock");
     armed.remove(root)
 }
 

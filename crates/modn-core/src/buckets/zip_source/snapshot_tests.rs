@@ -2,7 +2,6 @@
 
 use super::tests::{
     pack_catalog, published_snapshot, registration_bytes, signing_key, write_catalog, SigningKey,
-    RECORD,
 };
 use crate::buckets::{BucketStore, ModuleTrustAck, ZipCatalogSource};
 use std::fs;
