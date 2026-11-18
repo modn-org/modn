@@ -452,4 +452,6 @@ mod snapshot_tests;
 #[cfg(test)]
 mod statement_tests;
 #[cfg(test)]
+mod replay_tests;
+#[cfg(test)]
 mod tests;

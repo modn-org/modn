@@ -36,6 +36,12 @@ pub struct CatalogSigner {
     /// BLAKE3 of the revocation statement already applied to this pin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub applied_revocation: Option<String>,
+    /// BLAKE3 digests of every key statement this pin applied, oldest first.
+    ///
+    /// The history makes a statement single-use: a revision that republishes an
+    /// applied statement cannot rotate the pin back to the key it named.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub applied_key_statements: Vec<String>,
 }
 
 impl CatalogSigner {
@@ -57,6 +63,7 @@ impl CatalogSigner {
             revoked_signers: Vec::new(),
             applied_rotation: None,
             applied_revocation: None,
+            applied_key_statements: Vec::new(),
         }
     }
 
@@ -93,6 +100,7 @@ impl CatalogSigner {
         signer.key_id = change.to.clone();
         signer.public_key = text;
         signer.applied_rotation = Some(change.body_digest.clone());
+        signer.applied_key_statements.push(change.body_digest.clone());
         signer.assert_pinned_not_retired();
         signer
     }
@@ -109,6 +117,7 @@ impl CatalogSigner {
         signer.key_id = change.to.clone();
         signer.public_key = text;
         signer.applied_revocation = Some(change.body_digest.clone());
+        signer.applied_key_statements.push(change.body_digest.clone());
         signer.assert_pinned_not_retired();
         signer
     }
@@ -226,13 +235,22 @@ pub(in crate::buckets) fn verify_catalog_tree(
         revocation_public.as_ref().map(|(key, _)| key),
     )?;
     let catalog_name = crate::buckets::signature::catalog_name(root)?;
-    let applied: Vec<&str> = [
+    let mut applied: Vec<&str> = previous
+        .applied_key_statements
+        .iter()
+        .map(String::as_str)
+        .collect();
+    for digest in [
         previous.applied_rotation.as_deref(),
         previous.applied_revocation.as_deref(),
     ]
     .into_iter()
     .flatten()
-    .collect();
+    {
+        if !applied.contains(&digest) {
+            applied.push(digest);
+        }
+    }
     let keys = crate::buckets::rotation::PinnedKeys {
         signer: &pinned,
         revocation: pinned_revocation.as_ref(),

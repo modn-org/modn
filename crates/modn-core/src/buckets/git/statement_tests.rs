@@ -23,7 +23,7 @@ fn sign_statement(key: &TestKey, kind: KeyChangeKind, body: &[u8]) -> String {
     .into_string()
 }
 
-fn write_rotation_files(root: &Path, old: &TestKey, new: &TestKey) {
+pub(super) fn write_rotation_files(root: &Path, old: &TestKey, new: &TestKey) {
     let body = rotation_statement(&old.public.key_id().to_string(), &new.text)
         .expect("rotation statement");
     fs::write(root.join("rotation.json"), &body).expect("rotation body");

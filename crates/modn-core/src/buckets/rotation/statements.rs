@@ -68,6 +68,19 @@ pub(in crate::buckets) fn apply_key_statements(
         .collect();
     let [index] = applies.as_slice() else {
         if applies.is_empty() {
+            // An applied statement may stay published as history while the
+            // revision stays on the pinned key. It must not move the pin again.
+            let replays_pin = revision_public.is_some_and(|key| key != pinned.signer);
+            let replayed = replays_pin
+                && statements.iter().enumerate().any(|(index, statement)| {
+                    applied.contains(&index)
+                        && statement.old_key_id.eq_ignore_ascii_case(&pinned_id)
+                });
+            if replayed {
+                bail!(
+                    "catalog {catalog_name} republishes a key statement that this pin already applied; a rotation or revocation statement is applied once, so a retired key cannot regain trust by replaying it"
+                );
+            }
             return Ok(KeyStatementOutcome {
                 change: None,
                 ignored,

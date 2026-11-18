@@ -184,7 +184,9 @@ The `.sig` file is a minisign signature. It signs the bytes
 bytes. A revocation signature signs `modn-revocation-v1\0catalog: <name>\n`
 followed by the exact `revocation.json` bytes. The catalog name binds the
 statement to one catalog, and the prefix binds it to one kind. A statement
-cannot be replayed in another catalog or as another kind.
+cannot be replayed in another catalog or as another kind. Modn applies each
+statement once and refuses a revision that republishes a statement the pin
+already applied, so a retired key cannot roll the pin back by replaying it.
 
 Modn pins the revocation key at the first sync and prints both fingerprints. A
 revision whose `revocation.pub` differs by any public key byte or disappears is
