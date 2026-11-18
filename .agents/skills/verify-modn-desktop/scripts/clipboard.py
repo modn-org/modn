@@ -1,8 +1,9 @@
 """Reads and restores the Windows clipboard text through PowerShell.
 
-The reads are read-only. The only write is a best-effort restore of text the
-journey found before it clicked `Copy diagnostics`. No function here touches a
-window, the foreground or the focus.
+The reads are read-only. The only write is a restore of text the journey found
+before it activated `Copy diagnostics`, and it happens only while the clipboard
+still holds that journey's report. No function here touches a window, the
+foreground or the focus.
 """
 
 import os

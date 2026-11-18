@@ -27,9 +27,9 @@ Options:
 - `--keep` keeps the fixture directory of the run and prints every kept path.
 - `--app PATH`, `--cli PATH` and `--test-backend PATH` replace one built binary
   each.
-- `--selftest` checks the dialog helper, the Copy diagnostics click, clipboard
-  and restore, failure tracking, evidence reporting and skill front matter
-  against fakes, then exits.
+- `--selftest` checks the dialog helper, the Copy diagnostics activation,
+  clipboard and restore, failure tracking, evidence reporting and skill front
+  matter against fakes, then exits.
 
 Without `--build`, the verifier reads `modn-desktop.exe`, `modn.exe` and
 `modn-desktop-test-backend.exe` from `$CARGO_TARGET_DIR/debug` when
