@@ -45,7 +45,17 @@ fn undo_of_an_update_and_an_uninstall_enforces_the_native_injector_policy() {
         v1_url,
         &v1,
     );
-    let installed = install(&fixture, "injector", &v1, &["--allow-native-injector"]);
+    let installed = run(
+        &fixture,
+        &[
+            "--json",
+            "install",
+            "injector",
+            "--yes",
+            "--allow-native-injector",
+        ],
+        &[],
+    );
     assert!(installed.status.success(), "{}", error(&installed));
     let library = fixture.native_game.join("winmm.dll");
     assert_eq!(fs::read_to_string(&library).expect("v1"), "one");

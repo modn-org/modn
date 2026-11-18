@@ -11,7 +11,7 @@ mod release_metadata;
 
 use crate::support::{error, Fixture};
 use release_metadata::{
-    archive, cache, error_code, history, https, id_of, install, state_database, tool_module,
+    archive, cache, error_code, history, https, id_of, install, run, state_database, tool_module,
     write_manifest,
 };
 use serde_json::{json, Value};
@@ -163,12 +163,17 @@ fn executable_approval_of_one_bucket_does_not_cover_another_bucket() {
 
 /// Install and uninstall one bucket's native mod from its cached https release
 /// and return the ID of the recorded uninstall operation.
-fn uninstall_native(fixture: &Fixture, bucket: &str, archive: &std::path::Path) -> String {
-    let installed = install(
+fn uninstall_native(fixture: &Fixture, bucket: &str) -> String {
+    let installed = run(
         fixture,
-        &format!("{bucket}/{NATIVE_GAME}/{SHARED}"),
-        archive,
-        &["--allow-native-injector"],
+        &[
+            "--json",
+            "install",
+            &format!("{bucket}/{NATIVE_GAME}/{SHARED}"),
+            "--yes",
+            "--allow-native-injector",
+        ],
+        &[],
     );
     assert!(installed.status.success(), "{}", error(&installed));
     let removed = fixture.run(&["uninstall", &package_id(&installed), "--yes"]);
@@ -199,7 +204,7 @@ fn two_native_buckets() -> (Fixture, std::path::PathBuf, [String; 2]) {
         );
         cache(&fixture, NATIVE_GAME, SHARED, "1.0", url, &archive);
     }
-    let undo = urls.map(|(bucket, _)| uninstall_native(&fixture, bucket, &archive));
+    let undo = urls.map(|(bucket, _)| uninstall_native(&fixture, bucket));
     (fixture, archive, undo)
 }
 
