@@ -73,8 +73,9 @@ def checks():
     results = {}
     session = FakeSession(["Diagnostics copied."])
     clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT)])
-    report = run(session, clipboard)
+    toast, report = run(session, clipboard)
     results["diagnostics_clicks_once"] = session.clicks == 1
+    results["diagnostics_reports_the_success_toast"] = toast == "Diagnostics copied."
     results["diagnostics_reads_the_report"] = report["scan"]["installation"] == "C:\\fixture\\game"
     results["diagnostics_restores_the_previous_clipboard"] = clipboard.writes == ["old clipboard"]
 
@@ -107,7 +108,7 @@ def checks():
     session = FakeSession(["Diagnostics copied."])
     clipboard = FakeClipboard(["old clipboard", json.dumps(REPORT)])
     results["diagnostics_ignores_a_failed_restore"] = (
-        run(session, clipboard, write=refuse)["scan"]["installation"] == "C:\\fixture\\game"
+        run(session, clipboard, write=refuse)[1]["scan"]["installation"] == "C:\\fixture\\game"
     )
 
     results["diagnostics_report_rejects_other_json"] = (

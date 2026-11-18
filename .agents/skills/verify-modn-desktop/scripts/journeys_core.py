@@ -234,7 +234,7 @@ def wait_toast(session, clock=time.monotonic, sleep=time.sleep, timeout=TOAST_SE
 def copy_diagnostics(
     session, read_clipboard, write_clipboard, clock=time.monotonic, sleep=time.sleep
 ):
-    """Clicks Copy diagnostics once and returns the report on the clipboard.
+    """Clicks Copy diagnostics once and returns the toast and clipboard report.
 
     The click uses the UI Automation Invoke pattern, so it needs no foreground
     and changes no focus. The system clipboard is saved before the click and
@@ -253,7 +253,7 @@ def copy_diagnostics(
             raise uia.Failure(
                 "Copy diagnostics did not put the doctor report on the clipboard"
             )
-        return report
+        return toast, report
     finally:
         if previous:
             try:
@@ -377,7 +377,7 @@ def journey_play(runner):
         session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
         session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
         runner.check(session.exists(name="Operation history"), "History section is missing")
-        report = copy_diagnostics(session, clipboard.read_text, clipboard.write_text)
+        toast, report = copy_diagnostics(session, clipboard.read_text, clipboard.write_text)
         installation = report.get("scan", {}).get("installation")
         runner.check(
             isinstance(installation, str) and same_path(installation, game),
@@ -386,7 +386,7 @@ def journey_play(runner):
         (fx.evidence / "diagnostics.json").write_text(
             json.dumps(
                 {
-                    "toast": DIAGNOSTICS_COPIED,
+                    "toast": toast,
                     "report_keys": sorted(report),
                     "installation": installation,
                 },
