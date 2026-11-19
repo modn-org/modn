@@ -254,7 +254,7 @@ impl BucketStore {
     }
 
     /// Same as [`Self::sync_git_with_signer`] with an explicit bounded fetch.
-    #[cfg(any(test, feature = "test-instruction-budget"))]
+    #[cfg(test)]
     pub(crate) fn sync_git_with_fetch(
         &self,
         name: &str,
