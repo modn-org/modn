@@ -19,7 +19,7 @@ This page is the specification of theme API v1. The Status table says what Modn 
 | Sources and selection | Specified, not implemented |
 | CLI theme commands | Specified, not implemented |
 | Desktop theme control | Specified, not implemented |
-| Desktop hooks | Present in the UI; protected-region renames pending |
+| Desktop hooks | Implemented: hooks and protected regions in the UI |
 
 ## Theme folder
 
@@ -214,7 +214,7 @@ They are not CSS rule ids.
 ## Stable hooks
 
 Paths in these tables are relative to `apps/modn-desktop/ui/`; files outside that directory have a `../` prefix.
-The UI has 21 shell classes, 17 home classes, 34 library classes, 15 details classes, 9 install-review classes, 5 approval classes, 4 toast classes, 2 message classes, 0 theme-control classes, 11 `data-*` attributes and 43 `--modn-*` custom properties.
+The UI has 21 shell classes, 17 home classes, 34 library classes, 15 details classes, 12 install-review classes, 7 approval classes, 4 toast classes, 2 message classes, 0 theme-control classes, 12 `data-*` attributes and 43 `--modn-*` custom properties.
 
 A selector may use only hooks listed on this page. An unlisted `.modn-*` class is the rule `unknown-hook`.
 An unlisted `data-*` attribute has the same rule.
@@ -225,18 +225,18 @@ An unlisted `data-*` attribute has the same rule.
 | --- | --- | --- | --- | --- |
 | `.modn-actions` | Shell | `css/base.css` | `js/details.js`, `js/home.js`, `js/library.js` | Header action button row |
 | `.modn-app` | Shell | `css/base.css` | `index.html` | Two-column application frame |
-| `.modn-button` | Shell | `css/base.css` | `js/details.js`, `js/home.js`, `js/library.js`, `js/op-button.js`, `js/home/card.js`, `js/home/dom.js`, `js/library/ask.js`, `js/library/recent.js` | Base action button |
+| `.modn-button` | Shell | `css/base.css` | `js/details.js`, `js/home.js`, `js/library.js`, `js/op-button.js`, `js/home/card.js`, `js/home/dom.js`, `js/library/recent.js` | Base action button |
 | `.modn-button--danger` | Shell | `css/base.css` | — | Destructive action button |
-| `.modn-button--quiet` | Shell | `css/base.css` | `js/home.js`, `js/home/card.js`, `js/library/ask.js`, `js/library/recent.js` | Low-emphasis action button |
+| `.modn-button--quiet` | Shell | `css/base.css` | `js/home.js`, `js/home/card.js`, `js/library/recent.js` | Low-emphasis action button |
 | `.modn-button--secondary` | Shell | `css/base.css` | `js/details.js`, `js/home.js` | Secondary action button |
-| `.modn-card` | Shell | `css/base.css` | `js/home.js`, `js/library.js`, `js/details/history.js`, `js/details/plan.js`, `js/library/tile.js` | Raised content card |
+| `.modn-card` | Shell | `css/base.css` | `js/home.js`, `js/library.js`, `js/details/history.js`, `js/library/tile.js` | Raised content card |
 | `.modn-card--empty` | Shell | `css/base.css` | `js/home.js`, `js/library.js` | Card that fills an empty state |
 | `.modn-empty` | Shell | `css/base.css` | — | Empty-state text block |
 | `.modn-grid` | Shell | `css/base.css` | `js/home.js`, `js/library.js` | Responsive card grid |
 | `.modn-link` | Shell | `css/base.css` | `js/details.js`, `js/library.js` | Inline text link |
 | `.modn-list` | Shell | `css/base.css` | `js/library.js` | Vertical list container |
 | `.modn-main` | Shell | `css/base.css` | `index.html` | Main view region |
-| `.modn-muted` | Shell | `css/base.css` | `js/details.js`, `js/home.js`, `js/library.js`, `js/details/history.js`, `js/details/plan.js`, `js/home/card.js`, `js/library/recent.js`, `js/library/tile.js` | Muted secondary text |
+| `.modn-muted` | Shell | `css/base.css` | `js/details.js`, `js/home.js`, `js/library.js`, `js/details/history.js`, `js/home/card.js`, `js/library/recent.js`, `js/library/tile.js` | Muted secondary text |
 | `.modn-rail` | Shell | `css/base.css` | `index.html` | Left navigation rail |
 | `.modn-rail__link` | Shell | `css/base.css` | `index.html` | Rail home link |
 | `.modn-row` | Shell | `css/base.css` | `js/library.js`, `js/details/history.js` | Horizontal content row |
@@ -310,26 +310,31 @@ An unlisted `data-*` attribute has the same rule.
 | `.modn-history` | Details | `css/details.css` | `js/details/history.js` | Undo history list |
 | `.modn-history__entry` | Details | `css/details.css` | `js/details/history.js` | Single history entry |
 | `.modn-history__label` | Details | `css/details.css` | `js/details/history.js` | History entry label |
-| `.modn-details__plan` | Install review | `css/details.css` | `js/details/plan.js` | Collapsed file plan section |
-| `.modn-details__summary` | Install review | `css/details.css` | `js/details/plan.js` | File plan summary toggle |
-| `.modn-details__body` | Install review | `css/details.css` | `js/details/plan.js` | File plan body |
-| `.modn-details__approval` | Install review | `css/details.css` | `js/details/plan.js` | Plan approval note |
-| `.modn-plan` | Install review | `css/details.css` | `js/details/plan.js` | File operation list |
-| `.modn-plan__row` | Install review | `css/details.css` | `js/details/plan.js` | Single file operation row |
-| `.modn-plan__path` | Install review | `css/details.css` | `js/details/plan.js` | Operation destination path |
-| `.modn-plan__tag` | Install review | `css/details.css` | `js/details/plan.js` | Write or remove tag |
-| `.modn-plan__blocker` | Install review | `css/details.css` | `js/details/plan.js` | Plan blocker message |
-| `.modn-ask` | Approval | `css/library.css` | `js/library/ask.js` | Inline approval ask panel |
-| `.modn-ask__actions` | Approval | `css/library.css` | `js/library/ask.js` | Allow and decline row |
-| `.modn-ask__list` | Approval | `css/library.css` | `js/library/ask.js` | Executable path list |
-| `.modn-ask__path` | Approval | `css/library.css` | `js/library/ask.js` | Single executable path |
-| `.modn-ask__question` | Approval | `css/library.css` | `js/library/ask.js` | Approval question line |
+| `.modn-review` | Install review | `css/base.css` | `js/details/plan.js` | Install review frame |
+| `.modn-review__summary` | Install review | `css/details.css` | `js/details/plan.js` | File plan summary toggle |
+| `.modn-review__body` | Install review | `css/details.css` | `js/details/plan.js` | File plan body |
+| `.modn-review__approval` | Install review | `css/details.css` | `js/details/plan.js` | Plan approval note |
+| `.modn-review__muted` | Install review | `css/details.css` | `js/details/plan.js` | Muted review text |
+| `.modn-review__status` | Install review | `css/details.css` | `js/details/plan.js` | Review status message |
+| `.modn-review__status--error` | Install review | `css/details.css` | `js/details/plan.js` | Review error status message |
+| `.modn-review__list` | Install review | `css/details.css` | `js/details/plan.js` | File operation list |
+| `.modn-review__row` | Install review | `css/details.css` | `js/details/plan.js` | Single file operation row |
+| `.modn-review__path` | Install review | `css/details.css` | `js/details/plan.js` | Operation destination path |
+| `.modn-review__tag` | Install review | `css/details.css` | `js/details/plan.js` | Write or remove tag |
+| `.modn-review__blocker` | Install review | `css/details.css` | `js/details/plan.js` | Plan blocker message |
+| `.modn-approval` | Approval | `css/library.css` | `js/library/ask.js` | Inline approval ask panel |
+| `.modn-approval__question` | Approval | `css/library.css` | `js/library/ask.js` | Approval question line |
+| `.modn-approval__list` | Approval | `css/library.css` | `js/library/ask.js` | Executable path list |
+| `.modn-approval__path` | Approval | `css/library.css` | `js/library/ask.js` | Single executable path |
+| `.modn-approval__actions` | Approval | `css/library.css` | `js/library/ask.js` | Allow and decline row |
+| `.modn-approval__button` | Approval | `css/library.css` | `js/library/ask.js` | Allow button |
+| `.modn-approval__button--quiet` | Approval | `css/library.css` | `js/library/ask.js` | Decline button |
 | `.modn-toast` | Toast | `css/base.css` | `js/toast.js` | Single toast message |
 | `.modn-toast__action` | Toast | `css/base.css` | `js/op-button.js`, `js/toast.js` | Undo action inside toast |
 | `.modn-toast__message` | Toast | `css/base.css` | `js/toast.js` | Toast text area |
 | `.modn-toasts` | Toast | `css/base.css` | `index.html`, `js/op-button.js`, `js/toast.js` | Toast stack container |
-| `.modn-status` | Messages | `css/base.css` | `index.html`, `js/app.js`, `js/details.js`, `js/library.js`, `js/details/history.js`, `js/details/plan.js`, `js/home/card.js`, `js/home/dom.js`, `js/library/recent.js` | Status and progress message |
-| `.modn-status--error` | Messages | `css/base.css` | `js/app.js`, `js/details.js`, `js/library.js`, `js/details/history.js`, `js/details/plan.js`, `js/home/card.js`, `js/home/dom.js`, `js/library/recent.js` | Error state status message |
+| `.modn-status` | Messages | `css/base.css` | `index.html`, `js/app.js`, `js/details.js`, `js/library.js`, `js/details/history.js`, `js/home/card.js`, `js/home/dom.js`, `js/library/recent.js` | Status and progress message |
+| `.modn-status--error` | Messages | `css/base.css` | `js/app.js`, `js/details.js`, `js/library.js`, `js/details/history.js`, `js/home/card.js`, `js/home/dom.js`, `js/library/recent.js` | Error state status message |
 
 **Theme control.** No `modn-theme-*` hook exists today.
 The desktop Theme control adds those hooks.
@@ -351,6 +356,7 @@ See [Desktop behavior](#desktop-behavior).
 | `[data-operation-id]` | `js/details/history.js` | — | Operation identity on history rows |
 | `[data-installed]` | `js/library/tile.js` | — | Installed state on a mod tile |
 | `[data-code]` | `js/details/plan.js` | — | Blocker code on a plan row |
+| `[data-modn-protected]` | `js/details/plan.js`, `js/library/ask.js` | `../tests/js/protected-regions.test.mjs`, `../tests/ui_hooks.rs` | Mark a protected region root |
 
 ### Custom properties
 
@@ -410,39 +416,38 @@ Two regions exist:
 
 - `data-modn-protected="install-review"` marks the plan and review section of the install flow.
   The markup is in `apps/modn-desktop/ui/js/details/plan.js`.
-  The style rules are in `apps/modn-desktop/ui/css/details.css` lines 56-125.
+  The style rules are in `apps/modn-desktop/ui/css/details.css` lines 56-139 and `apps/modn-desktop/ui/css/base.css` lines 133-141.
 - `data-modn-protected="approval"` marks the inline approval ask.
-  The markup is in `apps/modn-desktop/ui/js/library/ask.js:24-69`.
-  The style rules are in `apps/modn-desktop/ui/css/library.css:218-252`.
+  The markup is in `apps/modn-desktop/ui/js/library/ask.js:26-69`.
+  The style rules are in `apps/modn-desktop/ui/css/library.css:218-293`.
 
 The protected class prefixes are `.modn-review*` and `.modn-approval*`.
-The next task renames the current shared classes:
 
-| Current class | Target class | Region |
+### Protected hooks
+
+| Class | Region | Purpose |
 | --- | --- | --- |
-| `.modn-card` (on the plan section) | `.modn-review` | Install review |
-| `.modn-details__plan` | `.modn-review` | Install review |
-| `.modn-details__summary` | `.modn-review__summary` | Install review |
-| `.modn-details__body` | `.modn-review__body` | Install review |
-| `.modn-details__approval` | `.modn-review__approval` | Install review |
-| `.modn-plan` | `.modn-review__list` | Install review |
-| `.modn-plan__row` | `.modn-review__row` | Install review |
-| `.modn-plan__path` | `.modn-review__path` | Install review |
-| `.modn-plan__tag` | `.modn-review__tag` | Install review |
-| `.modn-plan__blocker` | `.modn-review__blocker` | Install review |
-| `.modn-muted` (in the plan) | `.modn-review__muted` | Install review |
-| `.modn-status` (in the plan) | `.modn-review__status` | Install review |
-| `.modn-status--error` (in the plan) | `.modn-review__status--error` | Install review |
-| `.modn-ask` | `.modn-approval` | Approval |
-| `.modn-ask__question` | `.modn-approval__question` | Approval |
-| `.modn-ask__list` | `.modn-approval__list` | Approval |
-| `.modn-ask__path` | `.modn-approval__path` | Approval |
-| `.modn-ask__actions` | `.modn-approval__actions` | Approval |
-| `.modn-button` (in the ask) | `.modn-approval__button` | Approval |
-| `.modn-button--quiet` (in the ask) | `.modn-approval__button--quiet` | Approval |
+| `.modn-review` | Install review | Install review frame |
+| `.modn-review__summary` | Install review | File plan summary toggle |
+| `.modn-review__body` | Install review | File plan body |
+| `.modn-review__approval` | Install review | Plan approval note |
+| `.modn-review__muted` | Install review | Muted review text |
+| `.modn-review__status` | Install review | Review status message |
+| `.modn-review__status--error` | Install review | Review error status message |
+| `.modn-review__list` | Install review | File operation list |
+| `.modn-review__row` | Install review | Single file operation row |
+| `.modn-review__path` | Install review | Operation destination path |
+| `.modn-review__tag` | Install review | Write or remove tag |
+| `.modn-review__blocker` | Install review | Plan blocker message |
+| `.modn-approval` | Approval | Inline approval ask panel |
+| `.modn-approval__question` | Approval | Approval question line |
+| `.modn-approval__list` | Approval | Executable path list |
+| `.modn-approval__path` | Approval | Single executable path |
+| `.modn-approval__actions` | Approval | Allow and decline row |
+| `.modn-approval__button` | Approval | Allow button |
+| `.modn-approval__button--quiet` | Approval | Decline button |
 
-The two `.modn-review` rows merge into one element class.
-The target classes are reserved for their regions.
+The protected hooks are reserved for their regions.
 No other screen may use them.
 
 Inside a protected region, a rule may declare only these properties:
