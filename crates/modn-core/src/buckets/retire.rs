@@ -4,13 +4,14 @@
 //! previous registration named. `BucketStore::snapshot` and `BucketStore::list`
 //! read a registration and then open the path it names without the sync lock,
 //! so a tree must outlive the switch that replaced it. Retiring records the
-//! tree and its bucket in the bucket root, and writes the retire time into the
-//! tree itself. A later sync removes recorded trees after its registration
-//! write, while it holds the sync lock, but only after `RETIRED_GRACE` has
-//! passed. A missing or malformed record never deletes a tree: a tree without
-//! a readable retire time gets a fresh marker. An explicit `BucketStore::remove`
-//! ends the bucket, so it deletes the live tree and that bucket's retired trees
-//! at once.
+//! tree, its bucket and the retire time in the bucket root. The retire time
+//! stays outside the tree on purpose: a signed catalog digest covers every file
+//! in the tree, so a marker inside it would change the bytes that a reader
+//! verifies. A later sync removes recorded trees after its registration write,
+//! while it holds the sync lock, but only after `RETIRED_GRACE` has passed. A
+//! missing or malformed record never deletes a tree: a tree without a readable
+//! retire time gets a fresh time. An explicit `BucketStore::remove` ends the
+//! bucket, so it deletes the live tree and that bucket's retired trees at once.
 
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
@@ -23,9 +24,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Marker file in the bucket root that lists retired catalog trees.
 const RETIRED_CATALOGS: &str = ".retired-catalogs";
-
-/// Marker file inside a retired catalog tree that records its retire time.
-const RETIRED_MARKER: &str = ".modn-retired";
 
 /// How long a retired catalog tree stays on disk after it is retired.
 ///
@@ -40,12 +38,9 @@ struct RetiredCatalog {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     bucket: Option<String>,
-}
-
-/// Retire time stored inside one retired tree.
-#[derive(Deserialize, Serialize)]
-struct RetiredMarker {
-    retired_at: u64,
+    /// Retire time in seconds. A missing value gets a fresh time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retired_at: Option<u64>,
 }
 
 impl BucketStore {
@@ -53,24 +48,33 @@ impl BucketStore {
     ///
     /// The tree stays on disk, so a reader that already loaded the superseded
     /// registration keeps working. A path outside the bucket root, or one that
-    /// no sync created, is ignored. The caller holds the sync lock.
+    /// no sync created, is ignored. A tree already recorded keeps its retire
+    /// time, so a second sync does not extend the grace period. The caller
+    /// holds the sync lock.
     pub(super) fn retire_catalog_snapshot(&self, bucket: &str, path: &Path) {
         let Some(name) = Self::snapshot_name(&self.root, path) else {
             return;
         };
         let mut retired = self.retired_catalogs();
         if let Some(entry) = retired.iter_mut().find(|entry| entry.name == name) {
+            let mut changed = false;
             if entry.bucket.is_none() {
                 entry.bucket = Some(bucket.to_owned());
+                changed = true;
+            }
+            if entry.retired_at.is_none() {
+                entry.retired_at = Some(self.retired_now());
+                changed = true;
+            }
+            if changed {
                 let _ = self.write_retired_catalogs(&retired);
             }
             return;
         }
-        let snapshot = self.root.join(&name);
-        let _ = self.write_retired_marker(&snapshot, self.retired_now());
         retired.push(RetiredCatalog {
             name,
             bucket: Some(bucket.to_owned()),
+            retired_at: Some(self.retired_now()),
         });
         let _ = self.write_retired_catalogs(&retired);
     }
@@ -81,7 +85,7 @@ impl BucketStore {
     /// registration, so a failed sync never reaches this step. A tree stays
     /// until its recorded retire time is at least `RETIRED_GRACE` old. A tree
     /// that any current registration names is kept, and a tree without a
-    /// readable retire time gets a fresh marker instead of an immediate delete.
+    /// readable retire time gets a fresh time instead of an immediate delete.
     /// Removal is best effort: a tree that cannot be removed stays recorded,
     /// because it is waste, not a correctness problem.
     pub(super) fn purge_retired_catalog_snapshots(&self) {
@@ -93,11 +97,14 @@ impl BucketStore {
             return;
         };
         let now = self.retired_now();
-        retired.retain(|entry| {
+        let mut changed = false;
+        retired.retain_mut(|entry| {
             let Some(snapshot) = self.catalog_snapshot_path(&entry.name) else {
+                changed = true;
                 return false;
             };
             if !snapshot.is_dir() {
+                changed = true;
                 return false;
             }
             if registrations
@@ -106,18 +113,23 @@ impl BucketStore {
             {
                 return true;
             }
-            let Some(retired_at) = self.retired_at(&snapshot) else {
-                let _ = self.write_retired_marker(&snapshot, now);
+            let Some(retired_at) = entry.retired_at else {
+                entry.retired_at = Some(now);
+                changed = true;
                 return true;
             };
             if now.saturating_sub(retired_at) < RETIRED_GRACE.as_secs() {
                 return true;
             }
-            fs::remove_dir_all(&snapshot).is_err()
+            if fs::remove_dir_all(&snapshot).is_err() {
+                return true;
+            }
+            changed = true;
+            false
         });
         if retired.is_empty() {
             let _ = fs::remove_file(self.root.join(RETIRED_CATALOGS));
-        } else {
+        } else if changed {
             let _ = self.write_retired_catalogs(&retired);
         }
     }
@@ -159,9 +171,9 @@ impl BucketStore {
     /// Remove the live and retired catalog trees of one removed bucket.
     ///
     /// The registration file is already gone. Only a registration that names
-    /// a catalog (Git or ZIP) owns its tree; a local folder bucket never does,
-    /// whatever its folder is called. A tree that another registration names
-    /// stays for that registration.
+    /// a catalog (Git or ZIP) owns its tree, so a local folder bucket never
+    /// loses a file, whatever its folder is called. A tree that another
+    /// registration names stays for that registration.
     fn remove_bucket_catalog_trees(&self, name: &str, registration: &Registration) {
         let Ok(registrations) = self.registrations() else {
             return;
@@ -234,21 +246,6 @@ impl BucketStore {
         Ok(())
     }
 
-    /// The retire time written inside one tree, or `None` when it is unreadable.
-    fn retired_at(&self, snapshot: &Path) -> Option<u64> {
-        let marker: RetiredMarker = bounded_json(&snapshot.join(RETIRED_MARKER)).ok()?;
-        Some(marker.retired_at)
-    }
-
-    /// Write the retire time inside one tree before its removal can be considered.
-    fn write_retired_marker(&self, snapshot: &Path, retired_at: u64) -> Result<()> {
-        let mut temp = tempfile::NamedTempFile::new_in(snapshot)?;
-        serde_json::to_writer(&mut temp, &RetiredMarker { retired_at })?;
-        temp.as_file().sync_all()?;
-        temp.persist(snapshot.join(RETIRED_MARKER))?;
-        Ok(())
-    }
-
     /// A recorded name must be one plain path component under the bucket root.
     fn catalog_snapshot_path(&self, name: &str) -> Option<PathBuf> {
         let mut components = Path::new(name).components();
@@ -277,6 +274,7 @@ fn parse_retired_catalog(value: serde_json::Value) -> Option<RetiredCatalog> {
         return Some(RetiredCatalog {
             name: name.to_owned(),
             bucket: None,
+            retired_at: None,
         });
     }
     let object = value.as_object()?;
@@ -285,5 +283,10 @@ fn parse_retired_catalog(value: serde_json::Value) -> Option<RetiredCatalog> {
         .get("bucket")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned);
-    Some(RetiredCatalog { name, bucket })
+    let retired_at = object.get("retired_at").and_then(serde_json::Value::as_u64);
+    Some(RetiredCatalog {
+        name,
+        bucket,
+        retired_at,
+    })
 }

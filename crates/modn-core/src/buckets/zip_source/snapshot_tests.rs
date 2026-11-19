@@ -130,7 +130,7 @@ fn a_changed_digest_retires_the_superseded_snapshot_until_the_grace_period_passe
     );
 }
 #[test]
-fn a_malformed_retire_marker_never_deletes_a_retired_tree() {
+fn a_malformed_retire_record_never_deletes_a_retired_tree() {
     let state = tempfile::tempdir().expect("state");
     let catalog = tempfile::tempdir().expect("catalog");
     let key = signing_key();
@@ -140,8 +140,8 @@ fn a_malformed_retire_marker_never_deletes_a_retired_tree() {
 
     let changed = packed_revision(catalog.path(), &key, "second revision");
     sync(&store, changed).expect("a new digest is accepted");
-    let marker = state.path().join("buckets/.retired-catalogs");
-    fs::write(&marker, b"{malformed").expect("malformed marker");
+    let record = state.path().join("buckets/.retired-catalogs");
+    fs::write(&record, b"{malformed").expect("malformed record");
     let now = Arc::new(AtomicU64::new(u64::MAX));
     use_clock(&mut store, &now);
     let changed_again = packed_revision(catalog.path(), &key, "third revision");
@@ -152,7 +152,7 @@ fn a_malformed_retire_marker_never_deletes_a_retired_tree() {
         "a malformed retire record never causes an immediate delete"
     );
 
-    fs::remove_file(&marker).expect("remove the retire record");
+    fs::remove_file(&record).expect("remove the retire record");
     let changed_once_more = packed_revision(catalog.path(), &key, "fourth revision");
     sync(&store, changed_once_more).expect("a fourth digest is accepted");
 
@@ -174,22 +174,27 @@ fn a_retire_record_without_a_time_gets_a_fresh_time() {
         .expect("snapshot name")
         .to_string_lossy()
         .into_owned();
+    let now = Arc::new(AtomicU64::new(1_000_000));
     let mut store = BucketStore::new(state.path());
+    use_clock(&mut store, &now);
     let changed = packed_revision(catalog.path(), &key, "second revision");
     sync(&store, changed).expect("a new digest is accepted");
 
-    let marker = state.path().join("buckets/.retired-catalogs");
-    fs::write(&marker, serde_json::json!([old_name.clone()]).to_string()).expect("legacy marker");
-    let now = Arc::new(AtomicU64::new(1_000_000));
-    use_clock(&mut store, &now);
+    let record = state.path().join("buckets/.retired-catalogs");
+    fs::write(&record, serde_json::json!([old_name.clone()]).to_string()).expect("legacy record");
     let changed_again = packed_revision(catalog.path(), &key, "third revision");
     sync(&store, changed_again).expect("a third digest is accepted");
 
     assert!(old.is_dir(), "the legacy record is kept, not deleted");
-    let marker: serde_json::Value =
-        serde_json::from_slice(&fs::read(old.join(".modn-retired")).expect("fresh marker"))
-            .expect("JSON");
-    assert_eq!(marker["retired_at"], 1_000_000);
+    let entries: serde_json::Value =
+        serde_json::from_slice(&fs::read(&record).expect("retire record")).expect("JSON");
+    let entry = entries
+        .as_array()
+        .expect("retire records")
+        .iter()
+        .find(|entry| entry["name"] == old_name)
+        .expect("the legacy entry is kept");
+    assert_eq!(entry["retired_at"], 1_000_000);
 }
 
 #[test]
