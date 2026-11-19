@@ -175,6 +175,18 @@ export class FakeNode {
     this.listeners.set(type, list.filter((entry) => entry !== listener));
   }
 
+  focus() {
+    if (globalThis.document) {
+      globalThis.document.activeElement = this;
+    }
+  }
+
+  blur() {
+    if (globalThis.document && globalThis.document.activeElement === this) {
+      globalThis.document.activeElement = globalThis.document.body;
+    }
+  }
+
   click() {
     if (this.disabled) {
       return;
@@ -226,6 +238,7 @@ export function installDom() {
   const body = new FakeNode('body');
   const document = {
     body,
+    activeElement: body,
     /** @param {string} tag */
     createElement(tag) {
       return new FakeNode(tag);
