@@ -13,10 +13,11 @@ use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::time::Duration;
 
+mod fetch;
 mod verify;
 
+use self::fetch::clone_catalog;
 pub(super) use verify::verify_catalog_tree;
 pub use verify::CatalogSigner;
 
@@ -114,24 +115,8 @@ pub(super) fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
     )
 }
 
-/// How one catalog mirror clone is bounded, with a test program seam.
-#[derive(Clone, Debug)]
-pub(crate) struct CatalogFetch {
-    /// Inactivity limit of one catalog clone.
-    pub(crate) limit: Duration,
-    /// Replacement Git program for tests.
-    pub(crate) program: Option<PathBuf>,
-}
-
-impl CatalogFetch {
-    /// The bounded fetch that production and ordinary tests use.
-    fn bounded() -> Self {
-        Self {
-            limit: GitSource::catalog_inactivity_limit(),
-            program: None,
-        }
-    }
-}
+// Re-exported so the catalog mirror tests can name the bounded fetch.
+pub(crate) use self::fetch::CatalogFetch;
 
 pub(super) fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Result<()> {
     for entry in fs::read_dir(directory)? {
@@ -477,29 +462,12 @@ pub(super) fn same_signing_files(published: &Path, staged: &Path) -> bool {
     })
 }
 
-fn clone_catalog(
-    attempt: &Path,
-    source: &GitCatalogSource,
-    fetch: &CatalogFetch,
-) -> Result<(PathBuf, String)> {
-    GitSource::clone_catalog_bounded(
-        attempt,
-        &source.remote,
-        fetch.limit,
-        fetch.program.as_deref().map(Path::as_os_str),
-    )?;
-    let catalog = attempt.join("catalog");
-    git(&catalog, &["checkout", "--detach", &source.reference, "--"])?;
-    let commit = git(&catalog, &["rev-parse", "--verify", "HEAD"])?;
-    fs::remove_dir_all(catalog.join(".git"))?;
-    Ok((catalog, commit))
-}
-
 #[cfg(test)]
 mod replay_tests;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
 mod statement_tests;
+
 #[cfg(test)]
 pub(crate) mod tests;
