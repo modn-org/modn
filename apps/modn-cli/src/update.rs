@@ -458,7 +458,7 @@ pub(super) fn run(
     store.set_history_context(
         HistoryContext::new(game_id.clone(), game.clone()).with_source(
             &reference,
-            download::serving_source(&label, &supplied, &served, target.package.primary_source()),
+            download::serving_source(&label, &supplied, &served, &target),
         ),
     );
     let package = store.update_catalog_release(

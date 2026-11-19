@@ -345,16 +345,20 @@ pub(super) fn add_cached<'a>(
 
 /// The source that supplied the archive of `reference`.
 ///
-/// A user-supplied `--file` archive is a manual source. Otherwise the source
-/// that acquisition recorded wins over the record's declared source, so undo
-/// can look for the archive where it actually came from.
+/// Acquisition records the source that served the archive. A user-supplied
+/// `--file` archive names the release's first `https` or `github-release`
+/// source, because that source can fetch the same pinned archive again.
+/// Without such a source the record stays `manual`, and undo refuses it.
 pub(super) fn serving_source(
     reference: &str,
     supplied: &BTreeMap<String, PathBuf>,
     served: &BTreeMap<String, PackageSource>,
-    primary: &PackageSource,
+    release: &BucketPackage,
 ) -> PackageSource {
     if let Some(path) = supplied.get(reference) {
+        if let Some(source) = refetchable_source(&release.package.sources) {
+            return source.clone();
+        }
         let filename = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -364,7 +368,20 @@ pub(super) fn serving_source(
     served
         .get(reference)
         .cloned()
-        .unwrap_or_else(|| primary.clone())
+        .unwrap_or_else(|| release.package.primary_source().clone())
+}
+
+/// The first source that undo can fetch again without a new user action.
+///
+/// A Git or Nexus restore reads only the archive cache, and a manual source
+/// has no URL, so none of them can replace a `--file` path.
+fn refetchable_source(sources: &[PackageSource]) -> Option<&PackageSource> {
+    sources.iter().find(|source| {
+        matches!(
+            source,
+            PackageSource::Https { .. } | PackageSource::GithubRelease { .. }
+        )
+    })
 }
 
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {

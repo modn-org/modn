@@ -252,7 +252,7 @@ fn a_https_fallback_is_recorded_as_the_serving_source_and_undo_uses_its_cache() 
 }
 
 #[test]
-fn a_user_supplied_archive_is_recorded_as_a_manual_source() {
+fn a_user_supplied_archive_records_the_first_fetchable_catalog_source() {
     let fixture = Fixture::new();
     let (archive, pin) = fixture.archive();
     add_bucket(
@@ -263,6 +263,7 @@ fn a_user_supplied_archive_is_recorded_as_a_manual_source() {
         ]),
         &pin,
     );
+    seed_url_cache(&fixture, FIRST, &archive);
     fixture.register();
 
     let output = fixture.run_paths(
@@ -271,8 +272,24 @@ fn a_user_supplied_archive_is_recorded_as_a_manual_source() {
     );
     assert!(output.status.success(), "{}", error(&output));
     let source = history_source(&fixture);
-    assert_eq!(source["kind"], "manual", "{source}");
-    assert_eq!(source["filename"], "fixture.zip");
+    assert_eq!(source["kind"], "https", "{source}");
+    assert_eq!(source["url"], FIRST, "{source}");
+
+    let removed = fixture.run(&[
+        "uninstall",
+        "example",
+        "--path",
+        fixture.game.to_str().expect("game path"),
+        "--yes",
+    ]);
+    assert!(removed.status.success(), "{}", error(&removed));
+    let undone = fixture.run(&["undo", "--yes"]);
+    assert!(
+        undone.status.success(),
+        "undo must restore the pinned catalog archive from the cache: {}",
+        error(&undone)
+    );
+    assert!(fixture.game.join("addons/example.plugin").is_file());
 }
 
 #[test]
