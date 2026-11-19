@@ -130,6 +130,29 @@ impl GitSource {
         pack_commit(url, &self.commit, staging, self.test_transport(url))
     }
 
+    /// Clone one catalog revision under the source fetch inactivity limit.
+    ///
+    /// This associated function is the catalog module's only path to a Git
+    /// clone, so a stalled mirror is bounded and killed like a package fetch.
+    pub(crate) fn clone_catalog_bounded(
+        destination: &Path,
+        remote: &str,
+        limit: std::time::Duration,
+        program: Option<&std::ffi::OsStr>,
+    ) -> Result<()> {
+        pack::clone_catalog_bounded(destination, remote, limit, program)
+    }
+
+    /// The inactivity limit of one Git fetch, for the catalog mirror sync.
+    pub(crate) fn catalog_inactivity_limit() -> std::time::Duration {
+        pack::catalog_inactivity_limit()
+    }
+
+    /// Whether `error` reports a Git tree that could not be stopped.
+    pub(crate) fn is_unstoppable_tree(error: &anyhow::Error) -> bool {
+        pack::is_tree_still_running(error)
+    }
+
     /// Return a verified cached archive or fetch and pack the commit.
     pub fn acquire(
         &self,

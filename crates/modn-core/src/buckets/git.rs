@@ -6,12 +6,14 @@ use super::mirrors::{
 use super::rotation::{CatalogKeyChange, KeyChangeKind};
 use super::store::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use super::trust::ModuleTrustState;
+use crate::acquisition::GitSource;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 mod verify;
 
@@ -110,6 +112,25 @@ pub(super) fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
         },
         arguments,
     )
+}
+
+/// How one catalog mirror clone is bounded, with a test program seam.
+#[derive(Clone, Debug)]
+pub(crate) struct CatalogFetch {
+    /// Inactivity limit of one catalog clone.
+    pub(crate) limit: Duration,
+    /// Replacement Git program for tests.
+    pub(crate) program: Option<PathBuf>,
+}
+
+impl CatalogFetch {
+    /// The bounded fetch that production and ordinary tests use.
+    fn bounded() -> Self {
+        Self {
+            limit: GitSource::catalog_inactivity_limit(),
+            program: None,
+        }
+    }
 }
 
 pub(super) fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Result<()> {
@@ -229,6 +250,26 @@ impl BucketStore {
         name: &str,
         source: Option<GitCatalogSource>,
     ) -> Result<GitCatalogSync> {
+        self.sync_git_bounded(name, source, &CatalogFetch::bounded())
+    }
+
+    /// Same as [`Self::sync_git_with_signer`] with an explicit bounded fetch.
+    #[cfg(any(test, feature = "test-instruction-budget"))]
+    pub(crate) fn sync_git_with_fetch(
+        &self,
+        name: &str,
+        source: Option<GitCatalogSource>,
+        fetch: &CatalogFetch,
+    ) -> Result<GitCatalogSync> {
+        self.sync_git_bounded(name, source, fetch)
+    }
+
+    fn sync_git_bounded(
+        &self,
+        name: &str,
+        source: Option<GitCatalogSource>,
+        fetch: &CatalogFetch,
+    ) -> Result<GitCatalogSync> {
         self.check_registry_root()?;
         if !valid_id(name) || name == "main" {
             bail!("invalid or reserved Git catalog name");
@@ -275,11 +316,16 @@ impl BucketStore {
         for (index, candidate) in candidates.iter().enumerate() {
             let attempt = stage.path().join(format!("source-{index}"));
             fs::create_dir_all(&attempt)?;
-            let fetched = clone_catalog(&attempt, candidate);
+            let fetched = clone_catalog(&attempt, candidate, fetch);
             match fetched {
                 Ok((catalog, commit)) => {
                     served = Some((catalog, commit, candidate.clone()));
                     break;
+                }
+                Err(error) if GitSource::is_unstoppable_tree(&error) => {
+                    return Err(error.context(format!(
+                        "catalog {name} sync stopped because a mirror process tree could not be stopped"
+                    )));
                 }
                 Err(error) => {
                     let _ = fs::remove_dir_all(&attempt);
@@ -431,17 +477,16 @@ pub(super) fn same_signing_files(published: &Path, staged: &Path) -> bool {
     })
 }
 
-fn clone_catalog(attempt: &Path, source: &GitCatalogSource) -> Result<(PathBuf, String)> {
-    git(
+fn clone_catalog(
+    attempt: &Path,
+    source: &GitCatalogSource,
+    fetch: &CatalogFetch,
+) -> Result<(PathBuf, String)> {
+    GitSource::clone_catalog_bounded(
         attempt,
-        &[
-            "clone",
-            "--no-local",
-            "--no-checkout",
-            "--",
-            &source.remote,
-            "catalog",
-        ],
+        &source.remote,
+        fetch.limit,
+        fetch.program.as_deref().map(Path::as_os_str),
     )?;
     let catalog = attempt.join("catalog");
     git(&catalog, &["checkout", "--detach", &source.reference, "--"])?;
@@ -457,4 +502,4 @@ mod snapshot_tests;
 #[cfg(test)]
 mod statement_tests;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -63,6 +63,7 @@ fn a_progressing_fetch_outlives_the_inactivity_limit() {
         &"0".repeat(40),
         Duration::from_millis(2500),
         Some(program.as_os_str()),
+        TreeStop::End,
     )
     .expect("a fetch that keeps making progress must complete");
     assert!(
@@ -89,6 +90,7 @@ fn a_stalled_fetch_fails_as_a_timeout_within_the_limit() {
         &"0".repeat(40),
         Duration::from_millis(800),
         Some(program.as_os_str()),
+        TreeStop::End,
     )
     .expect_err("a stalled fetch must fail");
     let elapsed = started.elapsed();
@@ -104,20 +106,58 @@ fn a_stalled_fetch_fails_as_a_timeout_within_the_limit() {
 }
 
 #[test]
+fn an_unstoppable_tree_is_a_hard_error_not_a_timeout() {
+    let root = tempfile::tempdir().expect("temp directory");
+    let hooks = git::empty_hooks().expect("empty hooks");
+    let program = write_program(
+        root.path(),
+        "unstoppable",
+        "@echo off\r\nping -n 60 127.0.0.1 >nul\r\nexit /b 1\r\n",
+        "#!/bin/sh\nsleep 60\nexit 1\n",
+    );
+    let error = fetch_with(
+        &environment(hooks.path()),
+        "file:///unstoppable",
+        &"0".repeat(40),
+        Duration::from_millis(800),
+        Some(program.as_os_str()),
+        TreeStop::Fail,
+    )
+    .expect_err("a tree that cannot be stopped must fail");
+    // A timeout attempt lets the caller try another source. A tree that will
+    // not end must not: the error names the stopped tree and is not a timeout.
+    assert!(!timeout_class(&error), "{error:#}");
+    assert!(is_tree_still_running(&error), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("process tree could not be stopped"),
+        "{error:#}"
+    );
+}
+
+#[test]
 fn a_stalled_fetch_ends_the_grandchild_before_it_returns() {
     let root = tempfile::tempdir().expect("temp directory");
     let hooks = git::empty_hooks().expect("empty hooks");
     let pidfile = root.path().join("grandchild.pid");
-    let path = pidfile.to_string_lossy().replace('\\', "/");
+    let heartbeat = root.path().join("grandchild.beats");
+    let pid = path_for_stub(&pidfile);
+    let beats = path_for_stub(&heartbeat);
+    // The stub writes a heartbeat to stderr until the grandchild has written
+    // its pid. Every line resets the inactivity timer, so a slow Windows runner
+    // that needs several seconds to start PowerShell is never mistaken for a
+    // stalled transfer. Only after the pid exists does the stub go silent.
     let windows = format!(
-        "@echo off\r\nstart \"\" /b powershell -NoProfile -Command \"$PID | Set-Content -Encoding ascii '{path}'; Start-Sleep -Seconds 60\"\r\n:wait\r\nif not exist \"{path}\" (\r\n  ping -n 1 -w 200 127.0.0.1 >nul\r\n  goto wait\r\n)\r\nping -n 60 127.0.0.1 >nul\r\nexit /b 1\r\n"
+        "@echo off\r\nstart \"\" /b powershell -NoProfile -Command \"$PID | Set-Content -Encoding ascii '{pid}'; for ($i = 0; $i -lt 1200; $i++) {{ Add-Content -Encoding ascii -Path '{beats}' -Value 'tick'; Start-Sleep -Milliseconds 50 }}\"\r\n:wait\r\nif exist \"{pid}\" goto silent\r\necho starting 1>&2\r\nping -n 1 -w 200 127.0.0.1 >nul\r\ngoto wait\r\n:silent\r\nping -n 60 127.0.0.1 >nul\r\nexit /b 1\r\n"
     );
-    let unix = format!("#!/bin/sh\nsh -c 'echo $$ > \"{path}\"; sleep 60' &\nwait\n");
+    let unix = format!(
+        "#!/bin/sh\nsh -c 'echo $$ > \"{pid}\"; while :; do echo tick >> \"{beats}\"; sleep 0.05; done' &\nwhile [ ! -f \"{pid}\" ]; do echo starting >&2; sleep 0.2; done\nsleep 60\nexit 1\n"
+    );
     let program = write_program(root.path(), "tree", &windows, &unix);
     // Watch the pid file while the fetch runs, so the test knows the pid named
-    // a live process and not a stale number.
+    // a live process and not a stale number. The deadline only bounds a broken
+    // stub; no assertion below measures how fast a process starts.
     let watched = pidfile.clone();
-    let watcher = std::thread::spawn(move || watch_pid(&watched, Duration::from_secs(10)));
+    let watcher = std::thread::spawn(move || watch_pid(&watched, Duration::from_secs(30)));
 
     let started = Instant::now();
     let error = fetch_with(
@@ -126,22 +166,30 @@ fn a_stalled_fetch_ends_the_grandchild_before_it_returns() {
         &"0".repeat(40),
         Duration::from_millis(3000),
         Some(program.as_os_str()),
+        TreeStop::End,
     )
     .expect_err("a stalled fetch must fail");
     let elapsed = started.elapsed();
     assert!(timeout_class(&error), "{error:#}");
     // The grandchild holds the fetch stderr pipe for a minute, so this call
-    // returns only when the tree ended and the reader was joined.
+    // returns only after the tree ended and its reader was joined.
     assert!(
-        elapsed < Duration::from_secs(15),
+        elapsed < Duration::from_secs(20),
         "the stalled fetch blocked for {elapsed:?}"
     );
 
     let (pid, alive) = watcher.join().expect("pid watcher");
     assert!(alive, "the pid file named {pid}, which never ran");
-    assert!(
-        wait_until_gone(&pid, Duration::from_secs(10)),
-        "the grandchild process {pid} outlived the timed-out fetch"
+    // The grandchild appends to its heartbeat file every 50 ms. A process that
+    // still runs would keep writing after the fetch returned; a terminated one
+    // cannot. Read the size right after the return, then again later, so the
+    // check needs no polling window and cannot fail on a slow runner.
+    let settled = fs::metadata(&heartbeat).map(|file| file.len()).unwrap_or(0);
+    std::thread::sleep(Duration::from_millis(500));
+    let later = fs::metadata(&heartbeat).map(|file| file.len()).unwrap_or(0);
+    assert_eq!(
+        settled, later,
+        "the grandchild of {pid} still ran after the timed-out fetch returned"
     );
 }
 
@@ -159,10 +207,16 @@ fn a_low_speed_abort_keeps_the_timeout_class() {
         &"0".repeat(40),
         Duration::from_secs(30),
         Some(program.as_os_str()),
+        TreeStop::End,
     )
     .expect_err("a low-speed abort must fail");
     assert!(timeout_class(&error), "{error:#}");
     assert!(format!("{error:#}").contains("low-speed"), "{error:#}");
+}
+
+/// Render a Windows path for an inline program, with forward slashes.
+fn path_for_stub(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 /// Wait for the stub to write its grandchild pid and report whether that pid
@@ -182,19 +236,6 @@ fn watch_pid(path: &Path, limit: Duration) -> (String, bool) {
             "the stub did not write its grandchild pid"
         );
         std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-fn wait_until_gone(pid: &str, limit: Duration) -> bool {
-    let deadline = Instant::now() + limit;
-    loop {
-        if !process_alive(pid) {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(100));
     }
 }
 

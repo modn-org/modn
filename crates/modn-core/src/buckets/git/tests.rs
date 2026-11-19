@@ -44,13 +44,13 @@ pub(super) fn seed_catalog(root: &Path, version: &str) {
 }
 
 #[derive(Clone)]
-pub(super) struct TestKey {
+pub(crate) struct TestKey {
     pub(super) pair: KeyPair,
     pub(super) public: CatalogPublicKey,
     pub(super) text: String,
 }
 
-pub(super) fn test_key() -> TestKey {
+pub(crate) fn test_key() -> TestKey {
     let pair = KeyPair::generate_unencrypted_keypair().unwrap();
     let text = pair.pk.to_box().unwrap().into_string();
     let public = CatalogPublicKey::parse(&text).unwrap();
@@ -90,12 +90,12 @@ pub(super) fn write_signature(root: &Path, key: &TestKey) {
     fs::write(root.join("catalog.sig"), signature).unwrap();
 }
 
-pub(super) struct Remote {
+pub(crate) struct Remote {
     pub(super) directory: tempfile::TempDir,
     pub(super) key: TestKey,
 }
 
-pub(super) fn remote(version: &str, key: TestKey) -> Remote {
+pub(crate) fn remote(version: &str, key: TestKey) -> Remote {
     let directory = tempfile::tempdir().unwrap();
     git(directory.path(), &["init", "--initial-branch=fixture"]).unwrap();
     seed_catalog(directory.path(), version);
@@ -104,14 +104,14 @@ pub(super) fn remote(version: &str, key: TestKey) -> Remote {
     Remote { directory, key }
 }
 
-pub(super) fn source(remote: &Remote) -> GitCatalogSource {
+pub(crate) fn source(remote: &Remote) -> GitCatalogSource {
     GitCatalogSource {
         remote: remote.directory.path().to_string_lossy().into_owned(),
         reference: "fixture".into(),
     }
 }
 
-pub(super) fn registration(state: &Path) -> std::path::PathBuf {
+pub(crate) fn registration(state: &Path) -> std::path::PathBuf {
     state.join("buckets/registrations/community.json")
 }
 

@@ -8,12 +8,13 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 use zip::write::SimpleFileOptions;
 
 mod process;
-use process::FetchProcess;
+pub(super) use process::is_tree_still_running;
+use process::{FetchProcess, TreeStop};
 
 #[cfg(test)]
 mod tests;
@@ -57,6 +58,11 @@ fn fetch_inactivity_limit() -> Duration {
     CONNECT_TIMEOUT + READ_INACTIVITY_TIMEOUT
 }
 
+/// The inactivity limit of one Git fetch, for the catalog mirror sync.
+pub(super) fn catalog_inactivity_limit() -> Duration {
+    fetch_inactivity_limit()
+}
+
 /// A test-only replacement for the Git program; production uses Git itself.
 #[cfg(any(test, feature = "test-instruction-budget"))]
 fn fetch_program() -> Option<OsString> {
@@ -82,7 +88,34 @@ fn fetch_commit(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Re
         commit,
         fetch_inactivity_limit(),
         fetch_program().as_deref(),
+        TreeStop::End,
     )
+}
+
+/// One bounded Git command that ended, or one that made no progress.
+enum Bounded {
+    Finished(ExitStatus),
+    Stalled,
+}
+
+/// Poll one Git command until it exits or makes no progress for `limit`.
+fn wait_bounded(fetch: &mut FetchProcess, limit: Duration) -> Result<Bounded> {
+    let mut last_progress = Instant::now();
+    let mut seen = 0;
+    loop {
+        if let Some(status) = fetch.try_wait()? {
+            return Ok(Bounded::Finished(status));
+        }
+        let progress = fetch.progress();
+        if progress != seen {
+            seen = progress;
+            last_progress = Instant::now();
+        }
+        if last_progress.elapsed() >= limit {
+            return Ok(Bounded::Stalled);
+        }
+        std::thread::sleep(FETCH_POLL);
+    }
 }
 
 /// Fetch with an explicit inactivity limit and program, for tests.
@@ -92,49 +125,98 @@ fn fetch_with(
     commit: &str,
     limit: Duration,
     program: Option<&OsStr>,
+    stop: TreeStop,
 ) -> Result<()> {
     let mut fetch = FetchProcess::spawn(environment, url, commit, program)?;
-    let mut last_progress = Instant::now();
-    let mut seen = 0;
-    let stalled = loop {
-        if fetch.try_wait()?.is_some() {
-            break false;
+    match wait_bounded(&mut fetch, limit)? {
+        Bounded::Finished(status) => {
+            let stderr = fetch.stderr(FETCH_KILL_GRACE);
+            if !status.success() {
+                if low_speed_abort(&stderr) {
+                    return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
+                        "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} stopped below the Git low-speed limit: {}",
+                        stderr.trim()
+                    )));
+                }
+                bail!(
+                    "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} failed: {}",
+                    stderr.trim()
+                );
+            }
+            Ok(())
         }
-        let progress = fetch.progress();
-        if progress != seen {
-            seen = progress;
-            last_progress = Instant::now();
+        Bounded::Stalled => {
+            // Git and every descendant end before the caller removes the
+            // staging directory or moves on. A tree that will not end is a
+            // hard error: the caller must not fall over to another source.
+            fetch.terminate(FETCH_KILL_GRACE, stop).map_err(|error| {
+                anyhow::Error::new(error).context(format!(
+                    "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} made no progress for {} ms and its process tree could not be stopped",
+                    limit.as_millis()
+                ))
+            })?;
+            let _ = fetch.stderr_after_tree();
+            Err(anyhow::Error::new(FetchError::Timeout).context(format!(
+                "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} made no progress for {} ms",
+                limit.as_millis()
+            )))
         }
-        if last_progress.elapsed() >= limit {
-            break true;
-        }
-        std::thread::sleep(FETCH_POLL);
+    }
+}
+
+/// Clone one Git catalog revision under the fetch limit and process-tree kill.
+///
+/// The clone keeps every hostile-input protection of the catalog module: the
+/// empty hooks directory and the allow-listed transports of the shared Git
+/// command. A silent mirror fails after `limit` with no progress, and its tree
+/// ends before the caller tries another mirror.
+pub(super) fn clone_catalog_bounded(
+    destination: &Path,
+    remote: &str,
+    limit: Duration,
+    program: Option<&OsStr>,
+) -> Result<()> {
+    let hooks = git::empty_hooks()?;
+    let environment = GitEnvironment {
+        directory: destination,
+        hooks: hooks.path(),
+        allow_file: true,
     };
-    if stalled {
-        // Git and every descendant end before the caller removes the staging
-        // directory or moves on to the next source.
-        fetch.terminate(FETCH_KILL_GRACE);
-        let _ = fetch.stderr(FETCH_KILL_GRACE);
-        return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
-            "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} made no progress for {} ms",
-            limit.as_millis()
-        )));
-    }
-    let status = fetch.wait()?;
-    let stderr = fetch.stderr(FETCH_KILL_GRACE);
-    if !status.success() {
-        if low_speed_abort(&stderr) {
-            return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
-                "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} stopped below the Git low-speed limit: {}",
-                stderr.trim()
-            )));
+    let arguments = [
+        OsStr::new("clone"),
+        OsStr::new("--progress"),
+        OsStr::new("--no-local"),
+        OsStr::new("--no-checkout"),
+        OsStr::new("--"),
+        OsStr::new(remote),
+        OsStr::new("catalog"),
+    ];
+    let mut clone = FetchProcess::spawn_arguments(&environment, &arguments, program)?;
+    match wait_bounded(&mut clone, limit)? {
+        Bounded::Finished(status) => {
+            let stderr = clone.stderr(FETCH_KILL_GRACE);
+            if !status.success() {
+                bail!(
+                    "GIT_CATALOG_FETCH_FAILED: cloning {remote} failed: {}",
+                    stderr.trim()
+                );
+            }
+            Ok(())
         }
-        bail!(
-            "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} failed: {}",
-            stderr.trim()
-        );
+        Bounded::Stalled => {
+            clone.terminate(FETCH_KILL_GRACE, TreeStop::End).map_err(|error| {
+                anyhow::Error::new(error).context(format!(
+                    "GIT_CATALOG_FETCH_FAILED: cloning {remote} made no progress for {} ms and its process tree could not be stopped",
+                    limit.as_millis()
+                ))
+            })?;
+            let _ = clone.stderr_after_tree();
+            Err(anyhow::Error::new(FetchError::Timeout).context(format!(
+                "GIT_CATALOG_FETCH_FAILED: cloning {remote} timed out: no progress for {} ms",
+                limit.as_millis()
+            )))
+        }
     }
-    Ok(())
 }
 
 /// Whether Git's stderr names the transfer abort below its low-speed limit.
