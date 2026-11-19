@@ -2,7 +2,7 @@ use crate::commands::Cli;
 use crate::download::{TEST_CALLS, TEST_METADATA_FAILURES, TEST_RESPONSES};
 use clap::Parser;
 use modn_core::acquisition::{CacheUse, FetchError, SourceAttempt, SourceTarget};
-use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
+use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::data_dir;
 use modn_core::game_modules::with_module_source;
 use serde_json::json;
