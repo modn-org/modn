@@ -393,10 +393,57 @@ class FieldTypeTests(RehashTestCase):
                 {"executables": "tool.exe"},
                 "field executables must be a list of strings",
             ),
+            (
+                "type-conflicts-not-list",
+                {"conflicts": "rival"},
+                "field conflicts must be a list of strings",
+            ),
+            (
+                "type-conflicts-item",
+                {"conflicts": ["rival", 7]},
+                "field conflicts must be a list of strings",
+            ),
+            (
+                "type-dependency-versions-not-object",
+                {"dependency_versions": ">=1.0"},
+                "field dependency_versions must be an object",
+            ),
+            (
+                "type-dependency-versions-value",
+                {"dependencies": ["https-mod"], "dependency_versions": {"https-mod": 1}},
+                "field dependency_versions value for https-mod must be a string",
+            ),
+            (
+                "type-dependency-versions-requirement",
+                {"dependencies": ["https-mod"], "dependency_versions": {"https-mod": "1.0"}},
+                "field dependency_versions value for https-mod is not a valid version requirement",
+            ),
+            (
+                "type-dependency-versions-unknown",
+                {"dependencies": [], "dependency_versions": {"https-mod": ">=1.0"}},
+                "field dependency_versions names https-mod, which is not a dependency",
+            ),
+            (
+                "type-conflicts-id",
+                {"conflicts": ["Bad_ID"]},
+                "field conflicts names an invalid package id",
+            ),
+            (
+                "type-conflicts-dependency",
+                {"dependencies": ["https-mod"], "conflicts": ["https-mod"]},
+                "field conflicts must not name dependency https-mod",
+            ),
+            (
+                "type-conflicts-duplicate",
+                {"conflicts": ["rival", "rival"]},
+                "field conflicts must not repeat rival",
+            ),
         ]
         records = self.fixture.bucket / "games" / GAME
         for name, override, expected in cases:
             with self.subTest(field=name):
+                if self.out.exists():
+                    shutil.rmtree(self.out)
                 value = {
                     "schema_version": 1,
                     "id": name,
@@ -404,7 +451,7 @@ class FieldTypeTests(RehashTestCase):
                     "name": "Typed Mod",
                     "version": "1.0",
                     "archive_format": "zip",
-                    "sha256": self.fixture.expected["https-mod"]["sha256"],
+                    "sha256": self.fixture.expected["manual-mod"]["sha256"],
                     "source": {"kind": "manual", "filename": "Manual Mod 1.0.zip"},
                 }
                 value.update(override)
@@ -423,6 +470,37 @@ class FieldTypeTests(RehashTestCase):
                     )
                 finally:
                     path.unlink()
+
+    @NEEDS_MODN
+    def test_valid_dependency_versions_and_conflicts_convert(self) -> None:
+        path = self.fixture.bucket / "games" / GAME / "relations-ok.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "id": "relations-ok",
+                    "game": GAME,
+                    "name": "Relations Mod",
+                    "version": "1.0",
+                    "archive_format": "zip",
+                    "sha256": self.fixture.expected["manual-mod"]["sha256"],
+                    "source": {"kind": "manual", "filename": "Manual Mod 1.0.zip"},
+                    "dependencies": ["https-mod"],
+                    "dependency_versions": {"https-mod": ">=1.0, <2"},
+                    "conflicts": ["rival"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.addCleanup(path.unlink)
+        code, _, stderr = self.run_main(*self.convert_arguments())
+        self.assertEqual(code, 0, stderr)
+        manifest = json.loads(
+            (self.out / "mods" / GAME / "relations-ok.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["dependency_versions"], {"https-mod": ">=1.0, <2"})
+        self.assertEqual(manifest["conflicts"], ["rival"])
+
 
 if __name__ == "__main__":
     unittest.main()

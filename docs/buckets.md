@@ -107,6 +107,11 @@ When a mirror serves the revision, the registration keeps the registered
 primary and the output names the failed primary and the serving mirror.
 Every verified revision replaces the stored mirror list with its own list.
 
+The Git fetch of a mirror uses the same inactivity limit and process-tree kill
+as a package source. A stalled mirror fails as `timed out`, and sync tries the
+next mirror. When Modn cannot stop a Git fetch process tree, sync stops with
+`the Git fetch process tree could not be stopped` and tries no other mirror.
+
 A verified revision whose catalog digest (ZIP) or commit (Git) matches the
 registered revision, and whose `catalog.pub` and `catalog.sig` bytes match too,
 reuses the registered snapshot and discards the staging copy. A changed digest
@@ -118,12 +123,15 @@ registration switch that replaced it. A later sync that publishes a revision in
 that store removes retired trees after its own registration write, while it
 holds the sync lock, but only when the recorded retire time is at least one hour
 old. That grace period lets a reader that loaded the previous registration
-finish with its tree even when two syncs run in quick succession. A missing or
-malformed retire record never deletes a tree; the next sync records a fresh
-retire time instead. A sync that fails removes nothing, and a tree that a
-registration names is never removed. `bucket remove` deletes the store-created
-live tree and the retired trees of that bucket after the registration file is
-gone; a local folder source and a tree that another registration names stay.
+finish with its tree even when two syncs run in quick succession. A readable
+record whose entry has no valid `retired_at` value keeps the tree and gets a
+fresh retire time. When `.retired-catalogs` is missing or cannot be parsed,
+Modn records no retired trees from it. The same holds for an entry that Modn
+cannot read. Those earlier trees stay on disk without a retire record, and the
+next sync records only the tree that it supersedes. A sync that fails removes
+nothing, and a tree that a registration names is never removed. `bucket remove` deletes the store-created live tree
+and the retired trees of that bucket after the registration file is gone; a
+local folder source and a tree that another registration names stay.
 When a step after the registration switch fails, for example a staged game
 module cannot be committed, sync restores the previous registration and removes
 the new snapshot. If the restore itself fails, sync keeps the new tree, because
@@ -192,10 +200,13 @@ followed by the exact `revocation.json` bytes. The catalog name binds the
 statement to one catalog, and the prefix binds it to one kind. A statement
 cannot be replayed in another catalog or as another kind. Modn applies each
 statement once. A revision that keeps the pinned `catalog.pub` and republishes
-an applied statement treats it as history and syncs normally. Modn refuses a
-revision whose `catalog.pub` names another key and that republishes a rotation
-or revocation statement for the pinned key whose digest the pin already
-applied, so a retired key cannot regain trust by replaying that statement.
+an applied statement treats it as history and syncs normally. The replay check
+runs only when no new statement applies to the pinned key. For example, after
+`A->B->A`, a revision that keeps the applied `A->B` rotation and adds a valid
+new `A->C` revocation is accepted. The new statement applies. A revision whose
+`catalog.pub` names another key and that keeps the applied statement, adding
+nothing that applies, is refused, so a retired key cannot regain trust by
+replaying that statement.
 
 Modn pins the revocation key at the first sync and prints both fingerprints. A
 revision whose `revocation.pub` differs by any public key byte or disappears is
@@ -259,10 +270,12 @@ differ from the pinned key or the key a statement names, and a revision signed b
 a key in `previous_signers` or `revoked_signers`. Every refusal keeps the
 previous registration and catalog byte for byte.
 
-A revision that repeats a statement this pin already applied is history, because
-the registration records the BLAKE3 of the applied `rotation.json` or
-`revocation.json`. Such a revision syncs normally with the current key. A
-statement whose old key no longer matches the pin is also history.
+A revision that repeats a statement this pin already applied treats it as
+history, because the registration records the BLAKE3 of the applied
+`rotation.json` or `revocation.json`. Such a revision syncs normally while its
+`catalog.pub` is the pinned key. If it names another key and no new statement
+applies, Modn refuses the replay. A statement whose old key no longer matches
+the pin is also history.
 
 `bucket list --json` reports `signer_key_id`, `revocation_key_id` when pinned,
 and the `previous_signers` and `revoked_signers` arrays when non-empty.

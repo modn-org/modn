@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from rehash_relations import RehashError, check_relation_fields, valid_id
+
 SCHEMA_V1 = 1
 SCHEMA_V2 = 2
 MODULE_FILES = ("module.json", "module.lua")
@@ -50,10 +52,6 @@ SOURCE_FIELDS = {
     "git": {"kind", "repository", "commit"},
     "nexus": {"kind", "game_domain", "mod_id", "file_id", "file_name"},
 }
-
-
-class RehashError(Exception):
-    """A package or bucket problem that stops the rehash without writes."""
 
 
 class SourceRefused(RehashError):
@@ -106,19 +104,6 @@ def is_digest(value: Any) -> bool:
         isinstance(value, str)
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value)
-    )
-
-
-def valid_id(value: Any) -> bool:
-    """Return true for a bucket identifier, mirroring the v2 path rule."""
-    lowercase = "abcdefghijklmnopqrstuvwxyz"
-    return (
-        isinstance(value, str)
-        and 0 < len(value) <= 64
-        and value[0] in lowercase
-        and all(character in lowercase or character.isdigit() or character == "-"
-                for character in value)
-        and not value.endswith("-")
     )
 
 
@@ -243,6 +228,7 @@ def check_field_types(record: Record) -> None:
             raise RehashError(
                 f"{record.filename}: field executables must be a list of strings"
             )
+    check_relation_fields(record.filename, value)
 
 
 def convert_record(record: Record) -> Converted:

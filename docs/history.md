@@ -29,9 +29,11 @@ source of every member after its download, so a source that failed is not
 recorded.
 A user-supplied `--file` archive is recorded with the release's first `https`
 or `github-release` source when its BLAKE3 digest equals the catalog pin,
-because that source can fetch the same archive again. Modn refuses a `--file`
-archive whose digest does not match the pin, so such a file never reaches
-history. A release with no refetchable source keeps the `manual` source.
+because that source can fetch the same archive again. Modn selects that source
+from the digest it already verified for the file; it does not read the file
+again to choose the source. Modn refuses a `--file` archive whose digest does
+not match the pin, so such a file never reaches history. A release with no
+refetchable source keeps the `manual` source.
 The descriptor is stored in the record, so undo does not need the bucket
 snapshot or catalog revision that produced it.
 
