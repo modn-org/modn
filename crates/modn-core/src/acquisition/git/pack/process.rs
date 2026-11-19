@@ -4,6 +4,7 @@ use super::super::super::READ_INACTIVITY_TIMEOUT;
 use crate::git::{self, GitEnvironment};
 use anyhow::{Context, Result};
 use std::ffi::OsStr;
+use std::fmt;
 use std::io::{self, Read};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,9 +16,56 @@ use std::time::{Duration, Instant};
 /// How often the timeout path checks whether the child exited.
 const KILL_POLL: Duration = Duration::from_millis(25);
 
-/// A running Git fetch with its stderr reader and its progress counter.
+/// A fetch tree that did not end.
 ///
-/// The reader counts every byte Git writes to stderr. A fetch that keeps
+/// When the tree cannot be stopped, the caller must report a hard error and
+/// must not fall over to another source: a surviving descendant could still
+/// write into the staging repository.
+#[derive(Debug)]
+pub(crate) struct TreeStillRunning {
+    reason: String,
+}
+
+impl TreeStillRunning {
+    fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
+impl fmt::Display for TreeStillRunning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "the Git fetch process tree could not be stopped: {}",
+            self.reason
+        )
+    }
+}
+
+impl std::error::Error for TreeStillRunning {}
+
+/// Whether `error` reports a fetch tree that could not be stopped.
+pub(crate) fn is_tree_still_running(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<TreeStillRunning>().is_some())
+}
+
+/// Whether a caller may end the tree, or a test must observe the failure path.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum TreeStop {
+    /// End the tree and report whether it ended.
+    End,
+    /// A seam that reports a failure after the real attempt, for tests only.
+    #[cfg(any(test, feature = "test-instruction-budget"))]
+    Fail,
+}
+
+/// A running Git command with its stderr reader and its progress counter.
+///
+/// The reader counts every byte Git writes to stderr. A command that keeps
 /// writing progress output therefore counts as alive even when its total run
 /// time exceeds the inactivity limit.
 pub(super) struct FetchProcess {
@@ -35,7 +83,59 @@ impl FetchProcess {
         commit: &str,
         program: Option<&OsStr>,
     ) -> Result<Self> {
-        let mut command = command(environment, url, commit, program);
+        let mut command = git::command(environment);
+        command
+            .arg("-c")
+            .arg("http.lowSpeedLimit=1")
+            .arg("-c")
+            .arg(format!(
+                "http.lowSpeedTime={}",
+                READ_INACTIVITY_TIMEOUT.as_secs()
+            ))
+            .args([
+                "fetch",
+                "--progress",
+                "--depth",
+                "1",
+                "--no-tags",
+                "--",
+                url,
+                commit,
+            ]);
+        Self::start(command, program)
+    }
+
+    /// Start one hardened Git command with explicit arguments.
+    pub(super) fn spawn_arguments(
+        environment: &GitEnvironment<'_>,
+        arguments: &[&OsStr],
+        program: Option<&OsStr>,
+    ) -> Result<Self> {
+        let mut command = git::command(environment);
+        command
+            .arg("-c")
+            .arg("http.lowSpeedLimit=1")
+            .arg("-c")
+            .arg(format!(
+                "http.lowSpeedTime={}",
+                READ_INACTIVITY_TIMEOUT.as_secs()
+            ))
+            .args(arguments);
+        Self::start(command, program)
+    }
+
+    fn start(mut command: Command, program: Option<&OsStr>) -> Result<Self> {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        #[cfg(any(test, feature = "test-instruction-budget"))]
+        let mut command = match program {
+            Some(program) => replace_program(command, program),
+            None => command,
+        };
+        #[cfg(not(any(test, feature = "test-instruction-budget")))]
+        let _ = program;
         in_own_group(&mut command);
         let mut child = command.spawn().context(
             "GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
@@ -71,7 +171,7 @@ impl FetchProcess {
         })
     }
 
-    /// Bytes Git has written to stderr since the fetch started.
+    /// Bytes Git has written to stderr since the command started.
     pub(super) fn progress(&self) -> u64 {
         self.progress.load(Ordering::Relaxed)
     }
@@ -81,22 +181,43 @@ impl FetchProcess {
         self.child.try_wait()
     }
 
-    /// Wait for the child and reap it.
-    pub(super) fn wait(&mut self) -> io::Result<ExitStatus> {
-        self.child.wait()
-    }
-
     /// Stop the child and every descendant, then reap the child within `grace`.
-    pub(super) fn terminate(&mut self, grace: Duration) {
-        self.end_tree();
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TreeStillRunning`] when the tree could not be ended or the
+    /// child was not reaped within `grace`. The caller must then stop instead
+    /// of trying another source.
+    pub(super) fn terminate(
+        &mut self,
+        grace: Duration,
+        stop: TreeStop,
+    ) -> Result<(), TreeStillRunning> {
+        self.end_tree()?;
+        #[cfg(any(test, feature = "test-instruction-budget"))]
+        if stop == TreeStop::Fail {
+            return Err(TreeStillRunning::new(
+                "the test seam cannot confirm the end of the tree",
+            ));
+        }
+        let _ = stop;
         let _ = self.child.kill();
         let deadline = Instant::now() + grace;
         while Instant::now() < deadline {
             match self.child.try_wait() {
-                Ok(Some(_)) | Err(_) => return,
+                Ok(Some(_)) => return Ok(()),
+                Err(error) => {
+                    return Err(TreeStillRunning::new(format!(
+                        "cannot reap the fetch process: {error}"
+                    )))
+                }
                 Ok(None) => std::thread::sleep(KILL_POLL),
             }
         }
+        Err(TreeStillRunning::new(format!(
+            "the fetch process did not end within {} ms",
+            grace.as_millis()
+        )))
     }
 
     /// The child's stderr text, once the reader ends within `grace`.
@@ -113,8 +234,19 @@ impl FetchProcess {
         text
     }
 
+    /// The child's stderr text after its tree ended.
+    ///
+    /// Every writer of the pipe is gone, so the reader must see the end of the
+    /// stream. The caller joins it instead of detaching it.
+    pub(super) fn stderr_after_tree(&mut self) -> String {
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+        self.text.try_recv().unwrap_or_default()
+    }
+
     #[cfg(windows)]
-    fn end_tree(&mut self) {
+    fn end_tree(&mut self) -> Result<(), TreeStillRunning> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         use std::os::windows::process::CommandExt;
         let pid = self.child.id().to_string();
@@ -125,57 +257,38 @@ impl FetchProcess {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .creation_flags(CREATE_NO_WINDOW);
-        let _ = taskkill.status();
+        match taskkill.status() {
+            Ok(status) if status.success() => Ok(()),
+            // 128 means no process with that PID exists. The child ended
+            // between the last poll and the kill, so no tree is left to stop.
+            Ok(status) if status.code() == Some(128) => Ok(()),
+            Ok(status) => Err(TreeStillRunning::new(format!(
+                "taskkill /T /F /PID {pid} ended with {status}"
+            ))),
+            Err(error) => Err(TreeStillRunning::new(format!(
+                "taskkill /T /F /PID {pid} could not run: {error}"
+            ))),
+        }
     }
 
     #[cfg(unix)]
-    fn end_tree(&mut self) {
-        let Ok(pid) = i32::try_from(self.child.id()) else {
-            return;
-        };
+    fn end_tree(&mut self) -> Result<(), TreeStillRunning> {
+        let pid = i32::try_from(self.child.id()).map_err(|_| {
+            TreeStillRunning::new("the fetch process id does not fit a process group id")
+        })?;
         let Some(group) = rustix::process::Pid::from_raw(pid) else {
-            return;
+            return Err(TreeStillRunning::new(
+                "the fetch process id is not a valid process group id",
+            ));
         };
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        match rustix::process::kill_process_group(group, rustix::process::Signal::KILL) {
+            // `SRCH` means the group is already gone.
+            Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
+            Err(error) => Err(TreeStillRunning::new(format!(
+                "cannot signal the fetch process group: {error}"
+            ))),
+        }
     }
-}
-
-/// Build the fixed fetch command, without its process-group setting.
-fn command(
-    environment: &GitEnvironment<'_>,
-    url: &str,
-    commit: &str,
-    program: Option<&OsStr>,
-) -> Command {
-    let mut command = git::command(environment);
-    command
-        .arg("-c")
-        .arg("http.lowSpeedLimit=1")
-        .arg("-c")
-        .arg(format!(
-            "http.lowSpeedTime={}",
-            READ_INACTIVITY_TIMEOUT.as_secs()
-        ))
-        .args([
-            "fetch",
-            "--progress",
-            "--depth",
-            "1",
-            "--no-tags",
-            "--",
-            url,
-            commit,
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    #[cfg(any(test, feature = "test-instruction-budget"))]
-    if let Some(program) = program {
-        return replace_program(command, program);
-    }
-    #[cfg(not(any(test, feature = "test-instruction-budget")))]
-    let _ = program;
-    command
 }
 
 /// Start the child in its own process group so a timeout can end the tree.

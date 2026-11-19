@@ -257,4 +257,6 @@ impl BucketStore {
 }
 
 #[cfg(test)]
+mod stall_tests;
+#[cfg(test)]
 mod tests;
