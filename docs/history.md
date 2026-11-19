@@ -24,11 +24,14 @@ A source descriptor uses the bucket manifest shape: `manual`, `https`,
 `github-release`, `nexus` or `git`. A standalone archive is a `manual` source.
 The descriptor records the serving source, which is the source that supplied
 the archive, not the first source in the release list. Undo looks for the
-cached archive under that recorded source.
-A user-supplied `--file` archive that matches the catalog archive pin is
-recorded with the release's first `https` or `github-release` source, because
-that source can fetch the same archive again. A release with no such source
-keeps the `manual` source.
+cached archive under that recorded source. A stack install records the serving
+source of every member after its download, so a source that failed is not
+recorded.
+A user-supplied `--file` archive is recorded with the release's first `https`
+or `github-release` source when its BLAKE3 digest equals the catalog pin,
+because that source can fetch the same archive again. Modn refuses a `--file`
+archive whose digest does not match the pin, so such a file never reaches
+history. A release with no refetchable source keeps the `manual` source.
 The descriptor is stored in the record, so undo does not need the bucket
 snapshot or catalog revision that produced it.
 
