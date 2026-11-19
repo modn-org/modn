@@ -12,17 +12,22 @@
 
 mod css;
 mod digest;
+mod error;
 mod hooks;
 mod inspect;
 mod limits;
 mod manifest;
 mod problem;
+mod registry;
+mod selection;
+mod storage;
 
 pub use css::{
     check_sheet, CheckedCss, CssChecker, CssContext, DeclFacts, FontFaceFacts, MediaFacts,
     RuleFacts, RuleOutcome, SheetFacts, StyleFacts, UnsupportedFacts,
 };
 pub use digest::theme_digest;
+pub use error::ThemeError;
 pub use hooks::{
     is_protected_class, is_stable_class, is_stable_data_attribute, PROTECTED_CLASS_PREFIXES,
     PROTECTED_REGION_ATTRIBUTE, STABLE_CLASSES, STABLE_CUSTOM_PROPERTIES, STABLE_DATA_ATTRIBUTES,
@@ -35,3 +40,5 @@ pub use limits::{
 };
 pub use manifest::ThemeManifest;
 pub use problem::{Rule, ThemeProblem};
+pub use registry::{ListedThemes, RegisteredTheme, RemovedTheme, ThemeRegistry};
+pub use selection::{Selection, SelectionStore};
