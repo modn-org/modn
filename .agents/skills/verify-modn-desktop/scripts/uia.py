@@ -386,34 +386,5 @@ def dialog_buttons(dialog):
     return [role for role in (_answer_role(c) for c in _walk(dialog)) if role]
 
 
-def clipboard_text(timeout=10):
-    """Reads the Unicode text clipboard without changing it."""
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
-    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
-    user32.GetClipboardData.restype = ctypes.c_void_p
-    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
-    kernel32.GlobalLock.restype = ctypes.c_void_p
-    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if user32.OpenClipboard(None):
-            break
-        time.sleep(0.1)
-    else:
-        raise Failure("Cannot open the clipboard")
-    try:
-        handle = user32.GetClipboardData(13)
-        require(handle, "Clipboard holds no Unicode text")
-        pointer = kernel32.GlobalLock(handle)
-        require(pointer, "Cannot lock the clipboard text")
-        try:
-            return ctypes.wstring_at(pointer)
-        finally:
-            kernel32.GlobalUnlock(handle)
-    finally:
-        user32.CloseClipboard()
-
-
 def to_json(control):
     return json.dumps({"name": control.Name, "type": control.ControlTypeName})
