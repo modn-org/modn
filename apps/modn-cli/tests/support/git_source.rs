@@ -98,10 +98,6 @@ pub fn add_two_source_bucket(
 /// The first source names `fixture/{first}`; the second names the serving
 /// `fixture/project`. `first_commit` lets the fallback source pin a different
 /// commit than the primary, as a fallback release can.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a fixture states the bucket, version and both commits explicitly"
-)]
 pub fn write_two_source_bucket(
     fixture: &Fixture,
     root: &Path,
