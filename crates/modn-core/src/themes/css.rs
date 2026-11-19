@@ -1,6 +1,18 @@
 //! The seam between theme loading and the CSS rule engine.
 
+mod engine;
+mod facts;
+mod media;
+mod props;
+mod selector;
+mod value;
+
 use super::problem::ThemeProblem;
+
+pub use engine::{check_sheet, RuleOutcome};
+pub use facts::{
+    DeclFacts, FontFaceFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts, UnsupportedFacts,
+};
 
 /// Extra context for one stylesheet check.
 #[non_exhaustive]
