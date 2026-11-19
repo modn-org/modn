@@ -442,6 +442,8 @@ class FieldTypeTests(RehashTestCase):
         records = self.fixture.bucket / "games" / GAME
         for name, override, expected in cases:
             with self.subTest(field=name):
+                if self.out.exists():
+                    shutil.rmtree(self.out)
                 value = {
                     "schema_version": 1,
                     "id": name,
