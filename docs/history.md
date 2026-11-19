@@ -24,7 +24,14 @@ A source descriptor uses the bucket manifest shape: `manual`, `https`,
 `github-release`, `nexus` or `git`. A standalone archive is a `manual` source.
 The descriptor records the serving source, which is the source that supplied
 the archive, not the first source in the release list. Undo looks for the
-cached archive under that recorded source.
+cached archive under that recorded source. A stack install records the serving
+source of every member after its download, so a source that failed is not
+recorded.
+A user-supplied `--file` archive is recorded with the release's first `https`
+or `github-release` source when its BLAKE3 digest equals the catalog pin,
+because that source can fetch the same archive again. Modn refuses a `--file`
+archive whose digest does not match the pin, so such a file never reaches
+history. A release with no refetchable source keeps the `manual` source.
 The descriptor is stored in the record, so undo does not need the bucket
 snapshot or catalog revision that produced it.
 
@@ -106,8 +113,10 @@ archive cache before a later check refuses:
   second undo of the same target is refused for the same reason.
 - The recorded serving source of the target release is `manual`, so Modn has no
   URL to fetch again. Install the archive with `modn install --file` instead.
-  A release whose first source is `manual` but whose archive came from a later
-  fetchable source still restores from that source.
+  A `--file` install records an `https` or `github-release` source when the
+  release declares one, so undo restores that pinned archive. A release whose
+  first source is `manual` but whose archive came from a later fetchable source
+  still restores from that source.
 - The target release has a `git` or `nexus` source and its archive is no
   longer cached. Undo restores these releases only from the archive cache; a
   Nexus download needs a new nxm link. Reinstall the release from the catalog.

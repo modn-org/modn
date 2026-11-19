@@ -295,6 +295,61 @@ fn undo_uninstall_refuses_a_nexus_release_when_the_archive_is_not_cached() {
 }
 
 #[test]
+fn undo_install_removes_a_file_install_recorded_with_the_pinned_catalog_source() {
+    let fixture = Fixture::new();
+    let (archive, digest) = fixture.archive();
+    let url = "https://example.invalid/example-1.0.zip";
+    fixture.bucket("deps", "test-game", "example", &digest, &[]);
+    manifest(&fixture, "example", "1.0", &digest, https(url));
+    fixture.register();
+    cache(&fixture, "example", "1.0", url, &archive);
+
+    let installed = install(&fixture, "example", &[&archive]);
+    assert!(installed.status.success(), "{}", error(&installed));
+    let operations = history(&fixture);
+    let record = &operations[0];
+    assert_eq!(
+        record["packages"][0]["release_after"]["source"]["kind"], "https",
+        "{record}"
+    );
+    assert_eq!(record["packages"][0]["release_after"]["source"]["url"], url);
+
+    let target = id_of(record);
+    let undone = fixture.run(&["--json", "undo", &target, "--yes"]);
+    assert!(undone.status.success(), "{}", error(&undone));
+    assert!(!fixture.game.join("addons/example.plugin").exists());
+}
+
+#[test]
+fn undo_restore_stays_manual_without_a_fetchable_source() {
+    let fixture = Fixture::new();
+    let (archive, digest) = fixture.archive();
+    fixture.bucket("deps", "test-game", "example", &digest, &[]);
+    fixture.register();
+
+    let installed = install(&fixture, "example", &[&archive]);
+    assert!(installed.status.success(), "{}", error(&installed));
+    let operations = history(&fixture);
+    assert_eq!(
+        operations[0]["packages"][0]["release_after"]["source"]["kind"], "manual",
+        "{}",
+        operations[0]
+    );
+
+    assert!(fixture
+        .run(&["uninstall", "example", "--yes"])
+        .status
+        .success());
+    let target = id_of(&history(&fixture)[0]);
+    let refused = fixture.run(&["--json", "undo", &target, "--yes"]);
+    assert!(!refused.status.success());
+    assert_eq!(error_code(&refused), "UNDO_SOURCE_MANUAL");
+    let message = error(&refused);
+    assert!(message.contains("manual source"), "{message}");
+    assert!(!fixture.game.join("addons/example.plugin").exists());
+}
+
+#[test]
 fn undo_uninstall_refuses_a_manual_source_before_changes() {
     let fixture = Fixture::new();
     let (archive, digest) = fixture.archive();

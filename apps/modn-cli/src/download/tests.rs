@@ -2,7 +2,7 @@ use crate::commands::Cli;
 use crate::download::{TEST_CALLS, TEST_METADATA_FAILURES, TEST_RESPONSES};
 use clap::Parser;
 use modn_core::acquisition::{CacheUse, FetchError, SourceAttempt, SourceTarget};
-use modn_core::buckets::{BucketPackage, BucketStore};
+use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
 use modn_core::data_dir;
 use modn_core::game_modules::with_module_source;
 use serde_json::json;
@@ -418,6 +418,26 @@ fn a_failed_nexus_primary_falls_back_to_the_https_source() {
         fs::read(archive).expect("fallback archive bytes"),
         bytes,
         "the fallback archive does not hold the https bytes"
+    );
+}
+
+#[test]
+fn a_supplied_archive_that_does_not_match_the_pin_stays_manual() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    archive(temporary.path());
+    let package = package_with_sources(
+        &root,
+        &"0".repeat(64),
+        json!([{"kind": "https", "url": FALLBACK_URL}]),
+    );
+    let reference = crate::catalog_install::reference_of(&package).to_string();
+    let supplied = BTreeMap::from([(reference.clone(), temporary.path().join("example.zip"))]);
+    let source = super::serving_source(&reference, &supplied, &BTreeMap::new(), &package);
+    assert!(
+        matches!(source, PackageSource::Manual { .. }),
+        "a file that is not the pinned archive must stay manual: {source:?}"
     );
 }
 

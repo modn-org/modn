@@ -423,12 +423,7 @@ fn install_mod(
     store.set_history_context(
         HistoryContext::new(game_id.clone(), installation.clone()).with_source(
             &reference_of(&selected),
-            download::serving_source(
-                &reference,
-                &supplied,
-                &served,
-                selected.package.primary_source(),
-            ),
+            download::serving_source(&reference, &supplied, &served, &selected),
         ),
     );
     let package = store.install_catalog_release_with_permissions(

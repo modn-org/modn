@@ -124,17 +124,6 @@ pub(super) fn run(
         ));
     }
     let releases = releases(&stack)?;
-    let mut history = HistoryContext::new(stack.game_id.clone(), stack.installation.clone());
-    for release in &releases {
-        let reference = reference_of(release);
-        let source = download::serving_source(
-            &reference.to_string(),
-            &stack.supplied,
-            &stack.served,
-            release.package.primary_source(),
-        );
-        history = history.with_source(&reference, source);
-    }
     download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes && !progress.enabled();
     let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
@@ -217,6 +206,19 @@ pub(super) fn run(
         json,
         progress,
     )?);
+    // Build the history after the download, so each record names the source
+    // that served the archive rather than the first source in the release.
+    let mut history = HistoryContext::new(stack.game_id.clone(), stack.installation.clone());
+    for release in &releases {
+        let reference = reference_of(release);
+        let source = download::serving_source(
+            &reference.to_string(),
+            &stack.supplied,
+            &stack.served,
+            release,
+        );
+        history = history.with_source(&reference, source);
+    }
     let mut digests = BTreeMap::new();
     let members = releases
         .iter()

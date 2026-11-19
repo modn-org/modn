@@ -345,16 +345,23 @@ pub(super) fn add_cached<'a>(
 
 /// The source that supplied the archive of `reference`.
 ///
-/// A user-supplied `--file` archive is a manual source. Otherwise the source
-/// that acquisition recorded wins over the record's declared source, so undo
-/// can look for the archive where it actually came from.
+/// Acquisition records the source that served the archive. A user-supplied
+/// `--file` archive that matches the release's BLAKE3 pin names the release's
+/// first `https` or `github-release` source, because that source can fetch the
+/// same pinned archive again. A file that does not match the pin, or a release
+/// with no refetchable source, stays `manual`, and undo refuses it.
 pub(super) fn serving_source(
     reference: &str,
     supplied: &BTreeMap<String, PathBuf>,
     served: &BTreeMap<String, PackageSource>,
-    primary: &PackageSource,
+    release: &BucketPackage,
 ) -> PackageSource {
     if let Some(path) = supplied.get(reference) {
+        if supplied_matches_pin(release, path) {
+            if let Some(source) = refetchable_source(&release.package.sources) {
+                return source.clone();
+            }
+        }
         let filename = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -364,7 +371,30 @@ pub(super) fn serving_source(
     served
         .get(reference)
         .cloned()
-        .unwrap_or_else(|| primary.clone())
+        .unwrap_or_else(|| release.package.primary_source().clone())
+}
+
+/// Whether the supplied archive is the release's pinned archive.
+///
+/// Installation already checks this before it records history. Repeating the
+/// check here keeps the record honest if the file changes after that check.
+fn supplied_matches_pin(release: &BucketPackage, path: &Path) -> bool {
+    release.package.pin().is_some_and(|pin| {
+        modn_core::archive::inspect(path).is_ok_and(|inspected| inspected.blake3 == pin)
+    })
+}
+
+/// The first source that undo can fetch again without a new user action.
+///
+/// A Git or Nexus restore reads only the archive cache, and a manual source
+/// has no URL, so none of them can replace a `--file` path.
+fn refetchable_source(sources: &[PackageSource]) -> Option<&PackageSource> {
+    sources.iter().find(|source| {
+        matches!(
+            source,
+            PackageSource::Https { .. } | PackageSource::GithubRelease { .. }
+        )
+    })
 }
 
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {
