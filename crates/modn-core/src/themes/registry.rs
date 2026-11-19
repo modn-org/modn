@@ -5,7 +5,9 @@
 //! directory, never in the inspected source directory.
 
 mod layout;
+mod listing;
 mod record;
+mod removal;
 #[cfg(test)]
 #[path = "registry/tests.rs"]
 mod tests;
@@ -15,8 +17,7 @@ use super::css::CssChecker;
 use super::digest::theme_digest;
 use super::error::{Result, ThemeError};
 use super::inspect::{inspect_theme_dir, InspectedTheme};
-use super::limits::{is_valid_id, MAX_THEME_MANIFEST_BYTES};
-use super::manifest::{ThemeManifest, MANIFEST_FILE};
+use super::limits::is_valid_id;
 use super::problem::{Rule, ThemeProblem};
 use super::storage;
 use std::fs;
@@ -190,97 +191,7 @@ impl ThemeRegistry {
 
     /// List every valid registration and every skipped one.
     pub fn list(&self) -> Result<ListedThemes> {
-        let registry = layout::registry_root(&self.root);
-        let mut themes = Vec::new();
-        let mut problems = Vec::new();
-        let games = match fs::read_dir(&registry) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(ListedThemes { themes, problems });
-            }
-            Err(error) => return Err(ThemeError::io("cannot list the theme registry", error)),
-            Ok(games) => games,
-        };
-        for game in games {
-            let game =
-                game.map_err(|error| ThemeError::io("cannot list the theme registry", error))?;
-            let name = game.file_name();
-            let Some(name) = name.to_str().map(str::to_owned) else {
-                continue;
-            };
-            if name.starts_with(layout::STAGING_PREFIX) {
-                continue;
-            }
-            let path = format!("{}/{name}", layout::REGISTRY);
-            let Ok(file_type) = game.file_type() else {
-                problems.push(invalid_name_problem(
-                    &path,
-                    "cannot inspect a theme registry entry",
-                ));
-                continue;
-            };
-            if !file_type.is_dir() {
-                continue;
-            }
-            if !is_valid_id(&name) {
-                problems.push(invalid_name_problem(
-                    &path,
-                    format!("registry directory name \"{name}\" is not a valid game id"),
-                ));
-                continue;
-            }
-            let entries = match fs::read_dir(game.path()) {
-                Ok(entries) => entries,
-                Err(error) => {
-                    problems.push(invalid_name_problem(
-                        &path,
-                        format!("cannot list the game registrations: {error}"),
-                    ));
-                    continue;
-                }
-            };
-            for entry in entries {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(error) => {
-                        problems.push(invalid_name_problem(
-                            &path,
-                            format!("cannot list the game registrations: {error}"),
-                        ));
-                        break;
-                    }
-                };
-                let Some(id) = entry.file_name().to_str().map(str::to_owned) else {
-                    continue;
-                };
-                let Ok(file_type) = entry.file_type() else {
-                    problems.push(invalid_name_problem(
-                        &format!("{path}/{id}"),
-                        "cannot inspect a theme registration",
-                    ));
-                    continue;
-                };
-                if !file_type.is_dir() {
-                    continue;
-                }
-                if !is_valid_id(&id) {
-                    problems.push(invalid_name_problem(
-                        &format!("{path}/{id}"),
-                        format!("registry directory name \"{id}\" is not a valid theme id"),
-                    ));
-                    continue;
-                }
-                match read_entry(&entry.path(), &name, &id) {
-                    Ok(theme) => themes.push(theme),
-                    Err(problem) => problems.push(problem),
-                }
-            }
-        }
-        themes.sort_by(|left, right| {
-            left.game
-                .cmp(&right.game)
-                .then_with(|| left.id.cmp(&right.id))
-        });
-        Ok(ListedThemes { themes, problems })
+        listing::list(&self.root)
     }
 
     /// Load one registered theme after verifying its stored digest.
@@ -334,152 +245,8 @@ impl ThemeRegistry {
     /// With no game, an id that is registered for exactly one game is removed.
     /// An id registered for several games is ambiguous and left untouched.
     pub fn remove(&self, id: &str, game: Option<&str>) -> Result<RemovedTheme> {
-        check_id(id)?;
-        if let Some(game) = game {
-            check_id(game)?;
-        }
-        let registry = layout::registry_root(&self.root);
-        let _lock = storage::lock(&self.root)?;
-        let mut games = match game {
-            Some(game) => {
-                let entry = layout::entry_root(&registry, game, id);
-                match fs::symlink_metadata(&entry) {
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                        return Err(ThemeError::NotRegistered { id: id.to_owned() });
-                    }
-                    Err(error) => {
-                        return Err(ThemeError::io(
-                            "cannot inspect the theme registration",
-                            error,
-                        ));
-                    }
-                    Ok(metadata) if !metadata.file_type().is_dir() => {
-                        return Err(ThemeError::corrupt(
-                            &entry,
-                            "a theme registration must be a real directory",
-                        ));
-                    }
-                    Ok(_) => {}
-                }
-                vec![game.to_owned()]
-            }
-            None => games_for(id, &registry)?,
-        };
-        match games.len() {
-            0 => Err(ThemeError::NotRegistered { id: id.to_owned() }),
-            1 => {
-                let game = games.remove(0);
-                let entry = layout::entry_root(&registry, &game, id);
-                fs::remove_dir_all(&entry).map_err(|error| {
-                    ThemeError::io("cannot remove the theme registration", error)
-                })?;
-                Ok(RemovedTheme {
-                    game,
-                    id: id.to_owned(),
-                })
-            }
-            _ => Err(ThemeError::Ambiguous {
-                id: id.to_owned(),
-                games,
-            }),
-        }
+        removal::remove(&self.root, id, game)
     }
-}
-
-/// Return the games that register `id`, sorted.
-fn games_for(id: &str, registry: &Path) -> Result<Vec<String>> {
-    let entries = match fs::read_dir(registry) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(ThemeError::io("cannot list the theme registry", error)),
-        Ok(entries) => entries,
-    };
-    let mut games = Vec::new();
-    for entry in entries {
-        let entry =
-            entry.map_err(|error| ThemeError::io("cannot list the theme registry", error))?;
-        if !entry
-            .file_type()
-            .map_err(|error| ThemeError::io("cannot inspect a theme registry entry", error))?
-            .is_dir()
-        {
-            continue;
-        }
-        let Some(game) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
-        };
-        if !is_valid_id(&game) {
-            continue;
-        }
-        match fs::symlink_metadata(entry.path().join(id)) {
-            Ok(metadata) if metadata.file_type().is_dir() => games.push(game),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(ThemeError::io(
-                    "cannot inspect the theme registration",
-                    error,
-                ));
-            }
-            Ok(_) => {}
-        }
-    }
-    games.sort();
-    Ok(games)
-}
-
-/// Read one registration and turn every defect into a diagnostic.
-fn read_entry(
-    entry: &Path,
-    game: &str,
-    id: &str,
-) -> std::result::Result<RegisteredTheme, ThemeProblem> {
-    let record = record::read(entry).map_err(|reason| manifest_problem(game, id, reason))?;
-    if record.game != game || record.id != id {
-        return Err(manifest_problem(
-            game,
-            id,
-            "registration.json names a different game or id",
-        ));
-    }
-    let dir = layout::theme_dir(entry);
-    let digest = theme_digest(&dir).map_err(|problem| with_label(problem, game, id))?;
-    if digest != record.blake3 {
-        return Err(digest_mismatch(game, id, &record.blake3, &digest));
-    }
-    let manifest = read_copy_manifest(&dir).map_err(|reason| manifest_problem(game, id, reason))?;
-    if manifest.game != game || manifest.id != id {
-        return Err(manifest_problem(
-            game,
-            id,
-            "the copied manifest names a different game or id",
-        ));
-    }
-    Ok(RegisteredTheme {
-        game: game.to_owned(),
-        id: id.to_owned(),
-        name: manifest.name,
-        variants: manifest.variants,
-        icon: manifest.icon,
-        blake3: record.blake3,
-        registered_at: record.registered_at,
-        dir,
-    })
-}
-
-/// Read the copied `theme.json` for the display fields of a listing.
-fn read_copy_manifest(dir: &Path) -> std::result::Result<ThemeManifest, String> {
-    let path = dir.join(MANIFEST_FILE);
-    let metadata = fs::symlink_metadata(&path)
-        .map_err(|error| format!("cannot inspect theme.json: {error}"))?;
-    if !metadata.file_type().is_file() {
-        return Err("theme.json is not a regular file".to_owned());
-    }
-    if metadata.len() > MAX_THEME_MANIFEST_BYTES {
-        return Err(format!(
-            "theme.json exceeds the {MAX_THEME_MANIFEST_BYTES}-byte limit"
-        ));
-    }
-    let bytes = fs::read(&path).map_err(|error| format!("cannot read theme.json: {error}"))?;
-    ThemeManifest::parse(&bytes).map_err(|problem| problem.to_string())
 }
 
 /// Copy every regular file below `source` into `destination`.
@@ -542,11 +309,6 @@ fn manifest_problem(game: &str, id: &str, message: impl Into<String>) -> ThemePr
             layout::RECORD
         ))
         .with_theme(format!("{game}/{id}"))
-}
-
-/// Report a registry directory that does not have a usable name.
-fn invalid_name_problem(path: &str, message: impl Into<String>) -> ThemeProblem {
-    ThemeProblem::new(Rule::ManifestInvalid, message).with_path(path.to_owned())
 }
 
 /// Attach the `<game>/<id>` label when the source problem has none.
