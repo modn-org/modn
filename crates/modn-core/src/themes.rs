@@ -12,13 +12,21 @@
 
 mod css;
 mod digest;
+mod hooks;
 mod inspect;
 mod limits;
 mod manifest;
 mod problem;
 
-pub use css::{CheckedCss, CssChecker, CssContext};
+pub use css::{
+    check_sheet, CheckedCss, CssChecker, CssContext, DeclFacts, FontFaceFacts, MediaFacts,
+    RuleFacts, RuleOutcome, SheetFacts, StyleFacts, UnsupportedFacts,
+};
 pub use digest::theme_digest;
+pub use hooks::{
+    is_protected_class, is_stable_class, is_stable_data_attribute, PROTECTED_CLASS_PREFIXES,
+    PROTECTED_REGION_ATTRIBUTE, STABLE_CLASSES, STABLE_CUSTOM_PROPERTIES, STABLE_DATA_ATTRIBUTES,
+};
 pub use inspect::{inspect_theme_dir, AssetInfo, AssetKind, InspectedTheme};
 pub use limits::{
     is_valid_asset_path, is_valid_id, MAX_THEME_ASSETS, MAX_THEME_ASSETS_BYTES,
