@@ -10,6 +10,7 @@
 //! implements that trait; this module only calls it and checks the assets it
 //! reports.
 
+mod catalog;
 mod css;
 mod digest;
 mod error;
@@ -19,9 +20,16 @@ mod limits;
 mod manifest;
 mod problem;
 mod registry;
+mod resolve;
+mod scan;
 mod selection;
+mod source;
 mod storage;
+mod summary;
+#[cfg(test)]
+mod test_support;
 
+pub use catalog::{CatalogEntry, ThemeCatalog};
 pub use css::{
     check_sheet, CheckedCss, CssChecker, CssContext, DeclFacts, FontFaceFacts, MediaFacts,
     RuleFacts, RuleOutcome, SheetFacts, StyleFacts, UnsupportedFacts,
@@ -41,4 +49,8 @@ pub use limits::{
 pub use manifest::ThemeManifest;
 pub use problem::{Rule, ThemeProblem};
 pub use registry::{ListedThemes, RegisteredTheme, RemovedTheme, ThemeRegistry};
+pub use resolve::{Fallback, FallbackReason, Resolved, ResolvedOrigin, ResolvedTheme};
+pub use scan::{scan_bucket, BucketScan, BucketThemeRoot};
 pub use selection::{Selection, SelectionStore};
+pub use source::{ThemeSource, ThemeSourceKind};
+pub use summary::{ListOutput, ThemeSummary};
