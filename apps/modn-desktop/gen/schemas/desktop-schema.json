@@ -225,6 +225,12 @@
           "markdownDescription": "Enables the history command without any pre-configured scope."
         },
         {
+          "description": "Enables the import_theme command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-import-theme",
+          "markdownDescription": "Enables the import_theme command without any pre-configured scope."
+        },
+        {
           "description": "Enables the install_archive command without any pre-configured scope.",
           "type": "string",
           "const": "allow-install-archive",
@@ -255,6 +261,12 @@
           "markdownDescription": "Enables the list_packages command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_themes command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-themes",
+          "markdownDescription": "Enables the list_themes command without any pre-configured scope."
+        },
+        {
           "description": "Enables the pick_archive command without any pre-configured scope.",
           "type": "string",
           "const": "allow-pick-archive",
@@ -277,6 +289,24 @@
           "type": "string",
           "const": "allow-remove-game",
           "markdownDescription": "Enables the remove_game command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reset_theme command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reset-theme",
+          "markdownDescription": "Enables the reset_theme command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the resolve_theme command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-resolve-theme",
+          "markdownDescription": "Enables the resolve_theme command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the select_theme command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-select-theme",
+          "markdownDescription": "Enables the select_theme command without any pre-configured scope."
         },
         {
           "description": "Enables the undo command without any pre-configured scope.",
@@ -345,6 +375,12 @@
           "markdownDescription": "Denies the history command without any pre-configured scope."
         },
         {
+          "description": "Denies the import_theme command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-import-theme",
+          "markdownDescription": "Denies the import_theme command without any pre-configured scope."
+        },
+        {
           "description": "Denies the install_archive command without any pre-configured scope.",
           "type": "string",
           "const": "deny-install-archive",
@@ -375,6 +411,12 @@
           "markdownDescription": "Denies the list_packages command without any pre-configured scope."
         },
         {
+          "description": "Denies the list_themes command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-themes",
+          "markdownDescription": "Denies the list_themes command without any pre-configured scope."
+        },
+        {
           "description": "Denies the pick_archive command without any pre-configured scope.",
           "type": "string",
           "const": "deny-pick-archive",
@@ -397,6 +439,24 @@
           "type": "string",
           "const": "deny-remove-game",
           "markdownDescription": "Denies the remove_game command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reset_theme command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reset-theme",
+          "markdownDescription": "Denies the reset_theme command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the resolve_theme command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-resolve-theme",
+          "markdownDescription": "Denies the resolve_theme command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the select_theme command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-select-theme",
+          "markdownDescription": "Denies the select_theme command without any pre-configured scope."
         },
         {
           "description": "Denies the undo command without any pre-configured scope.",
