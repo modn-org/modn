@@ -1,18 +1,26 @@
 # Modn Desktop feature map
 
-Build and doctor through [SKILL.md](../SKILL.md).
-Run each journey against its own unique fixtures.
-Keep native JSON, backend output, summaries, and cropped app screenshots in the printed evidence directory.
-Use fresh semantic refs from the recorded window ID.
-A native action proves only its exercised entry point.
+Build and run through [SKILL.md](../SKILL.md).
+Every journey gets its own fixture and its own app process.
+Keep the UI Automation snapshots, backend records and launch record in the
+evidence directory. A journey proves only the entry points it exercised.
 
-- [Local archive review](review.md): selection, previews, blocked plans, changed source, and cancellation.
-- [Owned package lifecycle](ownership.md): explicit install, package inventory, strict uninstall, and manual-file preservation.
-- [Process lifecycle](process.md): responsiveness, busy close refusal, deadlines, output limits, and backend errors.
+- [Local archive review](review.md): the native picker, progress, cancel, the
+  commit phase and blocked plans (journeys 2, 3, 4, 6 and the 7z picker in 11).
+- [Owned package lifecycle](ownership.md): detection, registration, install,
+  play, remove, details, undo and the catalog (journeys 1, 5, 9, 10 and 11).
+- [Approval policy](approval.md): the native-code and executable ask
+  (journey 7).
+- [Process lifecycle](process.md): close refusal and CLI-output containment
+  (journeys 4 and 8).
 
-`verify.py` drives the first two features through the real CLI.
-`lifecycle.py` drives responsiveness through an explicit slow test backend.
-Cargo backend-contract tests cover process limits and literal argument boundaries.
-The real driver covers native picker selection for ZIP and 7z, dialog cancellation, and typed paths.
-Both formats exercise preview, confirmed install, strict refusal, uninstall, and manual-byte preservation.
-Windows 10 hardware and real games remain unverified.
+`scripts/verify.py` runs the eleven journeys against the real CLI and the
+verification test backend. Run `verify.py --list` for the current order and
+names.
+
+The desktop app is Tauri 2 with a WebView2 webview.
+WebView2 publishes the DOM accessibility tree through UI Automation, so
+buttons, links and headings are found by accessible name.
+`data-testid` values are not AutomationIds.
+
+Windows 10 hardware, real games and real store clients remain unverified.

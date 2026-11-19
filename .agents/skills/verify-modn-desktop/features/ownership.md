@@ -1,32 +1,57 @@
 # Owned package lifecycle
 
-Users confirm each installation and strict uninstall separately.
+Home shows detected and registered installations. A detected card registers
+the game in one click; a registered card opens the game's Library.
 
-## Sub-features
+## What to check
 
-- O1: explicitly confirm installation after review.
-- O2: list the resulting owned package and independently read its bytes.
-- O3: cancel uninstall without changes.
-- O4: preserve modified owned files and manual files during strict uninstall.
+- O1: a fake Steam library makes Home show `Add Balatro at <path> to Modn`
+  (journey 1).
+- O2: one click changes that card to `Open Balatro at <path>` and the CLI
+  `game list` reports the installation (journey 1).
+- O3: detection and registration leave the fixture game folder byte-identical
+  (journey 1).
+- O4: a local archive install writes the archive bytes and the CLI lists the
+  package; toast undo restores the earlier bytes (journey 5).
+- O5: a catalog install, uninstall and history undo agree with the CLI list
+  and history (journeys 5 and 11).
+- O6: `Play balatro` launches the fixture executable (journey 9).
+- O7: Mod details shows the file plan and operation history (journeys 5 and
+  9), and `Copy diagnostics` confirms with `Diagnostics copied.` (journey 9).
+  Under the `verification` feature the Rust command writes the report to the
+  file named by `MODN_VERIFY_CLIPBOARD_FILE`, so the activation needs no
+  focused webview and works while another app holds the foreground. The
+  verifier never reads or writes the system clipboard.
+- O8: `Remove from Modn` opens a native Yes/No dialog; `No` keeps the
+  registration, `Yes` unregisters it, and the game folder stays unchanged
+  (journey 10).
 
-## How to get to it (user POV)
+## Fixture
 
-After review, select Install reviewed archive..., then Confirm install.
-Select the resulting owned-package button in the sidebar.
-Select Uninstall selected package..., then Confirm uninstall or Cancel review.
-Refresh owned packages reloads the CLI inventory.
+The real-CLI journeys register a fixture game with
+`modn game add <id> --path <folder>`. Detection and remove also write
+`steam/steamapps/libraryfolders.vdf` plus `appmanifest_2379780.acf`, and put
+`Balatro.exe` under `steam/steamapps/common/Balatro`.
 
-## Driving it with agent-desktop
+For play, the fixture game folder holds a byte copy of the signed Windows
+binary `systeminfo.exe`. That console program reads system facts and stays
+alive about three seconds with the small environment the app forwards, and the
+hidden console of `modn play` gives it no window. The journey fails when a
+visible window of the fixture image appears. The journey finds the process id by image path and
+stops only that process id, so no real game ever starts and the store URI
+branch is never taken.
 
-Run the full `verify.py` command in [SKILL.md](../SKILL.md).
-It confirms ZIP and genuine 7z installation through native buttons and checks bytes through Python.
-It verifies ownership with a separate CLI list invocation.
-It cancels one uninstall, then changes owned bytes and checks strict refusal.
-It restores those disposable bytes and confirms uninstall.
-It checks that only the owned file disappears and manual content remains intact.
+`MODN_STORE_LIBRARIES` names a JSON file (`{"steam_roots": [ … ]}`); the core
+reads that variable as a path, not as inline JSON.
+
+`MODN_APPDATA` sets the content root for installed mods. The CLI reads it only
+when built with `modn-core/test-instruction-budget`, so the verifier builds
+that CLI and does not use a release `modn.exe`.
 
 ## Gotchas
 
-Owned package IDs are the current button labels.
-Uninstall never passes force, cascade, or dependency-removal flags.
-All writes use the disposable test game and explicit manager state.
+Home falls back to a capitalized id, so the test backend's `fixture` game shows
+as `Open Fixture at …`.
+The `--module-dir` option is only passed when the fixture has modules; the
+real-CLI journeys read the generated main bucket instead.
+Mod details links are hyperlinks, not buttons.

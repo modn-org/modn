@@ -1,34 +1,46 @@
 # Local archive review
 
-Users select a registered installation and inspect an archive before approving writes.
+The Library header installs a local ZIP through the native picker, shows
+progress on the same button, and turns that button into Cancel.
 
-## Sub-features
+## What to check
 
-- R1: select a registered installation and enter an archive path.
-- R2: inspect and preview proposed files without game or manager-state writes.
-- R3: invalidate reviews after source, installation, or registration changes.
-- R4: block invalid plans and cancel pending confirmation.
+- R1: `Install a local archive in <game>` opens the Windows file dialog
+  (journey 5 starts with a picker Cancel).
+- R2: while the backend reports progress the button reads `Cancel …` and stays
+  enabled (journey 2).
+- R3: before the commit, Cancel ends with `Cancelled. Nothing changed.` and
+  writes nothing (journey 3).
+- R4: after the commit the button is disabled until the write finishes, and a
+  close request shows the native still-working dialog (journey 4).
+- R5: a blocked plan shows its short reason on the button and opens no dialog
+  (journey 6).
+- R6: a genuine 7z archive installs and uninstalls through one click each
+  (journey 11).
 
-## How to get to it (user POV)
+## How to drive it
 
-Select an installation button in the sidebar.
-Enter an absolute archive path or select Browse... for the native file dialog.
-Select Inspect and preview, then Install reviewed archive....
-Cancel review clears the pending write authority.
+1. Start the app with `--backend <modn-desktop-test-backend.exe>`, a
+   disposable `--state-dir` containing `test-backend.marker`, and a `mode`
+   file.
+2. Open the `Open Fixture at …` Home card.
+3. Click `Install a local archive in fixture`.
+4. Fill the native dialog and confirm it.
 
-## Driving it with agent-desktop
+The file dialog is a common item dialog. Its file name field and Open button
+do not publish AutomationIds, so `uia.set_file_dialog` uses the documented
+Win32 dialog control ids 1148 and 1 on the dialog window owned by the launched
+process, then posts `BM_CLICK` to Open.
 
-Run `python .agents/skills/verify-modn-desktop/scripts/verify.py --backend target/debug/modn.exe`.
-The script finds the test-game button and the archive field by accessible names.
-It checks the report destination and unchanged file/state hashes.
-It changes selection and source, removes registration, and verifies refusal before writes.
-It cancels the picker after a preview and checks the retained path, invalidated authority, and unchanged bytes.
-It captures the review window and resulting accessibility trees.
+The test backend selects its progress scenario from the archive path:
+`slow.zip`, `hang-before-commit.zip`, `hang-after-commit.zip` and
+`refuse.zip`. The `mode` file therefore stays `complete`, so the package
+listing does not sleep.
 
 ## Gotchas
 
-The driver exercises native ZIP and 7z selection, typed paths, and native file-dialog cancellation.
-Resolve fresh filename and Open controls after each dialog state change.
-Native dialog control IDs avoid locale-specific labels.
-Programmatic field changes need fresh snapshots before checking disabled buttons.
-A review reads metadata and does not certify compatibility.
+The percentage in `Cancel · 50 %` is drawn from the button text, while
+`aria-label` stays `Cancel Install archive`. UI Automation reports the
+accessible name, so the journey asserts the Cancel affordance, not the
+percentage. The same applies to `Finishing...`.
+The eight-second toast lifetime limits how long `Undo` is available.

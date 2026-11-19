@@ -186,7 +186,7 @@ fn details_wire_the_commands_and_the_clipboard() {
         "listPackages(",
         "history(",
         "undo(",
-        "diagnostics(",
+        "copyDiagnostics(",
         "installMod(",
         "uninstall(",
         "update(",
@@ -194,8 +194,12 @@ fn details_wire_the_commands_and_the_clipboard() {
         assert!(all.contains(call), "Mod details must call {call}");
     }
     assert!(
-        all.contains("navigator.clipboard.writeText("),
-        "Copy diagnostics must write the report to the clipboard"
+        !all.contains("navigator.clipboard"),
+        "Copy diagnostics must use the Rust clipboard command"
+    );
+    assert!(
+        read("ui/js/api.js").contains("invoke('copy_diagnostics', {})"),
+        "the API must invoke the copy_diagnostics command"
     );
     assert!(
         all.contains("showToast('Diagnostics copied.')"),
@@ -314,6 +318,31 @@ fn details_css_uses_only_defined_tokens() {
     ] {
         assert!(css.contains(rule), "details.css is missing {rule}");
     }
+}
+
+#[test]
+fn the_webview_never_writes_the_clipboard_itself() {
+    let mut pending = vec![Path::new(ROOT).join("ui/js")];
+    let mut found = 0;
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).expect("UI script directory") {
+            let path = entry.expect("UI script entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("js") {
+                continue;
+            }
+            found += 1;
+            let text = fs::read_to_string(&path).expect("UI script");
+            assert!(
+                !text.contains("navigator.clipboard"),
+                "{path:?} must use the Rust clipboard command"
+            );
+        }
+    }
+    assert!(found > 0, "the UI ships at least one script");
 }
 
 #[test]

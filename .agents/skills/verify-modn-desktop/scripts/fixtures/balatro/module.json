@@ -1,0 +1,1 @@
+{"game_id":"balatro","version":"0.4.0","api_version":3,"min_modn_version":"0.6.0","entrypoint":"module.lua","content_root":{"base":"appdata","path":"Balatro/Mods"},"stores":{"steam":"2379780"},"launch":{"steam":"steam://rungameid/2379780","executable":"Balatro.exe"}}

@@ -1,113 +1,171 @@
 ---
 name: verify-modn-desktop
-description: Verify Modn Desktop's Windows GPUI Kit window, local archive review, confirmed ownership writes, refusals, and process lifecycle with isolated fixtures.
+description: "Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z."
 ---
 
 # Verify Modn Desktop
 
-Run from the repository root on Windows in an unlocked interactive desktop session.
-Use this skill after changes to `apps/modn-desktop/**` or its native driver.
-Read [the feature map](features/README.md) before choosing a narrower journey.
+Run this verifier from the repository root on Windows 10 or later, in an
+unlocked interactive desktop session with WebView2 installed.
+Use it after changes to `apps/modn-desktop/**`, its UI, its backend or its
+approval policy. Read [the feature map](features/README.md) before you choose a
+narrower journey.
 
-## Build and doctor
-
-```powershell
-agent-desktop skills get desktop
-agent-desktop skills get platform
-agent-desktop status
-cargo build -p modn-cli --locked
-pwsh -NoProfile -File .agents/skills/verify-modn-desktop/scripts/doctor.ps1 -Backend target/debug/modn.exe
-cargo build --workspace --all-features --locked
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --workspace --locked
-cargo test -p modn-desktop --all-features --locked
-```
-
-Install `agent-desktop` with `npm install -g agent-desktop` if it is absent.
-The scripts require Python 3 and use only its standard library.
-The doctor checks eight prerequisites and prints a JSON count.
-Require exit 0, eight checks, and zero failures.
-The backend contract suite includes a real 60-second timeout.
-Complete builds and tests before launching a driver.
-Wait for native drivers and CLI property fixtures to exit before rebuilding.
-Windows locks running executables, including a CLI launched by another test.
-These root workspace commands include the Windows desktop app.
-The separate all-feature desktop command runs all seven backend tests.
-GPUI dependencies are Windows-only; Linux builds use an explicit unsupported-platform entry point.
-Install 7-Zip on PATH for the genuine 7z fixture.
-If the default automation state fails its DACL check, set AGENT_DESKTOP_HOME to a unique task-local directory.
-Keep that value for every command in the run.
-An explicit CARGO_TARGET_DIR relocates every binary path below.
-The real driver reads CARGO_TARGET_DIR for its default app path.
-
-## Launch and drive
+## Run
 
 ```powershell
-python .agents/skills/verify-modn-desktop/scripts/verify.py --backend target/debug/modn.exe
-python .agents/skills/verify-modn-desktop/scripts/lifecycle.py --app target/debug/modn-desktop.exe --backend target/debug/modn-desktop-test-backend.exe
+uv run --no-project python .agents/skills/verify-modn-desktop/scripts/verify.py --build
 ```
 
-Require each script to exit 0 with `status: passed`, positive assertion counts, and zero command failures.
-The first script exercises the real CLI through native UI controls.
-The second uses the explicit test backend to check responsiveness, close refusal, and failure after a completed write.
-The test backend requires a disposable-state marker and cannot use default state.
+Options:
 
-Each script creates unique `modn-desktop-fixture-*` and `modn-desktop-evidence-*` directories under the system temporary directory.
-The fixture contains separate game, state, data, and module directories.
-The real driver copies `tests/fixtures/test-game` and registers only its disposable installations.
-It creates a manual file, valid ZIP, blocked ZIP, unmapped ZIP, and genuine 7z archive.
-It never uses a real game or downloads a bucket.
+- `--build` runs `cargo build -p modn-desktop --features verification --locked`
+  and `cargo build -p modn-cli --features modn-core/test-instruction-budget
+  --locked` first.
+- `--list` prints each journey number and name in run order, then exits.
+- `--only <names or numbers>` selects journeys; separate several with a comma.
+- `--keep` keeps the fixture directory of the run and prints every kept path.
+- `--app PATH`, `--cli PATH` and `--test-backend PATH` replace one built binary
+  each.
+- `--selftest` checks the dialog helper, the Copy diagnostics activation and
+  report-file polling, failure tracking, evidence reporting, the banned-token
+  scans and skill front matter against fakes, then exits.
 
-The driver records its launched PID, executable hashes, full configuration, and window ID.
-It accepts a window only when the reported PID matches the launched process.
-Readiness requires the visible status `Select a registered installation.`.
-Use only this window ID for subsequent native actions and screenshots.
-Buttons use unique accessible names; take fresh refs after state changes.
-The archive field's accessible name is `Absolute path to a local ZIP or 7z`.
-The report document's name is `Proposed files, blockers and results`.
-The verifier uses native dialog control IDs 1148 for the filename, 1 for selection, and 2 for Cancel.
-It resolves fresh controls after opening the dialog and after setting the filename.
-Dialog reads allow 20 seconds to prove control uniqueness.
-It checks the resulting app field against the intended fixture path.
-Cancellation after preview preserves the path and bytes but requires another review.
-The driver waits for a distinct window with its launched PID.
-It reads only these controls to avoid capturing personal folder listings.
-The drivers use semantic actions; they need no physical mouse or keyboard input.
+Without `--build`, the verifier reads `modn-desktop.exe`, `modn.exe` and
+`modn-desktop-test-backend.exe` from `$CARGO_TARGET_DIR/debug` when
+`CARGO_TARGET_DIR` is set, otherwise from `target/debug`.
+Use a `modn.exe` built with `modn-core/test-instruction-budget` for `--cli`.
+That feature supplies the fixture store and content-root overrides. A CLI
+without them would read the real Steam library and install into real game
+folders. The verifier searches the CLI binary for the `MODN_APPDATA` and
+`MODN_STORE_LIBRARIES` names. It exits with status 2 before any journey runs
+when a name is missing.
+
+Use a `modn-desktop.exe` built with the `verification` feature for the app.
+Under that feature the Copy diagnostics command writes the report to the file
+named by `MODN_VERIFY_CLIPBOARD_FILE`, and the binary contains that name. The
+verifier never reads or writes the system clipboard. A build without the
+feature writes the system clipboard, so the verifier exits with status 2
+before any journey runs when the name is missing.
+
+When the interpreter lacks a required package, the script re-runs itself under
+`uv run --no-project --with uiautomation --with blake3 --with pyyaml python`.
+It runs the selected journeys in order, each against a fresh fixture.
+It exits 0 only when every selected journey passes.
+Each journey prints its status and an `evidence: <path>` line.
+The last line is one JSON summary with `status`, `journeys`, `passed`, `failed`,
+`assertions`, `seconds` and `results`.
+Each result carries the same `evidence` paths as a list.
+
+## Prerequisites
+
+- Windows 10 or later with an unlocked interactive desktop and WebView2. A
+  service session has no window to drive. Journeys act only through UI
+  Automation patterns and window messages sent to windows the verifier owns.
+  They never move the pointer, type, or change the focus or the foreground, so
+  another app can cover the Modn window or hold the foreground while a journey
+  runs.
+- `uv` and Python 3 on `PATH`. `uv` fetches `uiautomation`, `blake3` and
+  `pyyaml` when the interpreter lacks them.
+- 7-Zip (`7z`) on `PATH` or in `%ProgramFiles%\7-Zip` for the `catalog`
+  journey.
+- No Rust compiler for the journeys. `--build` needs `cargo`.
+
+## Journeys
+
+| # | Journey | User action and visible result | CLI or manager-state check | File-bytes check |
+|---|---------|-------------------------------|----------------------------|------------------|
+| 1 | `detection` | Home shows `Add Balatro at <path> to Modn`; one click makes it `Open Balatro at <path>` | `modn game list` names `balatro` | the game folder is unchanged after detection and after registration |
+| 2 | `progress` | the local archive picker accepts `slow.zip`; the button becomes `Cancel`; the toast `Install done` offers `Undo` | the test backend records the write in `write.json` | none |
+| 3 | `cancel` | `Cancel` before the commit shows `Cancelled. Nothing changed.` | no write and no new manager state | the state and game folders are unchanged |
+| 4 | `finishing` | the commit phase disables the button; closing shows the native `Modn is still working. Wait for the operation to finish.` dialog; the write then completes | `write.json` appears after the dialog is dismissed | none |
+| 5 | `lifecycle` | archive install, toast undo, catalog install, uninstall and history undo show `Install done`, `Undo done` and `Uninstall done`; details report `No approval needed.` | CLI list and history agree on five operations | each undo and uninstall restores the earlier content bytes |
+| 6 | `blocked` | the disabled button reads `Modn blocked this operation. Open details for the reason.` and opens no dialog | no backend text reaches the window tree | none |
+| 7 | `approval` | an ask reads `This change needs your approval.` with `Allow native code through the native injector.` or `Allow these executables:`; `Decline` writes nothing; a release that adds native code asks again | `state.sqlite` table `mod_approvals` stores one row per mod; CLI lists the version | an ask and a `Decline` change no game or content bytes; `Allow` writes the archive bytes |
+| 8 | `no-cli-output` | two scans run while the backend prints invalid JSON and then fails; the window stays open | `invalid fixture response` and `fixture refusal` never appear | none |
+| 9 | `play` | `Play balatro` starts the fixture executable; details show history; one UI Automation activation of `Copy diagnostics` shows `Diagnostics copied.` and the report file holds the doctor report. Under `verification` the Rust command writes the file named by `MODN_VERIFY_CLIPBOARD_FILE`, so the activation needs no focused webview and works while another app holds the foreground, and an error toast fails the journey. The journey deletes the file first and never reads or writes the system clipboard. | the started process id is found by image path and stopped | the game folder is unchanged |
+| 10 | `remove` | `Remove from Modn` opens the native Yes/No dialog; `No` keeps the registration and `Yes` unregisters it | `modn game list` lists and then omits `balatro` | the game folder is unchanged after both answers |
+| 11 | `catalog` | a catalog install, an update to `Update available`, a toast undo and a genuine 7z install and uninstall each take one click | CLI lists version 1.0.0, then 2.0.0, then 1.0.0 | installed bytes match each release; undo and uninstall restore the earlier bytes |
+
+Journey 7 proves the policy of issue #152. A native-code or executable mod asks
+once per mod. A new release that adds native code asks again.
+Adoption and forced cleanup are not offered by the app.
+Journey 6 proves that a blocked plan shows its reason and never asks.
+
+Journeys 1, 2, 3 and 8 cover the Milestone 6 exit gate: detection at
+startup, install progress and cancel, cancel before the commit with the game
+unchanged, and no CLI output in the window.
+
+## Fixtures and safety
+
+Every fixture is a fresh `modn-desktop-fixture-*` directory under the system
+temporary directory. Its evidence lives in a separate
+`modn-desktop-evidence-*` directory there.
+
+Inside the fixture:
+
+- `state/` is the `--state-dir` profile.
+- `data/` is `LOCALAPPDATA` and the `--data-dir`; it receives the generated
+  bucket contract v2 `main` bucket when a journey needs it.
+- `appdata/` is `MODN_APPDATA`, the content root for installed mods.
+- `steam/` is a fake Steam library with one manifest for the journeys that
+  detect a store installation.
+- `archives/` holds the ZIP and 7z files the journeys pick.
+
+The verifier never reads the user's real `%LOCALAPPDATA%\modn`, a real game or a
+real store library. The app forwards only its environment allowlist, so each
+journey passes `--state-dir`, `--data-dir` and, when the fixture has modules,
+`--module-dir` explicitly.
+
+A fixture that detects, registers or starts a game uses a byte copy of a signed
+Windows binary. Other fixtures write a short marker for an executable that no
+journey starts. Nothing is compiled, so no unsigned stub exists for Windows
+Defender to quarantine. For `play`, the fixture is a byte copy of the signed
+`systeminfo.exe`, a console program that reads system facts and stays alive
+about three seconds with the small environment the app forwards. The hidden
+console of `modn play` gives it no window, and the journey fails when any
+visible window or dialog of the
+fixture image appears. The journey stops only the process id that `play`
+started. An earlier compiled stub was flagged as `Trojan:Win32/Bearfoos.A!ml`,
+a false positive, and a copied `mstsc.exe` showed error dialogs. Never add a
+Defender exclusion.
+
+UI Automation addresses only the Modn window of the process id the verifier
+started. Other windows are never enumerated for interaction.
 
 ## Evidence
 
-Read the printed evidence path and its final `*-summary.json`.
-Keep all native command JSON, backend records, app diagnostics, and cropped PNGs.
-Classify this evidence as **sensitive** because paths and backend output can identify local data.
-The verifier captures only the owned app window.
-Do not upload evidence without reviewing it.
-
-The real driver checks game and manager-state hashes after previews, refusals, and cancellation.
-It independently reads installed bytes and invokes CLI `list` after confirmed writes.
-It changes owned bytes before uninstall and proves strict refusal preserves them.
-It restores the fixture bytes, confirms uninstall, and checks the original manual content.
-Backend failure exits in backend records are expected in refusal cases.
-Native tool and independent CLI commands must still report zero nonzero exits.
+The evidence directory is always kept. It holds the `uia-*.txt` snapshots,
+`launch.json`, `app-stderr.txt` and the journey JSON files.
+The `play` journey also writes `diagnostics.json`, which records the report
+file's keys and the fixture installation it names.
+Each journey prints its evidence path as an `evidence: <path>` line, and its
+result in the JSON summary repeats the path in `evidence`.
+Record those paths, whether or not the run uses `--keep`.
+With `--keep`, the fixture directory stays too and the run prints its path.
+Classify this evidence as **sensitive**: paths and backend output can identify
+local data. Review it before you upload it.
 
 ## Cleanup
 
-The drivers click the Close control from the recorded window and wait for the launched process.
-They do not kill apps by image name.
-They remove only their validated unique fixture directory and retain evidence.
-Require `app_exit: 0` and `fixture_removed: true` in each passing summary.
-
-If interrupted, read that run's `*-launch.json` before cleanup.
-Confirm its executable path, PID, and window ID against a fresh native inventory.
-Wait for active work, then close only that window.
-Remove only the recorded `modn-desktop-fixture-*` directory after the app exits.
-Keep its separate evidence directory, including failure evidence.
-Never clean another run by prefix alone.
+Each journey registers its cleanup before the first UI action. A passing
+journey ends with `App.close`: it asks the window to close, answers only OK or
+Cancel on an extra dialog, waits up to 45 seconds, and kills the process only
+when the wait times out. A failed journey runs the registered `App.kill`, which
+terminates only the process the verifier started, by pid, at once. Cleanup
+removes only the validated `modn-desktop-fixture-*` directory, unless `--keep`
+is set. A failed assertion still kills the app and cleans up.
 
 ## Limits
 
-The native journey covers ZIP and 7z selection, preview, installation, and strict uninstall with the synthetic fixture module.
-Windows 10 hardware and real-game compatibility remain unverified.
-The launcher supports only documented absolute configuration paths.
-Forced termination and OS crashes can require CLI recovery.
-See [desktop product documentation](../../../docs/desktop.md) for user-facing limits and licensing.
+The verifier proves the window and the listed operations on disposable
+fixtures. It does not cover a real game, Windows 10 hardware or a real store
+client.
+
+The CLI preview ignores explicit executable approvals for a content-root game
+(`apps/modn-cli/src/catalog_install.rs:328-331`, `install.rs:70-72`). The
+executable ask therefore runs on the `tools-game` fixture.
+
+The [MCP verifier](../verify-modn-mcp/SKILL.md) covers progress notifications
+and cancellation separately. See [desktop.md](../../../docs/desktop.md) for
+user-facing limits.
