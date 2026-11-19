@@ -133,6 +133,7 @@ class Fixture:
         self.modules = self.root / "modules"
         self.steam = self.root / "steam"
         self.archives = self.root / "archives"
+        self.clipboard_file = self.evidence / "clipboard-report.txt"
         for folder in (self.state, self.data, self.modules, self.archives, self.root / "appdata"):
             folder.mkdir(parents=True, exist_ok=True)
         self.evidence.mkdir(exist_ok=True)
@@ -147,6 +148,7 @@ class Fixture:
         stores.write_text(json.dumps({"steam_roots": [str(self.steam)]}), encoding="utf-8")
         env["MODN_STORE_LIBRARIES"] = str(stores)
         env["MODN_APPDATA"] = str(self.root / "appdata")
+        env["MODN_VERIFY_CLIPBOARD_FILE"] = str(self.clipboard_file)
         env.pop("MODN_GAME_MODULES_DIR", None)
         return env
 

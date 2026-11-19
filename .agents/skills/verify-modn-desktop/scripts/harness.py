@@ -85,6 +85,18 @@ def lacks_test_overrides(cli):
     return [name.decode() for name in TEST_OVERRIDES if name not in data]
 
 
+VERIFICATION_MARKER = b"MODN_VERIFY_CLIPBOARD_FILE"
+
+
+def lacks_verification_feature(app):
+    """True when the desktop app binary lacks the `verification` feature.
+
+    The marker exists in the binary only with that feature. Without it the app
+    writes the real Windows clipboard, which the verifier must never touch.
+    """
+    return VERIFICATION_MARKER not in Path(app).read_bytes()
+
+
 BINARIES = Binaries()
 
 

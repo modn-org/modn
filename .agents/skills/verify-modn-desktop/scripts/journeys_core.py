@@ -8,8 +8,8 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
-import clipboard
 import uia
 from fixtures import PLAY_SOURCE, Fixture, image_pids, signed_copy, snapshot, stop_pid
 from harness import BINARIES, App, cli, test_backend_state
@@ -194,8 +194,8 @@ def diagnostics_copied(toast):
 def diagnostics_report(text):
     """Returns the doctor report in `text`, or None when `text` is not one.
 
-    The clipboard must hold the pretty-printed doctor JSON. A JSON object with
-    the report's keys proves the Rust write; any other text does not.
+    The report file must hold the pretty-printed doctor JSON. A JSON object
+    with the report's keys proves the Rust write; any other text does not.
     """
     try:
         value = json.loads(text or "")
@@ -236,53 +236,37 @@ def wait_toast(session, clock=time.monotonic, sleep=time.sleep, timeout=TOAST_SE
     raise uia.Failure(f"Copy diagnostics showed no toast within {timeout} seconds")
 
 
-def _restore_clipboard(previous, sequence, restore_clipboard):
-    """Puts `previous` back when the clipboard still holds the app's write.
-
-    The real restore rechecks the sequence number under one clipboard lock and
-    writes nothing when anyone copied since. A restore failure is best effort
-    and never fails the journey.
-    """
-    try:
-        restore_clipboard(previous, sequence)
-    except Exception:
-        pass
-
-
 def copy_diagnostics(
-    session, read_clipboard, restore_clipboard, clock=time.monotonic, sleep=time.sleep
+    session, report_file, clock=time.monotonic, sleep=time.sleep
 ):
-    """Activates Copy diagnostics once and returns the toast and clipboard report.
+    """Activates Copy diagnostics once and returns the toast and file report.
 
     The activation uses UI Automation patterns, so it needs no foreground and
-    changes no focus. The clipboard text and its Windows sequence number are
-    read before the activation. The read after the success toast that holds a
-    doctor report proves the app's write, and its sequence number is kept. In
-    the finally, the earlier text goes back only when it differs and only while
-    that number is still unchanged; text copied afterwards, even another
-    doctor report, stays. A restore failure never fails the journey. Raises
-    `uia.Failure` when the toast reports an error or clipboard failure, or when
-    the clipboard does not hold the doctor report.
+    changes no focus. The app writes the report to `report_file`; the verifier
+    never reads or writes the system clipboard. After the success toast, the
+    file is polled until it holds the doctor report, within the toast timeout.
+    Raises `uia.Failure` when the toast reports an error or clipboard failure,
+    or when the file does not hold the doctor report.
     """
-    previous_text, _ = read_clipboard()
-    sequence = None
-    found_text = previous_text
-    try:
-        session.activate(session.find(name="Copy diagnostics"))
-        toast = wait_toast(session, clock=clock, sleep=sleep)
-        if not diagnostics_copied(toast):
-            raise uia.Failure(f"Copy diagnostics reported: {toast}")
-        found_text, found_sequence = read_clipboard()
-        report = diagnostics_report(found_text)
-        if report is None:
-            raise uia.Failure(
-                "Copy diagnostics did not put the doctor report on the clipboard"
-            )
-        sequence = found_sequence
-        return toast, report
-    finally:
-        if sequence is not None and previous_text != found_text:
-            _restore_clipboard(previous_text, sequence, restore_clipboard)
+    session.activate(session.find(name="Copy diagnostics"))
+    toast = wait_toast(session, clock=clock, sleep=sleep)
+    if not diagnostics_copied(toast):
+        raise uia.Failure(f"Copy diagnostics reported: {toast}")
+    deadline = clock() + TOAST_SECONDS
+    while clock() < deadline:
+        try:
+            text = Path(report_file).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = None
+        if text is not None:
+            report = diagnostics_report(text)
+            if report is not None:
+                return toast, report
+        sleep(0.05)
+    raise uia.Failure(
+        f"Copy diagnostics did not write a doctor report to {report_file} "
+        f"within {TOAST_SECONDS} seconds"
+    )
 
 
 def _scan(session):
@@ -400,13 +384,12 @@ def journey_play(runner):
         session.activate(session.wait_control(prefix="Open details for", control_type="HyperlinkControl"))
         session.wait_for(lambda s: s.find_all(name="Copy diagnostics"), "details view")
         runner.check(session.exists(name="Operation history"), "History section is missing")
-        toast, report = copy_diagnostics(
-            session, clipboard.read_snapshot, clipboard.restore_if_unchanged
-        )
+        fx.clipboard_file.unlink(missing_ok=True)
+        toast, report = copy_diagnostics(session, fx.clipboard_file)
         installation = report.get("scan", {}).get("installation")
         runner.check(
             isinstance(installation, str) and same_path(installation, game),
-            f"Clipboard doctor report names {installation!r}, not {game}",
+            f"Doctor report names {installation!r}, not {game}",
         )
         (fx.evidence / "diagnostics.json").write_text(
             json.dumps(

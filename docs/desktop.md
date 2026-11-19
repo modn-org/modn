@@ -129,12 +129,13 @@ main action.
 
 **History** lists the operations of this mod, newest first, each with **Undo**.
 **Copy diagnostics** runs `modn doctor` through the backend and copies the
-pretty-printed JSON report. The Rust command writes the system clipboard, so
-the copy needs no focused webview and works while another app holds the
-foreground. A verifier journey records the Windows clipboard sequence number
-when it sees that write, and it restores the earlier text only if the number is
-unchanged while it holds the clipboard open. Text copied afterwards, even
-another doctor report, stays.
+pretty-printed JSON report. A release build writes the system clipboard, so the
+copy needs no focused webview and works while another app holds the foreground.
+A build with the `verification` feature writes the report to the file named by
+`MODN_VERIFY_CLIPBOARD_FILE` instead and never reads or writes the system
+clipboard. An unset, empty or unwritable path returns `CLIPBOARD_FAILED`. The
+desktop verifier uses that file, deletes it before the click and checks that it
+holds the doctor report.
 
 ## One-click operations
 

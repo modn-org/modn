@@ -18,8 +18,10 @@ the game in one click; a registered card opens the game's Library.
 - O6: `Play balatro` launches the fixture executable (journey 9).
 - O7: Mod details shows the file plan and operation history (journeys 5 and
   9), and `Copy diagnostics` confirms with `Diagnostics copied.` (journey 9).
-  The Rust command writes the clipboard, so the activation needs no focused
-  webview and works while another app holds the foreground.
+  Under the `verification` feature the Rust command writes the report to the
+  file named by `MODN_VERIFY_CLIPBOARD_FILE`, so the activation needs no
+  focused webview and works while another app holds the foreground. The
+  verifier never reads or writes the system clipboard.
 - O8: `Remove from Modn` opens a native Yes/No dialog; `No` keeps the
   registration, `Yes` unregisters it, and the game folder stays unchanged
   (journey 10).

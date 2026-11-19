@@ -57,7 +57,8 @@ pub(crate) async fn diagnostics(state: tauri::State<'_, AppState>) -> Result<Str
     doctor_report(&state).await
 }
 
-/// Copies the doctor report to the Windows clipboard.
+/// Copies the doctor report to the system clipboard, or to the verifier's file
+/// when this build has the `verification` feature.
 ///
 /// The write runs in the process, not in the webview, so it needs no focused
 /// document and keeps working while another window holds the foreground.
@@ -66,7 +67,7 @@ pub(crate) async fn copy_diagnostics(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), CommandError> {
     let report = doctor_report(&state).await?;
-    write_clipboard(&report, system_clipboard)
+    write_clipboard(&report, destination)
 }
 
 /// Gives `text` to `write` and maps a refusal to the stable clipboard code.
@@ -79,7 +80,30 @@ fn write_clipboard(
     write(text).map_err(|()| CommandError::clipboard_failed())
 }
 
+/// Writes the verifier's report file, named by `MODN_VERIFY_CLIPBOARD_FILE`.
+///
+/// An unset, empty or unwritable path is an error. The verifier must never fall
+/// back to the system clipboard.
+#[cfg(feature = "verification")]
+fn destination(text: &str) -> Result<(), ()> {
+    file_sink(std::env::var_os("MODN_VERIFY_CLIPBOARD_FILE"), text)
+}
+
+/// Writes the whole `text` to `path`, or fails without touching anything else.
+#[cfg(feature = "verification")]
+fn file_sink(path: Option<std::ffi::OsString>, text: &str) -> Result<(), ()> {
+    let path = path.filter(|value| !value.is_empty()).ok_or(())?;
+    std::fs::write(path, text).map_err(|_| ())
+}
+
+/// Writes the report to the system clipboard in a release build.
+#[cfg(not(feature = "verification"))]
+fn destination(text: &str) -> Result<(), ()> {
+    system_clipboard(text)
+}
+
 /// Writes one Unicode text block through the Windows clipboard API.
+#[cfg(not(feature = "verification"))]
 fn system_clipboard(text: &str) -> Result<(), ()> {
     clipboard_win::set_clipboard_string(text).map_err(|_| ())
 }
@@ -136,5 +160,50 @@ mod tests {
             error.message,
             "Modn could not copy diagnostics to the clipboard."
         );
+    }
+
+    #[cfg(feature = "verification")]
+    mod file_sink {
+        use super::super::file_sink;
+        use std::ffi::OsString;
+        use std::path::PathBuf;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+
+        fn unique_folder() -> PathBuf {
+            let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+            std::env::temp_dir().join(format!(
+                "modn-desktop-file-sink-{}-{serial}",
+                std::process::id()
+            ))
+        }
+
+        #[test]
+        fn writes_the_exact_text() {
+            let folder = unique_folder();
+            std::fs::create_dir(&folder).expect("create the unique folder");
+            let path = folder.join("clipboard-report.txt");
+            let text = "{\n  \"scan\": {}\n}";
+            let result = file_sink(Some(path.clone().into_os_string()), text);
+            let written = std::fs::read_to_string(&path).expect("read the report");
+            std::fs::remove_dir_all(&folder).expect("remove the unique folder");
+            assert_eq!(result, Ok(()));
+            assert_eq!(written, text);
+        }
+
+        #[test]
+        fn rejects_a_missing_or_empty_path() {
+            assert_eq!(file_sink(None, "report"), Err(()));
+            assert_eq!(file_sink(Some(OsString::new()), "report"), Err(()));
+        }
+
+        #[test]
+        fn reports_a_missing_parent() {
+            let folder = unique_folder();
+            let path = folder.join("clipboard-report.txt");
+            assert_eq!(file_sink(Some(path.into_os_string()), "report"), Err(()));
+            assert!(!folder.exists());
+        }
     }
 }

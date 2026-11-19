@@ -50,7 +50,11 @@ def parse_args(argv=None):
         help="comma-separated journey names or numbers to run (default: all)",
     )
     parser.add_argument("--keep", action="store_true", help="keep fixtures and evidence")
-    parser.add_argument("--selftest", action="store_true", help="check dialog_for and the CLI override guard against fakes")
+    parser.add_argument(
+        "--selftest",
+        action="store_true",
+        help="check the helpers and both binary guards against fakes",
+    )
     parser.add_argument("--app", metavar="PATH", help="override the built modn-desktop.exe")
     parser.add_argument("--cli", metavar="PATH", help="override the built modn.exe")
     parser.add_argument("--test-backend", metavar="PATH", help="override the built test backend")
@@ -150,11 +154,7 @@ def selftest():
         "Something went wrong"
     )
 
-    # Copy diagnostics: fakes for the one click, the toast and the clipboard.
-    import selftest_clipboard  # noqa: PLC0415 - fake Win32 only
-
-    results.update(selftest_clipboard.checks())
-
+    # Copy diagnostics: fakes for the one click, the toast and the report file.
     import selftest_diagnostics  # noqa: PLC0415 - fake desktop only
 
     results.update(selftest_diagnostics.checks())
@@ -283,6 +283,16 @@ def selftest():
         results["rejects_a_cli_without_one_override"] = harness.lacks_test_overrides(one) == [
             "MODN_STORE_LIBRARIES"
         ]
+        verified = Path(folder) / "verified.exe"
+        verified.write_bytes(b"x MODN_VERIFY_CLIPBOARD_FILE y")
+        plain = Path(folder) / "plain.exe"
+        plain.write_bytes(b"x MODN_VERIFY_CLIPBOARD y")
+        results["accepts_an_app_with_the_verification_marker"] = not (
+            harness.lacks_verification_feature(verified)
+        )
+        results["rejects_an_app_without_the_verification_marker"] = (
+            harness.lacks_verification_feature(plain)
+        )
     passed = all(results.values())
     print(json.dumps({"selftest": "passed" if passed else "failed", "checks": results}))
     return 0 if passed else 1
@@ -330,6 +340,12 @@ def main():
             f"{harness.BINARIES.cli} was built without modn-core/test-instruction-budget "
             f"({', '.join(absent)} not found). It would read the real Steam library and "
             "install into real game folders. Build the verifier CLI with --build."
+        )
+    if harness.lacks_verification_feature(harness.BINARIES.app):
+        parser.error(
+            f"{harness.BINARIES.app} was built without the verification feature. It would "
+            "write the real Windows clipboard, which the verifier never touches. Build the "
+            "verifier app with cargo build -p modn-desktop --features verification --locked."
         )
     runner = harness.Runner(args)
     started = time.monotonic()

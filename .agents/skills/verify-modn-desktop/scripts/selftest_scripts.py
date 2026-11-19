@@ -1,8 +1,9 @@
 """Selftest checks for the scripts themselves, their docs and the window seam.
 
-`no_physical_input_remains` scans the verifier's own code, so this file is the
-one place allowed to name the banned APIs. The other checks use fakes and files
-only; nothing here touches the desktop.
+`no_physical_input_remains` and `verifier_never_touches_system_clipboard` scan
+the verifier's own code, so this file is the one place allowed to name the
+banned APIs. The other checks use fakes and files only; nothing here touches
+the desktop.
 """
 
 import ast
@@ -30,6 +31,20 @@ BANNED_APIS = {
     "focus",
     "bring_to_front",
 }
+CLIPBOARD_APIS = (
+    "OpenClipboard",
+    "GetClipboardData",
+    "SetClipboardData",
+    "EmptyClipboard",
+    "GetClipboardSequenceNumber",
+    "CF_UNICODETEXT",
+    "win32clipboard",
+    "pyperclip",
+    "Get-Clipboard",
+    "Set-Clipboard",
+    "clip.exe",
+    "tkinter",
+)
 
 
 def _called_name(node):
@@ -145,6 +160,15 @@ def checks():
         for offender in _physical_calls(path)
     ]
     results["no_physical_input_remains"] = not offenders
+
+    clipboard_offenders = [
+        f"{path.name}:{token}"
+        for path in sorted(SCRIPTS.glob("*.py"))
+        if path.name != Path(__file__).name
+        for token in CLIPBOARD_APIS
+        if token in path.read_text(encoding="utf-8")
+    ]
+    results["verifier_never_touches_system_clipboard"] = not clipboard_offenders
 
     patched = {}
     clicks = []
