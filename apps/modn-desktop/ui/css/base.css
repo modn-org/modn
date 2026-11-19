@@ -130,6 +130,16 @@ a {
   background: var(--modn-color-surface-raised);
 }
 
+.modn-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-2xs);
+  padding: var(--modn-space-xl);
+  border: 1px solid var(--modn-color-border);
+  border-radius: var(--modn-radius-m);
+  background: var(--modn-color-surface-raised);
+}
+
 .modn-card--empty {
   align-items: flex-start;
   border-style: dashed;
