@@ -116,6 +116,11 @@ pub(in crate::buckets) struct Registration {
 }
 
 impl Registration {
+    /// True when this registration names a catalog tree that a sync created.
+    pub(in crate::buckets) fn is_catalog(&self) -> bool {
+        self.git.is_some() || self.zip.is_some()
+    }
+
     pub(in crate::buckets) fn revision(
         &self,
         name: &str,

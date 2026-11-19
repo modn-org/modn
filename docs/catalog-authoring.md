@@ -185,15 +185,20 @@ revocation clears it, so users run `modn bucket trust-modules` again. Sync outpu
 names both fingerprints.
 
 A rotation may return to a key that an earlier rotation retired, but it needs a
-new statement. Modn applies each rotation or revocation statement once and
-refuses a revision that republishes an applied statement for the pinned key, so
-a retired key cannot regain trust by replaying an old statement. Modn records
-only the key that the current revision rotated away from, so the current key is
-never listed as retired. A rotation cannot name a key in `revoked_signers`; only
-the offline revocation key can re-authorize a revoked key. A revocation may name
-a retired or revoked key as its replacement, and that re-authorizes it. After a
-revocation, module releases imported under the revoked key stay untrusted; a new
-release carries the replacement key and becomes usable after `trust-modules`.
+new statement. Modn applies each rotation or revocation statement once. A
+revision that keeps the pinned `catalog.pub` and republishes an applied
+statement treats it as history and syncs normally. Modn refuses a revision whose
+`catalog.pub` names another key and that republishes an applied statement for
+the pinned key, so a retired key cannot regain trust by replaying an old
+statement. Modn records only the key that the current revision rotated away
+from, so the current key is never listed as retired. A rotation cannot name a
+key in `revoked_signers`; only the offline revocation key can re-authorize a
+revoked key. A revocation may name a retired or revoked key as its replacement,
+and that re-authorizes it. After a revocation, module releases imported under the
+revoked key stay untrusted. If a later revocation re-authorizes that key as its
+replacement, the retained releases are trusted again after `trust-modules`. A
+new release carries the replacement key and becomes usable after
+`trust-modules`.
 
 Keep accepted statements published. Each user applies the one statement whose
 old key matches their pinned key. Every other statement is history, and a new
