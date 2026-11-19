@@ -365,6 +365,26 @@ fn the_digest_is_stable_across_inspections() {
     assert_eq!(first.digest, second.digest);
 }
 
+#[test]
+fn every_reported_problem_carries_a_relative_path() {
+    let temp = tempdir().unwrap();
+    let root = temp.path().join("theme");
+    write(&root.join("theme.json"), b"{}");
+    write(&root.join("theme.css"), &[0xFF, 0xFE]);
+    write(&root.join("notes.txt"), b"x");
+    write(&root.join("assets/A.png"), &PNG);
+    let problems = problems(&root);
+    assert!(!problems.is_empty());
+    for problem in &problems {
+        let path = problem
+            .path
+            .as_deref()
+            .unwrap_or_else(|| panic!("problem without a path: {problem:?}"));
+        assert!(!path.contains('\\'), "windows separators in {path}");
+        assert!(!path.starts_with('/') && !path.contains(":/"), "{path}");
+    }
+}
+
 fn problems_with(root: &Path, checker: &dyn CssChecker) -> Vec<ThemeProblem> {
     inspect_theme_dir(root, checker).expect_err("theme should be rejected")
 }

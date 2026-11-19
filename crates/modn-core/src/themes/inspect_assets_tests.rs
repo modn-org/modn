@@ -170,7 +170,7 @@ fn assets_over_the_total_limit_are_theme_too_large() {
     }
     let problems = problems(&root);
     let problem = find(&problems, Rule::ThemeTooLarge).clone();
-    assert_eq!(problem.path, None);
+    assert_eq!(problem.path.as_deref(), Some("."));
     assert!(problem.message.contains("8388608"), "{}", problem.message);
     assert!(problems
         .iter()

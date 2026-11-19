@@ -18,19 +18,22 @@ const MAX_THEME_DEPTH: usize = 32;
 /// Links anywhere in the tree are refused with [`Rule::UnexpectedFile`].
 pub fn theme_digest(dir: &Path) -> Result<String, ThemeProblem> {
     let metadata = fs::symlink_metadata(dir).map_err(|error| {
-        ThemeProblem::new(
+        problem(
+            ".",
             Rule::ThemeMissing,
             format!("cannot inspect the theme directory: {error}"),
         )
     })?;
     if metadata.file_type().is_symlink() {
-        return Err(ThemeProblem::new(
+        return Err(problem(
+            ".",
             Rule::UnexpectedFile,
             "the theme directory is a link; links are refused",
         ));
     }
     if !metadata.is_dir() {
-        return Err(ThemeProblem::new(
+        return Err(problem(
+            ".",
             Rule::ThemeMissing,
             "the theme path is not a directory",
         ));

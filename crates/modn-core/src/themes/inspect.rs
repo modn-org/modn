@@ -73,7 +73,8 @@ pub fn inspect_theme_dir(
             return Err(vec![ThemeProblem::new(
                 Rule::UnexpectedFile,
                 "the theme directory is a link; links are refused",
-            )]);
+            )
+            .with_path(".")]);
         }
         Ok(metadata) if !metadata.is_dir() => {
             problems.push(
@@ -164,20 +165,26 @@ pub fn inspect_theme_dir(
     };
     problems.append(&mut scan.problems);
     if scan.count > MAX_THEME_ASSETS {
-        problems.push(ThemeProblem::new(
-            Rule::TooManyAssets,
-            format!(
-                "assets/ holds {} files; the limit is {MAX_THEME_ASSETS}",
-                scan.count
-            ),
-        ));
+        problems.push(
+            ThemeProblem::new(
+                Rule::TooManyAssets,
+                format!(
+                    "assets/ holds {} files; the limit is {MAX_THEME_ASSETS}",
+                    scan.count
+                ),
+            )
+            .with_path(ASSETS_DIR),
+        );
     }
     let total = scan.total_bytes.saturating_add(css_bytes);
     if total > MAX_THEME_ASSETS_BYTES {
-        problems.push(ThemeProblem::new(
-            Rule::ThemeTooLarge,
-            format!("theme files total {total} bytes; the limit is {MAX_THEME_ASSETS_BYTES}"),
-        ));
+        problems.push(
+            ThemeProblem::new(
+                Rule::ThemeTooLarge,
+                format!("theme files total {total} bytes; the limit is {MAX_THEME_ASSETS_BYTES}"),
+            )
+            .with_path("."),
+        );
     }
     if let Some(icon) = manifest
         .as_ref()
