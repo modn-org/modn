@@ -139,8 +139,9 @@ impl GitSource {
         remote: &str,
         limit: std::time::Duration,
         program: Option<&std::ffi::OsStr>,
+        fail_tree_stop: bool,
     ) -> Result<()> {
-        pack::clone_catalog_bounded(destination, remote, limit, program)
+        pack::clone_catalog_bounded(destination, remote, limit, program, fail_tree_stop)
     }
 
     /// The inactivity limit of one Git fetch, for the catalog mirror sync.

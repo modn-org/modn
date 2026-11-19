@@ -14,6 +14,8 @@ pub(crate) struct CatalogFetch {
     pub(crate) limit: Duration,
     /// Replacement Git program for tests.
     pub(crate) program: Option<PathBuf>,
+    /// Report a tree that cannot be stopped, for the hard-error test.
+    pub(crate) fail_tree_stop: bool,
 }
 
 impl CatalogFetch {
@@ -22,6 +24,7 @@ impl CatalogFetch {
         Self {
             limit: GitSource::catalog_inactivity_limit(),
             program: None,
+            fail_tree_stop: false,
         }
     }
 }
@@ -37,6 +40,7 @@ pub(super) fn clone_catalog(
         &source.remote,
         fetch.limit,
         fetch.program.as_deref().map(Path::as_os_str),
+        fetch.fail_tree_stop,
     )?;
     let catalog = attempt.join("catalog");
     git(&catalog, &["checkout", "--detach", &source.reference, "--"])?;

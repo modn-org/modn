@@ -175,6 +175,7 @@ pub(super) fn clone_catalog_bounded(
     remote: &str,
     limit: Duration,
     program: Option<&OsStr>,
+    fail_tree_stop: bool,
 ) -> Result<()> {
     let hooks = git::empty_hooks()?;
     let environment = GitEnvironment {
@@ -204,7 +205,15 @@ pub(super) fn clone_catalog_bounded(
             Ok(())
         }
         Bounded::Stalled => {
-            clone.terminate(FETCH_KILL_GRACE, TreeStop::End).map_err(|error| {
+            #[cfg(any(test, feature = "test-instruction-budget"))]
+            let stop = if fail_tree_stop {
+                TreeStop::Fail
+            } else {
+                TreeStop::End
+            };
+            #[cfg(not(any(test, feature = "test-instruction-budget")))]
+            let stop = TreeStop::End;
+            clone.terminate(FETCH_KILL_GRACE, stop).map_err(|error| {
                 anyhow::Error::new(error).context(format!(
                     "GIT_CATALOG_FETCH_FAILED: cloning {remote} made no progress for {} ms and its process tree could not be stopped",
                     limit.as_millis()
