@@ -4,12 +4,19 @@ use super::super::digest::file_blake3;
 use super::super::{FetchError, CONNECT_TIMEOUT, READ_INACTIVITY_TIMEOUT};
 use crate::git::{self, GitEnvironment};
 use anyhow::{anyhow, bail, Context, Result};
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 use zip::write::SimpleFileOptions;
+
+mod process;
+use process::FetchProcess;
+
+#[cfg(test)]
+mod tests;
 
 const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED: u64 = 64 * 1024 * 1024 * 1024;
@@ -27,20 +34,21 @@ struct TreeEntry {
     executable: bool,
 }
 
-/// How often the fetch loop checks whether its child exited.
+/// How often the fetch loop checks whether its child exited or progressed.
 const FETCH_POLL: Duration = Duration::from_millis(25);
 
-/// How long the timeout path waits for a killed child to be reaped.
-const FETCH_KILL_GRACE: Duration = Duration::from_millis(500);
+/// How long the timeout path waits for the ended child and its reader.
+const FETCH_KILL_GRACE: Duration = Duration::from_secs(2);
 
-/// Wall-clock bound for one Git fetch: the connect timeout plus one idle window.
+/// How long one Git fetch may make no progress before it fails.
 ///
 /// The value matches the connect and idle timeouts that `docs/sources.md`
-/// documents for every source. A test build may shorten it through
-/// `MODN_TEST_GIT_FETCH_TIMEOUT_MS`.
-fn fetch_timeout() -> Duration {
+/// documents for every source. A fetch that keeps writing progress output may
+/// run longer; a silent or stalled transfer fails. A test build may shorten
+/// the limit through `MODN_TEST_GIT_FETCH_IDLE_MS`.
+fn fetch_inactivity_limit() -> Duration {
     #[cfg(any(test, feature = "test-instruction-budget"))]
-    if let Some(millis) = std::env::var("MODN_TEST_GIT_FETCH_TIMEOUT_MS")
+    if let Some(millis) = std::env::var("MODN_TEST_GIT_FETCH_IDLE_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
     {
@@ -49,60 +57,78 @@ fn fetch_timeout() -> Duration {
     CONNECT_TIMEOUT + READ_INACTIVITY_TIMEOUT
 }
 
-/// Fetch `commit` from `url` with a hard deadline and a low-speed limit.
+/// A test-only replacement for the Git program; production uses Git itself.
+#[cfg(any(test, feature = "test-instruction-budget"))]
+fn fetch_program() -> Option<OsString> {
+    std::env::var_os("MODN_TEST_GIT_FETCH_PROGRAM")
+}
+
+#[cfg(not(any(test, feature = "test-instruction-budget")))]
+fn fetch_program() -> Option<OsString> {
+    None
+}
+
+/// Fetch `commit` from `url`; fail only when the fetch stops making progress.
 ///
-/// A stalled transfer fails after the documented idle window because Git stops
-/// a body that delivers fewer than one byte per second. The wall-clock deadline
-/// also covers a connection that never answers at all. A fetch that misses the
-/// deadline is killed and reaped, so no Git process outlives the attempt, and
-/// the failure is a [`FetchError::Timeout`] attempt like any other source.
+/// Git runs with `--progress`, so its stderr carries progress output while the
+/// transfer advances. The fetch fails after the inactivity limit passes with no
+/// new stderr output, which covers a stalled transfer and a remote that never
+/// answers. A transfer that Git itself stops below its low-speed limit keeps
+/// the same [`FetchError::Timeout`] class.
 fn fetch_commit(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Result<()> {
-    let limit = fetch_timeout();
-    let mut child = fetch_child(environment, url, commit)?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .context("GIT_SOURCE_FETCH_FAILED: git fetch stderr is not captured")?;
-    let reader = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = stderr.read_to_string(&mut text);
-        text
-    });
-    let started = Instant::now();
-    let mut timed_out = false;
-    loop {
-        if child.try_wait()?.is_some() {
-            break;
+    fetch_with(
+        environment,
+        url,
+        commit,
+        fetch_inactivity_limit(),
+        fetch_program().as_deref(),
+    )
+}
+
+/// Fetch with an explicit inactivity limit and program, for tests.
+fn fetch_with(
+    environment: &GitEnvironment<'_>,
+    url: &str,
+    commit: &str,
+    limit: Duration,
+    program: Option<&OsStr>,
+) -> Result<()> {
+    let mut fetch = FetchProcess::spawn(environment, url, commit, program)?;
+    let mut last_progress = Instant::now();
+    let mut seen = 0;
+    let stalled = loop {
+        if fetch.try_wait()?.is_some() {
+            break false;
         }
-        if started.elapsed() >= limit {
-            timed_out = true;
-            let _ = child.kill();
-            break;
+        let progress = fetch.progress();
+        if progress != seen {
+            seen = progress;
+            last_progress = Instant::now();
+        }
+        if last_progress.elapsed() >= limit {
+            break true;
         }
         std::thread::sleep(FETCH_POLL);
-    }
-    if timed_out {
-        // A killed child that is a wrapper can outlive its own kill until a
-        // descendant lets go of it, so the timeout path reaps only inside a
-        // short grace window and never waits for that descendant.
-        let deadline = Instant::now() + FETCH_KILL_GRACE;
-        while Instant::now() < deadline {
-            if child.try_wait()?.is_some() {
-                break;
-            }
-            std::thread::sleep(FETCH_POLL);
-        }
-        // A killed child's own children may still hold the stderr pipe open,
-        // so the reader thread is left to end on its own. The timeout path
-        // must not wait for a descendant that outlives the fetch.
+    };
+    if stalled {
+        // Git and every descendant end before the caller removes the staging
+        // directory or moves on to the next source.
+        fetch.terminate(FETCH_KILL_GRACE);
+        let _ = fetch.stderr(FETCH_KILL_GRACE);
         return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
-            "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} exceeded the {} ms Git fetch timeout",
+            "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} made no progress for {} ms",
             limit.as_millis()
         )));
     }
-    let status = child.wait()?;
-    let stderr = reader.join().unwrap_or_default();
+    let status = fetch.wait()?;
+    let stderr = fetch.stderr(FETCH_KILL_GRACE);
     if !status.success() {
+        if low_speed_abort(&stderr) {
+            return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
+                "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} stopped below the Git low-speed limit: {}",
+                stderr.trim()
+            )));
+        }
         bail!(
             "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} failed: {}",
             stderr.trim()
@@ -111,61 +137,15 @@ fn fetch_commit(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Re
     Ok(())
 }
 
-/// Spawn the Git fetch child for `fetch_commit`.
+/// Whether Git's stderr names the transfer abort below its low-speed limit.
 ///
-/// A test build may replace the program through `MODN_TEST_GIT_FETCH_PROGRAM`,
-/// which production builds never read. The replacement keeps the fixed
-/// configuration, working directory and environment of the real command, so a
-/// stub can forward every argument it does not handle to the real Git.
-fn fetch_child(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Result<Child> {
-    let mut command = git::command(environment);
-    command
-        .arg("-c")
-        .arg("http.lowSpeedLimit=1")
-        .arg("-c")
-        .arg(format!(
-            "http.lowSpeedTime={}",
-            READ_INACTIVITY_TIMEOUT.as_secs()
-        ))
-        .args(["fetch", "--depth", "1", "--no-tags", "--", url, commit])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    #[cfg(any(test, feature = "test-instruction-budget"))]
-    if let Some(program) = std::env::var_os("MODN_TEST_GIT_FETCH_PROGRAM") {
-        command = replace_program(command, program);
-    }
-    command
-        .spawn()
-        .context("GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH")
-}
-
-/// Reuse a prepared Git command with a test program in place of `git`.
-#[cfg(any(test, feature = "test-instruction-budget"))]
-fn replace_program(
-    command: std::process::Command,
-    program: std::ffi::OsString,
-) -> std::process::Command {
-    let mut replaced = std::process::Command::new(program);
-    replaced
-        .args(command.get_args())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    if let Some(directory) = command.get_current_dir() {
-        replaced.current_dir(directory);
-    }
-    for (key, value) in command.get_envs() {
-        match value {
-            Some(value) => {
-                replaced.env(key, value);
-            }
-            None => {
-                replaced.env_remove(key);
-            }
-        }
-    }
-    replaced
+/// `git fetch` runs with `http.lowSpeedLimit` and `http.lowSpeedTime`, so
+/// libcurl ends a stalled HTTP transfer with its operation-timeout message
+/// before the inactivity limit elapses. The ordered fallback treats that abort
+/// like the deadline: both are a `timeout` attempt.
+fn low_speed_abort(stderr: &str) -> bool {
+    let text = stderr.to_ascii_lowercase();
+    text.contains("operation too slow") || text.contains("bytes/sec transferred")
 }
 
 /// Fetch `commit` from `url` and pack its tree into `staging/archive.zip`.
