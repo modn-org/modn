@@ -7,7 +7,8 @@ use crate::buckets::{BucketStore, ModuleTrustAck, ZipCatalogSource};
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 const PRIMARY: &str = "https://primary.example/catalog.zip";
 
@@ -48,6 +49,17 @@ fn sync(store: &BucketStore, bytes: Vec<u8>) -> anyhow::Result<crate::buckets::Z
     store.sync_zip_with_signer("community", None, fetch(bytes))
 }
 
+fn use_clock(store: &mut BucketStore, now: &Arc<AtomicU64>) {
+    let clock = Arc::clone(now);
+    store.clock = Some(Arc::new(move || clock.load(Ordering::SeqCst)));
+}
+
+pub(super) fn packed_revision(catalog: &Path, key: &SigningKey, marker: &str) -> Vec<u8> {
+    fs::write(catalog.join("extra.txt"), marker.as_bytes()).expect("extra file");
+    sign_catalog(catalog, key);
+    pack_catalog(catalog)
+}
+
 pub(super) fn first_sync(state: &Path, catalog: &Path, key: &SigningKey) -> Vec<u8> {
     write_catalog(catalog, "https://mirror.example/catalog.zip", key);
     let bytes = pack_catalog(catalog);
@@ -75,20 +87,17 @@ fn an_unchanged_digest_reuses_the_published_snapshot() {
     assert_eq!(snapshots(state.path()).len(), 1, "one active snapshot");
 }
 #[test]
-fn a_changed_digest_retires_the_superseded_snapshot_at_the_next_sync() {
+fn a_changed_digest_retires_the_superseded_snapshot_until_the_grace_period_passes() {
     let state = tempfile::tempdir().expect("state");
     let catalog = tempfile::tempdir().expect("catalog");
     let key = signing_key();
     let _bytes = first_sync(state.path(), catalog.path(), &key);
     let old = published_snapshot(state.path()).0;
+    let now = Arc::new(AtomicU64::new(1_000_000));
+    let mut store = BucketStore::new(state.path());
+    use_clock(&mut store, &now);
 
-    fs::write(catalog.path().join("extra.txt"), b"new revision").expect("extra file");
-    let statement = crate::buckets::catalog_statement(catalog.path()).expect("statement");
-    let signature = super::tests::sign_bytes(&key, statement.as_bytes());
-    fs::write(catalog.path().join("catalog.sig"), signature).expect("signature");
-    let changed = pack_catalog(catalog.path());
-
-    let store = BucketStore::new(state.path());
+    let changed = packed_revision(catalog.path(), &key, "new revision");
     sync(&store, changed).expect("a new digest is accepted");
 
     let (new, _) = published_snapshot(state.path());
@@ -100,27 +109,99 @@ fn a_changed_digest_retires_the_superseded_snapshot_at_the_next_sync() {
     );
     assert_eq!(snapshots(state.path()).len(), 2, "old and active snapshots");
 
-    fs::write(catalog.path().join("extra.txt"), b"third revision").expect("extra file");
-    let statement = crate::buckets::catalog_statement(catalog.path()).expect("statement");
-    let signature = super::tests::sign_bytes(&key, statement.as_bytes());
-    fs::write(catalog.path().join("catalog.sig"), signature).expect("signature");
-    let changed_again = pack_catalog(catalog.path());
+    let changed_again = packed_revision(catalog.path(), &key, "third revision");
     sync(&store, changed_again).expect("a third digest is accepted");
 
-    assert!(!old.exists(), "the next sync removes the retired snapshot");
     assert!(
-        new.exists(),
-        "a tree retired by this sync waits for the next one"
+        old.exists(),
+        "a retired snapshot waits for the grace period"
+    );
+
+    now.store(
+        1_000_000 + crate::buckets::retire::RETIRED_GRACE.as_secs(),
+        Ordering::SeqCst,
+    );
+    let changed_once_more = packed_revision(catalog.path(), &key, "fourth revision");
+    sync(&store, changed_once_more).expect("a fourth digest is accepted");
+
+    assert!(
+        !old.exists(),
+        "the first sync after the grace period removes the retired snapshot"
     );
 }
 #[test]
-fn a_reader_that_loaded_the_registration_before_a_sync_keeps_its_tree() {
+fn a_malformed_retire_marker_never_deletes_a_retired_tree() {
     let state = tempfile::tempdir().expect("state");
     let catalog = tempfile::tempdir().expect("catalog");
     let key = signing_key();
     let _bytes = first_sync(state.path(), catalog.path(), &key);
     let old = published_snapshot(state.path()).0;
-    let store = BucketStore::new(state.path());
+    let mut store = BucketStore::new(state.path());
+
+    let changed = packed_revision(catalog.path(), &key, "second revision");
+    sync(&store, changed).expect("a new digest is accepted");
+    let marker = state.path().join("buckets/.retired-catalogs");
+    fs::write(&marker, b"{malformed").expect("malformed marker");
+    let now = Arc::new(AtomicU64::new(u64::MAX));
+    use_clock(&mut store, &now);
+    let changed_again = packed_revision(catalog.path(), &key, "third revision");
+    sync(&store, changed_again).expect("a third digest is accepted");
+
+    assert!(
+        old.is_dir(),
+        "a malformed retire record never causes an immediate delete"
+    );
+
+    fs::remove_file(&marker).expect("remove the retire record");
+    let changed_once_more = packed_revision(catalog.path(), &key, "fourth revision");
+    sync(&store, changed_once_more).expect("a fourth digest is accepted");
+
+    assert!(
+        old.is_dir(),
+        "a missing retire record never causes an immediate delete"
+    );
+}
+
+#[test]
+fn a_retire_record_without_a_time_gets_a_fresh_time() {
+    let state = tempfile::tempdir().expect("state");
+    let catalog = tempfile::tempdir().expect("catalog");
+    let key = signing_key();
+    let _bytes = first_sync(state.path(), catalog.path(), &key);
+    let old = published_snapshot(state.path()).0;
+    let old_name = snapshot_of(state.path(), &old)
+        .file_name()
+        .expect("snapshot name")
+        .to_string_lossy()
+        .into_owned();
+    let mut store = BucketStore::new(state.path());
+    let changed = packed_revision(catalog.path(), &key, "second revision");
+    sync(&store, changed).expect("a new digest is accepted");
+
+    let marker = state.path().join("buckets/.retired-catalogs");
+    fs::write(&marker, serde_json::json!([old_name.clone()]).to_string()).expect("legacy marker");
+    let now = Arc::new(AtomicU64::new(1_000_000));
+    use_clock(&mut store, &now);
+    let changed_again = packed_revision(catalog.path(), &key, "third revision");
+    sync(&store, changed_again).expect("a third digest is accepted");
+
+    assert!(old.is_dir(), "the legacy record is kept, not deleted");
+    let marker: serde_json::Value =
+        serde_json::from_slice(&fs::read(old.join(".modn-retired")).expect("fresh marker"))
+            .expect("JSON");
+    assert_eq!(marker["retired_at"], 1_000_000);
+}
+
+#[test]
+fn a_retired_snapshot_survives_two_syncs_while_a_reader_still_needs_it() {
+    let state = tempfile::tempdir().expect("state");
+    let catalog = tempfile::tempdir().expect("catalog");
+    let key = signing_key();
+    let _bytes = first_sync(state.path(), catalog.path(), &key);
+    let old = published_snapshot(state.path()).0;
+    let now = Arc::new(AtomicU64::new(1_000_000));
+    let mut store = BucketStore::new(state.path());
+    use_clock(&mut store, &now);
 
     let (loaded, loaded_reader) = std::sync::mpsc::channel();
     let (release, released_reader) = std::sync::mpsc::channel();
@@ -130,7 +211,7 @@ fn a_reader_that_loaded_the_registration_before_a_sync_keeps_its_tree() {
         let registration = store.registration("community").expect("registration");
         let path = registration.path.clone();
         loaded.send(()).expect("reader ready");
-        released_reader.recv().expect("sync finished");
+        released_reader.recv().expect("syncs finished");
         store
             .validate_catalog(
                 "community",
@@ -141,19 +222,34 @@ fn a_reader_that_loaded_the_registration_before_a_sync_keeps_its_tree() {
     });
     loaded_reader.recv().expect("reader ready");
 
-    fs::write(catalog.path().join("extra.txt"), b"new revision").expect("extra file");
-    let statement = crate::buckets::catalog_statement(catalog.path()).expect("statement");
-    let signature = super::tests::sign_bytes(&key, statement.as_bytes());
-    fs::write(catalog.path().join("catalog.sig"), signature).expect("signature");
-    let changed = pack_catalog(catalog.path());
+    let changed = packed_revision(catalog.path(), &key, "second revision");
     sync(&store, changed).expect("a new digest is accepted");
+    let changed_again = packed_revision(catalog.path(), &key, "third revision");
+    sync(&store, changed_again).expect("a third digest is accepted");
+
+    assert!(
+        old.is_dir(),
+        "two syncs inside the grace period keep the retired tree"
+    );
     release.send(()).expect("release the reader");
 
     let read = reader
         .join()
         .expect("reader thread")
-        .expect("the reader keeps its tree after the switch");
+        .expect("the reader keeps its tree after both syncs");
     assert_eq!(read, old);
+
+    now.store(
+        1_000_000 + crate::buckets::retire::RETIRED_GRACE.as_secs(),
+        Ordering::SeqCst,
+    );
+    let changed_once_more = packed_revision(catalog.path(), &key, "fourth revision");
+    sync(&store, changed_once_more).expect("a fourth digest is accepted");
+
+    assert!(
+        !old.exists(),
+        "the first sync after the grace period removes the retired tree"
+    );
 }
 #[test]
 fn a_failed_registration_write_keeps_the_registered_snapshot() {

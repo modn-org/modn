@@ -66,6 +66,10 @@ pub struct BucketPackage {
     pub package: PackageManifest,
 }
 
+/// Test clock for code that records or compares wall-clock times.
+#[cfg(test)]
+pub(super) type TestClock = std::sync::Arc<dyn Fn() -> u64 + Send + Sync>;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Metadata {
@@ -86,6 +90,9 @@ pub struct BucketStore {
     /// Test seam: the next registration removal fails before any file changes.
     #[cfg(test)]
     pub(super) fail_next_registration_remove: std::sync::atomic::AtomicBool,
+    /// Test seam: wall-clock seconds for retired-tree lifetime checks.
+    #[cfg(test)]
+    pub(super) clock: Option<TestClock>,
 }
 
 impl BucketStore {
@@ -100,6 +107,8 @@ impl BucketStore {
             fail_next_registration_restore: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             fail_next_registration_remove: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            clock: None,
         }
     }
 

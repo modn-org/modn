@@ -398,7 +398,7 @@ impl BucketStore {
         // so only a committed registration purges an earlier sync's retired trees.
         self.purge_retired_catalog_snapshots();
         if let Some(superseded) = superseded {
-            self.retire_catalog_snapshot(&superseded);
+            self.retire_catalog_snapshot(name, &superseded);
         }
         Ok(GitCatalogSync {
             revision,
