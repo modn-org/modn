@@ -129,9 +129,9 @@ fresh retire time. When `.retired-catalogs` is missing or cannot be parsed,
 Modn records no retired trees from it: those earlier trees stay on disk
 without a retire record, and the next sync records only the tree that it
 supersedes. A sync that fails removes nothing, and a tree that a registration
-names is never removed. `bucket remove` deletes the store-created live tree and the retired
-trees of that bucket after the registration file is gone; a local folder source
-and a tree that another registration names stay.
+names is never removed. `bucket remove` deletes the store-created live tree
+and the retired trees of that bucket after the registration file is gone; a
+local folder source and a tree that another registration names stay.
 When a step after the registration switch fails, for example a staged game
 module cannot be committed, sync restores the previous registration and removes
 the new snapshot. If the restore itself fails, sync keeps the new tree, because
