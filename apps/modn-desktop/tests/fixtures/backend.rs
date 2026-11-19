@@ -142,6 +142,8 @@ fn main() -> anyhow::Result<()> {
         } else {
             json!([game])
         }
+    } else if tail.first().is_some_and(|first| first == "theme") {
+        theme_answer(&tail, &state)
     } else if tail.iter().any(|s| s == "--dry-run") {
         let mut plan = json!({"status":"reviewable", "metadata_only":true,
             "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}],
@@ -165,6 +167,33 @@ fn main() -> anyhow::Result<()> {
     };
     println!("{result}");
     Ok(())
+}
+
+/// The theme contract answers the desktop tests read. `theme resolve` names an
+/// existing directory so the desktop can store it as the asset root.
+fn theme_answer(tail: &[std::borrow::Cow<'_, str>], state: &Path) -> serde_json::Value {
+    let entry = json!({"id":"night-city","game":"fixture","name":"Night City","theme_api":1,
+        "variants":["neon"],"icon":"assets/icon.png",
+        "source":{"kind":"official","bucket":"main","label":"main bucket"},"selected":true});
+    match tail.get(1).map(std::borrow::Cow::as_ref) {
+        Some("list") => json!({"themes":[entry],"diagnostics":[]}),
+        Some("resolve") => {
+            let root = state.join("theme");
+            fs::create_dir_all(root.join("assets")).expect("create the theme fixture");
+            json!({"game":"fixture","theme":{"id":"night-city","name":"Night City",
+                "source":{"kind":"official","bucket":"main","label":"main bucket"},
+                "variant":null,"origin":"official","css":".modn-app{}","variant_css":null,
+                "assets_dir":root},"fallback":null,"diagnostics":[]})
+        }
+        Some("select") => {
+            json!({"selected":{"game":"fixture","theme":"night-city","variant":null}})
+        }
+        Some("reset") => json!({"reset":["fixture"]}),
+        Some("register") => {
+            json!({"registered":entry,"digest":"blake3:fixture"})
+        }
+        _ => json!({}),
+    }
 }
 
 fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {

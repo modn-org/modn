@@ -130,6 +130,25 @@ impl CommandError {
             approval: None,
         }
     }
+
+    /// Rejects a game, theme or variant id before any CLI process starts.
+    pub(crate) fn invalid_id() -> Self {
+        Self {
+            code: "INVALID_ID".to_string(),
+            message: "Ids must be lowercase, hyphen-separated and at most 64 characters."
+                .to_string(),
+            approval: None,
+        }
+    }
+
+    /// Rejects a resolve answer without a usable theme directory.
+    pub(crate) fn theme_invalid() -> Self {
+        Self {
+            code: "THEME_INVALID".to_string(),
+            message: "The selected theme has no usable asset directory.".to_string(),
+            approval: None,
+        }
+    }
 }
 
 impl From<anyhow::Error> for CommandError {
