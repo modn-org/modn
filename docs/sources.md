@@ -167,7 +167,7 @@ Modn records the serving source in the install or update history record, so undo
 Modn probes the cache key of every source, in list order, before any network or credential step.
 A user-supplied `--file` archive is recorded with the release's first `https` or `github-release` source when its BLAKE3 digest equals the catalog pin, because Modn can fetch that source again.
 A release with no such source keeps the `manual` source for a `--file` archive.
-`modn update` reads that recorded serving source back: a Git release stays current only while it still lists the source with the installed commit.
+`modn update` reads that recorded serving source back: a Git release is current when it still lists that source with the installed commit. When the release no longer lists that source, Modn compares its primary source.
 A cancellation stops the interrupted download at once, for every source kind. Modn tries no later source and retries nothing. A verified entry that the download already published stays in the cache.
 Cancellation is checked before each source and after each failed attempt.
 A `manual` source is never started automatically.

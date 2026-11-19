@@ -19,9 +19,10 @@ the bucket publishes. Name the mod as for install: `mod`, `game/mod` or
 
 `modn update` treats a Git release as current when the install history records
 the serving source, the release still lists that source, and its commit equals
-the installed commit. A release that no longer lists the recorded source, or
-lists it with another commit, needs an update. An archive release is current
-when its BLAKE3 pin equals the installed archive digest.
+the installed commit. When the release no longer lists the recorded source,
+Modn compares its primary source instead. A release whose commit differs needs
+an update. An archive release is current when its BLAKE3 pin equals the
+installed archive digest.
 
 `modn update <mod> --dry-run` writes nothing. It shows these items:
 - the installed package, its release version (when a release of the bucket
