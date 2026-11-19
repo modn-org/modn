@@ -151,7 +151,8 @@ The first source whose bytes match the record's `blake3` pin supplies the archiv
 That source is the serving source, and it need not be the first source in the list.
 Modn records the serving source in the install or update history record, so undo looks for the cached archive under that source.
 Modn probes the cache key of every source, in list order, before any network or credential step.
-A user-supplied `--file` archive is recorded as a `manual` source.
+A user-supplied `--file` archive is recorded with the release's first `https` or `github-release` source when its BLAKE3 digest equals the catalog pin, because Modn can fetch that source again.
+A release with no such source keeps the `manual` source for a `--file` archive.
 A cancelled operation stops the whole acquisition at once, for every source kind: Modn tries no later source, retries nothing and keeps no cache entry.
 Cancellation is checked before each source and after each failed attempt.
 A `manual` source is never started automatically.
