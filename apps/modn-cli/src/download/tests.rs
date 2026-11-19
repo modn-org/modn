@@ -24,7 +24,7 @@ fn command(root: &Path, args: &[&str]) -> anyhow::Result<()> {
     )
 }
 
-fn archive(root: &Path) -> (Vec<u8>, String) {
+pub(super) fn archive(root: &Path) -> (Vec<u8>, String) {
     let path = root.join("example.zip");
     let mut zip = zip::ZipWriter::new(fs::File::create(&path).expect("archive"));
     zip.start_file(
@@ -200,7 +200,7 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
     TEST_RESPONSES.with(|responses| responses.replace(None));
 }
 
-const FALLBACK_URL: &str = "https://fixture.invalid/example.zip";
+pub(super) const FALLBACK_URL: &str = "https://fixture.invalid/example.zip";
 
 pub(super) fn package_with_sources(
     root: &Path,
@@ -418,61 +418,6 @@ fn a_failed_nexus_primary_falls_back_to_the_https_source() {
         fs::read(archive).expect("fallback archive bytes"),
         bytes,
         "the fallback archive does not hold the https bytes"
-    );
-}
-
-#[test]
-fn a_supplied_archive_that_does_not_match_the_pin_stays_manual() {
-    let temporary = tempfile::tempdir().expect("fixture");
-    let root = temporary.path().join("manager");
-    fs::create_dir_all(&root).expect("manager directory");
-    archive(temporary.path());
-    let package = package_with_sources(
-        &root,
-        &"0".repeat(64),
-        json!([{"kind": "https", "url": FALLBACK_URL}]),
-    );
-    let reference = crate::catalog_install::reference_of(&package).to_string();
-    let supplied = BTreeMap::from([(
-        reference.clone(),
-        super::SuppliedArchive {
-            path: temporary.path().join("example.zip"),
-            blake3: "1".repeat(64),
-        },
-    )]);
-    let source = super::serving_source(&reference, &supplied, &BTreeMap::new(), &package);
-    assert!(
-        matches!(source, PackageSource::Manual { .. }),
-        "a file that is not the pinned archive must stay manual: {source:?}"
-    );
-}
-
-#[test]
-fn a_matching_supplied_digest_names_the_catalog_source_without_reading_the_file() {
-    let temporary = tempfile::tempdir().expect("fixture");
-    let root = temporary.path().join("manager");
-    fs::create_dir_all(&root).expect("manager directory");
-    let (_, digest) = archive(temporary.path());
-    let package = package_with_sources(
-        &root,
-        &digest,
-        json!([{"kind": "https", "url": FALLBACK_URL}]),
-    );
-    let reference = crate::catalog_install::reference_of(&package).to_string();
-    // The verified digest names the pin, and the path need not exist: choosing
-    // the history source uses the digest the install verification computed and
-    // never opens the archive again.
-    let supplied = BTreeMap::from([(
-        reference.clone(),
-        super::SuppliedArchive {
-            path: temporary.path().join("moved-away.zip"),
-            blake3: digest,
-        },
-    )]);
-    let source = super::serving_source(&reference, &supplied, &BTreeMap::new(), &package);
-    assert!(
-        matches!(source, PackageSource::Https { .. }),
-        "a verified file must record the catalog source: {source:?}"
     );
 }
 

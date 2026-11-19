@@ -437,6 +437,8 @@ pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Resul
 }
 
 #[cfg(test)]
+mod serving_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod validation_tests;
