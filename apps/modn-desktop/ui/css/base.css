@@ -58,10 +58,15 @@ a {
 .modn-app {
   display: grid;
   grid-template-columns: calc(var(--modn-space-4xl) + var(--modn-space-3xl)) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "rail shell"
+    "rail main";
   min-height: 100%;
 }
 
 .modn-rail {
+  grid-area: rail;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -88,6 +93,7 @@ a {
 }
 
 .modn-main {
+  grid-area: main;
   padding: var(--modn-space-3xl);
   outline: none;
 }
