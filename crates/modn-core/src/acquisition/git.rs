@@ -210,6 +210,18 @@ impl GitSource {
     }
 }
 
+/// End every Git fetch process tree that Modn started and that still runs.
+///
+/// The CLI installs a Unix interrupt handler that calls this function before
+/// it exits with 128 plus the signal number. The function is safe to call from
+/// any thread. It never panics on a poisoned registry lock, and it ignores
+/// trees that already ended. A signal that arrives after a fetch starts but
+/// before its process group is registered is not covered. On Windows the
+/// function does nothing.
+pub fn end_active_fetch_trees() {
+    pack::end_active_fetch_trees();
+}
+
 impl ArchiveCache {
     fn git_name(&self, key: &GitCacheKey<'_>, blake3: &str) -> String {
         format!(

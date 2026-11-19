@@ -257,3 +257,159 @@ fn process_alive(pid: &str) -> bool {
         Ok(status) if status.success()
     )
 }
+
+#[test]
+fn a_fetch_registers_its_tree_until_the_fetch_ends() {
+    let root = tempfile::tempdir().expect("temp directory");
+    let program = write_program(
+        root.path(),
+        "registered",
+        "@echo off\r\nping -n 60 127.0.0.1 >nul\r\nexit /b 1\r\n",
+        "#!/bin/sh\nsleep 60\nexit 1\n",
+    );
+    let fetch = std::thread::spawn(move || {
+        let hooks = git::empty_hooks().expect("empty hooks");
+        fetch_with(
+            &environment(hooks.path()),
+            "file:///registered",
+            &"0".repeat(40),
+            Duration::from_secs(3),
+            Some(program.as_os_str()),
+            TreeStop::End,
+        )
+    });
+    // The fetch registers its tree while it runs.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while super::registry::active_count() == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "the running fetch did not register a tree"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let error = fetch
+        .join()
+        .expect("fetch thread")
+        .expect_err("a stalled fetch must fail");
+    assert!(timeout_class(&error), "{error:#}");
+    // Every fetch that started must unregister its tree when it ends. A
+    // registration that never goes away is a leak.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while super::registry::active_count() != 0 {
+        assert!(
+            Instant::now() < deadline,
+            "a fetch tree stayed registered after the fetch ended"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn ending_active_fetch_trees_stops_a_live_fetch_tree() {
+    let root = tempfile::tempdir().expect("temp directory");
+    let pid_file = root.path().join("interrupt.pid");
+    let pid_path = path_for_stub(&pid_file);
+    let heartbeat = root.path().join("interrupt.beats");
+    let beats = path_for_stub(&heartbeat);
+    let unix = format!(
+        "#!/bin/sh\necho $$ > \"{pid_path}\"\nsh -c 'while :; do echo tick >> \"{beats}\"; sleep 0.05; done' &\nsleep 60\nexit 1\n"
+    );
+    let program = write_program(root.path(), "interrupt", "", &unix);
+    let fetch = std::thread::spawn(move || {
+        let hooks = git::empty_hooks().expect("empty hooks");
+        fetch_with(
+            &environment(hooks.path()),
+            "file:///interrupt",
+            &"0".repeat(40),
+            Duration::from_secs(120),
+            Some(program.as_os_str()),
+            TreeStop::End,
+        )
+    });
+    let pid = wait_for_pid(&pid_file);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !super::registry::contains(pid) {
+        assert!(
+            Instant::now() < deadline,
+            "the fetch process group was not registered"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    wait_for_heartbeat(&heartbeat);
+    // Wait for a moment when this test's tree is the only registered one,
+    // then keep later registrations out so the kill reaches only this tree.
+    // The gate is held only for the check and the kill, never while waiting.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let quiet = loop {
+        let quiet = super::registry::quiesce();
+        if super::registry::active_count() == 1 {
+            break quiet;
+        }
+        drop(quiet);
+        assert!(
+            Instant::now() < deadline,
+            "other fetch trees did not end before the interrupt test"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    crate::acquisition::git::end_active_fetch_trees();
+    drop(quiet);
+    let error = fetch
+        .join()
+        .expect("fetch thread")
+        .expect_err("the killed fetch must fail");
+    assert!(
+        !timeout_class(&error),
+        "a killed tree is not a timeout: {error:#}"
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while super::registry::contains(pid) {
+        assert!(
+            Instant::now() < deadline,
+            "the interrupted fetch tree stayed registered"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The grandchild wrote a heartbeat every 50 ms. Give an in-flight write
+    // time to finish, then require that no later write appears.
+    std::thread::sleep(Duration::from_millis(300));
+    let settled = fs::metadata(&heartbeat).map(|file| file.len()).unwrap_or(0);
+    std::thread::sleep(Duration::from_millis(500));
+    let later = fs::metadata(&heartbeat).map(|file| file.len()).unwrap_or(0);
+    assert_eq!(
+        settled, later,
+        "the fetch tree kept writing heartbeats after end_active_fetch_trees"
+    );
+}
+
+/// Wait for the stub to write its own process id.
+#[cfg(unix)]
+fn wait_for_pid(path: &Path) -> u32 {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Ok(text) = fs::read_to_string(path) {
+            if let Ok(pid) = text.trim().parse::<u32>() {
+                return pid;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the stub never wrote its process id"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Wait until the stub's grandchild has written at least one heartbeat.
+#[cfg(unix)]
+fn wait_for_heartbeat(path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while fs::metadata(path).map(|file| file.len()).unwrap_or(0) == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "the stub never wrote a heartbeat"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}

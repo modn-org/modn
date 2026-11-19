@@ -13,6 +13,8 @@ mod git_source;
 mod history;
 mod install;
 mod install_consent;
+#[cfg(unix)]
+mod interrupt;
 mod inventory;
 mod main_key;
 mod managed;
@@ -174,6 +176,8 @@ fn reports_progress(command: &Command) -> bool {
 }
 
 fn main() {
+    #[cfg(unix)]
+    interrupt::install();
     let cli = Cli::parse();
     let json = cli.json;
     let fallback = default_code(&cli.command);
