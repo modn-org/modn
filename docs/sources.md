@@ -35,7 +35,12 @@ Publication atomically replaces the catalog registration file.
 The registration contains the validated tree path, its source revision and the pinned signer key.
 Fetch, checkout, and validation failures preserve the previous usable registration.
 Readers that retained an older tree can continue using it.
-Old trees remain on disk. This MVP performs no catalog garbage collection.
+A sync that replaces a registration records the superseded tree in
+`.retired-catalogs`. It keeps the tree for at least one hour, so a reader that
+loaded the previous registration can finish. A later sync that publishes a
+revision removes the tree after that hour. It holds the sync lock and keeps a
+tree that a registration names. `bucket remove` deletes the live catalog tree
+and the retired trees that the record lists for that bucket.
 
 A Git catalog is signed. The first revision must have `catalog.pub` and
 `catalog.sig` at its root. Modn verifies the revision with the key in
@@ -59,7 +64,16 @@ progress, also when the remote never answers or Git aborts the transfer below
 its low-speed limit. Git prints progress while it receives data, so a transfer
 that keeps receiving data can run longer than 90 seconds. On a timeout, Modn
 ends the Git process and every process it started, waits for the error reader,
-and then removes the temporary fetch files. Catalog
+and then removes the temporary fetch files. A catalog mirror clone uses the
+same inactivity limit and process-tree kill. A stalled mirror is recorded as
+`timed out`, and sync tries the next mirror. The catalog error text is
+`GIT_CATALOG_FETCH_FAILED: ... timed out: no progress for N ms`. When Modn
+cannot stop a Git fetch process tree, the install or sync stops with `the Git
+fetch process tree could not be stopped`. It tries no other source or mirror.
+On Unix, Ctrl-C or SIGTERM during a Git fetch ends the fetch's whole process
+group. Modn then exits with status 130 for SIGINT or 143 for SIGTERM. A signal
+that arrives between the spawn and the registration of the fetch is not
+covered. Windows behavior is unchanged. Catalog
 sync serializes other Git sync calls: a second sync waits up to 2 seconds
 for the first to finish, then fails with the already running error. It does not
 coordinate concurrent local registration edits.
@@ -153,7 +167,8 @@ Modn records the serving source in the install or update history record, so undo
 Modn probes the cache key of every source, in list order, before any network or credential step.
 A user-supplied `--file` archive is recorded with the release's first `https` or `github-release` source when its BLAKE3 digest equals the catalog pin, because Modn can fetch that source again.
 A release with no such source keeps the `manual` source for a `--file` archive.
-A cancelled operation stops the whole acquisition at once, for every source kind: Modn tries no later source, retries nothing and keeps no cache entry.
+`modn update` reads that recorded serving source back: a Git release stays current only while it still lists the source with the installed commit.
+A cancellation stops the interrupted download at once, for every source kind. Modn tries no later source and retries nothing. A verified entry that the download already published stays in the cache.
 Cancellation is checked before each source and after each failed attempt.
 A `manual` source is never started automatically.
 If only manual sources remain, Modn prints the manual step as before.
@@ -194,6 +209,9 @@ No cache entry, index record or `.download` file remains on any failure path, in
 A dry-run plan names the ordered sources that Modn would try.
 `install --dry-run` without `--download` downloads nothing and writes nothing.
 A real install names each attempt with its source, outcome and reason.
+`modn update` reports the same `downloads` array, and its `installed` object
+includes `source`. Its text output prints a `DOWNLOAD` line for each attempt,
+including `update --dry-run --download`.
 
 ```json
 "downloads": [

@@ -17,6 +17,12 @@ bucket's current release. `--version <version>` selects another release that
 the bucket publishes. Name the mod as for install: `mod`, `game/mod` or
 `bucket/game/mod`. The installed package must come from that catalog mod.
 
+`modn update` treats a Git release as current when the install history records
+the serving source, the release still lists that source, and its commit equals
+the installed commit. A release that no longer lists the recorded source, or
+lists it with another commit, needs an update. An archive release is current
+when its BLAKE3 pin equals the installed archive digest.
+
 `modn update <mod> --dry-run` writes nothing. It shows these items:
 - the installed package, its release version (when a release of the bucket
   has its archive digest) and its exclusive folders
@@ -28,8 +34,10 @@ the bucket publishes. Name the mod as for install: `mod`, `game/mod` or
 The file list needs the target archive. Without it, the dry run names the
 needed archive. `--file`, `--nxm` and `--download` work as for install.
 A `nexus` target needs an API key, and a free Nexus account also needs the
-matching `--nxm` link. JSON adds
-`up_to_date`, `blockers`, `plan` and `unapproved_declared_executables`.
+matching `--nxm` link. JSON adds `up_to_date`, `blockers`, `plan`,
+`downloads` and `unapproved_declared_executables`; its `installed` object
+includes `source`. The text output prints a `DOWNLOAD` line for each attempt,
+including `update --dry-run --download`.
 
 An update needs `--yes` or an interactive confirmation, as for install. The
 prompt names both releases and each dependent. Declared tool executables need

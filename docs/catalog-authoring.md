@@ -187,10 +187,12 @@ names both fingerprints.
 A rotation may return to a key that an earlier rotation retired, but it needs a
 new statement. Modn applies each rotation or revocation statement once. A
 revision that keeps the pinned `catalog.pub` and republishes an applied
-statement treats it as history and syncs normally. Modn refuses a revision whose
-`catalog.pub` names another key and that republishes an applied statement for
-the pinned key, so a retired key cannot regain trust by replaying an old
-statement. Modn records only the key that the current revision rotated away
+statement treats it as history and syncs normally. The replay check runs only
+when no new statement applies to the pinned key. For example, after `A->B->A`,
+a revision that keeps the applied `A->B` rotation and adds a valid new `A->C`
+revocation is accepted. A revision signed by B that keeps `A->B` and adds
+nothing that applies is refused, so a retired key cannot regain trust by
+replaying an old statement. Modn records only the key that the current revision rotated away
 from, so the current key is never listed as retired. A rotation cannot name a
 key in `revoked_signers`; only the offline revocation key can re-authorize a
 revoked key. A revocation may name a retired or revoked key as its replacement,
