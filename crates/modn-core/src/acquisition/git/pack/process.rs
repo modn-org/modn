@@ -1,6 +1,7 @@
 //! One Git fetch child: its progress output, its stderr and its process tree.
 
 use super::super::super::READ_INACTIVITY_TIMEOUT;
+use super::registry::{self, Registration};
 use crate::git::{self, GitEnvironment};
 use anyhow::{Context, Result};
 use std::ffi::OsStr;
@@ -73,6 +74,7 @@ pub(super) struct FetchProcess {
     progress: Arc<AtomicU64>,
     text: Receiver<String>,
     reader: Option<JoinHandle<()>>,
+    registration: Registration,
 }
 
 impl FetchProcess {
@@ -140,6 +142,7 @@ impl FetchProcess {
         let mut child = command.spawn().context(
             "GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
         )?;
+        let registration = registry::register(child.id());
         let mut stderr = child
             .stderr
             .take()
@@ -168,6 +171,7 @@ impl FetchProcess {
             progress,
             text,
             reader: Some(reader),
+            registration,
         })
     }
 
@@ -193,9 +197,15 @@ impl FetchProcess {
         grace: Duration,
         stop: TreeStop,
     ) -> Result<(), TreeStillRunning> {
-        self.end_tree()?;
+        if let Err(error) = self.end_tree() {
+            // The tree may still run, so an interrupt handler must try again.
+            self.registration.keep();
+            return Err(error);
+        }
         #[cfg(any(test, feature = "test-instruction-budget"))]
         if stop == TreeStop::Fail {
+            // The seam reports a failure after the real tree ended, so this
+            // registration can end with the fetch.
             return Err(TreeStillRunning::new(
                 "the test seam cannot confirm the end of the tree",
             ));
@@ -207,13 +217,17 @@ impl FetchProcess {
             match self.child.try_wait() {
                 Ok(Some(_)) => return Ok(()),
                 Err(error) => {
+                    // A tree that cannot be reaped may still run.
+                    self.registration.keep();
                     return Err(TreeStillRunning::new(format!(
                         "cannot reap the fetch process: {error}"
-                    )))
+                    )));
                 }
                 Ok(None) => std::thread::sleep(KILL_POLL),
             }
         }
+        // The child did not end, so the tree stays registered for a retry.
+        self.registration.keep();
         Err(TreeStillRunning::new(format!(
             "the fetch process did not end within {} ms",
             grace.as_millis()

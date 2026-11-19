@@ -13,8 +13,10 @@ use std::time::{Duration, Instant};
 use zip::write::SimpleFileOptions;
 
 mod process;
+mod registry;
 pub(super) use process::is_tree_still_running;
 use process::{FetchProcess, TreeStop};
+pub(super) use registry::end_active_fetch_trees;
 
 #[cfg(test)]
 mod tests;
