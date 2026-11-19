@@ -4,6 +4,9 @@
 //! `invalid-json`, `timeout`, `slow`, `blocked`, `registration-changed`,
 //! `source-changed` and `inventory-failure`.
 //!
+//! A dry run for a local archive returns the archive's BLAKE3 digest as
+//! `archive_blake3`, which the desktop rechecks before the write.
+//!
 //! When the arguments contain `--progress json` it also speaks the CLI's
 //! progress protocol: one JSON event per line on stderr and `cancel` lines on
 //! stdin. A scenario name in the arguments after the fixed prefix selects the
@@ -33,7 +36,10 @@
 //! Without `--progress json`, `heartbeat`, `silent`, `committed-stall`,
 //! `game-launch`, `refuse`, `overflow-failure` and `overflow-stall-failure`
 //! select registration behaviour. `refuse` writes the `PLAN_BLOCKED` envelope
-//! on stderr and exits 1 without a write. `overflow-failure` writes 2 MiB on
+//! on stderr and exits 1 without a write. `game-launch` starts a game process
+//! that records `game-started`, runs until the test writes `game-release`
+//! (30 seconds at most) and then records `game-exited`.
+//! `overflow-failure` writes 2 MiB on
 //! stdout, then an `INSTALL_FAILED` envelope, and exits 1.
 //! `overflow-stall-failure` also waits 1.5 seconds, records
 //! `survived-after-output` after that wait, and then fails the same way.
@@ -54,8 +60,10 @@ fn main() -> anyhow::Result<()> {
         .nth(1)
         .is_some_and(|arg| arg == "--fixture-grandchild")
     {
-        thread::sleep(Duration::from_secs(4));
-        return Ok(());
+        let state = std::env::args_os()
+            .nth(2)
+            .expect("fixture game state argument");
+        return fixture_game(Path::new(&state));
     }
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     anyhow::ensure!(
@@ -135,9 +143,13 @@ fn main() -> anyhow::Result<()> {
             json!([game])
         }
     } else if tail.iter().any(|s| s == "--dry-run") {
-        json!({"status":"reviewable", "metadata_only":true,
+        let mut plan = json!({"status":"reviewable", "metadata_only":true,
             "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}],
-            "blockers":if mode == "blocked" {json!([{"message":"blocked"}])} else {json!([])}})
+            "blockers":if mode == "blocked" {json!([{"message":"blocked"}])} else {json!([])}});
+        if let Some(archive) = dry_run_archive(&args) {
+            plan["archive_blake3"] = json!(blake3_hex(archive)?);
+        }
+        plan
     } else if tail.iter().any(|s| s == "inspect") {
         json!({"metadata_only":true})
     } else if tail.iter().any(|s| s == "list") {
@@ -244,7 +256,10 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
         io::stdout().flush()?;
         return Ok(());
     }
-    println!("{}", json!({"id":"owned-package"}));
+    println!(
+        "{}",
+        json!({"id":"owned-package", "operation_id":"fixture-operation"})
+    );
     Ok(())
 }
 
@@ -260,6 +275,21 @@ fn fixture_scenario(args: &[OsString]) -> Option<&'static str> {
         "overflow-stall-failure" => Some("overflow-stall-failure"),
         _ => None,
     }
+}
+
+/// The started game of the `game-launch` scenario. It blocks until the test
+/// releases it, so a test can prove the desktop returned while it still ran.
+/// The 30-second limit makes a regression fail instead of hang.
+fn fixture_game(state: &Path) -> anyhow::Result<()> {
+    fs::write(state.join("game-started"), b"yes")?;
+    for _ in 0..1500 {
+        if state.join("game-release").is_file() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    fs::write(state.join("game-exited"), b"yes")?;
+    Ok(())
 }
 
 fn registration_scenario(scenario: &str, state: &Path) -> anyhow::Result<()> {
@@ -283,6 +313,7 @@ fn registration_scenario(scenario: &str, state: &Path) -> anyhow::Result<()> {
             let executable = std::env::current_exe()?;
             std::process::Command::new(executable)
                 .arg("--fixture-grandchild")
+                .arg(state)
                 .spawn()?;
         }
         "refuse" => {
@@ -323,6 +354,27 @@ fn exit_with_output_failure() -> ! {
         json!({"error":"INSTALL_FAILED","message":"fixture output failure"})
     );
     std::process::exit(1);
+}
+
+/// The local archive a dry-run names, when its positional is a ZIP or 7z file.
+///
+/// A catalog plan names a mod id instead, so it carries no digest.
+fn dry_run_archive(args: &[OsString]) -> Option<&Path> {
+    let dry_run = args.iter().position(|arg| arg == "--dry-run")?;
+    let archive = Path::new(args.get(dry_run.checked_sub(1)?)?);
+    let extension = archive.extension()?.to_str()?;
+    (archive.is_file()
+        && ["zip", "7z"]
+            .iter()
+            .any(|known| extension.eq_ignore_ascii_case(known)))
+    .then_some(archive)
+}
+
+/// The lowercase hex BLAKE3 digest the CLI writes as `archive_blake3`.
+fn blake3_hex(path: &Path) -> anyhow::Result<String> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update_reader(fs::File::open(path)?)?;
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn scenario(args: &[OsString]) -> &'static str {

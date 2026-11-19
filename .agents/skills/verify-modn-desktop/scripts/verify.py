@@ -1,382 +1,373 @@
-"""Drive only this run's native Modn Desktop window through agent-desktop."""
+"""Verify Modn Desktop through UI Automation on disposable fixtures.
+
+Run from the repository root:
+
+    uv run --no-project python .agents/skills/verify-modn-desktop/scripts/verify.py --build
+
+The script builds the app and the test-instruction-budget CLI, then runs every
+journey against a fresh temporary fixture. It never touches a real game, a
+real store library or the owner's Modn state, and it only addresses the Modn
+window of the process it started.
+
+Binaries are read from `CARGO_TARGET_DIR` when it is set, otherwise from
+`<repo>/target`. `--app`, `--cli` and `--test-backend` override one each.
+"""
+
 import argparse
-import hashlib
 import json
 import os
-from pathlib import Path
-import shutil
 import subprocess
-import tempfile
+import sys
 import time
-import zipfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[4]
-HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+# (number, name, "module:function") in run order.
+JOURNEYS = [
+    (1, "detection", "journeys_core:journey_detection"),
+    (2, "progress", "journeys_core:journey_progress"),
+    (3, "cancel", "journeys_core:journey_cancel"),
+    (4, "finishing", "journeys_core:journey_finishing"),
+    (5, "lifecycle", "lifecycle:journey_lifecycle"),
+    (6, "blocked", "journeys_core:journey_blocked"),
+    (7, "approval", "journeys_approval:journey_approval"),
+    (8, "no-cli-output", "journeys_core:journey_no_cli_output"),
+    (9, "play", "journeys_core:journey_play"),
+    (10, "remove", "journeys_remove:journey_remove"),
+    (11, "catalog", "journeys_catalog:journey_catalog"),
+]
 
 
-def require(condition, message):
-    if not condition:
-        raise AssertionError(message)
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Verify Modn Desktop through UI Automation.")
+    parser.add_argument("--build", action="store_true", help="build the app and the fixture CLI first")
+    parser.add_argument("--list", action="store_true", help="list the journeys in run order and exit")
+    parser.add_argument(
+        "--only", default="",
+        help="comma-separated journey names or numbers to run (default: all)",
+    )
+    parser.add_argument("--keep", action="store_true", help="keep fixtures and evidence")
+    parser.add_argument(
+        "--selftest",
+        action="store_true",
+        help="check the helpers and both binary guards against fakes",
+    )
+    parser.add_argument("--app", metavar="PATH", help="override the built modn-desktop.exe")
+    parser.add_argument("--cli", metavar="PATH", help="override the built modn.exe")
+    parser.add_argument("--test-backend", metavar="PATH", help="override the built test backend")
+    return parser, parser.parse_args(argv)
 
 
-def snapshot_bytes(folder):
-    return {p.relative_to(folder).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in folder.rglob("*") if p.is_file()}
+def select(parser, only):
+    """The journeys named by --only, in run order."""
+    if not only.strip():
+        return list(JOURNEYS)
+    selected = []
+    for item in only.split(","):
+        item = item.strip()
+        matches = [entry for entry in JOURNEYS if item == entry[1] or item == str(entry[0])]
+        if not matches:
+            valid = ", ".join(f"{number} {name}" for number, name, _ in JOURNEYS)
+            parser.error(f"unknown journey {item!r}; valid journeys: {valid}")
+        selected.extend(matches)
+    return selected
 
 
-def nodes(tree):
-    yield tree
-    for child in tree.get("children", []):
-        yield from nodes(child)
+def resolve(spec):
+    """Imports a journey from its `module:function` spec."""
+    module_name, function_name = spec.split(":", 1)
+    module = __import__(module_name)
+    return getattr(module, function_name)
 
 
-class Driver:
-    def __init__(self, app, backend):
-        self.app = app.resolve()
-        self.backend = backend.resolve()
-        self.root = Path(tempfile.mkdtemp(prefix="modn-desktop-fixture-"))
-        self.evidence = Path(tempfile.mkdtemp(prefix="modn-desktop-evidence-"))
-        self.process = None
-        self.window = None
-        self.index = 0
-        self.assertions = 0
-        self.exits = []
-        self.cleanup_complete = False
-        self.environment = dict(os.environ, LOCALAPPDATA=str(self.root / "data"),
-                                MODN_GAME_MODULES_DIR=str(self.root / "modules"))
+class _FakeWindow:
+    def __init__(self, name):
+        self.Name = name
 
-    def record(self, label, value):
-        self.index += 1
-        (self.evidence / f"{self.index:03d}-{label}.json").write_text(
-            json.dumps(value, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def check(self, condition, message):
-        require(condition, message)
-        self.assertions += 1
+class _FakeSession:
+    """The `extra_windows` surface `dialog_for` reads."""
 
-    def run(self, command, label, env=None, json_output=True, cwd=None):
-        result = subprocess.run(list(map(str, command)), env=env, capture_output=True,
-                                encoding="utf-8", errors="replace", timeout=90,
-                                creationflags=HIDDEN, cwd=cwd)
-        self.exits.append(result.returncode)
-        self.record(label, dict(command=list(map(str, command)), exit=result.returncode,
-                                stdout=result.stdout, stderr=result.stderr))
-        require(result.returncode == 0, f"{label}: {result.stderr} {result.stdout}")
-        return json.loads(result.stdout) if json_output else result.stdout
+    def __init__(self, names):
+        self.names = names
 
-    def cli(self, *args):
-        return self.run([self.backend, "--json", "--state-dir", self.root / "state", *args],
-                        "independent-cli", self.environment)
+    def extra_windows(self):
+        return [_FakeWindow(name) for name in self.names]
 
-    def desktop(self, *args):
-        # Resolve the installed Node launcher directly. No shell parses UI values.
-        launcher = shutil.which("agent-desktop")
-        if launcher and Path(launcher).suffix.lower() == ".cmd":
-            launcher = str(Path(launcher).parent / "node_modules/agent-desktop/bin/agent-desktop")
-            command = [shutil.which("node"), launcher, *args]
-        else:
-            command = [launcher, *args]
-        result = self.run(command, "desktop")
-        require(result.get("ok"), f"Desktop tool refused: {result}")
-        return result["data"]
 
-    def tree(self):
-        return self.desktop("snapshot", "--window-id", self.window, "--timeout-ms", "20000")["tree"]
+class _FakeToastSession:
+    """The `exists` surface the toast guard reads."""
 
-    def find(self, role, name):
-        found = [n for n in nodes(self.tree()) if n.get("role") == role and n.get("name") == name]
-        require(len(found) == 1, f"Expected one {role}:{name}, got {len(found)}")
-        return found[0]
+    def __init__(self, visible_polls):
+        self.visible_polls = visible_polls
 
-    def click(self, name):
-        node = self.find("button", name)
-        require("disabled" not in node.get("states", []), f"Button disabled: {name}")
-        self.desktop("click", node["ref_id"])
+    def exists(self, name=None, prefix=None, control_type=None):
+        self.visible_polls -= 1
+        return self.visible_polls > 0
 
-    def choose_game(self):
-        item = next(n for n in nodes(self.tree()) if n.get("role") == "button" and n.get("name", "").startswith("test-game:"))
-        self.desktop("click", item["ref_id"])
-        self.wait("Owned packages refreshed")
 
-    def native_control(self, window, role, native_id):
-        result = self.desktop("find", "--window-id", window, "--role", role,
-                              "--native-id", native_id, "--exact", "--timeout-ms", "20000")
-        matches = result["matches"]
-        require(len(matches) == 1, f"Expected one native {role}:{native_id}")
-        return matches[0]
+class _FakeNamedToasts:
+    """Shows only the controls named in `visible`."""
 
-    def open_file_dialog(self):
-        self.click("Browse...")
-        deadline = time.monotonic() + 15
-        dialog = None
-        while time.monotonic() < deadline:
-            windows = self.desktop("list-windows", "--app", "modn-desktop.exe")
-            own = [w for w in windows if w["pid"] == self.process.pid and w["id"] != self.window]
-            if own:
-                require(len(own) == 1, "Expected one owned file dialog")
-                dialog = own[0]["id"]
-                break
-        require(dialog, "Native file dialog did not open")
-        return dialog
+    def __init__(self, visible):
+        self.visible = set(visible)
 
-    def cancel_file_dialog(self):
-        dialog = self.open_file_dialog()
-        self.desktop("click", self.native_control(dialog, "button", "2")["ref_id"])
-        self.wait("File selection cancelled.")
+    def exists(self, name=None, prefix=None, control_type=None):
+        return name in self.visible
 
-    def select_file_dialog(self, path):
-        dialog = self.open_file_dialog()
-        field = self.native_control(dialog, "textfield", "1148")
-        self.desktop("set-value", field["ref_id"], str(path))
-        confirm = self.native_control(dialog, "button", "1")
-        self.desktop("click", confirm["ref_id"])
-        self.wait("Archive selected")
-        selected = self.find("textfield", "Absolute path to a local ZIP or 7z")["value"]
-        self.check(Path(selected) == path, "Native picker selected a different archive")
 
-    def archive(self, path):
-        self.desktop("set-value", self.find("textfield", "Absolute path to a local ZIP or 7z")["ref_id"], str(path))
+def selftest():
+    """Checks the helpers the journeys rely on against fakes and temp files."""
+    import shutil  # noqa: PLC0415 - used only by the evidence check
+    import tempfile  # noqa: PLC0415 - used only by the CLI override check
 
-    def wait(self, text):
-        deadline = time.monotonic() + 75
-        while time.monotonic() < deadline:
-            tree = self.tree()
-            if any(text in (n.get("value", "") + n.get("name", "")) for n in nodes(tree)):
-                return tree
-            require(self.process.poll() is None, f"App exited {self.process.returncode}")
-        raise AssertionError(f"Timed out waiting for {text}")
+    import fixtures  # noqa: PLC0415 - harness has bootstrapped the interpreter
+    import harness  # noqa: PLC0415 - harness has bootstrapped the interpreter
+    import journeys_core  # noqa: PLC0415 - pure helpers only
+    import lifecycle  # noqa: PLC0415 - pure helpers only
+    import uia  # noqa: PLC0415 - harness has bootstrapped the interpreter
+    import yaml  # noqa: PLC0415 - bootstrapped with the other packages
 
-    def unchanged(self, game, state):
-        self.check(snapshot_bytes(self.root / "game") == game, "Game bytes changed during a read/cancellation/refusal")
-        self.check(snapshot_bytes(self.root / "state") == state, "Manager state changed during a read/cancellation/refusal")
+    results = {}
+    results["ignores_untitled"] = (
+        uia.dialog_for(_FakeSession(["", "Modn"]), timeout=0.5).Name == "Modn"
+    )
+    results["returns_first_of_two"] = (
+        uia.dialog_for(_FakeSession(["Modn", "Second"]), timeout=0.5).Name == "Modn"
+    )
+    started = time.monotonic()
+    try:
+        uia.dialog_for(_FakeSession([""]), timeout=0.4)
+    except uia.Failure:
+        results["raises_on_timeout"] = time.monotonic() - started >= 0.3
+    else:
+        results["raises_on_timeout"] = False
 
-    def prepare(self):
-        require(os.name == "nt", "Native proof requires Windows")
-        require(self.app.is_file() and self.backend.is_file(), "Build both binaries first")
-        shutil.copytree(REPO / "tests/fixtures/test-game", self.root / "modules/test-game")
-        (self.root / "game/bin").mkdir(parents=True)
-        (self.root / "game/bin/TestGame.exe").write_bytes(b"fixture-only")
-        (self.root / "game/addons").mkdir()
-        (self.root / "game/addons/manual.plugin").write_bytes(b"preserve-manual")
-        for name, entry in [("demo.zip", "package/plugins/demo.plugin"), ("blocked.zip", "../escape.exe"), ("unmapped.zip", "unknown.txt")]:
-            with zipfile.ZipFile(self.root / name, "w") as archive:
-                archive.writestr(entry, b"owned-fixture")
-        payload = self.root / "seven-source/package/plugins/seven.plugin"
-        payload.parent.mkdir(parents=True)
-        payload.write_bytes(b"seven-owned-fixture")
-        seven = shutil.which("7z")
-        require(seven, "Install 7-Zip to create the genuine native 7z fixture")
-        self.run([seven, "a", "-t7z", str(self.root / "demo.7z"), "package"],
-                 "create-7z", json_output=False, cwd=self.root / "seven-source")
-        self.check((self.root / "demo.7z").read_bytes().startswith(b"7z\xbc\xaf\x27\x1c"),
-                   "Fixture is not a genuine 7z archive")
-        self.cli("game", "add", "test-game", "--path", self.root / "game")
-        (self.root / "game2/bin").mkdir(parents=True)
-        (self.root / "game2/bin/TestGame.exe").write_bytes(b"fixture-only")
-        self.cli("game", "add", "test-game", "--path", self.root / "game2")
+    # V2: an error toast must not count as a copied diagnostics report.
+    results["diagnostics_success_passes"] = journeys_core.diagnostics_copied(
+        "Diagnostics copied."
+    )
+    results["diagnostics_error_fails"] = not journeys_core.diagnostics_copied(
+        "Something went wrong"
+    )
 
-    def launch(self):
-        stderr = open(self.evidence / "app-stderr.txt", "w", encoding="utf-8")
-        args = [self.app, "--backend", self.backend, "--state-dir", self.root / "state",
-                "--data-dir", self.root / "data", "--module-dir", self.root / "modules",
-                "--evidence-dir", self.evidence / "backend"]
-        self.process = subprocess.Popen(list(map(str, args)), stdout=stderr, stderr=stderr,
-                                        creationflags=HIDDEN)
-        stderr.close()
-        self.record("launch", dict(args=list(map(str, args)), pid=self.process.pid,
-                                   app_sha256=hashlib.sha256(self.app.read_bytes()).hexdigest(),
-                                   backend_sha256=hashlib.sha256(self.backend.read_bytes()).hexdigest()))
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            windows = self.desktop("list-windows", "--app", "modn-desktop.exe")
-            own = [w for w in windows if w["pid"] == self.process.pid]
-            if own:
-                self.window = own[0]["id"]
-                break
-            require(self.process.poll() is None, "App exited before its window appeared")
-        require(self.window, "No owned window")
-        self.wait("Select a registered installation.")
-        self.check(f"PID {self.process.pid}" in self.tree()["name"], "Window identity differs")
+    # Copy diagnostics: fakes for the one click, the toast and the report file.
+    import selftest_diagnostics  # noqa: PLC0415 - fake desktop only
 
-    def drive(self):
-        self.choose_game()
-        self.check(self.cli("list", "--path", self.root / "game") == [], "Fixture starts with owned packages")
-        game = snapshot_bytes(self.root / "game")
-        state = snapshot_bytes(self.root / "state")
-        self.cancel_file_dialog()
-        self.unchanged(game, state)
-        self.select_file_dialog(self.root / "demo.zip")
-        self.click("Inspect and preview")
-        self.wait("Review ready.")
-        self.check("addons/demo.plugin" in json.dumps(self.find("document", "Proposed files, blockers and results")), "Mapped destination missing")
-        self.unchanged(game, state)
-        self.cancel_file_dialog()
-        self.check(Path(self.find("textfield", "Absolute path to a local ZIP or 7z")["value"]) == self.root / "demo.zip",
-                   "Cancelling the picker changed the archive path")
-        self.check("disabled" in self.find("button", "Install reviewed archive...").get("states", []),
-                   "Cancelling the picker retained review authority")
-        self.unchanged(game, state)
-        self.click("Inspect and preview")
-        self.wait("Review ready.")
-        second = next(n for n in nodes(self.tree()) if n.get("role") == "button" and n.get("name", "").startswith("test-game:") and n["name"].endswith("game2"))
-        self.desktop("click", second["ref_id"])
-        self.wait("Owned packages refreshed")
-        self.check("disabled" in self.find("button", "Install reviewed archive...").get("states", []), "Changed game retained review authority")
-        self.choose_game()
-        self.click("Inspect and preview")
-        self.wait("Review ready.")
-        self.unchanged(game, state)
-        self.desktop("screenshot", str(self.evidence / "review.png"), "--window-id", self.window)
-        self.click("Install reviewed archive...")
-        self.click("Cancel review")
-        self.wait("Cancelled.")
-        self.unchanged(game, state)
-        self.check("disabled" in self.find("button", "Install reviewed archive...").get("states", []), "Cancel retained write authority")
-        self.click("Inspect and preview")
-        self.wait("Review ready.")
-        self.archive(self.root / "blocked.zip")
-        self.check("disabled" in self.find("button", "Install reviewed archive...").get("states", []), "Changed selection retained write authority")
-        self.click("Inspect and preview")
-        self.wait("Action refused or failed.")
-        self.unchanged(game, state)
-        self.archive(self.root / "unmapped.zip")
-        self.click("Inspect and preview")
-        self.wait("Plan blocked.")
-        self.check("disabled" in self.find("button", "Install reviewed archive...").get("states", []), "Blocked plan enabled installation")
-        self.unchanged(game, state)
-        self.archive(self.root / "missing.zip")
-        self.click("Inspect and preview")
-        self.wait("Action refused or failed.")
-        self.unchanged(game, state)
-        self.archive(self.root / "demo.zip")
-        self.click("Inspect and preview")
-        self.wait("Review ready.")
-        self.click("Install reviewed archive...")
-        with zipfile.ZipFile(self.root / "demo.zip", "w") as archive:
-            archive.writestr("package/plugins/demo.plugin", b"changed-source")
-        self.click("Confirm install")
-        self.wait("Archive changed since review")
-        self.unchanged(game, state)
-        with zipfile.ZipFile(self.root / "demo.zip", "w") as archive:
-            archive.writestr("package/plugins/demo.plugin", b"owned-fixture")
-        self.click("Inspect and preview")
-        self.wait("Review ready.")
-        self.click("Install reviewed archive...")
-        self.cli("game", "remove", "test-game", "--path", self.root / "game")
-        removed_state = snapshot_bytes(self.root / "state")
-        self.click("Confirm install")
-        self.wait("Game registration changed")
-        self.unchanged(game, removed_state)
-        self.cli("game", "add", "test-game", "--path", self.root / "game")
-        self.click("Inspect and preview")
-        self.wait("Review ready.")
-        self.click("Install reviewed archive...")
-        self.click("Confirm install")
-        self.wait("Change complete.")
-        owned = self.root / "game/addons/demo.plugin"
-        self.check(owned.read_bytes() == b"owned-fixture", "Installed bytes differ")
-        packages = self.cli("list", "--path", self.root / "game")
-        self.check(len(packages) == 1 and packages[0]["files"], "Independent package inventory is missing")
-        package_id = packages[0]["id"]
-        item = self.find("button", package_id)
-        self.desktop("click", item["ref_id"])
-        self.click("Uninstall selected package...")
-        self.click("Cancel review")
-        self.check(owned.read_bytes() == b"owned-fixture", "Cancelled uninstall removed bytes")
-        self.desktop("click", self.find("button", package_id)["ref_id"])
-        self.click("Uninstall selected package...")
-        owned.write_bytes(b"external-change")
-        drift_game = snapshot_bytes(self.root / "game")
-        drift_state = snapshot_bytes(self.root / "state")
-        self.click("Confirm uninstall")
-        self.wait("Action refused or failed.")
-        self.unchanged(drift_game, drift_state)
-        self.check(owned.read_bytes() == b"external-change", "Strict uninstall removed modified bytes")
-        owned.write_bytes(b"owned-fixture")
-        self.click("Uninstall selected package...")
-        self.click("Confirm uninstall")
-        self.wait("Change complete.")
-        self.check(not owned.exists(), "Strict uninstall retained owned file")
-        self.check(self.cli("list", "--path", self.root / "game") == [], "Uninstall retained package")
-        self.check(snapshot_bytes(self.root / "game") == game, "Uninstall altered manual content")
-        self.seven_lifecycle(game)
-        self.click("Doctor / diagnostics")
-        self.wait("Diagnostics complete")
-        self.desktop("screenshot", str(self.evidence / "final.png"), "--window-id", self.window)
+    results.update(selftest_diagnostics.checks())
 
-    def seven_lifecycle(self, original_game):
-        self.select_file_dialog(self.root / "demo.7z")
-        game = snapshot_bytes(self.root / "game")
-        state = snapshot_bytes(self.root / "state")
-        self.click("Inspect and preview")
-        self.wait("Review ready.")
-        self.check("addons/seven.plugin" in json.dumps(self.find("document", "Proposed files, blockers and results")),
-                   "7z preview omitted the intended destination")
-        self.unchanged(game, state)
-        self.desktop("screenshot", str(self.evidence / "seven-review.png"), "--window-id", self.window)
-        self.click("Install reviewed archive...")
-        self.click("Confirm install")
-        self.wait("Change complete.")
-        owned = self.root / "game/addons/seven.plugin"
-        self.check(owned.read_bytes() == b"seven-owned-fixture", "7z installed bytes differ")
-        packages = self.cli("list", "--path", self.root / "game")
-        self.check(len(packages) == 1 and packages[0]["files"], "7z ownership missing")
-        self.desktop("click", self.find("button", packages[0]["id"])["ref_id"])
-        self.click("Uninstall selected package...")
-        owned.write_bytes(b"seven-external-change")
-        drift_game = snapshot_bytes(self.root / "game")
-        drift_state = snapshot_bytes(self.root / "state")
-        self.click("Confirm uninstall")
-        self.wait("Action refused or failed.")
-        self.unchanged(drift_game, drift_state)
-        owned.write_bytes(b"seven-owned-fixture")
-        self.click("Uninstall selected package...")
-        self.click("Confirm uninstall")
-        self.wait("Change complete.")
-        self.check(not owned.exists(), "7z strict uninstall retained owned bytes")
-        self.check(self.cli("list", "--path", self.root / "game") == [], "7z uninstall retained ownership")
-        self.check(snapshot_bytes(self.root / "game") == original_game, "7z lifecycle changed manual content")
+    # The scripts and docs must stay free of physical input and stale names.
+    import selftest_scripts  # noqa: PLC0415 - fakes and files only
 
-    def cleanup(self):
-        if self.process and self.process.poll() is None:
-            # The Popen handle identifies only the process this run created.
-            windows = self.desktop("list-windows", "--app", "modn-desktop.exe")
-            dialogs = [w for w in windows if w["pid"] == self.process.pid and w["id"] != self.window]
-            for dialog in dialogs:
-                cancel = self.native_control(dialog["id"], "button", "2")
-                self.desktop("click", cancel["ref_id"])
-            tree = self.tree()
-            close = next(n for n in nodes(tree) if n.get("native_id", {}).get("value") == "Close")
-            self.desktop("click", close["ref_id"])
-            self.process.wait(timeout=75)
-        require(self.root.name.startswith("modn-desktop-fixture-") and self.root.parent == Path(tempfile.gettempdir()), "Unexpected cleanup root")
-        shutil.rmtree(self.root)
-        self.cleanup_complete = True
+    results.update(selftest_scripts.checks())
+
+    # The play fixture must show no window: the watcher reports one and the real
+    # enumerator runs on this desktop.
+    import windows  # noqa: PLC0415 - pure helpers only
+
+    results["fixture_window_is_reported"] = windows.watch_windows(
+        [1], 0.2, enum=lambda pids: ["Remote Desktop Connection"]
+    ) == ["Remote Desktop Connection"]
+    results["quiet_fixture_reports_no_window"] = windows.watch_windows([1], 0.2, enum=lambda pids: []) == []
+    results["window_enumeration_runs"] = windows.visible_windows_of([0]) == []
+
+    import fixtures  # noqa: PLC0415 - pure helpers only
+
+    with tempfile.TemporaryDirectory() as folder:
+        probe = fixtures.signed_copy(Path(folder) / "probe.exe", "ping.exe")
+        process = subprocess.Popen(
+            [str(probe), "-n", "3", "127.0.0.1"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        try:
+            time.sleep(0.3)
+            results["image_pids_finds_a_running_copy"] = fixtures.image_pids(probe) == [process.pid]
+        finally:
+            process.kill()
+            process.wait(timeout=10)
+        results["image_pids_is_empty_when_stopped"] = fixtures.image_pids(probe) == []
+
+    # V1: the toast guard returns once the toast is gone and fails while it stays.
+    harness.wait_toasts_gone(_FakeToastSession(0), "Undo done", "selftest", timeout=0.3)
+    harness.wait_toasts_gone(_FakeToastSession(0), ("Install done", "Undo done"), "selftest", timeout=0.3)
+    results["toast_guard_passes_when_gone"] = True
+    try:
+        harness.wait_toasts_gone(_FakeToastSession(10**6), "Undo done", "selftest", timeout=0.3)
+    except uia.Failure:
+        results["toast_guard_fails_when_stale"] = True
+    else:
+        results["toast_guard_fails_when_stale"] = False
+    try:
+        harness.wait_toasts_gone(
+            _FakeNamedToasts({"Undo done"}), ("Install done", "Undo done"), "selftest", timeout=0.3
+        )
+    except uia.Failure:
+        results["toast_guard_checks_every_name"] = True
+    else:
+        results["toast_guard_checks_every_name"] = False
+
+    # V3: a failure with an empty message still fails the journey.
+    def raise_assertion():
+        raise AssertionError()
+
+    def raise_exception():
+        raise Exception()
+
+    runner = harness.Runner(None)
+    runner.journey("empty-assertion", raise_assertion)
+    runner.journey("empty-exception", raise_exception)
+    runner.journey("normal", lambda: None)
+    statuses = [result["status"] for result in runner.results]
+    results["empty_assertion_fails"] = statuses[0].startswith("failed")
+    results["empty_exception_fails"] = statuses[1].startswith("failed")
+    results["normal_journey_passes"] = statuses[2] == "passed"
+
+    # V5: each journey result carries the evidence directory it created.
+    holder = {}
+
+    def journey_with_fixture():
+        holder["fixture"] = fixtures.Fixture()
+
+    runner = harness.Runner(None)
+    runner.journey("evidence", journey_with_fixture)
+    fixture = holder["fixture"]
+    try:
+        results["result_carries_evidence"] = runner.results[0].get("evidence") == [
+            str(fixture.evidence)
+        ]
+    finally:
+        shutil.rmtree(fixture.root, ignore_errors=True)
+        shutil.rmtree(fixture.evidence, ignore_errors=True)
+        if fixture.evidence in fixtures.CREATED:
+            fixtures.CREATED.remove(fixture.evidence)
+
+    # V4: the front matter of this skill, and of every sibling, is valid YAML.
+    def front_matter(path):
+        parts = Path(path).read_text(encoding="utf-8").split("---", 2)
+        if len(parts) < 3:
+            return {}
+        try:
+            data = yaml.safe_load(parts[1])
+        except yaml.YAMLError:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    skill = Path(__file__).resolve().parents[1] / "SKILL.md"
+    own = front_matter(skill)
+    results["front_matter_name"] = isinstance(own.get("name"), str)
+    results["front_matter_description"] = isinstance(own.get("description"), str)
+    results["all_skill_front_matter"] = all(
+        isinstance(front_matter(path).get("name"), str)
+        and isinstance(front_matter(path).get("description"), str)
+        for path in sorted(skill.parent.parent.glob("*/SKILL.md"))
+    )
+
+    with tempfile.TemporaryDirectory() as folder:
+        both = Path(folder) / "both.exe"
+        both.write_bytes(b"x MODN_APPDATA y MODN_STORE_LIBRARIES z")
+        bare = Path(folder) / "bare.md"
+        bare.write_text("# A skill without front matter\n", encoding="utf-8")
+        open_only = Path(folder) / "open-only.md"
+        open_only.write_text("---\nname: x\n", encoding="utf-8")
+        results["front_matter_without_markers_is_invalid"] = (
+            front_matter(bare) == {} and front_matter(open_only) == {}
+        )
+        one = Path(folder) / "one.exe"
+        one.write_bytes(b"MODN_APPDATA")
+        results["accepts_a_cli_with_both_overrides"] = harness.lacks_test_overrides(both) == []
+        results["rejects_a_cli_without_one_override"] = harness.lacks_test_overrides(one) == [
+            "MODN_STORE_LIBRARIES"
+        ]
+        verified = Path(folder) / "verified.exe"
+        verified.write_bytes(b"x MODN_VERIFY_CLIPBOARD_FILE y")
+        plain = Path(folder) / "plain.exe"
+        plain.write_bytes(b"x MODN_VERIFY_CLIPBOARD y")
+        results["accepts_an_app_with_the_verification_marker"] = not (
+            harness.lacks_verification_feature(verified)
+        )
+        results["rejects_an_app_without_the_verification_marker"] = (
+            harness.lacks_verification_feature(plain)
+        )
+    passed = all(results.values())
+    print(json.dumps({"selftest": "passed" if passed else "failed", "checks": results}))
+    return 0 if passed else 1
+
+
+def build():
+    commands = [
+        ["cargo", "build", "-p", "modn-desktop", "--features", "verification", "--locked"],
+        ["cargo", "build", "-p", "modn-cli", "--features", "modn-core/test-instruction-budget", "--locked"],
+    ]
+    for command in commands:
+        print("+ " + " ".join(command))
+        result = subprocess.run(command, cwd=REPO, env=os.environ.copy())
+        if result.returncode != 0:
+            raise SystemExit(f"build failed: {' '.join(command)}")
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--app", type=Path, default=Path(os.environ.get("CARGO_TARGET_DIR", REPO / "target")) / "debug/modn-desktop.exe")
-    parser.add_argument("--backend", type=Path, required=True)
-    args = parser.parse_args()
-    driver = Driver(args.app, args.backend)
-    status = "failed"
+    parser, args = parse_args()
+    if args.list:
+        lines = "".join(f"{number} {name}\n" for number, name, _ in JOURNEYS)
+        sys.stdout.buffer.write(lines.encode())
+        sys.stdout.flush()
+        return 0
+    if args.selftest:
+        import harness  # noqa: F401,PLC0415 - bootstrap must run before uia is imported
+
+        return selftest()
+    selected = select(parser, args.only)
+    import fixtures  # noqa: PLC0415 - harness imports this module during bootstrap
+    import harness  # noqa: PLC0415 - bootstrap must run before uia is imported
+
+    fixtures.KEEP = args.keep
+    if args.build:
+        build()
+    harness.BINARIES.override(app=args.app, cli=args.cli, test_backend=args.test_backend)
+    missing = harness.BINARIES.missing()
+    if missing:
+        parser.error(
+            f"missing binary {missing[0]}; build it with --build or pass --app, --cli or --test-backend"
+        )
+    absent = harness.lacks_test_overrides(harness.BINARIES.cli)
+    if absent:
+        parser.error(
+            f"{harness.BINARIES.cli} was built without modn-core/test-instruction-budget "
+            f"({', '.join(absent)} not found). It would read the real Steam library and "
+            "install into real game folders. Build the verifier CLI with --build."
+        )
+    if harness.lacks_verification_feature(harness.BINARIES.app):
+        parser.error(
+            f"{harness.BINARIES.app} was built without the verification feature. It would "
+            "write the real Windows clipboard, which the verifier never touches. Build the "
+            "verifier app with cargo build -p modn-desktop --features verification --locked."
+        )
+    runner = harness.Runner(args)
+    started = time.monotonic()
     try:
-        driver.prepare()
-        driver.launch()
-        driver.drive()
-        status = "passed"
+        for number, name, spec in selected:
+            function = resolve(spec)
+            runner.journey(f"{number} {name}", lambda function=function: function(runner))
     finally:
-        driver.cleanup()
-        summary = dict(status=status, assertions=driver.assertions, native_commands=len(driver.exits),
-                       command_nonzero=sum(code != 0 for code in driver.exits),
-                       fixture_removed=not driver.root.exists(), pid=driver.process.pid if driver.process else None,
-                       app_exit=driver.process.returncode if driver.process else None,
-                       cleanup_complete=driver.cleanup_complete)
-        driver.record("summary", summary)
-        print(json.dumps(dict(evidence=str(driver.evidence), **summary)))
-    require(status == "passed", "Native proof failed")
+        runner.clean()
+    passed = sum(1 for r in runner.results if r["status"] == "passed")
+    summary = {
+        "status": "passed" if passed == len(runner.results) and runner.results else "failed",
+        "journeys": len(runner.results),
+        "passed": passed,
+        "failed": len(runner.results) - passed,
+        "assertions": runner.assertions,
+        "seconds": round(time.monotonic() - started, 1),
+        "results": runner.results,
+    }
+    print(json.dumps(summary))
+    return 0 if summary["status"] == "passed" else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -1,4 +1,4 @@
-import { catalog, diagnostics, installMod, listPackages, planInstall, uninstall, update } from './api.js';
+import { catalog, copyDiagnostics, installMod, listPackages, planInstall, uninstall, update } from './api.js';
 import { messageFor } from './messages.js';
 import { createOperationButton } from './op-button.js';
 import { showToast } from './toast.js';
@@ -20,14 +20,6 @@ import { createPlanSection } from './details/plan.js';
 function libraryHref(ctx) {
   const path = ctx.path ? `?path=${encodeURIComponent(ctx.path)}` : '';
   return `#/game/${encodeURIComponent(ctx.gameId)}${path}`;
-}
-
-/**
- * @param {unknown} value
- * @returns {string}
- */
-function asText(value) {
-  return typeof value === 'string' ? value : JSON.stringify(value ?? '');
 }
 
 /**
@@ -153,7 +145,7 @@ export async function render(root, ctx) {
   copy.dataset.testid = 'copy-diagnostics';
   copy.setAttribute('aria-label', 'Copy diagnostics');
   copy.addEventListener('click', () => {
-    void copyDiagnostics(copy);
+    void copyReport(copy);
   });
   footer.append(copy);
 
@@ -166,11 +158,10 @@ export async function render(root, ctx) {
   /**
    * @param {HTMLButtonElement} button
    */
-  async function copyDiagnostics(button) {
+  async function copyReport(button) {
     button.disabled = true;
     try {
-      const report = await diagnostics();
-      await navigator.clipboard.writeText(asText(report));
+      await copyDiagnostics();
       showToast('Diagnostics copied.');
     } catch (error) {
       showToast(messageFor(error));

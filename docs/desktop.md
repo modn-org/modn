@@ -14,7 +14,7 @@ Windows targets only. `cargo build -p modn-desktop --locked` builds
 `tauri.conf.json` sets `frontendDist` to `ui`, so the executable embeds the
 frontend. The UI is plain HTML, CSS and ES modules in `apps/modn-desktop/ui/`.
 It uses no bundler, no package manager and no Node toolchain. `build.rs`
-declares the 19 commands to `tauri-build`.
+declares the 20 commands to `tauri-build`.
 
 On other platforms the entry point prints that Modn Desktop requires Windows
 and exits 1. Linux builds compile no webview library.
@@ -26,7 +26,7 @@ The webview runs under a strict content security policy. It allows only
 `data:`. It connects only to `ipc:` and `http://ipc.localhost`. Object, base,
 frame and form sources are `'none'`.
 
-The main window capability grants `core:default` and the app's own 19 commands.
+The main window capability grants `core:default` and the app's own 20 commands.
 `build.rs`, `capabilities/default.json` and `ui/js/api.js` list the same names,
 and the command tests compare those lists. The app loads one plugin,
 `tauri-plugin-dialog`, for native pickers and messages. No filesystem, shell or
@@ -129,7 +129,13 @@ main action.
 
 **History** lists the operations of this mod, newest first, each with **Undo**.
 **Copy diagnostics** runs `modn doctor` through the backend and copies the
-pretty-printed JSON report.
+pretty-printed JSON report. A release build writes the system clipboard, so the
+copy needs no focused webview and works while another app holds the foreground.
+A build with the `verification` feature writes the report to the file named by
+`MODN_VERIFY_CLIPBOARD_FILE` instead and never reads or writes the system
+clipboard. An unset, empty or unwritable path returns `CLIPBOARD_FAILED`. The
+desktop verifier uses that file, deletes it before the click and checks that it
+holds the doctor report.
 
 ## One-click operations
 
@@ -224,10 +230,44 @@ tests. They cover argument vectors, refusals, bounded output, the environment
 allowlist, progress order, cancel before and after the commit, and the
 inactivity timeout.
 
-The Tauri desktop verifier is not shipped yet; it is a follow-up. The
-checked-in [desktop verifier skill](../.agents/skills/verify-modn-desktop/SKILL.md)
-still drives the earlier GPUI app, requires `--backend`, and has no `--build`
-option. Do not use it to check this Tauri window.
+The checked-in
+[desktop verifier skill](../.agents/skills/verify-modn-desktop/SKILL.md) drives
+the Tauri window through Windows UI Automation. It runs eleven journeys against
+disposable fixtures: detection, progress, cancel, finishing, lifecycle,
+blocked, approval, no-cli-output, play, remove and catalog. The fixtures supply
+a generated bucket contract v2 `main` bucket, a fake Steam library and the real
+`modn.exe` where a journey needs them. The verifier never reads the real
+`%LOCALAPPDATA%\modn`, a real game or a real store. It refuses a `modn.exe`
+built without the test overrides, because that binary would use the real Steam
+library and real game folders. See the skill for the
+journey table, evidence and limits.
+
+Run it from the repository root:
+
+```powershell
+uv run --no-project python .agents/skills/verify-modn-desktop/scripts/verify.py --build
+```
+
+It needs Windows 10 or later with WebView2, an unlocked interactive desktop,
+`uv` and Python 3. The `catalog` journey also needs 7-Zip. `--build` needs
+`cargo`; the journeys themselves do not. Without `--build`, pass `--app`,
+`--cli` and `--test-backend`, or set `CARGO_TARGET_DIR` to the directory that
+holds the built binaries. The `--cli` binary needs the
+`modn-core/test-instruction-budget` feature, so the fixture store and
+content-root overrides apply.
+
+The UI behaviour tests live in `apps/modn-desktop/tests/ui_node.rs` and
+`apps/modn-desktop/tests/js`. When `node` is on `PATH`, the test runs
+`node --test` and prints the version. When `node` is missing, a local run
+prints a skip message and passes. When `CI` holds a non-empty value, the same
+test fails with a message that names CI, node and PATH. The CI workflow prints
+the Node version from a step that runs `ui_node` with `--nocapture`.
+
+The verifier proves the window and the listed operations on fixtures. It does
+not cover a real game, Windows 10 hardware or a real store client. A
+content-root game cannot exercise the executable ask, because the CLI preview
+ignores an explicit executable approval. That ask runs on a `tools-game`
+fixture instead.
 
 ## Limits
 
@@ -251,6 +291,7 @@ recovery commands.
 ## Licensing
 
 Modn Desktop uses Tauri 2 and its official crates, which are licensed under
-Apache-2.0 OR MIT. The root `Cargo.lock` records the full dependency graph. See
+Apache-2.0 OR MIT, and `clipboard-win`, which is licensed under BSL-1.0. The
+root `Cargo.lock` records the full dependency graph. See
 the [third-party notices](../apps/modn-desktop/THIRD_PARTY_NOTICES.md). A binary
 distributor must audit the locked graph and keep the required notices.

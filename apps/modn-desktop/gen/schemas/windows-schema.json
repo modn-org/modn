@@ -201,6 +201,12 @@
           "markdownDescription": "Enables the catalog command without any pre-configured scope."
         },
         {
+          "description": "Enables the copy_diagnostics command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-copy-diagnostics",
+          "markdownDescription": "Enables the copy_diagnostics command without any pre-configured scope."
+        },
+        {
           "description": "Enables the detect_games command without any pre-configured scope.",
           "type": "string",
           "const": "allow-detect-games",
@@ -313,6 +319,12 @@
           "type": "string",
           "const": "deny-catalog",
           "markdownDescription": "Denies the catalog command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the copy_diagnostics command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-copy-diagnostics",
+          "markdownDescription": "Denies the copy_diagnostics command without any pre-configured scope."
         },
         {
           "description": "Denies the detect_games command without any pre-configured scope.",

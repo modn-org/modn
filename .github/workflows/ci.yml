@@ -25,6 +25,8 @@ jobs:
         run: python3 .github/scripts/test_rehash_main.py
         env:
           MODN_BIN: target/debug/modn
+      - name: Print the Node version that runs the UI behaviour tests
+        run: cargo test -p modn-desktop --locked --test ui_node -- --nocapture
       - name: Verify desktop backend contracts (Windows)
         if: runner.os == 'Windows'
         run: cargo test -p modn-desktop --all-features --locked
