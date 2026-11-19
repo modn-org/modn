@@ -78,14 +78,14 @@ function approvalNeeds(report) {
  */
 function operationRow(operation) {
   const removing = operation.kind === 'remove' || operation.remove === true;
-  const row = element('li', 'modn-plan__row');
+  const row = element('li', 'modn-review__row');
   row.dataset.operation = removing ? 'remove' : 'write';
   const path = element(
     'span',
-    'modn-plan__path',
+    'modn-review__path',
     typeof operation.destination === 'string' ? operation.destination : '',
   );
-  row.append(path, element('span', 'modn-plan__tag', removing ? 'Remove' : 'Write'));
+  row.append(path, element('span', 'modn-review__tag', removing ? 'Remove' : 'Write'));
   return row;
 }
 
@@ -101,7 +101,7 @@ function renderPlan(plan, blockers, needs, status, list, note) {
   const operations = operationsOf(plan);
   list.replaceChildren();
   if (operations.length === 0) {
-    const empty = element('li', 'modn-muted', EMPTY_TEXT);
+    const empty = element('li', 'modn-review__muted', EMPTY_TEXT);
     empty.dataset.testid = 'details-plan-empty';
     list.append(empty);
   }
@@ -111,13 +111,13 @@ function renderPlan(plan, blockers, needs, status, list, note) {
     }
   }
   for (const blocker of blockers) {
-    const reason = element('li', 'modn-plan__blocker', messageFor(blocker.code));
+    const reason = element('li', 'modn-review__blocker', messageFor(blocker.code));
     reason.dataset.code = typeof blocker.code === 'string' ? blocker.code : '';
     list.append(reason);
   }
   note.textContent =
     needs.length > 0 ? `Approval needed: ${needs.join(', ')}.` : 'No approval needed.';
-  status.classList.toggle('modn-status--error', blockers.length > 0);
+  status.classList.toggle('modn-review__status--error', blockers.length > 0);
   if (blockers.length > 0) {
     status.textContent = BLOCKED_TEXT;
   } else {
@@ -133,15 +133,16 @@ function renderPlan(plan, blockers, needs, status, list, note) {
  */
 export function createPlanSection(ctx) {
   const section = document.createElement('details');
-  section.className = 'modn-card modn-details__plan';
+  section.className = 'modn-review';
+  section.setAttribute('data-modn-protected', 'install-review');
   section.dataset.testid = 'details-plan';
-  const summary = element('summary', 'modn-details__summary', 'Details');
-  const body = element('div', 'modn-details__body');
-  const status = element('p', 'modn-status');
+  const summary = element('summary', 'modn-review__summary', 'Details');
+  const body = element('div', 'modn-review__body');
+  const status = element('p', 'modn-review__status');
   status.setAttribute('role', 'status');
-  const list = element('ul', 'modn-plan');
+  const list = element('ul', 'modn-review__list');
   list.setAttribute('aria-label', 'File plan');
-  const note = element('p', 'modn-muted modn-details__approval');
+  const note = element('p', 'modn-review__muted modn-review__approval');
   note.dataset.testid = 'details-plan-approval';
   body.append(status, list, note);
   section.append(summary, body);
@@ -159,7 +160,7 @@ export function createPlanSection(ctx) {
       return;
     }
     loading = true;
-    status.classList.remove('modn-status--error');
+    status.classList.remove('modn-review__status--error');
     status.textContent = 'Reading the file plan…';
     try {
       const report = await planInstall({
@@ -172,7 +173,7 @@ export function createPlanSection(ctx) {
       loaded = true;
     } catch (error) {
       status.textContent = messageFor(error);
-      status.classList.add('modn-status--error');
+      status.classList.add('modn-review__status--error');
     } finally {
       loading = false;
     }

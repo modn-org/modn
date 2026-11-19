@@ -211,12 +211,12 @@ test('a second refusal asks only for the new grant and keeps the union on retry'
   await flush();
   assert.equal(calls.length, 2);
   assert.deepEqual(
-    findAllByClass(askHost, 'modn-ask__path').map((path) => path.textContent),
+    findAllByClass(askHost, 'modn-approval__path').map((path) => path.textContent),
     ['C:/tools/two.exe'],
     'the second ask names only the executable it adds',
   );
   assert.equal(
-    findAllByClass(askHost, 'modn-ask__question')
+    findAllByClass(askHost, 'modn-approval__question')
       .some((line) => line.textContent.includes('native injector')),
     false,
     'the second ask omits the native permission already granted',
@@ -261,11 +261,11 @@ test('the ask lists each executable and the native permission separately', async
     },
   });
   await button.start();
-  const lines = findAllByClass(askHost, 'modn-ask__question');
+  const lines = findAllByClass(askHost, 'modn-approval__question');
   const nativeLine = lines.find((line) => line.textContent.includes('native injector'));
   assert.ok(nativeLine, 'the native permission needs its own line');
   assert.doesNotMatch(nativeLine.textContent, /one\.exe/, 'paths must not share that line');
-  const paths = findAllByClass(askHost, 'modn-ask__path');
+  const paths = findAllByClass(askHost, 'modn-approval__path');
   assert.deepEqual(
     paths.map((path) => path.textContent),
     ['C:/tools/one.exe', 'C:/tools/two.exe'],

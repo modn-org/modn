@@ -54,7 +54,7 @@ test('reopening Recent keeps the pending approval prompt of an entry', async () 
   recent.click();
   await flush();
   assert.equal(
-    findAllByClass(menu, 'modn-ask__actions').length,
+    findAllByClass(menu, 'modn-approval__actions').length,
     1,
     'the reloaded row reattaches the same pending ask once',
   );
