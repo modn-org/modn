@@ -112,13 +112,23 @@ pub(super) fn reference_of(package: &BucketPackage) -> CatalogReference {
     package.reference()
 }
 
+/// Verified `--file` archives: the path map the install reads and the digest
+/// one inspection computed for each.
+struct SuppliedArchives {
+    paths: BTreeMap<String, PathBuf>,
+    verified: BTreeMap<String, download::SuppliedArchive>,
+}
+
 fn match_archives(
     files: &[PathBuf],
     selected: &BucketPackage,
     dependencies: &[BucketPackage],
-) -> Result<BTreeMap<String, PathBuf>> {
+) -> Result<SuppliedArchives> {
     let reference = reference_of(selected);
-    let mut archives = BTreeMap::new();
+    let mut supplied = SuppliedArchives {
+        paths: BTreeMap::new(),
+        verified: BTreeMap::new(),
+    };
     for file in files {
         if !std::fs::symlink_metadata(file)?.file_type().is_file() {
             bail!("archive must be a regular file: {}", file.display());
@@ -140,10 +150,18 @@ fn match_archives(
             if Some(inspected.format) != expected_format(release.package.archive_format.as_ref()) {
                 bail!("{matched}: archive format does not match catalog manifest");
             }
-            archives.insert(matched.to_string(), file.clone());
+            let matched = matched.to_string();
+            supplied.paths.insert(matched.clone(), file.clone());
+            supplied.verified.insert(
+                matched,
+                download::SuppliedArchive {
+                    path: file.clone(),
+                    blake3: inspected.blake3.clone(),
+                },
+            );
         }
     }
-    Ok(archives)
+    Ok(supplied)
 }
 
 fn install_mod(
@@ -166,8 +184,9 @@ fn install_mod(
     order.pop();
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
     catalog_approval::check_native_approvals(&selected, &order, args, state_path)?;
-    let mut archives = match_archives(&args.file, &selected, &order)?;
-    let supplied = archives.clone();
+    let supplied = match_archives(&args.file, &selected, &order)?;
+    let mut archives = supplied.paths.clone();
+    let supplied = supplied.verified;
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();
     let cache = download::cache_for(state_path)?;

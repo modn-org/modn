@@ -88,8 +88,17 @@ fn fetch_commit(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Re
         commit,
         fetch_inactivity_limit(),
         fetch_program().as_deref(),
-        TreeStop::End,
+        fetch_stop(),
     )
+}
+
+/// The stop mode of one package fetch; a test build may force the failure path.
+fn fetch_stop() -> TreeStop {
+    #[cfg(any(test, feature = "test-instruction-budget"))]
+    if std::env::var_os("MODN_TEST_GIT_TREE_STOP_FAIL").is_some_and(|value| !value.is_empty()) {
+        return TreeStop::Fail;
+    }
+    TreeStop::End
 }
 
 /// One bounded Git command that ended, or one that made no progress.

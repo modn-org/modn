@@ -150,7 +150,12 @@ impl GitSource {
     }
 
     /// Whether `error` reports a Git tree that could not be stopped.
-    pub(crate) fn is_unstoppable_tree(error: &anyhow::Error) -> bool {
+    ///
+    /// The CLI's ordered acquisition uses this to stop the install instead of
+    /// falling over to the next source: a surviving descendant could still
+    /// write into the staging repository.
+    #[must_use]
+    pub fn is_unstoppable_tree(error: &anyhow::Error) -> bool {
         pack::is_tree_still_running(error)
     }
 

@@ -27,7 +27,7 @@ pub(super) struct Stack<'a> {
     pub(super) archives: BTreeMap<String, PathBuf>,
     pub(super) digests: BTreeMap<String, String>,
     pub(super) served: BTreeMap<String, PackageSource>,
-    pub(super) supplied: BTreeMap<String, PathBuf>,
+    pub(super) supplied: BTreeMap<String, download::SuppliedArchive>,
     pub(super) catalog: &'a BucketSnapshot,
     pub(super) cache: &'a ArchiveCache,
     pub(super) cache_use: CacheUse,
