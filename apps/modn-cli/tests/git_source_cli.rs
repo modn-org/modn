@@ -331,12 +331,31 @@ fn git_source_missing_commit_fails_with_code_and_no_writes() {
 
 /// Write a bucket whose first Git source stalls and whose second one serves.
 fn add_stalled_then_serving_bucket(fixture: &Fixture, root: &Path, commit: &str) {
-    let bucket = root.join("git-stall-fixture");
+    add_two_source_bucket(fixture, root, "git-stall-fixture", "stalled", commit);
+}
+
+/// Write a bucket whose first Git source aborts below the Git low-speed limit
+/// and whose second one serves.
+fn add_low_speed_then_serving_bucket(fixture: &Fixture, root: &Path, commit: &str) {
+    add_two_source_bucket(fixture, root, "git-low-speed-fixture", "low-speed", commit);
+}
+
+/// Write a bucket whose first source names `first` and whose second serves.
+fn add_two_source_bucket(
+    fixture: &Fixture,
+    root: &Path,
+    bucket_name: &str,
+    first: &str,
+    commit: &str,
+) {
+    let bucket = root.join(bucket_name);
     let game = bucket.join("mods/test-game");
     fs::create_dir_all(&game).expect("bucket directory");
     fs::write(
         bucket.join("bucket.json"),
-        br#"{"schema_version":2,"name":"git-stall-fixture","title":"Git stall fixture"}"#,
+        format!(
+            r#"{{"schema_version":2,"name":"{bucket_name}","title":"Two-source Git fixture"}}"#
+        ),
     )
     .expect("bucket metadata");
     let manifest = json!({
@@ -346,7 +365,7 @@ fn add_stalled_then_serving_bucket(fixture: &Fixture, root: &Path, commit: &str)
         "name": "Git Package",
         "version": "1.0",
         "sources": [
-            {"kind": "git", "repository": "fixture/stalled", "commit": commit},
+            {"kind": "git", "repository": format!("fixture/{first}"), "commit": commit},
             {"kind": "git", "repository": "fixture/project", "commit": commit},
         ],
     });
@@ -355,7 +374,7 @@ fn add_stalled_then_serving_bucket(fixture: &Fixture, root: &Path, commit: &str)
         serde_json::to_vec(&manifest).expect("manifest JSON"),
     )
     .expect("manifest");
-    let result = fixture.run_paths(&["bucket", "add", "git-stall-fixture"], &[&bucket]);
+    let result = fixture.run_paths(&["bucket", "add", bucket_name], &[&bucket]);
     assert!(result.status.success(), "{}", error(&result));
 }
 
@@ -370,23 +389,52 @@ fn real_git() -> std::path::PathBuf {
 
 /// A stub Git that stalls for `fixture/stalled` and calls the real Git otherwise.
 fn stalling_git_program(root: &Path) -> std::path::PathBuf {
-    let directory = root.join("stalled-git");
-    fs::create_dir_all(&directory).expect("stall stub directory");
+    stub_git_program(
+        root,
+        "stalled-git",
+        "fixture/stalled",
+        "ping -n 60 127.0.0.1 >nul",
+        "sleep 60",
+    )
+}
+
+/// A stub Git that reports the low-speed abort for `fixture/low-speed` and
+/// calls the real Git otherwise.
+fn low_speed_git_program(root: &Path) -> std::path::PathBuf {
+    stub_git_program(
+        root,
+        "low-speed-git",
+        "fixture/low-speed",
+        "echo error: RPC failed; curl 28 Operation too slow. Less than 1 bytes/sec transferred the last 60 seconds 1>&2\r\nexit /b 128",
+        "echo \"error: RPC failed; curl 28 Operation too slow. Less than 1 bytes/sec transferred the last 60 seconds\" >&2\nexit 128",
+    )
+}
+
+/// Write a stub Git that handles the matching repository and forwards the rest.
+fn stub_git_program(
+    root: &Path,
+    name: &str,
+    marker: &str,
+    windows_action: &str,
+    unix_action: &str,
+) -> std::path::PathBuf {
+    let directory = root.join(name);
+    fs::create_dir_all(&directory).expect("stub directory");
     let real = real_git();
     let real = real.to_string_lossy().replace(char::from(92), "/");
     if cfg!(windows) {
         let program = directory.join("git.bat");
         let script = format!(
-            "@echo off\r\necho %* | findstr /C:\"fixture/stalled\" >nul\r\nif errorlevel 1 goto real\r\nping -n 60 127.0.0.1 >nul\r\nexit /b 0\r\n:real\r\n\"{real}\" %*\r\n"
+            "@echo off\r\necho %* | findstr /C:\"{marker}\" >nul\r\nif errorlevel 1 goto real\r\n{windows_action}\r\n:real\r\n\"{real}\" %*\r\n"
         );
-        fs::write(&program, script).expect("stall stub");
+        fs::write(&program, script).expect("stub program");
         program
     } else {
         let program = directory.join("git");
         let script = format!(
-            "#!/bin/sh\ncase \"$*\" in\n  *fixture/stalled*) sleep 60 ;;\n  *) exec \"{real}\" \"$@\" ;;\nesac\n"
+            "#!/bin/sh\ncase \"$*\" in\n  *{marker}*)\n    {unix_action}\n    ;;\n  *)\n    exec \"{real}\" \"$@\"\n    ;;\nesac\n"
         );
-        fs::write(&program, script).expect("stall stub");
+        fs::write(&program, script).expect("stub program");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -398,18 +446,19 @@ fn stalling_git_program(root: &Path) -> std::path::PathBuf {
     }
 }
 
-/// Run the CLI with a stubbed Git fetch and a 2 s fetch deadline.
+/// Run the CLI with a stubbed Git fetch and a short inactivity limit.
 ///
 /// The stderr stream goes to a file and the helper reports when the process
 /// exited. A killed batch stub can leave a descendant that holds a pipe open,
 /// so a pipe capture would measure the descendant, not the command.
-fn run_with_stalled_git(
+fn run_with_stub_git(
     fixture: &Fixture,
     base: &Path,
     args: &[&str],
+    program: &Path,
+    idle_millis: &str,
 ) -> (std::process::Output, std::time::Duration) {
-    let program = stalling_git_program(fixture.temp.path());
-    let capture = fixture.temp.path().join("stalled-stderr.txt");
+    let capture = fixture.temp.path().join("stubbed-stderr.txt");
     let stderr = fs::File::create(&capture).expect("stderr capture");
     let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     command
@@ -417,8 +466,8 @@ fn run_with_stalled_git(
         .arg(&fixture.state)
         .env("MODN_GAME_MODULES_DIR", &fixture.modules)
         .env("MODN_TEST_GIT_REMOTE_BASE", git_fixture::file_url(base))
-        .env("MODN_TEST_GIT_FETCH_PROGRAM", &program)
-        .env("MODN_TEST_GIT_FETCH_TIMEOUT_MS", "2000")
+        .env("MODN_TEST_GIT_FETCH_PROGRAM", program)
+        .env("MODN_TEST_GIT_FETCH_IDLE_MS", idle_millis)
         .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(stderr);
@@ -435,6 +484,21 @@ fn run_with_stalled_git(
     )
 }
 
+/// Staging directories that a fetch should have removed.
+fn leftover_fetch_directories(fixture: &Fixture) -> Vec<String> {
+    let cache = fixture.state.join("cache");
+    let Ok(entries) = fs::read_dir(cache) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("git-source-"))
+        .collect();
+    names.sort();
+    names
+}
+
 #[test]
 fn a_stalled_first_git_fetch_times_out_and_the_next_source_serves() {
     let fixture = Fixture::new();
@@ -442,8 +506,9 @@ fn a_stalled_first_git_fetch_times_out_and_the_next_source_serves() {
     add_stalled_then_serving_bucket(&fixture, fixture.temp.path(), &repository.commit);
     fixture.register();
     let plugin = installed_plugin(&fixture);
+    let program = stalling_git_program(fixture.temp.path());
 
-    let (output, elapsed) = run_with_stalled_git(
+    let (output, elapsed) = run_with_stub_git(
         &fixture,
         &repository.base,
         &[
@@ -453,12 +518,14 @@ fn a_stalled_first_git_fetch_times_out_and_the_next_source_serves() {
             fixture.game.to_str().expect("game path"),
             "--yes",
         ],
+        &program,
+        "8000",
     );
 
     assert!(output.status.success(), "{}", error(&output));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        elapsed < std::time::Duration::from_secs(20),
+        elapsed < std::time::Duration::from_secs(30),
         "the stalled fetch blocked the ordered fallback: {elapsed:?}\n{stderr}"
     );
     assert!(
@@ -467,6 +534,60 @@ fn a_stalled_first_git_fetch_times_out_and_the_next_source_serves() {
             .any(|line| line.contains("git fixture/stalled commit ")
                 && line.contains("attempt 1: timeout")),
         "the report does not classify the stall as a timeout: {stderr}"
+    );
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.contains("git fixture/project commit ")
+                && line.trim_end().ends_with(": ok")),
+        "the report omits the serving Git source: {stderr}"
+    );
+    assert_eq!(
+        fs::read(&plugin).expect("installed plugin"),
+        b"pinned-release"
+    );
+    assert_eq!(
+        leftover_fetch_directories(&fixture),
+        Vec::<String>::new(),
+        "the timed-out fetch left its staging directory behind"
+    );
+}
+
+#[test]
+fn a_low_speed_abort_is_a_timeout_and_the_next_source_serves() {
+    let fixture = Fixture::new();
+    let repository = repository(fixture.temp.path());
+    add_low_speed_then_serving_bucket(&fixture, fixture.temp.path(), &repository.commit);
+    fixture.register();
+    let plugin = installed_plugin(&fixture);
+    let program = low_speed_git_program(fixture.temp.path());
+
+    let (output, elapsed) = run_with_stub_git(
+        &fixture,
+        &repository.base,
+        &[
+            "install",
+            "test-game/git-package",
+            "--path",
+            fixture.game.to_str().expect("game path"),
+            "--yes",
+        ],
+        &program,
+        "30000",
+    );
+
+    assert!(output.status.success(), "{}", error(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "the low-speed abort blocked the ordered fallback: {elapsed:?}\n{stderr}"
+    );
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.contains("git fixture/low-speed commit ")
+                && line.contains("attempt 1: timeout")),
+        "the report does not classify the low-speed abort as a timeout: {stderr}"
     );
     assert!(
         stderr

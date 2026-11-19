@@ -54,8 +54,12 @@ bucket and sync it again.
 `modn bucket list` shows the pinned key ID after the catalog title.
 
 Git must be installed. Git operations keep no credentials and never prompt.
-A package Git fetch is bounded: it fails as a `timeout` attempt after the
-connect and idle timeouts below, also when the remote never answers. Catalog
+A package Git fetch fails as a `timeout` attempt after 90 seconds without
+progress, also when the remote never answers or Git aborts the transfer below
+its low-speed limit. Git prints progress while it receives data, so a transfer
+that keeps receiving data can run longer than 90 seconds. On a timeout, Modn
+ends the Git process and every process it started, waits for the error reader,
+and then removes the temporary fetch files. Catalog
 sync serializes other Git sync calls: a second sync waits up to 2 seconds
 for the first to finish, then fails with the already running error. It does not
 coordinate concurrent local registration edits.
@@ -163,7 +167,10 @@ A verified cache entry for the pin is used before any network attempt.
 Modn never retries an HTTP 4xx answer or a BLAKE3 mismatch.
 It adds no flag or environment variable for these values.
 The constants are `CONNECT_TIMEOUT`, `READ_INACTIVITY_TIMEOUT` and `RETRIES_PER_SOURCE` in `modn_core::acquisition`.
-The same connect and idle values bound one Git fetch: the wall-clock deadline is their sum, Git also stops a transfer below one byte per second, and a stalled fetch is killed and reported as a `timeout` attempt, so the next source still runs.
+The same connect and idle values bound one Git fetch by inactivity: 90 seconds without progress.
+Git prints progress to its error stream while it receives data, so a slow transfer that keeps receiving data is not stopped.
+Git also stops a transfer below one byte per second, and that abort keeps the same `timeout` class.
+A timed-out fetch ends its whole process tree and joins its error reader before Modn removes the temporary files and tries the next source.
 
 An `--nxm` link is accepted when it names any Nexus source of a release that the command installs or updates, not only the first one.
 A link that names no such source is refused.
@@ -172,7 +179,7 @@ The download consent prompt and the dry run name the first fetchable source, whi
 Modn reports each source it tried and why it failed.
 The failure classes are:
 
-- `timeout`: the connect or idle timeout elapsed.
+- `timeout`: the connect or idle timeout elapsed, or a Git fetch made no progress for its limit.
 - `network`: the connection failed or the body stopped.
 - `http <status>`: the server answered with that status.
 - `digest mismatch`: the bytes differ from the pin; the report names the expected and actual BLAKE3 values.

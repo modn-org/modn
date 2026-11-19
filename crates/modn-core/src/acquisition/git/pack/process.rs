@@ -157,7 +157,14 @@ fn command(
             READ_INACTIVITY_TIMEOUT.as_secs()
         ))
         .args([
-            "fetch", "--progress", "--depth", "1", "--no-tags", "--", url, commit,
+            "fetch",
+            "--progress",
+            "--depth",
+            "1",
+            "--no-tags",
+            "--",
+            url,
+            commit,
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())

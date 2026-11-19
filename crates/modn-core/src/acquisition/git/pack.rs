@@ -8,11 +8,15 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 use zip::write::SimpleFileOptions;
 
 mod process;
 use process::FetchProcess;
+
+#[cfg(test)]
+mod tests;
 
 const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED: u64 = 64 * 1024 * 1024 * 1024;
