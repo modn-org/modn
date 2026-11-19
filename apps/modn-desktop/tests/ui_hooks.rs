@@ -255,7 +255,7 @@ fn protected_hooks_use_the_reserved_prefixes() {
 fn reserved_hooks_stay_inside_their_regions() {
     for (path, text) in ui_files() {
         let relative = path
-            .strip_prefix(&Path::new(ROOT).join("ui"))
+            .strip_prefix(Path::new(ROOT).join("ui"))
             .expect("a UI path")
             .to_string_lossy()
             .replace('\\', "/");

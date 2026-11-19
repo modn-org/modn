@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -25,6 +25,18 @@ use std::time::{Duration, Instant};
 pub(crate) const OUTPUT_LIMIT: u64 = 1024 * 1024;
 const ARCHIVE_LIMIT: u64 = 4 * 1024 * 1024 * 1024;
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// The value-less start flag that selects the default theme.
+pub(crate) const DEFAULT_THEME_FLAG: &str = "--default-theme";
+
+/// Whether one launch argument list contains `--default-theme`.
+///
+/// The flag takes no value, so the parser skips it instead of reading the next
+/// argument as an absolute path.
+pub(crate) fn has_default_theme_flag(args: &[OsString]) -> bool {
+    args.iter()
+        .any(|arg| arg.as_os_str() == OsStr::new(DEFAULT_THEME_FLAG))
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Backend {
@@ -70,7 +82,18 @@ pub(crate) struct Review {
 
 impl Backend {
     pub fn from_args() -> Result<Self> {
-        let mut args = std::env::args_os().skip(1);
+        Self::parse_args(std::env::args_os().skip(1))
+    }
+
+    /// Parses one launch argument list.
+    ///
+    /// The value-less `--default-theme` flag is skipped here; it selects the
+    /// default theme and never names a path.
+    fn parse_args<I>(args: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = OsString>,
+    {
+        let mut args = args.into_iter();
         let mut result = Self {
             binary: PathBuf::new(),
             state: PathBuf::new(),
@@ -80,6 +103,9 @@ impl Backend {
             inactivity_timeout: None,
         };
         while let Some(flag) = args.next() {
+            if flag.as_os_str() == OsStr::new(DEFAULT_THEME_FLAG) {
+                continue;
+            }
             let value = PathBuf::from(
                 args.next()
                     .context("Each option requires an absolute path")?,
@@ -94,7 +120,7 @@ impl Backend {
                 Some("--module-dir") => result.modules = Some(fs::canonicalize(value)?),
                 Some("--evidence-dir") => result.evidence = Some(value),
                 _ => bail!(
-                    "Unknown option. Use --backend EXE --state-dir DIR; optional --data-dir, --module-dir, --evidence-dir"
+                    "Unknown option. Use --backend EXE --state-dir DIR; optional --data-dir, --module-dir, --evidence-dir, --default-theme"
                 ),
             }
         }
@@ -424,77 +450,5 @@ pub(crate) fn reviewable(plan: &Value) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_backend() -> Backend {
-        Backend {
-            binary: PathBuf::from(r"C:\modn-test\missing-backend.exe"),
-            state: PathBuf::from(r"C:\modn-test\state"),
-            data: None,
-            modules: None,
-            evidence: None,
-            inactivity_timeout: None,
-        }
-    }
-
-    fn test_game() -> Game {
-        Game {
-            game_id: "fixture".into(),
-            path: PathBuf::from(r"C:\modn-test\game"),
-        }
-    }
-
-    #[test]
-    fn install_refuses_a_blocked_plan_before_reading_the_archive() {
-        let review = Review {
-            game: test_game(),
-            archive: PathBuf::from(r"C:\modn-test\missing.zip"),
-            digest: Vec::new(),
-            plan: serde_json::json!({"status": "blocked"}),
-        };
-        assert!(test_backend().install(&review).is_err());
-    }
-
-    #[test]
-    fn games_and_uninstall_fail_closed_when_the_backend_is_missing() {
-        let backend = test_backend();
-        assert!(backend.games().is_err());
-        assert!(backend.uninstall(&test_game(), "package").is_err());
-    }
-
-    #[test]
-    fn inactivity_timeout_is_recorded() {
-        let backend = test_backend().with_inactivity_timeout(Duration::from_millis(5));
-        assert_eq!(backend.inactivity_timeout, Some(Duration::from_millis(5)));
-    }
-
-    #[test]
-    fn only_complete_operations_in_unblocked_metadata_plans_enable_install() {
-        let mut plan = serde_json::json!({"status":"reviewable", "metadata_only":true, "blockers":[], "operations":[{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}]});
-        assert!(reviewable(&plan));
-        for operations in [
-            serde_json::json!([{}]),
-            serde_json::json!([null]),
-            serde_json::json!([{"source":"plugins/demo.plugin"}]),
-            serde_json::json!([{"destination":"addons/demo.plugin"}]),
-            serde_json::json!([{"source":1, "destination":"addons/demo.plugin"}]),
-            serde_json::json!([{"source":"plugins/demo.plugin", "destination":null}]),
-            serde_json::json!([{"source":"", "destination":"addons/demo.plugin"}]),
-            serde_json::json!([{"source":"plugins/demo.plugin", "destination":" "}]),
-            serde_json::json!([{"source":"plugins/demo.plugin", "destination":"addons/demo.plugin"}, {}]),
-        ] {
-            let mut malformed = plan.clone();
-            malformed["operations"] = operations;
-            assert!(!reviewable(&malformed), "malformed operations: {malformed}");
-        }
-        for blocked in [
-            serde_json::json!([{"message":"approval required"}]),
-            Value::Null,
-        ] {
-            plan["blockers"] = blocked;
-            assert!(!reviewable(&plan));
-        }
-        assert!(!reviewable(&serde_json::json!({})));
-    }
-}
+#[path = "backend/tests.rs"]
+mod tests;

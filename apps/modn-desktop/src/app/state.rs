@@ -1,5 +1,6 @@
 use crate::backend::{Backend, CancelToken};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -9,14 +10,18 @@ use super::error::CommandError;
 /// process started with invalid arguments; a native dialog reports that case.
 pub(crate) struct AppState {
     backend: Option<Backend>,
+    default_theme: bool,
+    themes: Mutex<ThemeAssets>,
     pub(crate) busy: Arc<Busy>,
     pub(crate) runs: Arc<Runs>,
 }
 
 impl AppState {
-    pub(crate) fn new(backend: Option<Backend>) -> Self {
+    pub(crate) fn new(backend: Option<Backend>, default_theme: bool) -> Self {
         Self {
             backend,
+            default_theme,
+            themes: Mutex::new(ThemeAssets::default()),
             busy: Arc::new(Busy::default()),
             runs: Arc::new(Runs::default()),
         }
@@ -27,6 +32,36 @@ impl AppState {
             .clone()
             .ok_or_else(CommandError::backend_failed)
     }
+
+    /// Whether the process started with `--default-theme`.
+    pub(crate) fn default_theme(&self) -> bool {
+        self.default_theme
+    }
+
+    /// Replaces the root the `modn-theme` protocol serves.
+    ///
+    /// `resolve_theme` calls this on every answer, so a theme that failed to
+    /// resolve can never leave its predecessor's files reachable.
+    pub(crate) fn store_theme_root(&self, root: Option<PathBuf>) {
+        if let Ok(mut assets) = self.themes.lock() {
+            assets.root = root;
+        }
+    }
+
+    /// The root the protocol may read, or `None` when the default theme is
+    /// active or no theme has resolved yet.
+    pub(crate) fn theme_root(&self) -> Option<PathBuf> {
+        self.themes
+            .lock()
+            .ok()
+            .and_then(|assets| assets.root.clone())
+    }
+}
+
+/// The only directory the `modn-theme` protocol may serve from.
+#[derive(Default)]
+pub(crate) struct ThemeAssets {
+    pub(crate) root: Option<PathBuf>,
 }
 
 /// Counts backend calls. The close handler reads it synchronously to veto a
@@ -133,7 +168,7 @@ impl Drop for RunGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{Busy, Runs};
+    use super::{AppState, Busy, Runs};
     use std::sync::Arc;
 
     #[test]
@@ -192,5 +227,25 @@ mod tests {
         assert!(second.token().is_cancelled());
         drop(second);
         assert!(!runs.cancel("run-1"));
+    }
+
+    #[test]
+    fn the_theme_root_is_stored_replaced_and_cleared() {
+        let state = AppState::new(None, false);
+        assert!(state.theme_root().is_none());
+        let first = std::env::temp_dir().join("modn-desktop-themed-first");
+        let second = std::env::temp_dir().join("modn-desktop-themed-second");
+        state.store_theme_root(Some(first.clone()));
+        assert_eq!(state.theme_root(), Some(first));
+        state.store_theme_root(Some(second.clone()));
+        assert_eq!(state.theme_root(), Some(second));
+        state.store_theme_root(None);
+        assert!(state.theme_root().is_none());
+    }
+
+    #[test]
+    fn the_default_theme_flag_is_read_from_the_state() {
+        assert!(AppState::new(None, true).default_theme());
+        assert!(!AppState::new(None, false).default_theme());
     }
 }
