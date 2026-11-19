@@ -17,7 +17,7 @@ use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::store::{bounded_json, BucketStore, Registration};
 use anyhow::{bail, Result};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
