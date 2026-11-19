@@ -40,6 +40,7 @@ pub mod scan;
 /// Persist game registrations and manager-owned file manifests.
 pub mod state;
 pub mod stores;
+pub mod themes;
 pub mod transactions;
 /// Reverse one committed operation from the operation history.
 pub use transactions::undo;
