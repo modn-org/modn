@@ -1,0 +1,37 @@
+:root {
+--modn-color-primary: #d8d8d8;
+--modn-color-primary-hover: #ffffff;
+--modn-color-on-primary: #101010;
+--modn-color-surface: #101010;
+--modn-color-surface-raised: #1c1c1c;
+--modn-color-border: #4a4a4a;
+--modn-color-text: #ececec;
+--modn-color-text-muted: #9a9a9a;
+--modn-color-danger: #c04040;
+--modn-color-success: #6a9a6a;
+}
+.modn-rail {
+background-color: #101010;
+border-right-color: #4a4a4a;
+}
+.modn-view__header {
+border-bottom-color: #4a4a4a;
+}
+.modn-card {
+background-color: #1c1c1c;
+border-color: #4a4a4a;
+box-shadow: 0 0 6px #000000;
+}
+.modn-tile {
+background-color: #181818;
+border-color: #4a4a4a;
+}
+.modn-tag {
+color: #ececec;
+background-color: #2a2a2a;
+}
+.modn-button {
+color: #101010;
+background-color: #d8d8d8;
+border-color: #d8d8d8;
+}
