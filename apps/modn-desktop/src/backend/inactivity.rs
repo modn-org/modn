@@ -13,7 +13,7 @@
 //! output. With exit status 0 and stdout started, a lost, oversized or
 //! malformed result is the committed outcome that callers refresh.
 
-use super::error::BackendError;
+use super::error::{BackendError, ErrorEnvelope};
 use super::progress::{self, CommittedOutcome};
 use super::{Backend, OUTPUT_LIMIT};
 use serde_json::Value;
@@ -38,7 +38,7 @@ const CHUNK: usize = 8 * 1024;
 enum StreamItem {
     Stdout(Vec<u8>),
     StderrTruncated,
-    ErrorCode(String),
+    Envelope(ErrorEnvelope),
     Done { stdout: bool, failed: bool },
 }
 
@@ -76,6 +76,7 @@ pub(super) fn call(backend: &Backend, args: &[OsString]) -> Result<Value, Backen
     let mut stdout_failed = false;
     let mut stderr_failed = false;
     let mut error_code = None;
+    let mut diagnostics = Vec::new();
     let mut timed_out = false;
     let mut exited_at = None;
 
@@ -93,7 +94,10 @@ pub(super) fn call(backend: &Backend, args: &[OsString]) -> Result<Value, Backen
                     }
                 }
                 StreamItem::StderrTruncated => stderr_truncated = true,
-                StreamItem::ErrorCode(code) => error_code = Some(code),
+                StreamItem::Envelope(envelope) => {
+                    error_code = Some(envelope.code);
+                    diagnostics = envelope.diagnostics;
+                }
                 StreamItem::Done { stdout, failed } => {
                     if stdout {
                         stdout_done = true;
@@ -161,7 +165,9 @@ pub(super) fn call(backend: &Backend, args: &[OsString]) -> Result<Value, Backen
         stdout_truncated || stdout_failed,
         !stdout_started && (stderr_truncated || stderr_failed),
     ) {
-        CommittedOutcome::Refused => Err(BackendError::refused(status, error_code, None)),
+        CommittedOutcome::Refused => {
+            Err(BackendError::refused(status, error_code, None, diagnostics))
+        }
         CommittedOutcome::OutputLost if stdout_started => Err(BackendError::output_after_commit()),
         CommittedOutcome::OutputLost | CommittedOutcome::StreamLost => Err(BackendError::output()),
         CommittedOutcome::Readable => {
@@ -226,7 +232,7 @@ fn read_stderr(
         match stderr.read(&mut chunk) {
             Ok(0) => {
                 if !discarding && !pending.is_empty() {
-                    emit_error_code(&pending, tx);
+                    emit_error_envelope(&pending, tx);
                 }
                 let _ = tx.send(StreamItem::Done {
                     stdout: false,
@@ -242,7 +248,7 @@ fn read_stderr(
                 pending.extend_from_slice(&chunk[..count]);
                 while let Some(index) = pending.iter().position(|byte| *byte == b'\n') {
                     let line: Vec<u8> = pending.drain(..=index).collect();
-                    emit_error_code(&line, tx);
+                    emit_error_envelope(&line, tx);
                 }
                 if pending.len() as u64 > OUTPUT_LIMIT {
                     pending.clear();
@@ -261,12 +267,12 @@ fn read_stderr(
     }
 }
 
-fn emit_error_code(line: &[u8], tx: &Sender<StreamItem>) {
+fn emit_error_envelope(line: &[u8], tx: &Sender<StreamItem>) {
     let text = String::from_utf8_lossy(line);
     let Ok(value) = serde_json::from_str::<Value>(text.trim()) else {
         return;
     };
-    if let Some(code) = value.get("error").and_then(Value::as_str) {
-        let _ = tx.send(StreamItem::ErrorCode(code.to_owned()));
+    if let Some(envelope) = ErrorEnvelope::parse(&value) {
+        let _ = tx.send(StreamItem::Envelope(envelope));
     }
 }

@@ -3,6 +3,7 @@ mod commands;
 mod error;
 mod state;
 mod theme_assets;
+mod theme_diagnostics;
 mod theme_protocol;
 
 use crate::backend::{Backend, has_default_theme_flag};
