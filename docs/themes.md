@@ -11,15 +11,16 @@ This page is the specification of theme API v1. The Status table says what Modn 
 
 | Component | State |
 | --- | --- |
-| Theme folder | Specified, not implemented |
-| `theme.json` | Specified, not implemented |
-| Limits and digest | Specified, not implemented |
-| CSS rule engine | Specified, not implemented |
-| Variants | Specified, not implemented |
-| Sources and selection | Specified, not implemented |
+| Theme folder | Implemented in modn-core; no CLI command exposes it yet |
+| `theme.json` | Implemented in modn-core; no CLI command exposes it yet |
+| Limits and digest | Implemented in modn-core; no CLI command exposes it yet |
+| CSS rule engine | Implemented over parsed facts in modn-core; the CSS parser arrives with the CLI work |
+| Variants | Implemented in modn-core; no CLI command exposes it yet |
+| Sources and selection | Implemented in modn-core; no CLI command exposes it yet |
 | CLI theme commands | Specified, not implemented |
-| Desktop theme control | Specified, not implemented |
+| Desktop theme control | Implemented; it needs a `modn` build with the theme commands |
 | Desktop hooks | Implemented: hooks and protected regions in the UI |
+| Official theme | Staged in `examples/themes/cyberpunk-2077/night-city/`; publication in `modn-org/main` is a follow-up in that repository |
 
 ## Theme folder
 
@@ -41,7 +42,12 @@ The theme directory accepts these top-level entries:
 
 - `theme.json`, `theme.css` and the listed `theme.<variant>.css` files.
 - The `assets/` directory.
-- The optional ignored files `README.md`, `LICENSE` and `NOTICE.md`.
+- The optional ignored files are `README.md`, `LICENSE` and `NOTICE.md`.
+
+Text files in a theme use LF line endings: `theme.json`, `*.css`, `NOTICE.md`, `README.md` and `LICENSE`.
+A CRLF checkout changes the digest, because the digest covers file bytes.
+A bucket that publishes themes should mark `themes/** text eol=lf` in `.gitattributes`.
+It should mark its `.png` and `.woff2` assets `binary` there.
 
 Any other top-level entry is the diagnostic `unexpected-file`.
 
@@ -123,6 +129,9 @@ The allowed top-level rules are:
 - `@font-face`, whose `src` `url()` points into `assets/` and ends in `.woff2`.
 
 Any other at-rule is `forbidden-at-rule`.
+An `@media` query uses only these media features: `width`, `height`, `min-width`, `max-width`, `min-height`, `max-height`, `orientation`, `prefers-color-scheme` and `prefers-reduced-motion`.
+It may also use `and`, `not`, `only`, `screen` and `all`, and the level 4 range syntax with numbers and lengths.
+Any other media feature, or any other token, is `forbidden-at-rule`.
 `@import` has its own rule id, `forbidden-import`.
 
 The property allowlist applies to style rules.
@@ -174,6 +183,12 @@ An allowed `url()` has the canonical form `url(assets/<path>)`.
 The pure CSS rule engine checks the path only.
 The theme loader checks that the file exists.
 
+An invalid `id`, `game` or variant id string in `theme.json` is `manifest-invalid`.
+`inspect_theme_dir` does not compare the directory name with the manifest.
+Bucket scanning reports `id-mismatch` in two cases.
+The path `themes/<game>/<id>` differs from `game` and `id` in `theme.json`.
+A directory name under `themes/` is not a valid id.
+
 ### Selector grammar
 
 A selector is allowed only when all of these conditions hold:
@@ -197,16 +212,16 @@ They are not CSS rule ids.
 
 | Id | Meaning |
 | --- | --- |
-| `manifest-invalid` | `theme.json` is missing, unreadable or malformed. |
+| `manifest-invalid` | `theme.json` is missing, unreadable or malformed, including an invalid `id`, `game` or variant id string. |
 | `unknown-manifest-field` | `theme.json` holds a field outside the table. |
-| `id-mismatch` | An id is invalid, or a directory name differs from `id` or `game`. |
+| `id-mismatch` | A bucket path `themes/<game>/<id>` differs from `game` and `id` in `theme.json`, or a bucket directory name is not a valid id. |
 | `missing-css` | `theme.css` is absent. |
 | `missing-variant-file` | A listed variant has no `theme.<variant>.css`. |
 | `unexpected-file` | A top-level entry is not allowed, including an unlisted variant CSS file. |
 | `asset-type` | An asset extension or magic signature does not match. |
 | `asset-too-large` | One asset exceeds 2 MiB. |
 | `too-many-assets` | `assets/` holds more than 64 files. |
-| `theme-too-large` | A CSS file exceeds its limit. |
+| `theme-too-large` | A CSS file, the theme total or a bucket scan count exceeds its limit. |
 | `duplicate-theme-id` | A later duplicate `(game, id)` pair was skipped. |
 | `digest-mismatch` | A registered theme no longer matches its digest. |
 | `theme-missing` | The selected theme no longer exists. |
@@ -607,6 +622,13 @@ A failed check returns `theme: null` and its diagnostics:
 It has no `--trust` flag.
 It writes `{"registered":<theme entry>,"digest":"blake3:<hex>"}`.
 A theme that fails validation is refused with its diagnostics, and nothing is copied.
+A refusal prints this envelope on stderr and exits with status 1 in `--json` mode:
+
+```json
+{"error":"THEME_INVALID","message":"<text>","diagnostics":[<diagnostic object>...]}
+```
+
+The CLI half is not written yet.
 
 ```json
 {"registered":{"id":"night-city","game":"cyberpunk-2077","name":"Night City","theme_api":1,"variants":["neon","noir"],"icon":"assets/icon.png","source":{"kind":"local","bucket":null,"label":"local registry"},"selected":false},"digest":"blake3:9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a"}
@@ -733,6 +755,18 @@ The variant sheet is omitted when the theme has no selected variant.
 A load error removes the theme sheets and shows the default theme.
 A load error is a command error, invalid CSS or a `replaceSync` throw.
 The app also shows a diagnostic toast that names the rule.
+
+### Refusal diagnostics
+
+The desktop keeps diagnostics only for a `THEME_INVALID` refusal.
+It ignores the `diagnostics` key of every other error code.
+It never forwards raw CLI text to the webview.
+It sanitises each entry and keeps at most 50.
+An entry has exactly the keys `theme`, `path`, `line`, `rule` and `message`.
+`rule` is 1 to 64 characters from `[a-z0-9-]`; an entry with a missing or invalid `rule` or `message` is dropped.
+`message` is cut at 300 characters and `theme` at 130.
+ASCII control characters are removed.
+`path` becomes `null` when it is absolute, contains `..` or is longer than 200 characters.
 
 ### Default theme flag
 
