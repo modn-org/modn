@@ -24,6 +24,11 @@
     "allow-play",
     "allow-diagnostics",
     "allow-copy-diagnostics",
-    "allow-cancel-run"
+    "allow-cancel-run",
+    "allow-list-themes",
+    "allow-resolve-theme",
+    "allow-select-theme",
+    "allow-reset-theme",
+    "allow-import-theme"
   ]
 }

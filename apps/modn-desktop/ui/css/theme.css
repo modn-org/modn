@@ -1,0 +1,142 @@
+/*
+ * Theme control: the shell header, the Theme button and its panel.
+ * Every class uses the reserved `modn-theme-` prefix.
+ */
+.modn-theme-shell {
+  grid-area: shell;
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: var(--modn-space-s) var(--modn-space-l);
+  border-bottom: 1px solid var(--modn-color-border);
+  background: var(--modn-color-surface);
+}
+
+.modn-theme-control {
+  position: relative;
+}
+
+.modn-theme-button[aria-expanded="true"] {
+  background: var(--modn-color-border);
+}
+
+.modn-theme-panel {
+  position: absolute;
+  top: calc(100% + var(--modn-space-s));
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-m);
+  width: calc(var(--modn-space-4xl) * 9);
+  max-height: calc(var(--modn-space-4xl) * 12);
+  overflow-y: auto;
+  padding: var(--modn-space-l);
+  border: 1px solid var(--modn-color-border);
+  border-radius: var(--modn-radius-m);
+  background: var(--modn-color-surface-raised);
+  box-shadow: 0 var(--modn-space-xs) var(--modn-space-l) var(--modn-color-border);
+}
+
+.modn-theme-panel[hidden] {
+  display: none;
+}
+
+.modn-theme-current {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-2xs);
+}
+
+.modn-theme-name {
+  color: var(--modn-color-text);
+  font-family: var(--modn-font-heading), Georgia, serif;
+  font-size: var(--modn-font-size-heading-s);
+  line-height: var(--modn-font-line-heading-s);
+}
+
+.modn-theme-source {
+  color: var(--modn-color-text-muted);
+  font-size: var(--modn-font-size-body-s);
+  line-height: var(--modn-font-line-body-s);
+}
+
+.modn-theme-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-2xs);
+}
+
+.modn-theme-item {
+  display: flex;
+}
+
+.modn-theme-pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-2xs);
+  width: 100%;
+  padding: var(--modn-space-s) var(--modn-space-m);
+  border: 1px solid var(--modn-color-border);
+  border-radius: var(--modn-radius-s);
+  background: var(--modn-color-surface);
+  color: var(--modn-color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.modn-theme-pick:hover,
+.modn-theme-pick:focus-visible {
+  border-color: var(--modn-color-primary);
+}
+
+.modn-theme-pick--chosen {
+  border-color: var(--modn-color-primary);
+  background: var(--modn-color-surface-raised);
+}
+
+.modn-theme-mark {
+  align-self: flex-start;
+  padding: 0 var(--modn-space-xs);
+  border-radius: var(--modn-radius-s);
+  background: var(--modn-color-primary);
+  color: var(--modn-color-on-primary);
+  font-size: var(--modn-font-size-label-m);
+  line-height: var(--modn-font-line-label-m);
+}
+
+.modn-theme-variant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-2xs);
+}
+
+.modn-theme-select {
+  width: 100%;
+}
+
+.modn-theme-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--modn-space-s);
+}
+
+.modn-theme-status {
+  color: var(--modn-color-text-muted);
+  font-size: var(--modn-font-size-body-s);
+  line-height: var(--modn-font-line-body-s);
+}
+
+.modn-theme-diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modn-space-2xs);
+}
+
+.modn-theme-diagnostic {
+  color: var(--modn-color-danger);
+  font-size: var(--modn-font-size-body-s);
+  line-height: var(--modn-font-line-body-s);
+}

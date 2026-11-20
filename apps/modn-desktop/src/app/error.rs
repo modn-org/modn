@@ -1,3 +1,4 @@
+use super::theme_diagnostics::{ThemeDiagnostic, sanitize};
 use crate::backend::error::UncoveredApproval;
 use crate::backend::{BackendError, BackendErrorKind};
 use serde::Serialize;
@@ -47,6 +48,9 @@ pub(crate) struct CommandError {
     pub(crate) message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) approval: Option<ApprovalRequest>,
+    /// The sanitised `THEME_INVALID` problems; absent from every other error.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) diagnostics: Vec<ThemeDiagnostic>,
 }
 
 impl CommandError {
@@ -55,6 +59,7 @@ impl CommandError {
             code: code.to_string(),
             message: short_message(code).to_string(),
             approval: None,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -75,6 +80,7 @@ impl CommandError {
             code: "DIGEST_MISMATCH".to_string(),
             message: "The archive changed after review. Choose it and try again.".to_string(),
             approval: None,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -84,6 +90,7 @@ impl CommandError {
             code: "PLAN_BLOCKED".to_string(),
             message: "The installation plan changed. Review the archive again.".to_string(),
             approval: None,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -93,6 +100,7 @@ impl CommandError {
             code: "RUN_ID_IN_USE".to_string(),
             message: "Another operation is already using this run.".to_string(),
             approval: None,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -128,6 +136,28 @@ impl CommandError {
                 "Executable approval paths must be game-relative, non-empty, and must not start with '-'."
                     .to_string(),
             approval: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// Rejects a game, theme or variant id before any CLI process starts.
+    pub(crate) fn invalid_id() -> Self {
+        Self {
+            code: "INVALID_ID".to_string(),
+            message: "Ids must be lowercase, hyphen-separated and at most 64 characters."
+                .to_string(),
+            approval: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// Rejects a resolve answer without a usable theme directory.
+    pub(crate) fn theme_invalid() -> Self {
+        Self {
+            code: "THEME_INVALID".to_string(),
+            message: "The selected theme has no usable asset directory.".to_string(),
+            approval: None,
+            diagnostics: Vec::new(),
         }
     }
 }
@@ -137,6 +167,7 @@ impl From<anyhow::Error> for CommandError {
         let code = classify(&error);
         let mut mapped = Self::new(&code);
         mapped.approval = approval_from_error(&error);
+        mapped.diagnostics = diagnostics_from_error(&error);
         mapped
     }
 }
@@ -156,6 +187,9 @@ impl From<BackendError> for CommandError {
             // The refusal needs executable approval, but its envelope did not
             // name the paths. The webview reads the plan before retrying.
             mapped.approval = Some(ApprovalRequest::incomplete(false));
+        }
+        if mapped.code == "THEME_INVALID" {
+            mapped.diagnostics = sanitize(error.diagnostics());
         }
         mapped
     }
@@ -201,6 +235,25 @@ fn approval_from_error(error: &anyhow::Error) -> Option<ApprovalRequest> {
         return Some(ApprovalRequest::incomplete(true));
     }
     None
+}
+
+/// The sanitised theme problems a CLI refusal embeds in its message text.
+///
+/// Only a `THEME_INVALID` envelope may contribute diagnostics. Raw text stays
+/// in the error and never crosses this boundary.
+fn diagnostics_from_error(error: &anyhow::Error) -> Vec<ThemeDiagnostic> {
+    let text = format!("{error:#}");
+    let Some(object) = first_error_envelope(&text) else {
+        return Vec::new();
+    };
+    if object.get("error").and_then(Value::as_str) != Some("THEME_INVALID") {
+        return Vec::new();
+    }
+    object
+        .get("diagnostics")
+        .and_then(Value::as_array)
+        .map(|items| sanitize(items))
+        .unwrap_or_default()
 }
 
 fn classify(error: &anyhow::Error) -> String {
@@ -260,6 +313,7 @@ fn short_message(code: &str) -> &'static str {
         "APPROVAL_REQUIRED" => "This change needs your approval.",
         "NATIVE_INJECTOR_NOT_ALLOWED" => "This mod runs native code and needs your approval.",
         "PENDING_TRANSACTION" => "An earlier operation needs recovery.",
+        "THEME_INVALID" => "The theme was refused. Its diagnostics name each problem.",
         "STATE_ERROR" | "IO_ERROR" => "Modn could not read or write its files.",
         "CANCELLED" => "The operation was cancelled.",
         "CLIPBOARD_FAILED" => "Modn could not copy diagnostics to the clipboard.",

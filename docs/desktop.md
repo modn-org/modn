@@ -137,6 +137,17 @@ clipboard. An unset, empty or unwritable path returns `CLIPBOARD_FAILED`. The
 desktop verifier uses that file, deletes it before the click and checks that it
 holds the doctor report.
 
+## Themes
+A game can carry a theme for the app. A theme changes colours, typography, spacing and layout through the stable hooks in [themes.md](themes.md).
+**Theme** in the top bar opens the Theme panel. The panel shows the active theme name and its source label, such as `main bucket` or `local registry`, or `Default theme`.
+It lists the themes that the active game has in the `main` bucket, in trusted buckets and in the local registry.
+Choose a theme, choose one of its variants or `No variant`, then select **Use theme**. The selection belongs to the game, so every other game keeps its own theme or the default.
+**Use default theme** clears the selection and removes the theme sheets at once.
+**Import theme** opens the native folder picker and registers the chosen local theme. Modn validates the folder before it copies anything. A refused theme lists at most 50 problems, one line each, in the form `<rule-id>: <message>`.
+A theme that Modn cannot validate or load never breaks a screen. The app removes the theme sheets, shows the default theme and shows one toast that names the rule and the file. It does not repeat that toast on each screen.
+Start the app with `--default-theme` to turn themes off for that session. The panel says `Themes are off for this session` and disables its buttons.
+Destructive confirmations are native dialogs, so no theme changes them. The install review stays readable, because a theme may change its colours and fonts only.
+The Theme commands need a `modn` build with the `theme` commands. With an older build the app keeps the default theme, and the panel says that themes are unavailable. It shows no error toast.
 ## One-click operations
 
 Install, update, uninstall, undo and play take one click. Install archive takes

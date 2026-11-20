@@ -49,19 +49,33 @@ impl UncoveredApproval {
 
 /// One CLI error envelope from stderr.
 ///
-/// The envelope carries the stable code and, for an approval refusal, the
-/// capabilities that remain uncovered.
+/// The envelope carries the stable code, for an approval refusal the
+/// capabilities that remain uncovered, and for `THEME_INVALID` the raw
+/// diagnostic objects the app layer sanitises.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ErrorEnvelope {
     pub(super) code: String,
     pub(super) approval: Option<UncoveredApproval>,
+    pub(super) diagnostics: Vec<Value>,
 }
 
 impl ErrorEnvelope {
     pub(super) fn parse(value: &Value) -> Option<Self> {
+        let code = value.get("error")?.as_str()?.to_owned();
+        // Any other code's diagnostics key is untrusted noise and is ignored.
+        let diagnostics = if code == "THEME_INVALID" {
+            value
+                .get("diagnostics")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         Some(Self {
-            code: value.get("error")?.as_str()?.to_owned(),
+            code,
             approval: UncoveredApproval::from_envelope(value),
+            diagnostics,
         })
     }
 }
@@ -75,6 +89,7 @@ pub(crate) struct BackendError {
     kind: BackendErrorKind,
     code: Option<String>,
     approval: Option<UncoveredApproval>,
+    diagnostics: Vec<Value>,
     message: String,
 }
 
@@ -84,6 +99,7 @@ impl BackendError {
             kind: BackendErrorKind::Cancelled,
             code: Some("CANCELLED".into()),
             approval: None,
+            diagnostics: Vec::new(),
             message: "Backend cancelled before the commit point; nothing changed".into(),
         }
     }
@@ -93,6 +109,7 @@ impl BackendError {
             kind: BackendErrorKind::Timeout,
             code: None,
             approval: None,
+            diagnostics: Vec::new(),
             message: format!(
                 "Backend made no progress for {:.1} seconds before its commit point; the operation was cancelled and stopped",
                 timeout.as_secs_f64()
@@ -104,6 +121,7 @@ impl BackendError {
         exit: ExitStatus,
         code: Option<String>,
         approval: Option<UncoveredApproval>,
+        diagnostics: Vec<Value>,
     ) -> Self {
         let message = match &code {
             Some(code) => format!("Backend refused ({exit}): {code}"),
@@ -113,6 +131,7 @@ impl BackendError {
             kind: BackendErrorKind::Refused,
             code,
             approval,
+            diagnostics,
             message,
         }
     }
@@ -122,6 +141,7 @@ impl BackendError {
             kind: BackendErrorKind::Output,
             code: None,
             approval: None,
+            diagnostics: Vec::new(),
             message: "Backend output exceeded its bound or could not be read".into(),
         }
     }
@@ -138,6 +158,7 @@ impl BackendError {
             kind: BackendErrorKind::Committed,
             code: Some("BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT".into()),
             approval: None,
+            diagnostics: Vec::new(),
             message: "Backend committed the operation but its output could not be read or exceeded the output bound; refresh to see the result".into(),
         }
     }
@@ -147,6 +168,7 @@ impl BackendError {
             kind: BackendErrorKind::Spawn,
             code: None,
             approval: None,
+            diagnostics: Vec::new(),
             message: format!("Cannot start configured backend: {error}"),
         }
     }
@@ -156,6 +178,7 @@ impl BackendError {
             kind: BackendErrorKind::Output,
             code: None,
             approval: None,
+            diagnostics: Vec::new(),
             message: message.into(),
         }
     }
@@ -165,6 +188,7 @@ impl BackendError {
             kind: BackendErrorKind::InvalidJson,
             code: None,
             approval: None,
+            diagnostics: Vec::new(),
             message: "Backend returned invalid JSON; verify the configured CLI version".into(),
         }
     }
@@ -189,6 +213,12 @@ impl BackendError {
     pub(crate) fn approval(&self) -> Option<&UncoveredApproval> {
         self.approval.as_ref()
     }
+
+    /// The raw `THEME_INVALID` diagnostics, which the app layer sanitises.
+    #[must_use]
+    pub(crate) fn diagnostics(&self) -> &[Value] {
+        &self.diagnostics
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +229,20 @@ impl BackendError {
             kind: BackendErrorKind::Refused,
             code: Some(code.into()),
             approval,
+            diagnostics: Vec::new(),
+            message: String::new(),
+        }
+    }
+
+    /// Builds the refusal one CLI envelope text describes, for tests.
+    pub(crate) fn refused_from_envelope_for_test(text: &str) -> Self {
+        let value: Value = serde_json::from_str(text).expect("a JSON envelope");
+        let envelope = ErrorEnvelope::parse(&value).expect("a CLI error envelope");
+        Self {
+            kind: BackendErrorKind::Refused,
+            code: Some(envelope.code),
+            approval: envelope.approval,
+            diagnostics: envelope.diagnostics,
             message: String::new(),
         }
     }
@@ -277,5 +321,36 @@ mod tests {
             !approval.complete,
             "an empty list without the key must not assert that no executable is uncovered"
         );
+    }
+
+    #[test]
+    fn a_theme_refusal_keeps_its_diagnostics() {
+        let value = json!({
+            "error": "THEME_INVALID",
+            "message": "the theme is not valid",
+            "diagnostics": [{
+                "theme": "cyberpunk-2077/night-city",
+                "path": "theme.css",
+                "line": 12,
+                "rule": "unknown-property",
+                "message": "property \"transform\" is not allowed"
+            }]
+        });
+        let envelope = ErrorEnvelope::parse(&value).expect("a CLI error envelope");
+        assert_eq!(envelope.code, "THEME_INVALID");
+        assert_eq!(envelope.diagnostics.len(), 1);
+        assert_eq!(envelope.diagnostics[0]["rule"], "unknown-property");
+    }
+
+    #[test]
+    fn a_diagnostics_key_is_ignored_for_other_codes() {
+        let value = json!({
+            "error": "PLAN_BLOCKED",
+            "message": "the plan is blocked",
+            "diagnostics": [{"rule": "css-syntax", "message": "unexpected token"}]
+        });
+        let envelope = ErrorEnvelope::parse(&value).expect("a CLI error envelope");
+        assert_eq!(envelope.code, "PLAN_BLOCKED");
+        assert!(envelope.diagnostics.is_empty());
     }
 }

@@ -3,7 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
-const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http://modn-theme.localhost; font-src 'self' http://modn-theme.localhost; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+const THEME_ORIGIN: &str = "http://modn-theme.localhost";
 
 fn read(relative: &str) -> String {
     let path = Path::new(ROOT).join(relative);
@@ -55,6 +56,72 @@ fn tauri_config_matches_the_security_decisions() {
     assert_eq!(config["bundle"]["active"].as_bool(), Some(false));
     assert_eq!(config["app"]["withGlobalTauri"].as_bool(), Some(true));
     assert_eq!(config["app"]["windows"][0]["title"].as_str(), Some("Modn"));
+}
+
+/// One CSP directive name and its source list.
+fn csp_directives(csp: &str) -> Vec<(String, Vec<String>)> {
+    csp.split(';')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut tokens = part.split_whitespace().map(str::to_string);
+            let name = tokens.next().expect("a directive has a name");
+            (name, tokens.collect())
+        })
+        .collect()
+}
+
+fn directive<'a>(directives: &'a [(String, Vec<String>)], name: &str) -> Vec<&'a str> {
+    let (_, values) = directives
+        .iter()
+        .find(|(directive, _)| directive == name)
+        .unwrap_or_else(|| panic!("{name} is missing from the policy"));
+    values.iter().map(String::as_str).collect()
+}
+
+#[test]
+fn csp_allows_the_theme_origin_for_images_and_fonts_only() {
+    let config: Value = serde_json::from_str(&read("tauri.conf.json")).expect("valid config");
+    let csp = config["app"]["security"]["csp"]
+        .as_str()
+        .expect("the app sets a policy");
+    let directives = csp_directives(csp);
+    assert_eq!(
+        directive(&directives, "img-src"),
+        ["'self'", "data:", THEME_ORIGIN],
+        "img-src must add exactly the theme origin"
+    );
+    assert_eq!(
+        directive(&directives, "font-src"),
+        ["'self'", THEME_ORIGIN],
+        "font-src must add exactly the theme origin"
+    );
+    let mentioning: Vec<&str> = directives
+        .iter()
+        .filter(|(_, values)| values.iter().any(|value| value == THEME_ORIGIN))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(
+        mentioning,
+        ["img-src", "font-src"],
+        "the theme origin must appear in no other directive"
+    );
+    for name in ["script-src", "style-src"] {
+        assert_eq!(
+            directive(&directives, name),
+            ["'self'"],
+            "{name} must stay restricted to the app"
+        );
+    }
+    assert!(
+        !csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"),
+        "the policy must not allow inline or eval"
+    );
+    assert!(!csp.contains('*'), "the policy must not grant a wildcard");
+    assert!(
+        !directive(&directives, "connect-src").contains(&THEME_ORIGIN),
+        "the webview must not connect to the theme origin"
+    );
 }
 
 #[test]

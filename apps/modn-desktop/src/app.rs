@@ -2,8 +2,11 @@ mod blocking;
 mod commands;
 mod error;
 mod state;
+mod theme_assets;
+mod theme_diagnostics;
+mod theme_protocol;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, has_default_theme_flag};
 use state::AppState;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -11,13 +14,14 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 /// Runs the Tauri application. Startup configuration errors are reported in a
 /// native dialog because the Windows subsystem has no console.
 pub(crate) fn run() {
+    let default_theme = has_default_theme_flag(&std::env::args_os().collect::<Vec<_>>());
     let (backend, startup_error) = match Backend::from_args() {
         Ok(backend) => (Some(backend), None),
         Err(error) => (None, Some(format!("{error:#}"))),
     };
-    let result = tauri::Builder::default()
+    let result = theme_protocol::register(tauri::Builder::default())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState::new(backend))
+        .manage(AppState::new(backend, default_theme))
         .invoke_handler(tauri::generate_handler![
             commands::games::list_games,
             commands::games::list_installations,
@@ -39,6 +43,11 @@ pub(crate) fn run() {
             commands::library::diagnostics,
             commands::library::copy_diagnostics,
             commands::operations::cancel_run,
+            commands::themes::list_themes,
+            commands::themes::resolve_theme,
+            commands::themes::select_theme,
+            commands::themes::reset_theme,
+            commands::themes::import_theme,
         ])
         .setup(move |app| {
             if let Some(message) = startup_error.as_deref() {

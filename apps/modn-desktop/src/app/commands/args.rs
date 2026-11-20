@@ -232,5 +232,82 @@ pub(super) fn diagnostics() -> Vec<OsString> {
     vec!["doctor".into()]
 }
 
+/// The documented id grammar: `[a-z0-9]+(-[a-z0-9]+)*`, at most 64 characters.
+///
+/// Game ids, theme ids and variant ids share this grammar, so the same check
+/// guards every id the webview sends.
+pub(super) fn valid_id(value: &str) -> bool {
+    value.len() <= 64
+        && value.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+}
+
+fn checked_id(value: &str) -> Result<&str, CommandError> {
+    if valid_id(value) {
+        Ok(value)
+    } else {
+        Err(CommandError::invalid_id())
+    }
+}
+
+pub(super) fn theme_list(game: Option<&str>) -> Result<Vec<OsString>, CommandError> {
+    let mut args: Vec<OsString> = vec!["theme".into(), "list".into()];
+    if let Some(game) = game {
+        args.push("--game".into());
+        args.push(checked_id(game)?.into());
+    }
+    Ok(args)
+}
+
+pub(super) fn theme_resolve(game: &str) -> Result<Vec<OsString>, CommandError> {
+    Ok(vec![
+        "theme".into(),
+        "resolve".into(),
+        "--game".into(),
+        checked_id(game)?.into(),
+    ])
+}
+
+pub(super) fn theme_select(
+    game: &str,
+    theme: &str,
+    variant: Option<&str>,
+) -> Result<Vec<OsString>, CommandError> {
+    let mut args: Vec<OsString> = vec![
+        "theme".into(),
+        "select".into(),
+        checked_id(game)?.into(),
+        checked_id(theme)?.into(),
+    ];
+    if let Some(variant) = variant {
+        args.push("--variant".into());
+        args.push(checked_id(variant)?.into());
+    }
+    Ok(args)
+}
+
+pub(super) fn theme_reset(game: Option<&str>) -> Result<Vec<OsString>, CommandError> {
+    let mut args: Vec<OsString> = vec!["theme".into(), "reset".into()];
+    if let Some(game) = game {
+        args.push("--game".into());
+        args.push(checked_id(game)?.into());
+    }
+    Ok(args)
+}
+
+pub(super) fn theme_register(directory: &Path) -> Vec<OsString> {
+    vec![
+        "theme".into(),
+        "register".into(),
+        directory.as_os_str().to_os_string(),
+    ]
+}
+
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod theme_tests;

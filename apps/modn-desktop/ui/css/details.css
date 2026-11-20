@@ -53,11 +53,7 @@
   line-height: var(--modn-font-line-heading-s);
 }
 
-.modn-details__plan {
-  gap: var(--modn-space-2xs);
-}
-
-.modn-details__summary {
+.modn-review__summary {
   color: var(--modn-color-text);
   font-family: var(--modn-font-heading), Georgia, serif;
   font-size: var(--modn-font-size-heading-m);
@@ -65,32 +61,49 @@
   cursor: pointer;
 }
 
-.modn-details__summary:focus-visible {
+.modn-review__summary:focus-visible {
   outline: var(--modn-space-2xs) solid var(--modn-color-primary);
   outline-offset: var(--modn-space-2xs);
 }
 
-.modn-details__plan[open] .modn-details__summary {
+.modn-review[open] .modn-review__summary {
   margin-bottom: var(--modn-space-m);
 }
 
-.modn-details__body {
+.modn-review__body {
   display: flex;
   flex-direction: column;
   gap: var(--modn-space-s);
 }
 
-.modn-details__approval {
+.modn-review__approval {
   color: var(--modn-color-text-muted);
 }
 
-.modn-plan {
+.modn-review__muted {
+  color: var(--modn-color-text-muted);
+  font-size: var(--modn-font-size-body-s);
+  line-height: var(--modn-font-line-body-s);
+}
+
+.modn-review__status {
+  min-height: var(--modn-font-line-body-m);
+  color: var(--modn-color-text-muted);
+  font-size: var(--modn-font-size-body-s);
+  line-height: var(--modn-font-line-body-s);
+}
+
+.modn-review__status--error {
+  color: var(--modn-color-danger);
+}
+
+.modn-review__list {
   display: flex;
   flex-direction: column;
   gap: var(--modn-space-xs);
 }
 
-.modn-plan__row {
+.modn-review__row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -101,24 +114,24 @@
   background: var(--modn-color-surface);
 }
 
-.modn-plan__path {
+.modn-review__path {
   color: var(--modn-color-text);
   font-size: var(--modn-font-size-body-s);
   line-height: var(--modn-font-line-body-s);
   overflow-wrap: anywhere;
 }
 
-.modn-plan__tag {
+.modn-review__tag {
   color: var(--modn-color-text-muted);
   font-size: var(--modn-font-size-label-s);
   line-height: var(--modn-font-line-label-s);
 }
 
-.modn-plan__row[data-operation="remove"] .modn-plan__tag {
+.modn-review__row[data-operation="remove"] .modn-review__tag {
   color: var(--modn-color-danger);
 }
 
-.modn-plan__blocker {
+.modn-review__blocker {
   padding: var(--modn-space-xs) var(--modn-space-s);
   color: var(--modn-color-danger);
   font-size: var(--modn-font-size-body-s);

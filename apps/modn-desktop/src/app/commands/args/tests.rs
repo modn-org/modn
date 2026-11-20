@@ -3,7 +3,7 @@
 use super::*;
 use std::path::PathBuf;
 
-fn strings(args: Vec<OsString>) -> Vec<String> {
+pub(super) fn strings(args: Vec<OsString>) -> Vec<String> {
     args.into_iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect()
@@ -60,7 +60,7 @@ fn catalog_passes_one_trimmed_query() {
     );
 }
 
-fn ok(args: Result<Vec<OsString>, CommandError>) -> Vec<OsString> {
+pub(super) fn ok(args: Result<Vec<OsString>, CommandError>) -> Vec<OsString> {
     args.expect("valid argument vector")
 }
 

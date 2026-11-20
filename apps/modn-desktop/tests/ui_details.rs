@@ -312,8 +312,8 @@ fn details_css_uses_only_defined_tokens() {
         );
     }
     for rule in [
-        ".modn-details__summary",
-        ".modn-plan__row",
+        ".modn-review__summary",
+        ".modn-review__row",
         ".modn-history__entry",
     ] {
         assert!(css.contains(rule), "details.css is missing {rule}");

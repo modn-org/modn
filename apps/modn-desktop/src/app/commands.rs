@@ -9,6 +9,7 @@ pub(crate) mod games;
 pub(crate) mod history;
 pub(crate) mod library;
 pub(crate) mod operations;
+pub(crate) mod themes;
 
 mod args;
 #[cfg(test)]
@@ -50,6 +51,11 @@ pub(crate) const COMMANDS: &[&str] = &[
     "diagnostics",
     "copy_diagnostics",
     "cancel_run",
+    "list_themes",
+    "resolve_theme",
+    "select_theme",
+    "reset_theme",
+    "import_theme",
 ];
 
 /// The progress event name the webview subscribes to.
