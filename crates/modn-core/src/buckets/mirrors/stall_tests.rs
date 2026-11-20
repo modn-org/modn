@@ -22,7 +22,7 @@ fn stalling_program(root: &Path, remote: &str, log: &Path) -> PathBuf {
     let real = real.to_string_lossy().replace('\\', "/");
     let directory = root.join("stalling-git");
     fs::create_dir_all(&directory).expect("program directory");
-    let program = if cfg!(windows) {
+    if cfg!(windows) {
         let program = directory.join("git.bat");
         fs::write(
             &program,
@@ -51,8 +51,7 @@ fn stalling_program(root: &Path, remote: &str, log: &Path) -> PathBuf {
             fs::set_permissions(&program, permissions).expect("program permissions");
         }
         program
-    };
-    program
+    }
 }
 
 /// The real Git program on PATH, called through by the stalling stub.
