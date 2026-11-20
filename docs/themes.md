@@ -176,7 +176,7 @@ It names the line when the validator knows it.
 | `forbidden-selector` | A selector outside the selector grammar. | `div .modn-card { color: #ffffff; }` | `.modn-app .modn-card { color: #ffffff; }` |
 | `unknown-hook` | A `.modn-*` class or `data-*` attribute not in the stable tables. | `.modn-missing { color: #ffffff; }` | `.modn-card { color: #ffffff; }` |
 | `protected-region` | A non-allowed property on a protected hook. | `.modn-review { display: none; }` | `.modn-review { color: #ffffff; }` |
-| `protected-color-not-opaque` | A translucent colour in a protected region. | `.modn-approval { background-color: rgba(0, 0, 0, 0.5); }` | `.modn-approval { background-color: #000000; }` |
+| `protected-color-not-opaque` | A translucent colour in a protected region, a translucent `--modn-color-*` token, or a translucent `color` on `:root` or `html`. | `.modn-approval { background-color: rgba(0, 0, 0, 0.5); }` | `.modn-approval { background-color: #000000; }` |
 | `css-syntax` | A syntax error. | `.modn-card { color: #ffffff;` | `.modn-card { color: #ffffff; }` |
 
 An allowed `url()` has the canonical form `url(assets/<path>)`.
@@ -392,6 +392,7 @@ The Theme control hooks are listed in the Classes table above under the group `T
 
 All 43 `--modn-*` properties are defined in `css/tokens.css`.
 The "used in" column lists the consumers in the component stylesheets.
+Every `--modn-color-*` token a theme sets must be opaque, because protected regions read it.
 
 | Property | Defined in | Used in | Purpose |
 | --- | --- | --- | --- |
@@ -494,6 +495,7 @@ Any other property on a protected hook is the rule `protected-region`.
 
 A colour value inside a protected region must be opaque.
 `transparent`, `currentcolor` with alpha, and `rgba()` or `hsla()` values with alpha below 1 are the rule `protected-color-not-opaque`.
+The colour tokens `--modn-color-*` and `color` on `:root` or `html` must be opaque too, because protected regions read them.
 
 The UI invariant is: every element inside a `[data-modn-protected]` subtree carries only protected hook classes.
 It carries no shared widget hook class.
