@@ -123,12 +123,12 @@ impl Checker<'_> {
             }
         }
         for declaration in &style.declarations {
-            self.check_declaration(declaration, info.protected);
+            self.check_declaration(declaration, info);
         }
     }
 
     /// Check one declaration of a style rule.
-    fn check_declaration(&mut self, declaration: &DeclFacts, protected: bool) {
+    fn check_declaration(&mut self, declaration: &DeclFacts, scope: SelectorInfo) {
         if declaration.important {
             self.push(
                 declaration.line,
@@ -176,8 +176,18 @@ impl Checker<'_> {
             );
         }
         self.check_urls(declaration.line, &declaration.value, None);
-        if protected {
+        if scope.protected {
             self.check_protected(declaration);
+        }
+        if protected_regions_read(declaration, scope) && !colour_is_opaque(&declaration.value) {
+            self.push(
+                declaration.line,
+                Rule::ProtectedColorNotOpaque,
+                format!(
+                    "\"{}\" must be an opaque colour because protected regions read it",
+                    declaration.property
+                ),
+            );
         }
     }
 
@@ -304,6 +314,15 @@ impl Checker<'_> {
     }
 }
 
+/// Return whether a declaration feeds a colour that protected regions read.
+///
+/// Protected regions read the `--modn-color-*` tokens from `:root` and inherit
+/// `color`, so a translucent value there reaches protected text or surfaces.
+fn protected_regions_read(declaration: &DeclFacts, scope: SelectorInfo) -> bool {
+    declaration.property.starts_with("--modn-color-")
+        || (scope.root_only && declaration.property == "color")
+}
+
 /// Return whether a declaration is allowed outside protected regions.
 fn globally_allowed(declaration: &DeclFacts) -> bool {
     if declaration.property.starts_with("--") {
@@ -334,3 +353,7 @@ mod media_tests;
 #[cfg(test)]
 #[path = "engine_protected_tests.rs"]
 mod protected_tests;
+
+#[cfg(test)]
+#[path = "engine_token_tests.rs"]
+mod token_tests;
