@@ -25,6 +25,8 @@ fn unique_folder() -> PathBuf {
         std::process::id(),
         SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
+    // Windows reuses process ids, so an earlier run may have left this folder behind.
+    let _ = fs::remove_dir_all(&folder);
     fs::create_dir(&folder).expect("create the disposable theme folder");
     folder
 }
@@ -133,10 +135,12 @@ fn a_relative_assets_dir_is_refused() {
 
 #[test]
 fn a_missing_assets_dir_is_refused() {
-    let missing = unique_folder().join("missing");
+    let folder = unique_folder();
+    let missing = folder.join("missing");
     let error = resolved_theme(json!({"theme": {"assets_dir": missing.to_string_lossy()}}))
         .expect_err("a missing directory cannot be served");
     assert_eq!(error.code, "THEME_INVALID");
+    fs::remove_dir_all(&folder).expect("remove the disposable folder");
 }
 
 #[test]
