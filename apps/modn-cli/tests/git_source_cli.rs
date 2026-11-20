@@ -15,9 +15,8 @@ mod main_bucket;
 
 use git_fixture::repository;
 use git_source::{
-    add_low_speed_then_serving_bucket, add_native_stack_bucket, add_stalled_then_serving_bucket,
-    leftover_fetch_directories, low_speed_git_program, run_with_stub_git, seed_dependency_cache,
-    stalling_git_program,
+    add_low_speed_then_serving_bucket, add_native_stack_bucket, low_speed_git_program,
+    run_with_stub_git, seed_dependency_cache, stub_git_arguments,
 };
 use helpers::{add_bucket, cache_archives, installed_plugin, run};
 use serde_json::Value;
@@ -276,60 +275,6 @@ fn git_source_missing_commit_fails_with_code_and_no_writes() {
 }
 
 #[test]
-fn a_stalled_first_git_fetch_times_out_and_the_next_source_serves() {
-    let fixture = Fixture::new();
-    let repository = repository(fixture.temp.path());
-    add_stalled_then_serving_bucket(&fixture, fixture.temp.path(), &repository.commit);
-    fixture.register();
-    let plugin = installed_plugin(&fixture);
-    let program = stalling_git_program(fixture.temp.path());
-
-    let (output, elapsed) = run_with_stub_git(
-        &fixture,
-        &repository.base,
-        &[
-            "install",
-            "test-game/git-package",
-            "--path",
-            fixture.game.to_str().expect("game path"),
-            "--yes",
-        ],
-        &program,
-        "8000",
-    );
-
-    assert!(output.status.success(), "{}", error(&output));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        elapsed < std::time::Duration::from_secs(30),
-        "the stalled fetch blocked the ordered fallback: {elapsed:?}\n{stderr}"
-    );
-    assert!(
-        stderr
-            .lines()
-            .any(|line| line.contains("git fixture/stalled commit ")
-                && line.contains("attempt 1: timeout")),
-        "the report does not classify the stall as a timeout: {stderr}"
-    );
-    assert!(
-        stderr
-            .lines()
-            .any(|line| line.contains("git fixture/project commit ")
-                && line.trim_end().ends_with(": ok")),
-        "the report omits the serving Git source: {stderr}"
-    );
-    assert_eq!(
-        fs::read(&plugin).expect("installed plugin"),
-        b"pinned-release"
-    );
-    assert_eq!(
-        leftover_fetch_directories(&fixture),
-        Vec::<String>::new(),
-        "the timed-out fetch left its staging directory behind"
-    );
-}
-
-#[test]
 fn a_low_speed_abort_is_a_timeout_and_the_next_source_serves() {
     let fixture = Fixture::new();
     let repository = repository(fixture.temp.path());
@@ -375,5 +320,18 @@ fn a_low_speed_abort_is_a_timeout_and_the_next_source_serves() {
     assert_eq!(
         fs::read(&plugin).expect("installed plugin"),
         b"pinned-release"
+    );
+    let arguments = stub_git_arguments(fixture.temp.path(), "low-speed-git");
+    assert!(
+        arguments
+            .lines()
+            .any(|line| line.contains("http.lowSpeedLimit=1")),
+        "the package fetch omits the shared low-speed limit: {arguments}"
+    );
+    assert!(
+        arguments
+            .lines()
+            .any(|line| line.contains("http.lowSpeedTime=")),
+        "the package fetch omits the shared low-speed time: {arguments}"
     );
 }

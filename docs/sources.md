@@ -59,22 +59,20 @@ bucket and sync it again.
 `modn bucket list` shows the pinned key ID after the catalog title.
 
 Git must be installed. Git operations keep no credentials and never prompt.
-A package Git fetch fails as a `timeout` attempt after 90 seconds without
-progress, also when the remote never answers or Git aborts the transfer below
-its low-speed limit. Git prints progress while it receives data, so a transfer
-that keeps receiving data can run longer than 90 seconds. On a timeout, Modn
-ends the Git process and every process it started, waits for the error reader,
-and then removes the temporary fetch files. A catalog mirror clone uses the
-same inactivity limit and process-tree kill. A stalled mirror is recorded as
-`timed out`, and sync tries the next mirror. The catalog error text is
-`GIT_CATALOG_FETCH_FAILED: ... timed out: no progress for N ms`. When Modn
-cannot stop a Git fetch process tree, the install or sync stops with `the Git
-fetch process tree could not be stopped`. It tries no other source or mirror.
-On Unix, Ctrl-C or SIGTERM during a Git fetch ends the fetch's whole process
-group. Modn then exits with status 130 for SIGINT or 143 for SIGTERM. A signal
-that arrives between the spawn and the registration of the fetch is not
-covered. Windows behavior is unchanged. Catalog
-sync serializes other Git sync calls: a second sync waits up to 2 seconds
+Every Git fetch and clone passes `http.lowSpeedLimit=1` and
+`http.lowSpeedTime=90`, the documented inactivity limit. Git and libcurl
+therefore abort a transfer that stays below one byte per second for 90 seconds.
+That abort is classified as a `timeout` attempt, and ordered fallback tries the
+next source or mirror. Git prints progress while it receives data, so a
+transfer that keeps receiving data can run longer than 90 seconds. The limits
+apply to HTTP and HTTPS transfers only; the `file` transport has no network
+stall, and release builds accept only HTTPS remotes. A timed-out fetch removes
+its temporary files before Modn tries the next source. A catalog mirror clone
+uses the same limits. A stalled mirror is recorded as `timed out`, and sync
+tries the next mirror. The catalog error text is
+`GIT_CATALOG_FETCH_FAILED: ... timed out: ...`. Hard process-tree stop and
+Ctrl-C forwarding are not part of this release; they are tracked in issue
+#190. Catalog sync serializes other Git sync calls: a second sync waits up to 2 seconds
 for the first to finish, then fails with the already running error. It does not
 coordinate concurrent local registration edits.
 Catalog metadata does not approve executable installation or grant game writes.
@@ -183,10 +181,11 @@ A verified cache entry for the pin is used before any network attempt.
 Modn never retries an HTTP 4xx answer or a BLAKE3 mismatch.
 It adds no flag or environment variable for these values.
 The constants are `CONNECT_TIMEOUT`, `READ_INACTIVITY_TIMEOUT` and `RETRIES_PER_SOURCE` in `modn_core::acquisition`.
-The same connect and idle values bound one Git fetch by inactivity: 90 seconds without progress.
+The same connect and idle values set the Git low-speed time: 90 seconds.
 Git prints progress to its error stream while it receives data, so a slow transfer that keeps receiving data is not stopped.
-Git also stops a transfer below one byte per second, and that abort keeps the same `timeout` class.
-A timed-out fetch ends its whole process tree and joins its error reader before Modn removes the temporary files and tries the next source.
+Git stops an HTTP or HTTPS transfer that stays below one byte per second for 90 seconds, and that abort keeps the same `timeout` class.
+The low-speed limits do not apply to the `file` transport.
+A timed-out fetch removes its temporary files and tries the next source.
 
 An `--nxm` link is accepted when it names any Nexus source of a release that the command installs or updates, not only the first one.
 A link that names no such source is refused.

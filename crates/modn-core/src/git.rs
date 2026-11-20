@@ -7,6 +7,34 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::{Command, Output};
 
+use crate::acquisition::{CONNECT_TIMEOUT, READ_INACTIVITY_TIMEOUT};
+
+/// Lowest transfer rate, in bytes per second, that Git accepts before it
+/// aborts an HTTP or HTTPS transfer after the low-speed time.
+const LOW_SPEED_LIMIT: u64 = 1;
+
+/// The shared low-speed time of every Git transfer: the documented inactivity
+/// limit of every source.
+pub(crate) fn default_low_speed_time_seconds() -> u64 {
+    (CONNECT_TIMEOUT + READ_INACTIVITY_TIMEOUT).as_secs()
+}
+
+/// Seconds that a Git HTTP or HTTPS transfer may stay below [`LOW_SPEED_LIMIT`].
+///
+/// A test build may shorten the time through `MODN_TEST_GIT_FETCH_IDLE_MS`, in
+/// milliseconds, because Git accepts whole seconds or zero to disable the
+/// limit. Release builds always use the documented inactivity limit.
+pub(crate) fn low_speed_time_seconds() -> u64 {
+    #[cfg(any(test, feature = "test-instruction-budget"))]
+    if let Some(millis) = std::env::var("MODN_TEST_GIT_FETCH_IDLE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return (millis / 1000).max(1);
+    }
+    default_low_speed_time_seconds()
+}
+
 /// Fixed environment for one Git invocation.
 pub(crate) struct GitEnvironment<'a> {
     /// Working directory; Git finds the repository from here.
@@ -17,14 +45,41 @@ pub(crate) struct GitEnvironment<'a> {
     pub(crate) allow_file: bool,
 }
 
+/// The Git program; a test build may replace it with a stub.
+fn program() -> std::ffi::OsString {
+    #[cfg(any(test, feature = "test-instruction-budget"))]
+    if let Some(program) =
+        std::env::var_os("MODN_TEST_GIT_FETCH_PROGRAM").filter(|value| !value.is_empty())
+    {
+        return program;
+    }
+    "git".into()
+}
+
 /// Build a Git command with system and user configuration disabled.
+///
+/// Every command, including fetch and clone, carries the shared HTTP low-speed
+/// limits. Git and libcurl therefore end a stalled HTTP or HTTPS transfer
+/// without Modn tracking or stopping the child process.
 pub(crate) fn command(environment: &GitEnvironment<'_>) -> Command {
-    let mut command = Command::new("git");
+    command_with_low_speed_time(environment, low_speed_time_seconds())
+}
+
+/// Build a Git command with an explicit low-speed time, for tests.
+pub(crate) fn command_with_low_speed_time(
+    environment: &GitEnvironment<'_>,
+    low_speed_seconds: u64,
+) -> Command {
+    let mut command = Command::new(program());
     command
         .arg("-c")
         .arg("protocol.allow=never")
         .arg("-c")
         .arg("protocol.https.allow=always")
+        .arg("-c")
+        .arg(format!("http.lowSpeedLimit={LOW_SPEED_LIMIT}"))
+        .arg("-c")
+        .arg(format!("http.lowSpeedTime={low_speed_seconds}"))
         .arg("-c")
         .arg(format!("core.hooksPath={}", environment.hooks.display()))
         .arg("-c")
@@ -32,9 +87,12 @@ pub(crate) fn command(environment: &GitEnvironment<'_>) -> Command {
     if environment.allow_file {
         command.arg("-c").arg("protocol.file.allow=always");
     }
+    #[cfg(any(test, feature = "test-instruction-budget"))]
+    command.arg("-c").arg("protocol.http.allow=always");
     command
         .current_dir(environment.directory)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env(
             "GIT_CONFIG_GLOBAL",

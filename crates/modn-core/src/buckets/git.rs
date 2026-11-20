@@ -6,7 +6,6 @@ use super::mirrors::{
 use super::rotation::{CatalogKeyChange, KeyChangeKind};
 use super::store::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use super::trust::ModuleTrustState;
-use crate::acquisition::GitSource;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -114,9 +113,6 @@ pub(super) fn git(directory: &Path, arguments: &[&str]) -> Result<String> {
         arguments,
     )
 }
-
-// Re-exported so the catalog mirror tests can name the bounded fetch.
-pub(crate) use self::fetch::CatalogFetch;
 
 pub(super) fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustState) -> Result<()> {
     for entry in fs::read_dir(directory)? {
@@ -235,25 +231,13 @@ impl BucketStore {
         name: &str,
         source: Option<GitCatalogSource>,
     ) -> Result<GitCatalogSync> {
-        self.sync_git_bounded(name, source, &CatalogFetch::bounded())
-    }
-
-    /// Same as [`Self::sync_git_with_signer`] with an explicit bounded fetch.
-    #[cfg(test)]
-    pub(crate) fn sync_git_with_fetch(
-        &self,
-        name: &str,
-        source: Option<GitCatalogSource>,
-        fetch: &CatalogFetch,
-    ) -> Result<GitCatalogSync> {
-        self.sync_git_bounded(name, source, fetch)
+        self.sync_git_bounded(name, source)
     }
 
     fn sync_git_bounded(
         &self,
         name: &str,
         source: Option<GitCatalogSource>,
-        fetch: &CatalogFetch,
     ) -> Result<GitCatalogSync> {
         self.check_registry_root()?;
         if !valid_id(name) || name == "main" {
@@ -301,16 +285,11 @@ impl BucketStore {
         for (index, candidate) in candidates.iter().enumerate() {
             let attempt = stage.path().join(format!("source-{index}"));
             fs::create_dir_all(&attempt)?;
-            let fetched = clone_catalog(&attempt, candidate, fetch);
+            let fetched = clone_catalog(&attempt, candidate);
             match fetched {
                 Ok((catalog, commit)) => {
                     served = Some((catalog, commit, candidate.clone()));
                     break;
-                }
-                Err(error) if GitSource::is_unstoppable_tree(&error) => {
-                    return Err(error.context(format!(
-                        "catalog {name} sync stopped because a mirror process tree could not be stopped"
-                    )));
                 }
                 Err(error) => {
                     let _ = fs::remove_dir_all(&attempt);

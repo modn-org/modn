@@ -23,7 +23,7 @@ mod provider;
 mod sources;
 use digest::{copy_blake3, file_blake3, file_has_blake3};
 use entry_name::{component, extension, parse_entry_name, parse_retired_entry_name};
-pub use git::{end_active_fetch_trees, GitAcquired, GitCacheKey, GitSource};
+pub use git::{GitAcquired, GitCacheKey, GitSource};
 use index::{ArchiveIndex, ArchivePin};
 pub use nexus::{
     NexusApiKey, NexusDownloadGrant, NexusDownloadUrl, NexusFile, NexusGameDomain, NexusRequest,
