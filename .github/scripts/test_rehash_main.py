@@ -1,7 +1,8 @@
 """Tests for rehash_main.py conversion and checks.
 
 Run with `python .github/scripts/test_rehash_main.py`. That entry also
-runs the safety tests in test_rehash_main_safety.py.
+runs the safety tests in test_rehash_main_safety.py and
+test_rehash_main_safety_failures.py.
 """
 
 from rehash_test_support import *  # noqa: F401,F403
@@ -224,6 +225,7 @@ class CheckTests(RehashTestCase):
 
 
 from test_rehash_main_safety import *  # noqa: E402,F401,F403
+from test_rehash_main_safety_failures import *  # noqa: E402,F401,F403
 
 
 if __name__ == "__main__":
