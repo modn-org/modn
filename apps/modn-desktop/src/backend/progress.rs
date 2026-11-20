@@ -175,6 +175,7 @@ pub(super) fn call(
     let mut stdout_failed = false;
     let mut error_code = None;
     let mut approval = None;
+    let mut diagnostics = Vec::new();
 
     let status = loop {
         while let Ok(item) = stderr_rx.try_recv() {
@@ -194,6 +195,7 @@ pub(super) fn call(
                 StderrItem::Envelope(envelope) => {
                     error_code = Some(envelope.code);
                     approval = envelope.approval;
+                    diagnostics = envelope.diagnostics;
                 }
                 StderrItem::Oversized => truncated = true,
                 StderrItem::Done { failed } => {
@@ -286,7 +288,12 @@ pub(super) fn call(
             stdout_truncated || stdout_failed,
             stderr_failed,
         ) {
-            CommittedOutcome::Refused => Err(BackendError::refused(status, error_code, approval)),
+            CommittedOutcome::Refused => Err(BackendError::refused(
+                status,
+                error_code,
+                approval,
+                diagnostics,
+            )),
             CommittedOutcome::OutputLost | CommittedOutcome::StreamLost => {
                 Err(BackendError::output_after_commit())
             }
@@ -311,7 +318,12 @@ pub(super) fn call(
         if user_cancelled || cancel.is_cancelled() {
             return Err(BackendError::cancelled());
         }
-        return Err(BackendError::refused(status, error_code, approval));
+        return Err(BackendError::refused(
+            status,
+            error_code,
+            approval,
+            diagnostics,
+        ));
     }
     let bytes = stdout_bytes.ok_or_else(BackendError::output)?;
     let stdout = String::from_utf8_lossy(&bytes);

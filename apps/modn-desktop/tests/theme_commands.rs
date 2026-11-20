@@ -19,6 +19,7 @@ mod app {
     pub(crate) mod blocking;
     pub(crate) mod error;
     pub(crate) mod state;
+    pub(crate) mod theme_diagnostics;
 }
 
 #[cfg(windows)]
