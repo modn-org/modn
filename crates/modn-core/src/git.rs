@@ -45,8 +45,21 @@ pub(crate) struct GitEnvironment<'a> {
     pub(crate) allow_file: bool,
 }
 
+// The executable that test code substitutes for Git on this thread. Tests
+// share one process across parallel threads, so an in-process override stays
+// thread-local and cannot leak into a command that another test runs.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_PROGRAM: std::cell::RefCell<Option<std::ffi::OsString>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// The Git program; a test build may replace it with a stub.
 fn program() -> std::ffi::OsString {
+    #[cfg(test)]
+    if let Some(program) = TEST_PROGRAM.with(|slot| slot.borrow().clone()) {
+        return program;
+    }
     #[cfg(any(test, feature = "test-instruction-budget"))]
     if let Some(program) =
         std::env::var_os("MODN_TEST_GIT_FETCH_PROGRAM").filter(|value| !value.is_empty())

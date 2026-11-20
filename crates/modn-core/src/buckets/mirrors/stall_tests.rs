@@ -64,24 +64,20 @@ fn real_git() -> PathBuf {
         .expect("the fixture needs Git on PATH")
 }
 
-/// The test program seam, removed when the test ends.
-struct Program(OsString);
+/// The test program seam for this thread, removed when the test ends.
+struct Program(Option<OsString>);
 
 impl Program {
     fn install(path: &Path) -> Self {
-        let previous = std::env::var_os("MODN_TEST_GIT_FETCH_PROGRAM");
-        std::env::set_var("MODN_TEST_GIT_FETCH_PROGRAM", path);
-        Self(previous.unwrap_or_default())
+        let previous =
+            crate::git::TEST_PROGRAM.with(|slot| slot.replace(Some(path.as_os_str().to_owned())));
+        Self(previous)
     }
 }
 
 impl Drop for Program {
     fn drop(&mut self) {
-        if self.0.is_empty() {
-            std::env::remove_var("MODN_TEST_GIT_FETCH_PROGRAM");
-        } else {
-            std::env::set_var("MODN_TEST_GIT_FETCH_PROGRAM", &self.0);
-        }
+        crate::git::TEST_PROGRAM.with(|slot| slot.replace(self.0.take()));
     }
 }
 
