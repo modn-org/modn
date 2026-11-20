@@ -5,10 +5,10 @@
 //! These tests parse the real stylesheets with a strict line-oriented parser,
 //! then run the real theme API v1 rule engine through [`checker::EngineChecker`].
 
-#[path = "official_theme_layout/parser.rs"]
-mod parser;
 #[path = "official_theme_layout/checker.rs"]
 mod checker;
+#[path = "official_theme_layout/parser.rs"]
+mod parser;
 
 use checker::EngineChecker;
 use modn_core::themes::{
@@ -122,14 +122,18 @@ fn copy_tree(source: &Path, destination: &Path) {
 
 #[test]
 fn staged_theme_passes_inspection() {
-    let theme = inspect_theme_dir(&theme_root(), &EngineChecker).expect("the staged theme is valid");
+    let theme =
+        inspect_theme_dir(&theme_root(), &EngineChecker).expect("the staged theme is valid");
     assert_eq!(theme.manifest.id, "night-city");
     assert_eq!(theme.manifest.game, "cyberpunk-2077");
     assert_eq!(theme.manifest.name, "Night City");
     assert_eq!(theme.manifest.theme_api, 1);
     assert_eq!(theme.manifest.variants, vec!["neon", "noir"]);
     assert_eq!(theme.manifest.icon.as_deref(), Some("assets/icon.png"));
-    assert!(theme.css.contains("@font-face"), "canonical base CSS is returned");
+    assert!(
+        theme.css.contains("@font-face"),
+        "canonical base CSS is returned"
+    );
     assert_eq!(
         theme.variant_css.keys().cloned().collect::<Vec<_>>(),
         vec!["neon".to_owned(), "noir".to_owned()]
@@ -184,7 +188,10 @@ fn theme_changes_layout_outside_protected_regions() {
     }
     assert!(layout >= 8, "theme.css has {layout} layout declarations");
     assert!(hooks.len() >= 4, "layout touches {} hooks", hooks.len());
-    assert!(structural >= 2, "theme.css has {structural} structural declarations");
+    assert!(
+        structural >= 2,
+        "theme.css has {structural} structural declarations"
+    );
 }
 
 #[test]
@@ -203,7 +210,11 @@ fn protected_rules_only_recolor_and_refont() {
     ];
     let mut protected_rules = 0usize;
     for rule in rules {
-        if !rule.selectors.iter().any(|selector| is_protected_selector(selector)) {
+        if !rule
+            .selectors
+            .iter()
+            .any(|selector| is_protected_selector(selector))
+        {
             continue;
         }
         protected_rules += 1;
@@ -221,13 +232,18 @@ fn protected_rules_only_recolor_and_refont() {
 
 #[test]
 fn variants_are_listed_and_differ() {
-    let theme = inspect_theme_dir(&theme_root(), &EngineChecker).expect("the staged theme is valid");
+    let theme =
+        inspect_theme_dir(&theme_root(), &EngineChecker).expect("the staged theme is valid");
     let neon = read_theme_file("theme.neon.css");
     let noir = read_theme_file("theme.noir.css");
     assert_ne!(neon, noir, "the two variants differ");
     for (variant, text) in [("neon", &neon), ("noir", &noir)] {
         assert!(
-            theme.manifest.variants.iter().any(|listed| listed == variant),
+            theme
+                .manifest
+                .variants
+                .iter()
+                .any(|listed| listed == variant),
             "{variant} is listed in theme.json"
         );
         let sheet = parser::parse_sheet(text).expect("the variant parses");
@@ -247,7 +263,12 @@ fn fixed_position_mutation_fails_inspection() {
     let copy = temp.path().join("night-city");
     copy_tree(&theme_root(), &copy);
     let css = fs::read_to_string(copy.join("theme.css")).expect("read the copied CSS");
-    let mutated = css.replacen(".modn-rail {\n", ".modn-rail {\nposition: fixed;\n", 1);
+    let newline = if css.contains("\r\n") { "\r\n" } else { "\n" };
+    let mutated = css.replacen(
+        ".modn-rail {",
+        &format!(".modn-rail {{{newline}position: fixed;"),
+        1,
+    );
     assert_ne!(mutated, css, "the mutation inserted a declaration");
     fs::write(copy.join("theme.css"), mutated).expect("write the mutated CSS");
     let problems = inspect_theme_dir(&copy, &EngineChecker).expect_err("the mutation is refused");
@@ -287,25 +308,46 @@ fn assets_and_entries_stay_within_the_limits() {
     .into_iter()
     .collect();
     let root = theme_root();
-    let mut total = 0u64;
-    let mut stack = vec![root.clone()];
-    while let Some(directory) = stack.pop() {
-        for entry in fs::read_dir(&directory).expect("list the theme folder") {
-            let entry = entry.expect("read a theme entry");
-            let path = entry.path();
-            if entry.file_type().expect("entry type").is_dir() {
-                if directory == root {
-                    assert!(
-                        allowed.contains(entry.file_name().to_str().expect("UTF-8 entry")),
-                        "top-level entry {:?} is allowed",
-                        entry.file_name()
-                    );
-                }
-                stack.push(path);
-            } else {
-                total += entry.metadata().expect("entry metadata").len();
-            }
+    let mut asset_total = 0u64;
+    let mut assets = 0usize;
+    for entry in fs::read_dir(&root).expect("list the theme folder") {
+        let entry = entry.expect("read a theme entry");
+        let name = entry.file_name();
+        assert!(
+            allowed.contains(name.to_str().expect("UTF-8 entry")),
+            "top-level entry {name:?} is allowed"
+        );
+        if !entry.file_type().expect("entry type").is_dir() {
+            continue;
+        }
+        assert_eq!(name, "assets", "the only subdirectory is assets");
+        for asset in fs::read_dir(entry.path()).expect("list the assets folder") {
+            let asset = asset.expect("read an asset");
+            assert!(asset.file_type().expect("asset type").is_file());
+            asset_total += asset.metadata().expect("asset metadata").len();
+            assets += 1;
         }
     }
-    assert!(total < 1024 * 1024, "assets and CSS total {total} bytes");
+    assert!(assets <= 64, "the theme has {assets} assets");
+    assert!(
+        asset_total < 1024 * 1024,
+        "assets total {asset_total} bytes"
+    );
+}
+
+#[test]
+fn font_and_tile_are_present_and_wired_in() {
+    let css = read_theme_file("theme.css");
+    assert!(
+        css.contains("src: url(assets/chakra-petch-semibold.woff2);"),
+        "theme.css loads the bundled font"
+    );
+    assert!(
+        css.contains("font-family: \"Chakra Petch\""),
+        "theme.css uses the bundled font family"
+    );
+    assert!(
+        css.contains("background-image: url(assets/grid.png);"),
+        "theme.css uses the generated tile"
+    );
 }

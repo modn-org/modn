@@ -5,11 +5,11 @@
 //! on a line. The parser accepts exactly that format. Any line it cannot read
 //! becomes a `css-syntax` problem, so a construct is never silently dropped.
 
+use modn_core::themes::Rule;
 use modn_core::themes::{
     DeclFacts, FontFaceFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts, ThemeProblem,
     UnsupportedFacts,
 };
-use modn_core::themes::Rule;
 
 /// Parse one stylesheet, or report the first line the strict format rejects.
 pub fn parse_sheet(text: &str) -> Result<SheetFacts, ThemeProblem> {
@@ -27,14 +27,14 @@ struct Cursor<'a> {
     index: usize,
 }
 
-impl Cursor<'_> {
+impl<'a> Cursor<'a> {
     /// Return the one-based line number of the next unconsumed line.
     fn line_number(&self) -> u32 {
         u32::try_from(self.index + 1).expect("a theme stylesheet has fewer than u32::MAX lines")
     }
 
     /// Consume the next non-blank line, trimmed, with its line number.
-    fn next_line(&mut self) -> Option<(&str, u32)> {
+    fn next_line(&mut self) -> Option<(&'a str, u32)> {
         while self.index < self.lines.len() {
             let number = self.line_number();
             let text = self.lines[self.index].trim();
