@@ -128,7 +128,7 @@ pub(super) fn download_into(
                             served_now = true;
                             break;
                         }
-                        Err(error) if stops_acquisition(&error) => return Err(error),
+                        Err(error) if cancelled(&error) => return Err(error),
                         Err(error) => {
                             record(
                                 text,
@@ -364,15 +364,6 @@ fn nexus_archive(
 /// Whether one cancelled error ends the whole acquisition.
 fn cancelled(error: &anyhow::Error) -> bool {
     code_of(error) == Some(ErrorCode::Cancelled)
-}
-
-/// Whether one failed Git attempt ends the whole acquisition.
-///
-/// A cancelled install stops at once. So does a fetch whose process tree could
-/// not be stopped: a surviving descendant could still write into the staging
-/// repository, so the next source must never run.
-fn stops_acquisition(error: &anyhow::Error) -> bool {
-    cancelled(error) || GitSource::is_unstoppable_tree(error)
 }
 
 /// Classify a Git or Nexus failure like any other source attempt.

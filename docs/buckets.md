@@ -107,10 +107,9 @@ When a mirror serves the revision, the registration keeps the registered
 primary and the output names the failed primary and the serving mirror.
 Every verified revision replaces the stored mirror list with its own list.
 
-The Git fetch of a mirror uses the same inactivity limit and process-tree kill
-as a package source. A stalled mirror fails as `timed out`, and sync tries the
-next mirror. When Modn cannot stop a Git fetch process tree, sync stops with
-`the Git fetch process tree could not be stopped` and tries no other mirror.
+The Git fetch of a mirror uses the same low-speed limits as a package source:
+`http.lowSpeedLimit=1` and `http.lowSpeedTime=90` for HTTP and HTTPS. A stalled
+mirror fails as `timed out`, and sync tries the next mirror.
 
 A verified revision whose catalog digest (ZIP) or commit (Git) matches the
 registered revision, and whose `catalog.pub` and `catalog.sig` bytes match too,

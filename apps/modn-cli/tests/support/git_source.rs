@@ -71,11 +71,6 @@ pub fn seed_dependency_cache(fixture: &Fixture, archive: &Path) {
     fs::copy(archive, entry).expect("seed dependency cache");
 }
 
-/// Write a bucket whose first Git source stalls and whose second one serves.
-pub fn add_stalled_then_serving_bucket(fixture: &Fixture, root: &Path, commit: &str) {
-    add_two_source_bucket(fixture, root, "git-stall-fixture", "stalled", commit);
-}
-
 /// Write a bucket whose first Git source aborts below the Git low-speed limit
 /// and whose second one serves.
 pub fn add_low_speed_then_serving_bucket(fixture: &Fixture, root: &Path, commit: &str) {
@@ -166,17 +161,6 @@ pub fn real_git() -> PathBuf {
         .expect("the fixture needs Git on PATH")
 }
 
-/// A stub Git that stalls for `fixture/stalled` and calls the real Git otherwise.
-pub fn stalling_git_program(root: &Path) -> PathBuf {
-    stub_git_program(
-        root,
-        "stalled-git",
-        "fixture/stalled",
-        "ping -n 60 127.0.0.1 >nul",
-        "sleep 60",
-    )
-}
-
 /// A stub Git that reports the low-speed abort for `fixture/low-speed` and
 /// calls the real Git otherwise.
 pub fn low_speed_git_program(root: &Path) -> PathBuf {
@@ -190,6 +174,8 @@ pub fn low_speed_git_program(root: &Path) -> PathBuf {
 }
 
 /// Write a stub Git that handles the matching repository and forwards the rest.
+///
+/// Every call appends its arguments to `arguments.log` in the stub directory.
 pub fn stub_git_program(
     root: &Path,
     name: &str,
@@ -199,19 +185,21 @@ pub fn stub_git_program(
 ) -> PathBuf {
     let directory = root.join(name);
     fs::create_dir_all(&directory).expect("stub directory");
+    let log = directory.join("arguments.log");
+    let log = log.to_string_lossy().replace(char::from(92), "/");
     let real = real_git();
     let real = real.to_string_lossy().replace(char::from(92), "/");
     if cfg!(windows) {
         let program = directory.join("git.bat");
         let script = format!(
-            "@echo off\r\necho %* | findstr /C:\"{marker}\" >nul\r\nif errorlevel 1 goto real\r\n{windows_action}\r\n:real\r\n\"{real}\" %*\r\n"
+            "@echo off\r\necho %* >> \"{log}\"\r\necho %* | findstr /C:\"{marker}\" >nul\r\nif errorlevel 1 goto real\r\n{windows_action}\r\n:real\r\n\"{real}\" %*\r\n"
         );
         fs::write(&program, script).expect("stub program");
         program
     } else {
         let program = directory.join("git");
         let script = format!(
-            "#!/bin/sh\ncase \"$*\" in\n  *{marker}*)\n    {unix_action}\n    ;;\n  *)\n    exec \"{real}\" \"$@\"\n    ;;\nesac\n"
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"{log}\"\ncase \"$*\" in\n  *{marker}*)\n    {unix_action}\n    ;;\n  *)\n    exec \"{real}\" \"$@\"\n    ;;\nesac\n"
         );
         fs::write(&program, script).expect("stub program");
         #[cfg(unix)]
@@ -225,30 +213,21 @@ pub fn stub_git_program(
     }
 }
 
-/// Run the CLI with a stubbed Git fetch and a short inactivity limit.
+/// The argument lines the stub Git of `name` received, oldest first.
+pub fn stub_git_arguments(root: &Path, name: &str) -> String {
+    fs::read_to_string(root.join(name).join("arguments.log")).unwrap_or_default()
+}
+
+/// Run the CLI with a stubbed Git fetch and a short Git low-speed time.
 ///
 /// The stderr stream goes to a file and the helper reports when the process
-/// exited. A killed batch stub can leave a descendant that holds a pipe open,
-/// so a pipe capture would measure the descendant, not the command.
+/// exited.
 pub fn run_with_stub_git(
     fixture: &Fixture,
     base: &Path,
     args: &[&str],
     program: &Path,
     idle_millis: &str,
-) -> (Output, std::time::Duration) {
-    run_with_stub_git_env(fixture, base, args, program, idle_millis, &[])
-}
-
-/// Run the CLI with a stubbed Git fetch, extra environment entries, and a
-/// short inactivity limit.
-pub fn run_with_stub_git_env(
-    fixture: &Fixture,
-    base: &Path,
-    args: &[&str],
-    program: &Path,
-    idle_millis: &str,
-    environment: &[(&str, &str)],
 ) -> (Output, std::time::Duration) {
     let capture = fixture.temp.path().join("stubbed-stderr.txt");
     let stderr = fs::File::create(&capture).expect("stderr capture");
@@ -263,9 +242,6 @@ pub fn run_with_stub_git_env(
         .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(stderr);
-    for (name, value) in environment {
-        command.env(name, value);
-    }
     let mut child = command.spawn().expect("run CLI");
     let started = std::time::Instant::now();
     let status = child.wait().expect("wait for CLI");

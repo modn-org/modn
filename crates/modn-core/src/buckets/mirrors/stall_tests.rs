@@ -1,30 +1,33 @@
-//! A stalled catalog mirror falls over under the bounded fetch, or stops it.
+//! A stalled catalog mirror times out and the next mirror serves.
 
 use super::CatalogHost;
 use crate::buckets::git::tests as fixtures;
-use crate::buckets::git::{CatalogFetch, GitCatalogSource};
+use crate::buckets::git::GitCatalogSource;
 use crate::buckets::BucketStore;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
-/// Write a stand-in Git program that stalls its first clone for a minute.
-///
-/// Every call appends a line to `log`. The first call writes `flag` and sleeps
-/// without output, which the bounded catalog fetch must end after its
-/// inactivity limit. Later calls run the real Git with the same arguments, so a
-/// next mirror could serve the catalog.
-fn stalling_program(root: &Path, flag: &Path, log: &Path) -> PathBuf {
-    let flag = flag.to_string_lossy().replace('\\', "/");
+/// Write a stand-in Git program that reports the real low-speed abort for one
+/// remote and runs the real Git for every other call. Every call logs its
+/// arguments, so a test can check the shared low-speed flags.
+fn stalling_program(root: &Path, remote: &str, log: &Path) -> PathBuf {
+    let marker = Path::new(remote)
+        .file_name()
+        .expect("remote directory name")
+        .to_string_lossy();
+    let marker = marker.replace('\\', "/");
     let log = log.to_string_lossy().replace('\\', "/");
+    let real = real_git();
+    let real = real.to_string_lossy().replace('\\', "/");
     let directory = root.join("stalling-git");
     fs::create_dir_all(&directory).expect("program directory");
-    if cfg!(windows) {
+    let program = if cfg!(windows) {
         let program = directory.join("git.bat");
         fs::write(
             &program,
             format!(
-                "@echo off\r\necho call>>\"{log}\"\r\nif exist \"{flag}\" goto real\r\necho stalled > \"{flag}\"\r\nping -n 60 127.0.0.1 >nul\r\nexit /b 1\r\n:real\r\ngit %*\r\n"
+                "@echo off\r\necho %* >> \"{log}\"\r\necho %* | findstr /C:\"{marker}\" >nul\r\nif errorlevel 1 goto real\r\necho fatal: unable to access 'http://127.0.0.1/': Operation too slow. Less than 1 bytes/sec transferred the last 1 seconds 1>&2\r\nexit /b 128\r\n:real\r\n\"{real}\" %*\r\n"
             ),
         )
         .expect("program");
@@ -34,7 +37,7 @@ fn stalling_program(root: &Path, flag: &Path, log: &Path) -> PathBuf {
         fs::write(
             &program,
             format!(
-                "#!/bin/sh\necho call >> \"{log}\"\nif [ ! -f \"{flag}\" ]; then : > \"{flag}\"; sleep 60; exit 1; fi\nexec git \"$@\"\n"
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"{log}\"\ncase \"$*\" in\n  *{marker}*)\n    echo \"fatal: unable to access 'http://127.0.0.1/': Operation too slow. Less than 1 bytes/sec transferred the last 1 seconds\" >&2\n    exit 128\n    ;;\n  *)\n    exec \"{real}\" \"$@\"\n    ;;\nesac\n"
             ),
         )
         .expect("program");
@@ -48,6 +51,37 @@ fn stalling_program(root: &Path, flag: &Path, log: &Path) -> PathBuf {
             fs::set_permissions(&program, permissions).expect("program permissions");
         }
         program
+    };
+    program
+}
+
+/// The real Git program on PATH, called through by the stalling stub.
+fn real_git() -> PathBuf {
+    let name = if cfg!(windows) { "git.exe" } else { "git" };
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+        .expect("the fixture needs Git on PATH")
+}
+
+/// The test program seam, removed when the test ends.
+struct Program(OsString);
+
+impl Program {
+    fn install(path: &Path) -> Self {
+        let previous = std::env::var_os("MODN_TEST_GIT_FETCH_PROGRAM");
+        std::env::set_var("MODN_TEST_GIT_FETCH_PROGRAM", path);
+        Self(previous.unwrap_or_default())
+    }
+}
+
+impl Drop for Program {
+    fn drop(&mut self) {
+        if self.0.is_empty() {
+            std::env::remove_var("MODN_TEST_GIT_FETCH_PROGRAM");
+        } else {
+            std::env::set_var("MODN_TEST_GIT_FETCH_PROGRAM", &self.0);
+        }
     }
 }
 
@@ -55,6 +89,7 @@ fn stalling_program(root: &Path, flag: &Path, log: &Path) -> PathBuf {
 struct Registered {
     temp: tempfile::TempDir,
     store: BucketStore,
+    primary: GitCatalogSource,
     mirror: GitCatalogSource,
     _primary: fixtures::Remote,
     _mirror: fixtures::Remote,
@@ -92,6 +127,7 @@ fn registered() -> Registered {
     Registered {
         temp,
         store,
+        primary: fixtures::source(&primary),
         mirror: mirror_source,
         _primary: primary,
         _mirror: mirror,
@@ -101,34 +137,22 @@ fn registered() -> Registered {
 #[test]
 fn a_stalled_first_mirror_times_out_and_the_next_mirror_serves() {
     let fixture = registered();
-    let flag = fixture.temp.path().join("stalled");
     let log = fixture.temp.path().join("calls.log");
-    let program = stalling_program(fixture.temp.path(), &flag, &log);
-    let started = Instant::now();
+    let program = stalling_program(fixture.temp.path(), &fixture.primary.remote, &log);
+    let _program = Program::install(&program);
+
     let synced = fixture
         .store
-        .sync_git_with_fetch(
-            "community",
-            None,
-            &CatalogFetch {
-                limit: Duration::from_millis(3000),
-                program: Some(program),
-                fail_tree_stop: false,
-            },
-        )
+        .sync_git_with_signer("community", None)
         .expect("the second mirror serves the catalog");
-    assert!(
-        started.elapsed() >= Duration::from_millis(3000),
-        "the stalled mirror failed before the inactivity limit: {:?}",
-        started.elapsed()
-    );
     assert_eq!(
         synced.trace.served_by,
         CatalogHost::from(&fixture.mirror),
         "the mirror served the catalog"
     );
-    assert!(
-        synced.trace.failed_sources.len() == 1,
+    assert_eq!(
+        synced.trace.failed_sources.len(),
+        1,
         "one mirror failed: {:?}",
         synced.trace.failed_sources
     );
@@ -137,34 +161,17 @@ fn a_stalled_first_mirror_times_out_and_the_next_mirror_serves() {
         "the stalled mirror is recorded as a timeout: {:?}",
         synced.trace.failed_sources
     );
-}
-
-#[test]
-fn an_unstoppable_mirror_tree_stops_the_sync_without_trying_the_next_mirror() {
-    let fixture = registered();
-    let flag = fixture.temp.path().join("stalled");
-    let log = fixture.temp.path().join("calls.log");
-    let program = stalling_program(fixture.temp.path(), &flag, &log);
-    let error = fixture
-        .store
-        .sync_git_with_fetch(
-            "community",
-            None,
-            &CatalogFetch {
-                limit: Duration::from_millis(800),
-                program: Some(program),
-                fail_tree_stop: true,
-            },
-        )
-        .expect_err("a tree that cannot be stopped must stop the sync");
-    assert!(
-        format!("{error:#}").contains("process tree could not be stopped"),
-        "{error:#}"
-    );
     let calls = fs::read_to_string(&log).expect("program log");
-    assert_eq!(
-        calls.lines().count(),
-        1,
-        "the sync stopped after the first mirror instead of trying the next: {calls}"
+    assert!(
+        calls
+            .lines()
+            .any(|line| line.contains("http.lowSpeedLimit=1")),
+        "the catalog clone omits the shared low-speed limit: {calls}"
+    );
+    assert!(
+        calls
+            .lines()
+            .any(|line| line.contains("http.lowSpeedTime=")),
+        "the catalog clone omits the shared low-speed time: {calls}"
     );
 }
