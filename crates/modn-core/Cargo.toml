@@ -38,4 +38,4 @@ winapi-util = "0.1"
 windows-registry = "0.6"
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1", features = ["fs", "process"] }
+rustix = { version = "1.1", features = ["fs"] }
