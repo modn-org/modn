@@ -159,6 +159,21 @@ mod tests {
     }
 
     #[test]
+    fn explicit_null_optional_fields_stay_null() {
+        let entry = first(json!([{
+            "theme": null,
+            "path": null,
+            "line": null,
+            "rule": "css-syntax",
+            "message": "problem"
+        }]))
+        .expect("the required fields are present");
+        assert_eq!(entry.theme, None);
+        assert_eq!(entry.path, None);
+        assert_eq!(entry.line, None);
+    }
+
+    #[test]
     fn at_most_fifty_entries_are_read() {
         let entries: Vec<Value> = (0..60)
             .map(|index| json!({"rule": "css-syntax", "message": format!("problem {index}")}))
