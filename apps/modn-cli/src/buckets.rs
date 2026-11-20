@@ -2,11 +2,14 @@ use crate::commands::BucketCommand;
 use crate::state_access::{validate_state_path, ManagerState};
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{
-    local_bucket_module_refusal, BucketStore, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason,
-    ModuleTrustAck, ModuleTrustState,
+    local_bucket_module_refusal, BucketStore, CatalogKeyChange, CatalogModuleReport, CatalogSigner,
+    CatalogSyncTrace, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck,
+    ModuleTrustState, ZipCatalogSource, ZipCatalogSync,
 };
 use modn_core::state::Store;
 use serde_json::Value;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 
 /// Refuse a registry write when the state directory sits inside a game installation.
@@ -50,23 +53,153 @@ pub(super) fn sync_catalog(
     json_output: bool,
 ) -> Result<GitCatalogSync> {
     let synced = store.sync_git_with_signer(name, source)?;
-    if synced.pinned {
+    report_pin(name, &synced.revision.signer, synced.pinned, json_output);
+    report_key_change(synced.key_change.as_ref(), json_output);
+    report_ignored_key_statements(
+        name,
+        &synced.ignored_key_statements,
+        synced.pinned,
+        json_output,
+    );
+    report_trace(name, &synced.trace, json_output);
+    Ok(synced)
+}
+/// Fetch, verify and publish one ZIP catalog, reporting a newly pinned signer.
+pub(super) fn sync_zip_catalog(
+    store: &BucketStore,
+    name: &str,
+    source: Option<ZipCatalogSource>,
+    json_output: bool,
+) -> Result<ZipCatalogSync> {
+    let synced = store.sync_zip_with_signer(name, source, open_zip_source)?;
+    report_pin(name, &synced.revision.signer, synced.pinned, json_output);
+    report_key_change(synced.key_change.as_ref(), json_output);
+    report_ignored_key_statements(
+        name,
+        &synced.ignored_key_statements,
+        synced.pinned,
+        json_output,
+    );
+    report_trace(name, &synced.trace, json_output);
+    Ok(synced)
+}
+fn open_zip_source(source: &ZipCatalogSource) -> Result<Box<dyn Read>> {
+    if source.url.starts_with("https://") {
+        return crate::download::fetch_catalog(&source.url);
+    }
+    Ok(Box::new(File::open(&source.url)?))
+}
+fn report_pin(name: &str, signer: &CatalogSigner, pinned: bool, json_output: bool) {
+    if !pinned {
+        return;
+    }
+    let line = format!(
+        "Pinned signer key {} for bucket {name}; compare this fingerprint with the catalog author.",
+        signer.key_id
+    );
+    emit_report(&line, json_output);
+    if let Some(key_id) = &signer.revocation_key_id {
         let line = format!(
-            "Pinned signer key {} for bucket {name}; compare this fingerprint with the catalog author.",
-            synced.revision.signer.key_id
+            "Pinned revocation key {key_id} for bucket {name}; compare this fingerprint with the catalog author."
         );
+        emit_report(&line, json_output);
+    }
+}
+/// Report an accepted rotation or revocation with both fingerprints.
+fn report_key_change(change: Option<&CatalogKeyChange>, json_output: bool) {
+    if let Some(change) = change {
+        emit_report(&change.line(), json_output);
+    }
+}
+fn emit_report(line: &str, json_output: bool) {
+    if json_output {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
+}
+/// Report a failed source, the serving mirror and a followed relocation.
+fn report_trace(name: &str, trace: &CatalogSyncTrace, json_output: bool) {
+    let mut lines = Vec::new();
+    for failure in &trace.failed_sources {
+        lines.push(format!("Source failed: {failure}"));
+    }
+    if trace.served_by != trace.primary {
+        lines.push(format!(
+            "Served bucket {name} from mirror {}.",
+            trace.served_by.label()
+        ));
+    }
+    if let (Some(from), Some(to)) = (&trace.moved_from, &trace.moved_to) {
+        lines.push(format!(
+            "catalog {name} moved from {} to {}.",
+            from.label(),
+            to.label()
+        ));
+    }
+    for line in lines {
         if json_output {
             eprintln!("{line}");
         } else {
             println!("{line}");
         }
     }
-    Ok(synced)
 }
-
-fn print_sync_modules(name: &str, synced: &GitCatalogSync) {
-    println!("Synced bucket {name} at commit {}.", synced.revision.commit);
-    for report in &synced.modules.imported {
+/// Human-readable form of one tagged `CatalogHost` JSON value.
+fn host_label(host: &Value) -> String {
+    match host.get("kind").and_then(Value::as_str) {
+        Some("zip") => format!(
+            "zip {}",
+            host.get("url").and_then(Value::as_str).unwrap_or("")
+        ),
+        Some("git") => format!(
+            "git {}@{}",
+            host.get("remote").and_then(Value::as_str).unwrap_or(""),
+            host.get("revision").and_then(Value::as_str).unwrap_or("")
+        ),
+        _ => String::new(),
+    }
+}
+enum CatalogKind {
+    Git(Option<GitCatalogSource>),
+    Zip(Option<ZipCatalogSource>),
+}
+fn classify_source(
+    store: &BucketStore,
+    name: &str,
+    source: Option<&str>,
+    revision: Option<&str>,
+) -> Result<CatalogKind> {
+    match (source, revision) {
+        (Some(text), _) if ZipCatalogSource::selects(text) => {
+            if revision.is_some() {
+                bail!(
+                    "`--revision` cannot be used with a ZIP catalog source; a ZIP source has no Git revision"
+                );
+            }
+            Ok(CatalogKind::Zip(Some(ZipCatalogSource::new(
+                text.to_owned(),
+            ))))
+        }
+        (Some(text), Some(revision)) => Ok(CatalogKind::Git(Some(GitCatalogSource::new(
+            text.to_owned(),
+            revision.to_owned(),
+        )))),
+        (Some(_), None) => {
+            bail!("a Git catalog source needs `--revision`; a ZIP catalog source ends in .zip")
+        }
+        (None, Some(_)) => bail!("`--revision` needs `--source`"),
+        (None, None) => {
+            if store.zip_revision(name)?.is_some() {
+                Ok(CatalogKind::Zip(None))
+            } else {
+                Ok(CatalogKind::Git(None))
+            }
+        }
+    }
+}
+fn print_sync_modules(modules: &CatalogModuleReport) {
+    for report in &modules.imported {
         println!(
             "Game module {} v{}: {}",
             report.game_id,
@@ -77,7 +210,7 @@ fn print_sync_modules(name: &str, synced: &GitCatalogSync) {
                 .unwrap_or_else(|| "unchanged".to_owned())
         );
     }
-    for ignored in &synced.modules.ignored {
+    for ignored in &modules.ignored {
         let reason = match ignored.reason {
             ModuleIgnoreReason::UntrustedSource => "the bucket is not a trusted module source",
             ModuleIgnoreReason::OfficialPriority => "the official main bucket provides this game",
@@ -85,7 +218,38 @@ fn print_sync_modules(name: &str, synced: &GitCatalogSync) {
         println!("Ignored game module {}: {reason}.", ignored.game_id);
     }
 }
-
+fn print_git_sync(name: &str, synced: &GitCatalogSync) {
+    println!("Synced bucket {name} at commit {}.", synced.revision.commit);
+    print_sync_modules(&synced.modules);
+}
+fn report_ignored_key_statements(
+    name: &str,
+    statements: &[String],
+    pinned: bool,
+    json_output: bool,
+) {
+    if statements.is_empty() {
+        return;
+    }
+    let kinds = statements.join(", ");
+    let line = if pinned {
+        format!(
+            "Ignored published key change statements ({kinds}) for bucket {name}; the first sync pins the signer from catalog.pub and applies no statement."
+        )
+    } else {
+        format!(
+            "Ignored published key change statements ({kinds}) for bucket {name}; they do not name the pinned key."
+        )
+    };
+    emit_report(&line, json_output);
+}
+fn print_zip_sync(name: &str, synced: &ZipCatalogSync) {
+    println!(
+        "Synced bucket {name} from {} at {}.",
+        synced.revision.source.url, synced.revision.digest
+    );
+    print_sync_modules(&synced.modules);
+}
 /// The pinned signer key ID that a trust acknowledgement must name.
 fn module_signer(store: &BucketStore, bucket: &str) -> Result<String> {
     if bucket == "main" {
@@ -97,9 +261,8 @@ fn module_signer(store: &BucketStore, bucket: &str) -> Result<String> {
         }
         ModuleTrustState::Main => bail!("the official main bucket is always a module source"),
         ModuleTrustState::Trusted | ModuleTrustState::Untrusted => Ok(store
-            .git_revision(bucket)?
+            .catalog_signer(bucket)?
             .context("the bucket has no pinned signer")?
-            .signer
             .key_id),
         _ => bail!("unsupported module trust state for bucket {bucket}"),
     }
@@ -203,16 +366,22 @@ pub(super) fn run(
             name,
             source,
             revision,
-        } => {
-            let source = source
-                .zip(revision)
-                .map(|(remote, reference)| GitCatalogSource::new(remote, reference));
-            let synced = sync_catalog(&store, &name, source, json_output)?;
-            if !json_output {
-                print_sync_modules(&name, &synced);
+        } => match classify_source(&store, &name, source.as_deref(), revision.as_deref())? {
+            CatalogKind::Git(source) => {
+                let synced = sync_catalog(&store, &name, source, json_output)?;
+                if !json_output {
+                    print_git_sync(&name, &synced);
+                }
+                serde_json::to_value(&synced)?
             }
-            serde_json::to_value(&synced)?
-        }
+            CatalogKind::Zip(source) => {
+                let synced = sync_zip_catalog(&store, &name, source, json_output)?;
+                if !json_output {
+                    print_zip_sync(&name, &synced);
+                }
+                serde_json::to_value(&synced)?
+            }
+        },
         BucketCommand::TrustModules {
             bucket,
             yes,
@@ -280,6 +449,16 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
                         );
                         if let Some(key_id) = entry.get("signer_key_id").and_then(Value::as_str) {
                             line.push_str(&format!(" [signer {key_id}]"));
+                        }
+                        if let Some(primary) = entry.get("primary") {
+                            let mirrors = entry
+                                .get("mirrors")
+                                .and_then(Value::as_array)
+                                .map_or(0, Vec::len);
+                            line.push_str(&format!(
+                                " [primary {}, {mirrors} mirrors]",
+                                host_label(primary)
+                            ));
                         }
                         line
                     }

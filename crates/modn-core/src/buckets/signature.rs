@@ -34,7 +34,16 @@ impl fmt::Display for CatalogKeyId {
 pub struct CatalogPublicKey {
     verification_key: MinisignPublicKey,
     key_id: CatalogKeyId,
+    key_bytes: [u8; CATALOG_KEY_BYTES],
 }
+
+impl PartialEq for CatalogPublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.key_bytes == other.key_bytes
+    }
+}
+
+impl Eq for CatalogPublicKey {}
 
 impl fmt::Debug for CatalogPublicKey {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -71,11 +80,15 @@ impl CatalogPublicKey {
         if bytes.len() != CATALOG_KEY_BYTES {
             bail!("malformed catalog public key: invalid length");
         }
+        let Ok(key_bytes) = <[u8; CATALOG_KEY_BYTES]>::try_from(bytes.as_slice()) else {
+            bail!("malformed catalog public key: invalid length");
+        };
         let verification_key = MinisignPublicKey::from_base64(encoded)
             .map_err(|error| anyhow!("malformed catalog public key: {error}"))?;
         Ok(Self {
             verification_key,
             key_id: key_id_from(&bytes)?,
+            key_bytes,
         })
     }
 
@@ -83,6 +96,27 @@ impl CatalogPublicKey {
     #[must_use]
     pub fn key_id(&self) -> CatalogKeyId {
         self.key_id
+    }
+
+    /// Verify a detached signature over domain-separated statement bytes.
+    pub(crate) fn verify_statement(
+        &self,
+        statement: &[u8],
+        signature_text: &str,
+        role: &str,
+    ) -> Result<()> {
+        let signature = parse_signature(signature_text)
+            .with_context(|| format!("malformed {role} signature"))?;
+        if signature.key_id != self.key_id {
+            bail!(
+                "{role} signature key {} does not match pinned key {}",
+                signature.key_id,
+                self.key_id
+            );
+        }
+        self.verification_key
+            .verify(statement, &signature.signature, false)
+            .map_err(|error| anyhow!("{role} signature verification failed: {error}"))
     }
 }
 
@@ -147,7 +181,7 @@ struct CatalogMetadata {
     name: String,
 }
 
-fn catalog_name(root: &Path) -> Result<String> {
+pub(crate) fn catalog_name(root: &Path) -> Result<String> {
     let path = root.join("bucket.json");
     let metadata = fs::symlink_metadata(&path)
         .with_context(|| format!("missing catalog metadata: {}", path.display()))?;
@@ -210,6 +244,13 @@ pub(crate) fn main_bucket_public_key(embedded: &str) -> Result<CatalogPublicKey>
         bail!(NO_MAIN_KEY);
     }
     CatalogPublicKey::parse(text).context("invalid main bucket signer key")
+}
+
+/// Return the key identifier that a detached signature names.
+pub(crate) fn signature_key_id(text: &str, role: &str) -> Result<CatalogKeyId> {
+    parse_signature(text)
+        .with_context(|| format!("malformed {role} signature"))
+        .map(|signature| signature.key_id)
 }
 
 fn parse_signature(text: &str) -> Result<ParsedSignature> {

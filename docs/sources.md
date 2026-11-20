@@ -35,7 +35,12 @@ Publication atomically replaces the catalog registration file.
 The registration contains the validated tree path, its source revision and the pinned signer key.
 Fetch, checkout, and validation failures preserve the previous usable registration.
 Readers that retained an older tree can continue using it.
-Old trees remain on disk. This MVP performs no catalog garbage collection.
+A sync that replaces a registration records the superseded tree in
+`.retired-catalogs`. It keeps the tree for at least one hour, so a reader that
+loaded the previous registration can finish. A later sync that publishes a
+revision removes the tree after that hour. It holds the sync lock and keeps a
+tree that a registration names. `bucket remove` deletes the live catalog tree
+and the retired trees that the record lists for that bucket.
 
 A Git catalog is signed. The first revision must have `catalog.pub` and
 `catalog.sig` at its root. Modn verifies the revision with the key in
@@ -43,15 +48,31 @@ A Git catalog is signed. The first revision must have `catalog.pub` and
 `Pinned signer key <key ID> for bucket <name>; compare this fingerprint with the catalog author.`
 Later syncs verify the revision with the pinned key only. A later revision may
 omit `catalog.pub`.
-A `catalog.pub` with another key ID is refused, because Modn does not rotate
-keys yet (#122). An unsigned or invalid revision is refused, and there is no
-`--allow-unsigned` option.
+A `catalog.pub` with another key ID is refused unless the revision carries a
+signed rotation or revocation statement. A rotation signed by the pinned key
+moves the pin to the successor. A revocation signed by the pinned offline
+revocation key retires the signer and clears module trust. See
+[buckets](buckets.md#catalog-key-rotation-and-revocation). An unsigned or
+invalid revision is refused, and there is no `--allow-unsigned` option.
 A registration made before catalog signing fails with a request to remove the
 bucket and sync it again.
 `modn bucket list` shows the pinned key ID after the catalog title.
 
-Git must be installed. This MVP has no credentials or network timeout policy.
-Git sync serializes other Git sync calls: a second sync waits up to 2 seconds
+Git must be installed. Git operations keep no credentials and never prompt.
+Every Git fetch and clone passes `http.lowSpeedLimit=1` and
+`http.lowSpeedTime=90`, the documented inactivity limit. Git and libcurl
+therefore abort a transfer that stays below one byte per second for 90 seconds.
+That abort is classified as a `timeout` attempt, and ordered fallback tries the
+next source or mirror. Git prints progress while it receives data, so a
+transfer that keeps receiving data can run longer than 90 seconds. The limits
+apply to HTTP and HTTPS transfers only; the `file` transport has no network
+stall, and release builds accept only HTTPS remotes. A timed-out fetch removes
+its temporary files before Modn tries the next source. A catalog mirror clone
+uses the same limits. A stalled mirror is recorded as `timed out`, and sync
+tries the next mirror. The catalog error text is
+`GIT_CATALOG_FETCH_FAILED: ... timed out: ...`. Hard process-tree stop and
+Ctrl-C forwarding are not part of this release; they are tracked in issue
+#190. Catalog sync serializes other Git sync calls: a second sync waits up to 2 seconds
 for the first to finish, then fails with the already running error. It does not
 coordinate concurrent local registration edits.
 Catalog metadata does not approve executable installation or grant game writes.
@@ -127,7 +148,78 @@ The CLI fixture transport exists only in test builds; production has no transpor
 Deterministic command tests cover metadata identity, URL and hash failures before game writes.
 Tags and asset names accept ASCII letters, digits, dots, underscores, and hyphens.
 `latest`, authentication, pagination, arbitrary providers, and release discovery remain unsupported.
-Transport rate limits, retries, redirect policy, and timeouts remain caller responsibilities.
+Artifact retries and timeouts follow the artifact source fallback below.
+That policy also covers the metadata request, including a timeout or reset while reading its body: one extra attempt, and never for an HTTP 404.
+Metadata for a GitHub fallback is requested only when the ordered loop reaches that source.
+
+## Artifact source fallback
+
+A package record lists its `sources` in the order Modn tries them.
+Modn tries each fetchable source in list order.
+It moves to the next source after a timeout, a network failure, an HTTP failure or a BLAKE3 mismatch.
+A `git` or `nexus` source is one attempt in that same order, with the same failure classes as a fetch.
+A failed Git or Nexus attempt is reported and the next source runs.
+The first source whose bytes match the record's `blake3` pin supplies the archive.
+That source is the serving source, and it need not be the first source in the list.
+Modn records the serving source in the install or update history record, so undo looks for the cached archive under that source.
+Modn probes the cache key of every source, in list order, before any network or credential step.
+A user-supplied `--file` archive is recorded with the release's first `https` or `github-release` source when its BLAKE3 digest equals the catalog pin, because Modn can fetch that source again.
+A release with no such source keeps the `manual` source for a `--file` archive.
+`modn update` reads that recorded serving source back: a Git release is current when it still lists that source with the installed commit. When the release no longer lists that source, Modn compares its primary source.
+A cancellation stops the interrupted download at once, for every source kind. Modn tries no later source and retries nothing. A verified entry that the download already published stays in the cache.
+Cancellation is checked before each source and after each failed attempt.
+A `manual` source is never started automatically.
+If only manual sources remain, Modn prints the manual step as before.
+A verified cache entry for the pin is used before any network attempt.
+
+| Setting | Default | Applies to |
+| --- | --- | --- |
+| Connect timeout | 30 s | Opening one HTTP or HTTPS archive source; not Git |
+| Idle timeout | 60 s | Gap between body bytes |
+| Retries per source | 1 extra attempt | Timeouts, connection errors and HTTP 5xx |
+
+Modn never retries an HTTP 4xx answer or a BLAKE3 mismatch.
+It adds no flag or environment variable for these values.
+The constants are `CONNECT_TIMEOUT`, `READ_INACTIVITY_TIMEOUT` and `RETRIES_PER_SOURCE` in `modn_core::acquisition`.
+The same connect and idle values set the Git low-speed time: 90 seconds.
+Git prints progress to its error stream while it receives data, so a slow transfer that keeps receiving data is not stopped.
+Git stops an HTTP or HTTPS transfer that stays below one byte per second for 90 seconds, and that abort keeps the same `timeout` class.
+The low-speed limits do not apply to the `file` transport.
+The Git connect phase has no Modn bound. The operating system's TCP timeout limits it, and a Modn hard deadline is tracked in issue #190.
+Modn clears `GIT_HTTP_LOW_SPEED_LIMIT` and `GIT_HTTP_LOW_SPEED_TIME` from the Git environment, so the user's environment cannot disable the low-speed abort.
+A timed-out fetch removes its temporary files and tries the next source.
+
+An `--nxm` link is accepted when it names any Nexus source of a release that the command installs or updates, not only the first one.
+A link that names no such source is refused.
+The download consent prompt and the dry run name the first fetchable source, which can be a later source when the first one is `manual`.
+
+Modn reports each source it tried and why it failed.
+The failure classes are:
+
+- `timeout`: the connect or idle timeout elapsed, or a Git fetch made no progress for its limit.
+- `network`: the connection failed or the body stopped.
+- `http <status>`: the server answered with that status.
+- `digest mismatch`: the bytes differ from the pin; the report names the expected and actual BLAKE3 values.
+- `refused: <reason>`: Modn did not attempt this source, and the reason says why.
+- `manual`: the source needs a manual download.
+
+When every source fails, one error lists every source and its failure.
+A mismatched or partial download is never cached.
+No cache entry, index record or `.download` file remains on any failure path, including a body that stops halfway.
+
+A dry-run plan names the ordered sources that Modn would try.
+`install --dry-run` without `--download` downloads nothing and writes nothing.
+A real install names each attempt with its source, outcome and reason.
+`modn update` reports the same `downloads` array, and its `installed` object
+includes `source`. Its text output prints a `DOWNLOAD` line for each attempt,
+including `update --dry-run --download`.
+
+```json
+"downloads": [
+  {"source": "https://primary.invalid/mod.zip", "attempt": 1, "outcome": "failed", "reason": "timeout"},
+  {"source": "https://mirror.invalid/mod.zip", "attempt": 1, "outcome": "ok", "reason": null}
+]
+```
 
 ## Nexus Mods provider
 
@@ -178,6 +270,8 @@ The download comes from a validated `nexus-cdn.com` or `nexusmods.com` host with
 The file passes through the verified cache and must match its BLAKE3 pin.
 Secrets never appear in output, state, journals or cache names.
 The cache names the file by `nexus://<game_domain>/mods/<mod_id>/files/<file_id>/<file_name>`.
+A failed Nexus attempt is one failed source in the ordered fallback.
+Modn records why it failed and tries the record's next source.
 
 Errors name the action:
 - `400` means the nxm link is invalid or expired.

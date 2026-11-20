@@ -2,6 +2,10 @@ use crate::nxm::NxmLink;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+mod catalog;
+
+pub(super) use catalog::CatalogCommand;
+
 #[derive(Parser)]
 #[command(name = "modn", about = "Game mod inspection and guarded management")]
 pub(super) struct Cli {
@@ -53,6 +57,11 @@ pub(super) enum Command {
     Bucket {
         #[command(subcommand)]
         command: BucketCommand,
+    },
+    /// Create a signing key pair, sign a catalog, verify one or pin an archive.
+    Catalog {
+        #[command(subcommand)]
+        command: CatalogCommand,
     },
     /// List manager-owned packages (unmanaged mods are never included).
     List {
@@ -211,12 +220,12 @@ pub(super) enum CacheCommand {
 
 #[derive(Subcommand)]
 pub(super) enum BucketCommand {
-    /// Explicitly fetch and validate a community Git catalog snapshot.
+    /// Explicitly fetch and validate a community catalog snapshot.
     Sync {
         name: String,
-        #[arg(long, requires = "revision")]
+        #[arg(long)]
         source: Option<String>,
-        #[arg(long, requires = "source")]
+        #[arg(long)]
         revision: Option<String>,
     },
     /// Download, verify and replace the official main bucket.

@@ -4,13 +4,15 @@ Modn keeps downloaded archives in a cache, after Scoop's download cache. The
 cache is `<state-dir>/cache` unless `MODN_CACHE` names another directory.
 Each entry is named `<game>#<mod>#<version>#<url hash><extension>`. Modn
 downloads only over HTTPS, and redirects must stay on HTTPS. A download
-fails if the server sends nothing for 60 seconds. Each attempt writes its own
+attempt fails if the server sends nothing for 60 seconds, and Modn then tries
+the next source in the record; see [sources.md](sources.md#artifact-source-fallback). Each attempt writes its own
 `<entry>.<random>.download` file, so concurrent downloads never share bytes.
 Modn checks the manifest's BLAKE3 pin and a 4 GiB size limit, then atomically
 renames the file into place. A failed check removes that attempt's partial
-file and prints the URL with the expected and actual digests. A cancelled
-download also removes its partial file, so the cache keeps only complete,
-verified entries. `--progress json` reports the bytes received and the
+file, and a mismatched body is never cached. A failed source is not retried
+after a digest mismatch. When every source fails, one error names each source
+and why it failed. A cancelled download also removes its partial file, so the
+cache keeps only complete, verified entries. `--progress json` reports the bytes received and the
 expected total; see [cli.md](cli.md#progress-events-and-cancellation). Unlike Scoop,
 an entry exists only after its digest is verified. Modn verifies an entry
 again each time it uses it; an entry that fails is never used, and the next

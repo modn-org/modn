@@ -4,6 +4,9 @@ mod support;
 #[path = "support/git_fixture.rs"]
 mod git_fixture;
 
+#[path = "support/git_source.rs"]
+mod git_source;
+
 #[path = "support/git_source_helpers.rs"]
 mod helpers;
 
@@ -11,72 +14,14 @@ mod helpers;
 mod main_bucket;
 
 use git_fixture::repository;
+use git_source::{
+    add_low_speed_then_serving_bucket, add_native_stack_bucket, low_speed_git_program,
+    run_with_stub_git, seed_dependency_cache, stub_git_arguments,
+};
 use helpers::{add_bucket, cache_archives, installed_plugin, run};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::fs;
-use std::path::Path;
 use support::{error, Fixture};
-
-const NATIVE_DEPENDENCY_URL: &str =
-    "https://github.com/fixture/lovely/releases/download/v1/native-injector.zip";
-
-fn add_native_stack_bucket(fixture: &Fixture, root: &Path, commit: &str, dependency_pin: &str) {
-    let bucket = root.join("native-stack-fixture");
-    let game = bucket.join("mods/native-injector-game");
-    fs::create_dir_all(&game).expect("bucket directory");
-    fs::write(
-        bucket.join("bucket.json"),
-        br#"{"schema_version":2,"name":"native-stack-fixture","title":"Native stack fixture"}"#,
-    )
-    .expect("bucket metadata");
-    let packages = [
-        json!({
-            "schema_version": 2,
-            "id": "steamodded",
-            "game": "native-injector-game",
-            "name": "Git Stack Package",
-            "version": "1.0",
-            "sources": [{"kind": "git", "repository": "fixture/project", "commit": commit}],
-            "dependencies": ["lovely"],
-        }),
-        json!({
-            "schema_version": 2,
-            "id": "lovely",
-            "game": "native-injector-game",
-            "name": "Native Dependency",
-            "version": "1.0",
-            "archive_format": "zip",
-            "blake3": dependency_pin,
-            "sources": [
-                {
-                    "kind": "github-release",
-                    "repository": "fixture/lovely",
-                    "tag": "v1",
-                    "asset": "native-injector.zip",
-                },
-            ],
-            "native_injector": true,
-        }),
-    ];
-    for manifest in packages {
-        let id = manifest["id"].as_str().expect("package id");
-        fs::write(
-            game.join(format!("{id}.json")),
-            serde_json::to_vec(&manifest).expect("manifest JSON"),
-        )
-        .expect("manifest");
-    }
-    let result = fixture.run_paths(&["bucket", "add", "native-stack-fixture"], &[&bucket]);
-    assert!(result.status.success(), "{}", error(&result));
-}
-
-fn seed_dependency_cache(fixture: &Fixture, archive: &Path) {
-    let cache = fixture.state.join("cache");
-    fs::create_dir_all(&cache).expect("cache directory");
-    let url_hash = &blake3::hash(NATIVE_DEPENDENCY_URL.as_bytes()).to_hex()[..7];
-    let entry = cache.join(format!("native-injector-game#lovely#1.0#{url_hash}.zip"));
-    fs::copy(archive, entry).expect("seed dependency cache");
-}
 
 #[test]
 fn git_source_install_uninstall_and_cache_reuse_skip_git() {
@@ -327,4 +272,66 @@ fn git_source_missing_commit_fails_with_code_and_no_writes() {
     assert_eq!(fs::read(&game_before).expect("game marker"), marker);
     assert_eq!(fs::read(&state_db).expect("state bytes"), state_before);
     assert!(cache_archives(&fixture).is_empty());
+}
+
+#[test]
+fn a_low_speed_abort_is_a_timeout_and_the_next_source_serves() {
+    let fixture = Fixture::new();
+    let repository = repository(fixture.temp.path());
+    add_low_speed_then_serving_bucket(&fixture, fixture.temp.path(), &repository.commit);
+    fixture.register();
+    let plugin = installed_plugin(&fixture);
+    let program = low_speed_git_program(fixture.temp.path());
+
+    let (output, elapsed) = run_with_stub_git(
+        &fixture,
+        &repository.base,
+        &[
+            "install",
+            "test-game/git-package",
+            "--path",
+            fixture.game.to_str().expect("game path"),
+            "--yes",
+        ],
+        &program,
+        "30000",
+    );
+
+    assert!(output.status.success(), "{}", error(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "the low-speed abort blocked the ordered fallback: {elapsed:?}\n{stderr}"
+    );
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.contains("git fixture/low-speed commit ")
+                && line.contains("attempt 1: timeout")),
+        "the report does not classify the low-speed abort as a timeout: {stderr}"
+    );
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.contains("git fixture/project commit ")
+                && line.trim_end().ends_with(": ok")),
+        "the report omits the serving Git source: {stderr}"
+    );
+    assert_eq!(
+        fs::read(&plugin).expect("installed plugin"),
+        b"pinned-release"
+    );
+    let arguments = stub_git_arguments(fixture.temp.path(), "low-speed-git");
+    assert!(
+        arguments
+            .lines()
+            .any(|line| line.contains("http.lowSpeedLimit=1")),
+        "the package fetch omits the shared low-speed limit: {arguments}"
+    );
+    assert!(
+        arguments
+            .lines()
+            .any(|line| line.contains("http.lowSpeedTime=")),
+        "the package fetch omits the shared low-speed time: {arguments}"
+    );
 }

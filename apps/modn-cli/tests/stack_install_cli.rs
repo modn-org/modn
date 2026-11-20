@@ -1,6 +1,9 @@
 #[path = "support/catalog.rs"]
 mod support;
 
+#[path = "support/git_fixture.rs"]
+mod git_fixture;
+
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 use serde_json::{json, Value};
@@ -90,6 +93,102 @@ fn managed(fixture: &Fixture) -> usize {
     assert!(output.status.success(), "{}", error(&output));
     let list: Value = serde_json::from_slice(&output.stdout).expect("JSON");
     list.as_array().expect("array").len()
+}
+
+/// Write a bucket whose selected release falls back from a missing Git source.
+fn git_fallback_bucket(fixture: &Fixture, root: &Path, commit: &str, base_hash: &str) {
+    let bucket = root.join("git-fallback");
+    let game = bucket.join("mods/test-game");
+    fs::create_dir_all(&game).expect("bucket directory");
+    fs::write(
+        bucket.join("bucket.json"),
+        br#"{"schema_version":2,"name":"git-fallback","title":"Git fallback"}"#,
+    )
+    .expect("bucket metadata");
+    let base = json!({
+        "schema_version": 2,
+        "id": "base",
+        "game": "test-game",
+        "name": "Base",
+        "version": "1.0",
+        "archive_format": "zip",
+        "blake3": base_hash,
+        "sources": [{"kind": "manual", "filename": "base.zip"}],
+    });
+    fs::write(
+        game.join("base.json"),
+        serde_json::to_vec(&base).expect("JSON"),
+    )
+    .expect("base manifest");
+    let top = json!({
+        "schema_version": 2,
+        "id": "top",
+        "game": "test-game",
+        "name": "Top",
+        "version": "1.0",
+        "dependencies": ["base"],
+        "sources": [
+            {"kind": "git", "repository": "fixture/missing", "commit": commit},
+            {"kind": "git", "repository": "fixture/project", "commit": commit},
+        ],
+    });
+    fs::write(
+        game.join("top.json"),
+        serde_json::to_vec(&top).expect("JSON"),
+    )
+    .expect("top manifest");
+    let result = fixture.run_paths(&["bucket", "add", "git-fallback"], &[&bucket]);
+    assert!(result.status.success(), "{}", error(&result));
+}
+
+/// Run the CLI against the local Git fixture remotes.
+fn run_git(fixture: &Fixture, base: &Path, args: &[&str]) -> std::process::Output {
+    main_bucket::command(env!("CARGO_BIN_EXE_modn"))
+        .arg("--state-dir")
+        .arg(&fixture.state)
+        .env("MODN_GAME_MODULES_DIR", &fixture.modules)
+        .env("MODN_TEST_GIT_REMOTE_BASE", git_fixture::file_url(base))
+        .args(args)
+        .output()
+        .expect("run CLI")
+}
+
+#[test]
+fn a_stack_install_records_the_source_that_served_the_archive() {
+    let fixture = Fixture::new();
+    let repository = git_fixture::repository(fixture.temp.path());
+    let (base, base_hash) = plugin_archive(&fixture, "base");
+    git_fallback_bucket(&fixture, fixture.temp.path(), &repository.later, &base_hash);
+    fixture.register();
+
+    let installed = run_git(
+        &fixture,
+        &repository.base,
+        &[
+            "--json",
+            "install",
+            "top",
+            "--yes",
+            "--file",
+            base.to_str().expect("base path"),
+        ],
+    );
+    assert!(installed.status.success(), "{}", error(&installed));
+
+    let output = fixture.run(&["--json", "history"]);
+    assert!(output.status.success(), "{}", error(&output));
+    let operations: Value = serde_json::from_slice(&output.stdout).expect("history JSON");
+    let packages = operations[0]["packages"].as_array().expect("packages");
+    let top = packages
+        .iter()
+        .find(|package| package["mod_id"] == "top")
+        .expect("top package record");
+    assert_eq!(top["release_after"]["source"]["kind"], "git", "{top}");
+    assert_eq!(
+        top["release_after"]["source"]["repository"], "fixture/project",
+        "the record must name the Git source that served the archive: {top}"
+    );
+    assert!(fixture.game.join("addons/git-source.plugin").is_file());
 }
 
 #[test]

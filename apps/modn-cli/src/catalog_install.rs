@@ -112,13 +112,23 @@ pub(super) fn reference_of(package: &BucketPackage) -> CatalogReference {
     package.reference()
 }
 
+/// Verified `--file` archives: the path map the install reads and the digest
+/// one inspection computed for each.
+struct SuppliedArchives {
+    paths: BTreeMap<String, PathBuf>,
+    verified: BTreeMap<String, download::SuppliedArchive>,
+}
+
 fn match_archives(
     files: &[PathBuf],
     selected: &BucketPackage,
     dependencies: &[BucketPackage],
-) -> Result<BTreeMap<String, PathBuf>> {
+) -> Result<SuppliedArchives> {
     let reference = reference_of(selected);
-    let mut archives = BTreeMap::new();
+    let mut supplied = SuppliedArchives {
+        paths: BTreeMap::new(),
+        verified: BTreeMap::new(),
+    };
     for file in files {
         if !std::fs::symlink_metadata(file)?.file_type().is_file() {
             bail!("archive must be a regular file: {}", file.display());
@@ -140,10 +150,18 @@ fn match_archives(
             if Some(inspected.format) != expected_format(release.package.archive_format.as_ref()) {
                 bail!("{matched}: archive format does not match catalog manifest");
             }
-            archives.insert(matched.to_string(), file.clone());
+            let matched = matched.to_string();
+            supplied.paths.insert(matched.clone(), file.clone());
+            supplied.verified.insert(
+                matched,
+                download::SuppliedArchive {
+                    path: file.clone(),
+                    blake3: inspected.blake3.clone(),
+                },
+            );
         }
     }
-    Ok(archives)
+    Ok(supplied)
 }
 
 fn install_mod(
@@ -166,8 +184,11 @@ fn install_mod(
     order.pop();
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
     catalog_approval::check_native_approvals(&selected, &order, args, state_path)?;
-    let mut archives = match_archives(&args.file, &selected, &order)?;
+    let supplied = match_archives(&args.file, &selected, &order)?;
+    let mut archives = supplied.paths.clone();
+    let supplied = supplied.verified;
     let mut digests = BTreeMap::new();
+    let mut served = BTreeMap::new();
     let cache = download::cache_for(state_path)?;
     let cache_use = if args.no_cache {
         CacheUse::Refresh
@@ -177,6 +198,7 @@ fn install_mod(
             order.iter().chain([&selected]),
             &mut archives,
             &mut digests,
+            &mut served,
         )?;
         CacheUse::Reuse
     };
@@ -224,17 +246,19 @@ fn install_mod(
         .chain([&selected])
         .collect();
     download::validate_links(&args.nxm_links, &installing)?;
+    let mut download_attempts = Vec::new();
     if args.download {
-        download::download(
+        download_attempts.extend(download::download(
             &cache,
             cache_use,
             &installing,
             &mut archives,
             &mut digests,
+            &mut served,
             &args.nxm_links,
             json,
             progress,
-        )?;
+        )?);
         dependencies =
             dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
     }
@@ -261,13 +285,15 @@ fn install_mod(
             dependencies: &dependencies,
             archives,
             digests,
+            served,
+            supplied,
             catalog,
             cache: &cache,
             cache_use,
             game_id,
             installation,
         };
-        return stack_install::run(stack, state, args, json, progress);
+        return stack_install::run(stack, state, args, json, progress, download_attempts);
     }
     if !args.dry_run {
         match state.existing() {
@@ -286,8 +312,12 @@ fn install_mod(
     }
     if !args.dry_run && !archives.contains_key(&reference) {
         if interactive {
-            let source = dependency_plan::acquisition(selected.package.primary_source());
-            let download = format!("{reference} {}; {source}", selected.package.version);
+            let download = dependency_plan::download_line(
+                &reference,
+                &selected.package.version,
+                &selected.package.sources,
+                selected.package.primary_source(),
+            );
             if !install_consent::confirm_download(
                 &[download],
                 &mut io::stdin().lock(),
@@ -296,16 +326,17 @@ fn install_mod(
                 bail!("{reference}: download cancelled");
             }
         }
-        download::download(
+        download_attempts.extend(download::download(
             &cache,
             cache_use,
             &[&selected],
             &mut archives,
             &mut digests,
+            &mut served,
             &args.nxm_links,
             json,
             progress,
-        )?;
+        )?);
     }
     let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
         let needed = Capabilities::new(
@@ -321,6 +352,7 @@ fn install_mod(
             &dependencies,
             &conflicts,
             Some(&check),
+            &download_attempts,
             json,
         );
     };
@@ -377,6 +409,7 @@ fn install_mod(
             &dependencies,
             &conflicts,
             Some(&check),
+            &download_attempts,
             json,
         );
     }
@@ -409,7 +442,7 @@ fn install_mod(
     store.set_history_context(
         HistoryContext::new(game_id.clone(), installation.clone()).with_source(
             &reference_of(&selected),
-            selected.package.primary_source().clone(),
+            download::serving_source(&reference, &supplied, &served, &selected),
         ),
     );
     let package = store.install_catalog_release_with_permissions(
@@ -423,8 +456,9 @@ fn install_mod(
     let operation_id = store.committed_operation_id().map(str::to_owned);
     install_consent::record(&mut store, &installation, &reference_key, &needed)?;
     if json {
+        let downloads = download::downloads_json(&download_attempts);
         let mut result = serde_json::json!({
-            "package": reference, "installed": package,
+            "package": reference, "installed": package, "downloads": downloads,
         });
         if let Some(operation_id) = operation_id {
             result["operation_id"] = serde_json::Value::String(operation_id);

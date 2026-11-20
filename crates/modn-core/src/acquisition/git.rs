@@ -130,6 +130,15 @@ impl GitSource {
         pack_commit(url, &self.commit, staging, self.test_transport(url))
     }
 
+    /// Clone one catalog revision under the shared Git low-speed limits.
+    ///
+    /// This associated function is the catalog module's only path to a Git
+    /// clone, so a stalled mirror is bounded and its timeout lets sync try the
+    /// next mirror.
+    pub(crate) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
+        pack::clone_catalog(destination, remote)
+    }
+
     /// Return a verified cached archive or fetch and pack the commit.
     pub fn acquire(
         &self,

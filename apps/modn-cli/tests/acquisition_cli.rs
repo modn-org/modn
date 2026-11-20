@@ -115,6 +115,7 @@ fn verified_cache_entries_install_a_stack_without_downloading() {
     let report: Value = serde_json::from_slice(&installed.stdout).expect("JSON");
     assert_eq!(report["stack"][0]["package"], "deps/test-game/base");
     assert_eq!(report["stack"][1]["package"], "deps/test-game/top");
+    assert_eq!(report["downloads"], json!([]));
     assert!(fixture.game.join("addons/base.plugin").is_file());
     assert!(fixture.game.join("addons/top.plugin").is_file());
     assert!(cache_entry(&fixture, "base").is_file());
