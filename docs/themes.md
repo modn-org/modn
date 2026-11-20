@@ -187,7 +187,7 @@ An invalid `id`, `game` or variant id string in `theme.json` is `manifest-invali
 `inspect_theme_dir` does not compare the directory name with the manifest.
 Bucket scanning reports `id-mismatch` in two cases.
 The path `themes/<game>/<id>` differs from `game` and `id` in `theme.json`.
-A directory name under `themes/` is not a valid id.
+A directory name under `themes/` that is not a valid id also reports `id-mismatch`.
 
 ### Selector grammar
 
