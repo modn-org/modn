@@ -119,7 +119,9 @@ pub(crate) fn command_with_low_speed_time(
         .env_remove("GIT_OBJECT_DIRECTORY")
         .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
         .env_remove("GIT_ASKPASS")
-        .env_remove("SSH_ASKPASS");
+        .env_remove("SSH_ASKPASS")
+        .env_remove("GIT_HTTP_LOW_SPEED_LIMIT")
+        .env_remove("GIT_HTTP_LOW_SPEED_TIME");
     command
 }
 
@@ -158,4 +160,27 @@ pub(crate) fn empty_hooks() -> Result<tempfile::TempDir> {
         .prefix("modn-git-hooks-")
         .tempdir()
         .context("cannot create empty Git hooks directory")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn command_clears_the_low_speed_environment_overrides() {
+        let directory = tempfile::tempdir().expect("directory");
+        let hooks = empty_hooks().expect("hooks");
+        let git = command(&GitEnvironment {
+            directory: directory.path(),
+            hooks: hooks.path(),
+            allow_file: false,
+        });
+        for name in ["GIT_HTTP_LOW_SPEED_LIMIT", "GIT_HTTP_LOW_SPEED_TIME"] {
+            let cleared = git
+                .get_envs()
+                .any(|(key, value)| key == OsStr::new(name) && value.is_none());
+            assert!(cleared, "{name} must be cleared from the child environment");
+        }
+    }
 }

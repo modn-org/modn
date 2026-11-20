@@ -174,7 +174,7 @@ A verified cache entry for the pin is used before any network attempt.
 
 | Setting | Default | Applies to |
 | --- | --- | --- |
-| Connect timeout | 30 s | Opening one source |
+| Connect timeout | 30 s | Opening one HTTP or HTTPS archive source; not Git |
 | Idle timeout | 60 s | Gap between body bytes |
 | Retries per source | 1 extra attempt | Timeouts, connection errors and HTTP 5xx |
 
@@ -185,6 +185,8 @@ The same connect and idle values set the Git low-speed time: 90 seconds.
 Git prints progress to its error stream while it receives data, so a slow transfer that keeps receiving data is not stopped.
 Git stops an HTTP or HTTPS transfer that stays below one byte per second for 90 seconds, and that abort keeps the same `timeout` class.
 The low-speed limits do not apply to the `file` transport.
+The Git connect phase has no Modn bound. The operating system's TCP timeout limits it, and a Modn hard deadline is tracked in issue #190.
+Modn clears `GIT_HTTP_LOW_SPEED_LIMIT` and `GIT_HTTP_LOW_SPEED_TIME` from the Git environment, so the user's environment cannot disable the low-speed abort.
 A timed-out fetch removes its temporary files and tries the next source.
 
 An `--nxm` link is accepted when it names any Nexus source of a release that the command installs or updates, not only the first one.

@@ -23,7 +23,8 @@ use std::fs;
 use std::io::{self, Read};
 use std::time::Duration;
 
-/// Connect timeout applied to one artifact source.
+/// Connect timeout applied to one HTTP or HTTPS archive source. Git's connect
+/// phase has no Modn bound.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Read-inactivity timeout applied to one artifact source.
 pub const READ_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(60);
