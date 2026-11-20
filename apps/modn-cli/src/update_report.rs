@@ -1,5 +1,7 @@
 use crate::catalog_install::reference_of;
+use crate::download;
 use anyhow::Result;
+use modn_core::acquisition::SourceAttempt;
 use modn_core::buckets::{BucketPackage, BucketSnapshot, VersionReq};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
@@ -218,6 +220,7 @@ pub(super) struct Preview<'a> {
     pub(super) archive_needed: Option<String>,
     pub(super) dependents: &'a [DependentCheck],
     pub(super) blockers: &'a [String],
+    pub(super) downloads: &'a [SourceAttempt],
     pub(super) unapproved_declared_executables: &'a [String],
 }
 
@@ -232,6 +235,9 @@ impl Preview<'_> {
             "{}: installed {from} ({}), target {}",
             self.reference, self.old.id, self.target.package.version
         );
+        for attempt in self.downloads {
+            println!("DOWNLOAD {}: {}", attempt.source, attempt.describe());
+        }
         if self.up_to_date {
             println!("Already installed; nothing to update.");
             return Ok(());
@@ -276,6 +282,7 @@ impl Preview<'_> {
                 "package_id": self.old.id,
                 "version": self.installed_version,
                 "archive_blake3": self.old.archive_blake3,
+                "source": self.old.source,
                 "exclusive_folders": self.old.directories,
             },
             "target": {
@@ -286,6 +293,7 @@ impl Preview<'_> {
             "up_to_date": self.up_to_date,
             "files": self.files.as_ref().map(FileChanges::as_json),
             "archive_needed": self.archive_needed,
+            "downloads": download::downloads_json(self.downloads),
             "dependents": self.dependents.iter().map(|check| json!({
                 "package_id": check.package_id,
                 "package": check.package,

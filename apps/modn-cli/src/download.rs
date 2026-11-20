@@ -1,22 +1,25 @@
+mod acquire;
+mod fallback;
 mod http;
 #[path = "nexus_download.rs"]
 pub(super) mod nexus_download;
 
+pub(super) use acquire::download;
+
 use crate::catalog_install::reference_of;
 use crate::commands::CacheCommand;
-use crate::git_source;
-use crate::nexus_auth;
 use crate::nxm::NxmLink;
 use crate::progress::Progress;
 use anyhow::{bail, Context, Result};
 pub(crate) use http::fetch;
-use http::{fetch_measured, fetch_metadata};
+use http::{fetch_measured, fetch_metadata, HttpTransport};
+use modn_core::acquisition::SourceTransport;
 use modn_core::acquisition::{
-    ArchiveCache, CacheKey, CacheUse, GitCacheKey, GithubReleaseAsset, NexusFile,
+    ArchiveCache, CacheKey, CacheUse, FetchError, GitCacheKey, GithubReleaseAsset, NexusFile,
+    SourceAttempt, SourcePolicy,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::collections::BTreeMap;
-#[cfg(test)]
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -24,6 +27,20 @@ use std::path::{Path, PathBuf};
 thread_local! {
     pub(super) static TEST_RESPONSES: std::cell::RefCell<Option<BTreeMap<String, Vec<u8>>>> = const { std::cell::RefCell::new(None) };
     pub(super) static TEST_CALLS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    pub(super) static TEST_METADATA_FAILURES: std::cell::RefCell<Option<BTreeMap<String, Vec<FetchError>>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn take_metadata_failure(url: &str) -> Option<FetchError> {
+    TEST_METADATA_FAILURES.with(|failures| {
+        let mut failures = failures.borrow_mut();
+        let queue = failures.as_mut()?.get_mut(url)?;
+        if queue.is_empty() {
+            return None;
+        }
+        TEST_CALLS.with(|calls| calls.borrow_mut().push(url.to_owned()));
+        Some(queue.remove(0))
+    })
 }
 
 #[cfg(test)]
@@ -40,6 +57,63 @@ fn fixture_response(url: &str) -> Option<Result<Box<dyn Read>>> {
     })
 }
 
+fn retryable(error: &FetchError) -> bool {
+    match error {
+        FetchError::Timeout | FetchError::Network(_) => true,
+        FetchError::Http(status) => (500..600).contains(status),
+        _ => false,
+    }
+}
+
+/// Classify an I/O failure from a metadata body read like its transport call.
+///
+/// The HTTP layer returns body reads as plain I/O errors. A timeout, a reset,
+/// an aborted connection, a broken pipe or an unexpected end of body is the
+/// same transient transport failure as an equivalent error from the open step.
+fn transport_io(error: &std::io::Error) -> Option<FetchError> {
+    if let Some(transient) = match error.kind() {
+        std::io::ErrorKind::TimedOut => Some(FetchError::Timeout),
+        std::io::ErrorKind::ConnectionReset
+        | std::io::ErrorKind::ConnectionAborted
+        | std::io::ErrorKind::BrokenPipe
+        | std::io::ErrorKind::UnexpectedEof => Some(FetchError::Network(error.to_string())),
+        _ => None,
+    } {
+        return Some(transient);
+    }
+    // ureq wraps a body-read timeout as `io::Error` of kind `Other` and keeps
+    // the original error as the source. Classify only the transport variants;
+    // a decode, policy or non-ureq error stays final.
+    let ureq = error.get_ref()?.downcast_ref::<ureq::Error>()?;
+    match ureq {
+        ureq::Error::Timeout(_) => Some(FetchError::Timeout),
+        ureq::Error::ConnectionFailed | ureq::Error::HostNotFound => {
+            Some(FetchError::Network(ureq.to_string()))
+        }
+        ureq::Error::Io(inner) => match inner.kind() {
+            std::io::ErrorKind::TimedOut => Some(FetchError::Timeout),
+            std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::UnexpectedEof => Some(FetchError::Network(inner.to_string())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Fetch one catalog ZIP with the shared HTTPS client and source retry policy.
+pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {
+    let policy = SourcePolicy::default();
+    let mut attempt = 0;
+    loop {
+        match HttpTransport.open(url, &policy) {
+            Ok(body) => return Ok(body.reader),
+            Err(error) if attempt < policy.retries() && retryable(&error) => attempt += 1,
+            Err(error) => bail!("catalog download failed: {error}"),
+        }
+    }
+}
 pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
     let root = match std::env::var_os("MODN_CACHE") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
@@ -51,8 +125,8 @@ pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
     Ok(ArchiveCache::new(root))
 }
 
-fn source_url(release: &BucketPackage) -> Result<Option<String>> {
-    Ok(match release.package.primary_source() {
+fn source_url(source: &PackageSource) -> Option<String> {
+    match source {
         PackageSource::Https { url } => Some(url.clone()),
         PackageSource::GithubRelease {
             repository,
@@ -66,9 +140,12 @@ fn source_url(release: &BucketPackage) -> Result<Option<String>> {
             mod_id,
             file_id,
             file_name,
-        } => Some(NexusFile::new(game_domain, *mod_id, *file_id, file_name)?.cache_url()),
-        PackageSource::Manual { .. } | _ => None,
-    })
+        } => NexusFile::new(game_domain, *mod_id, *file_id, file_name)
+            .ok()
+            .map(|file| file.cache_url()),
+        PackageSource::Manual { .. } => None,
+        _ => None,
+    }
 }
 
 fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
@@ -82,20 +159,26 @@ fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
 }
 
 pub(super) fn downloadable(release: &BucketPackage) -> bool {
-    matches!(
-        release.package.primary_source(),
-        PackageSource::Https { .. }
-            | PackageSource::GithubRelease { .. }
-            | PackageSource::Git { .. }
-            | PackageSource::Nexus { .. }
-    )
+    release.package.sources.iter().any(|source| {
+        matches!(
+            source,
+            PackageSource::Https { .. }
+                | PackageSource::GithubRelease { .. }
+                | PackageSource::Git { .. }
+                | PackageSource::Nexus { .. }
+        )
+    })
 }
 
 /// Refuse `--nxm` links that match no package this command installs or updates.
+///
+/// Every Nexus source of every release is eligible, not only the primary one,
+/// so a grant can name a Nexus fallback.
 pub(super) fn validate_links(links: &[NxmLink], releases: &[&BucketPackage]) -> Result<()> {
     let packages: Vec<(&str, u64, u64)> = releases
         .iter()
-        .filter_map(|release| match release.package.primary_source() {
+        .flat_map(|release| release.package.sources.iter())
+        .filter_map(|source| match source {
             PackageSource::Nexus {
                 game_domain,
                 mod_id,
@@ -113,15 +196,15 @@ fn nexus_label(game_domain: &str, mod_id: u64, file_id: u64, file_name: &str) ->
 }
 
 /// A download consent label that never includes a secret-bearing URL.
-pub(super) fn source_label(release: &BucketPackage) -> Option<String> {
-    match release.package.primary_source() {
+pub(super) fn source_label(source: &PackageSource) -> Option<String> {
+    match source {
         PackageSource::Nexus {
             game_domain,
             mod_id,
             file_id,
             file_name,
         } => Some(nexus_label(game_domain, *mod_id, *file_id, file_name)),
-        _ => source_url(release).ok().flatten(),
+        _ => source_url(source),
     }
 }
 
@@ -221,129 +304,98 @@ fn cache_miss(detail: &str) -> anyhow::Error {
     )
 }
 
+/// JSON outcomes for a list of source attempts.
+pub(super) fn downloads_json(attempts: &[SourceAttempt]) -> Vec<serde_json::Value> {
+    attempts
+        .iter()
+        .map(|attempt| {
+            serde_json::json!({
+                "source": attempt.source,
+                "attempt": attempt.attempt,
+                "outcome": if attempt.succeeded() { "ok" } else { "failed" },
+                "reason": attempt.failure.as_ref().map(ToString::to_string),
+            })
+        })
+        .collect()
+}
+
 pub(super) fn add_cached<'a>(
     cache: &ArchiveCache,
     releases: impl IntoIterator<Item = &'a BucketPackage>,
     archives: &mut BTreeMap<String, PathBuf>,
     digests: &mut BTreeMap<String, String>,
+    served: &mut BTreeMap<String, PackageSource>,
 ) -> Result<()> {
     for release in releases {
         let reference = reference_of(release).to_string();
         if archives.contains_key(&reference) {
             continue;
         }
-        if let Some(archive) = git_source::cached(cache, release)? {
-            archives.insert(reference.clone(), archive.path);
-            digests.insert(reference, archive.blake3);
+        let Some((archive, digest, source)) = acquire::cached_archive(cache, release)? else {
             continue;
+        };
+        if let Some(digest) = digest {
+            digests.insert(reference.clone(), digest);
         }
-        if let Some(path) = source_url(release)?
-            .map(|url| cache.cached(&key(release, &url)))
-            .transpose()?
-            .flatten()
-        {
-            archives.insert(reference, path);
-        }
+        served.insert(reference.clone(), source);
+        archives.insert(reference, archive);
     }
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the download step keeps the verified cache, package set and progress explicit"
-)]
-pub(super) fn download(
-    cache: &ArchiveCache,
-    cache_use: CacheUse,
-    releases: &[&BucketPackage],
-    archives: &mut BTreeMap<String, PathBuf>,
-    digests: &mut BTreeMap<String, String>,
-    links: &[NxmLink],
-    json: bool,
-    progress: &Progress,
-) -> Result<()> {
-    for release in releases {
-        let reference = reference_of(release).to_string();
-        if archives.contains_key(&reference) {
-            continue;
-        }
-        if let PackageSource::Git { repository, commit } = release.package.primary_source() {
-            if !json && !progress.enabled() {
-                eprintln!(
-                    "Fetching {reference} {} commit {commit} from {repository}",
-                    release.package.version
-                );
-            }
-            let archive = git_source::acquire(cache, release, cache_use, progress)?;
-            archives.insert(reference.clone(), archive.path);
-            digests.insert(reference, archive.blake3);
-            continue;
-        }
-        if let PackageSource::Nexus {
-            game_domain,
-            mod_id,
-            file_id,
-            file_name,
-        } = release.package.primary_source()
-        {
-            let file = NexusFile::new(game_domain, *mod_id, *file_id, file_name)?;
-            let link = nexus_download::matching_link(links, game_domain, *mod_id, *file_id);
-            let url = file.cache_url();
-            let key = key(release, &url);
-            if !json && !progress.enabled() {
-                eprintln!(
-                    "Downloading {reference} {} from {}",
-                    key.version,
-                    nexus_label(game_domain, *mod_id, *file_id, file_name)
-                );
-            }
-            if cache_use == CacheUse::Reuse {
-                if let Some(path) = cache.cached(&key)? {
-                    archives.insert(reference, path);
-                    continue;
-                }
-            }
-            let api_key = nexus_auth::load_key()?;
-            let download_url = nexus_download::resolve(&file, &api_key, link)?;
-            let acquired = cache.acquire_with_control(
-                &key,
-                cache_use,
-                Some(reference.clone()),
-                progress.control(),
-                |_cache_url| nexus_download::open(&download_url),
-            )?;
-            archives.insert(reference, acquired.path);
-            continue;
-        }
-        let Some(url) = source_url(release)? else {
-            continue;
-        };
-        if let PackageSource::GithubRelease {
-            repository,
-            tag,
-            asset,
-        } = release.package.primary_source()
-        {
-            let provider = GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
-            let resolved = provider.resolve(fetch_metadata)?;
-            if resolved != url {
-                bail!("provider source changed during resolution");
+/// A user-supplied archive with the digest its verification computed.
+///
+/// The digest comes from the same inspection that accepted the archive, so
+/// choosing the recorded history source never opens the file again.
+pub(super) struct SuppliedArchive {
+    pub(super) path: PathBuf,
+    pub(super) blake3: String,
+}
+
+/// The source that supplied the archive of `reference`.
+///
+/// Acquisition records the source that served the archive. A user-supplied
+/// `--file` archive whose verified digest is the release's BLAKE3 pin names
+/// the release's first `https` or `github-release` source, because that source
+/// can fetch the same pinned archive again. A file that does not match the
+/// pin, or a release with no refetchable source, stays `manual`, and undo
+/// refuses it.
+pub(super) fn serving_source(
+    reference: &str,
+    supplied: &BTreeMap<String, SuppliedArchive>,
+    served: &BTreeMap<String, PackageSource>,
+    release: &BucketPackage,
+) -> PackageSource {
+    if let Some(file) = supplied.get(reference) {
+        if release.package.pin() == Some(file.blake3.as_str()) {
+            if let Some(source) = refetchable_source(&release.package.sources) {
+                return source.clone();
             }
         }
-        let key = key(release, &url);
-        if !json && !progress.enabled() {
-            eprintln!("Downloading {reference} {} from {}", key.version, key.url);
-        }
-        let acquired = cache.acquire_with_control(
-            &key,
-            cache_use,
-            Some(reference.clone()),
-            progress.control(),
-            fetch_measured,
-        )?;
-        archives.insert(reference, acquired.path);
+        let filename = file
+            .path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        return PackageSource::Manual { filename };
     }
-    Ok(())
+    served
+        .get(reference)
+        .cloned()
+        .unwrap_or_else(|| release.package.primary_source().clone())
+}
+
+/// The first source that undo can fetch again without a new user action.
+///
+/// A Git or Nexus restore reads only the archive cache, and a manual source
+/// has no URL, so none of them can replace a `--file` path.
+fn refetchable_source(sources: &[PackageSource]) -> Option<&PackageSource> {
+    sources.iter().find(|source| {
+        matches!(
+            source,
+            PackageSource::Https { .. } | PackageSource::GithubRelease { .. }
+        )
+    })
 }
 
 pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {
@@ -385,4 +437,8 @@ pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Resul
 }
 
 #[cfg(test)]
+mod serving_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod validation_tests;

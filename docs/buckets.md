@@ -15,18 +15,133 @@ A module whose `api_version` this Modn does not support makes the whole update
 fail. `main` is always a trusted module source, and only `main` can be updated
 with this command. The bucket has its own release cycle, so a catalog change
 needs no Modn release.
-Modn refreshes the copy only when requested. Signed Git catalogs can also supply
+Modn refreshes the copy only when requested. Signed Git and ZIP catalogs can also supply
 game modules after the user trusts them. See [module sources and trust](#module-sources-and-trust).
-Explicit Git-backed community catalog sync is available; see [sources.md](sources.md).
+Explicit Git-backed and ZIP-backed community catalog sync is available; see [sources.md](sources.md).
 
 `modn update` with no target refreshes the official bucket and every registered
-Git catalog in one run. It uses the same signed-release path as
+Git or ZIP catalog in one run. It uses the same signed-release path as
 `modn bucket update` and the same pinned-signer sync as
 `modn bucket sync <name>`. Local folder buckets are skipped, because they have
 nothing to fetch. One failing catalog does not stop the others; the command
 reports each bucket and exits nonzero when any failed. It never writes game
 files or install state. `modn update <target>` still replaces one installed
 catalog mod.
+### Community catalog sources
+`modn bucket sync <name> --source <remote> --revision <reference>` registers a
+Git catalog. `modn bucket sync <name> --source <url>.zip` registers a catalog
+from a signed ZIP. The ZIP root holds the same files as a Git catalog:
+`bucket.json`, `mods/`, optional `games/`, `catalog.sig` and `catalog.pub`.
+The source must be an `https://` URL, or an absolute local ZIP path for offline
+testing. Modn refuses a plain `http://` source before any network call.
+Modn streams the body to a temporary file in staging and caps it at 256 MiB. It
+inspects the archive and refuses traversal, absolute, backslash, symbolic-link,
+duplicate and case-colliding entries. It also refuses more than 20,000 entries,
+an entry above 64 MiB, more than 1 GiB uncompressed in total, and an expansion
+ratio above 200. It extracts only inside staging, verifies the signature and
+then validates the contract v2 layout with the same validator as Git sync.
+The first sync pins the signer from `catalog.pub` and prints its fingerprint. It
+validates any published rotation or revocation statement and ignores it as
+history. Every later sync verifies with the pinned key only and refuses a
+different signer. `--revision` is refused with a ZIP source.
+A failed download, an invalid signature or invalid contents keep the previous
+registration and catalog files byte for byte and remove staging.
+`modn bucket list --json` reports `source_kind` as `git` or `zip` for a
+registered catalog. It keeps the existing keys. It also reports `primary`, the
+registered source as a tagged value, and `mirrors`, the ordered mirror list.
+
+### Mirrors and relocation
+
+A signed catalog may hold two optional root files. The pinned catalog signature
+covers both, because the catalog digest covers every root file except
+`catalog.sig` and `catalog.pub`.
+
+`mirrors.json` lists other hosts of the same catalog:
+
+A ZIP catalog lists ZIP mirrors:
+
+```json
+{
+  "schema_version": 1,
+  "mirrors": [
+    {"kind": "zip", "url": "https://mirror.example/catalog.zip"},
+    {"kind": "zip", "url": "https://second.example/catalog.zip"}
+  ]
+}
+```
+
+A Git catalog lists Git mirrors:
+
+```json
+{
+  "schema_version": 1,
+  "mirrors": [
+    {"kind": "git", "remote": "https://git.example/catalog.git", "revision": "main"},
+    {"kind": "git", "remote": "https://second.example/catalog.git", "revision": "main"}
+  ]
+}
+```
+
+Modn refuses a mirror list with more than 8 entries, a duplicate, a plain
+`http://` URL, a local path, a URL with credentials, or a source kind that
+differs from the registered primary. A Git remote or revision follows the same
+rules as a Git catalog source.
+
+`relocation.json` names the new primary host:
+
+```json
+{
+  "schema_version": 1,
+  "primary": {"kind": "zip", "url": "https://new.example/catalog.zip"}
+}
+```
+
+Sync tries the registered primary first and then the stored mirrors in order.
+A transport failure moves to the next source. A connection error, a network
+error, an HTTP error, a truncated or malformed ZIP and a Git failure are
+transport failures. A missing signature, a signature from another key, tampered
+content and a digest mismatch are trust failures: sync stops, tries no further
+source, and keeps the previous registration and catalog byte for byte. If every
+source fails, one error lists each source and its reason.
+When a mirror serves the revision, the registration keeps the registered
+primary and the output names the failed primary and the serving mirror.
+Every verified revision replaces the stored mirror list with its own list.
+
+The Git fetch of a mirror uses the same low-speed limits as a package source:
+`http.lowSpeedLimit=1` and `http.lowSpeedTime=90` for HTTP and HTTPS. A stalled
+mirror fails as `timed out`, and sync tries the next mirror.
+
+A verified revision whose catalog digest (ZIP) or commit (Git) matches the
+registered revision, and whose `catalog.pub` and `catalog.sig` bytes match too,
+reuses the registered snapshot and discards the staging copy. A changed digest
+or a changed signer publishes a new snapshot. Sync records the superseded tree
+as retired, with the bucket and the retire time, and does not delete it in that
+run: `bucket list`, `bucket show` and `install` read a registration and then
+open the tree it names without the sync lock, so a tree outlives the
+registration switch that replaced it. A later sync that publishes a revision in
+that store removes retired trees after its own registration write, while it
+holds the sync lock, but only when the recorded retire time is at least one hour
+old. That grace period lets a reader that loaded the previous registration
+finish with its tree even when two syncs run in quick succession. A readable
+record whose entry has no valid `retired_at` value keeps the tree and gets a
+fresh retire time. When `.retired-catalogs` is missing or cannot be parsed,
+Modn records no retired trees from it. The same holds for an entry that Modn
+cannot read. Those earlier trees stay on disk without a retire record, and the
+next sync records only the tree that it supersedes. A sync that fails removes
+nothing, and a tree that a registration names is never removed. `bucket remove` deletes the store-created live tree
+and the retired trees of that bucket after the registration file is gone; a
+local folder source and a tree that another registration names stay.
+When a step after the registration switch fails, for example a staged game
+module cannot be committed, sync restores the previous registration and removes
+the new snapshot. If the restore itself fails, sync keeps the new tree, because
+the registration may still point at it, and reports both errors.
+
+After a revision verifies with the pinned key, a `relocation.json` whose primary
+differs from the registered primary publishes the catalog and updates the
+registration's primary in one atomic registration write. The output says
+`catalog <name> moved from <old> to <new>`. Sync follows at most one relocation,
+and a relocation to the same primary is ignored. The next sync contacts the new
+primary first.
 
 ### Main catalog signature
 
@@ -52,7 +167,123 @@ installed copy. The `main-bucket.zip.sha256` sidecar is no longer used.
 
 Each `modn-org/main` release must include `main-bucket.zip.minisig` next to the
 ZIP. The bucket repository's release pipeline does not produce that file yet.
-Key rotation and revocation are planned (#122).
+The official `main` catalog has no stored registration, so the rotation and
+revocation statements on this page apply to registered community catalogs.
+
+### Catalog key rotation and revocation
+
+A catalog can replace its signing key or revoke it. Three optional root files
+carry the statements. All three are inside the [catalog digest](#catalog-digest),
+and `catalog.sig` covers them:
+
+- `revocation.pub` holds the public key of an offline revocation key.
+- `rotation.json` and `rotation.sig` rotate the pinned signing key.
+- `revocation.json` and `revocation.sig` revoke the pinned signing key.
+
+`rotation.json` has this exact shape:
+
+```json
+{"schema_version":1,"kind":"rotation","from":"<pinned key id>","to":"<new public key>"}
+```
+
+`revocation.json` has this exact shape:
+
+```json
+{"schema_version":1,"kind":"revocation","revoked":"<pinned key id>","replacement":"<new public key>"}
+```
+
+The `.sig` file is a minisign signature. It signs the bytes
+`modn-rotation-v1\0catalog: <name>\n` followed by the exact `rotation.json`
+bytes. A revocation signature signs `modn-revocation-v1\0catalog: <name>\n`
+followed by the exact `revocation.json` bytes. The catalog name binds the
+statement to one catalog, and the prefix binds it to one kind. A statement
+cannot be replayed in another catalog or as another kind. Modn applies each
+statement once. A revision that keeps the pinned `catalog.pub` and republishes
+an applied statement treats it as history and syncs normally. The replay check
+runs only when no new statement applies to the pinned key. For example, after
+`A->B->A`, a revision that keeps the applied `A->B` rotation and adds a valid
+new `A->C` revocation is accepted. The new statement applies. A revision whose
+`catalog.pub` names another key and that keeps the applied statement, adding
+nothing that applies, is refused, so a retired key cannot regain trust by
+replaying that statement.
+
+Modn pins the revocation key at the first sync and prints both fingerprints. A
+revision whose `revocation.pub` differs by any public key byte or disappears is
+refused. A catalog that had no `revocation.pub` at its first sync cannot add one
+later. To pin a new revocation key, remove the bucket and sync it again.
+
+At the first sync Modn trusts `catalog.pub` on first use. It checks every
+published `rotation.json` and `revocation.json` for shape, kind, schema version
+and the key ID in the signature file, then ignores the statement as history. It
+verifies no signature at this point. A statement adds no
+trust for a user who never pinned the old key. The output names the ignored
+statements. A malformed statement or an unknown kind or version refuses the
+revision.
+
+Every later sync evaluates each published statement against the pinned signing
+key. A statement applies only when its `from` or `revoked` field names the
+pinned key (matched by key ID) and the matching pinned key signed the
+domain-separated statement. Modn then verifies the signature with the full
+pinned key, so a statement with the same key ID but another key is refused, not
+ignored. Every other statement is history and adds no trust. An author may keep
+it published.
+
+Sync accepts a rotation when all of these hold:
+
+- `rotation.sig` verifies with the pinned signing key.
+- `from` is the pinned key ID.
+- `catalog.pub` publishes exactly the key in `to` with the same full public key
+  bytes, and `catalog.sig` verifies with it.
+
+Sync then pins the public key text from the signed statement, not the revision's
+`catalog.pub`, and records the old key ID in `previous_signers`. Modn also drops
+the new key ID from `previous_signers` and `revoked_signers`, so a rotation may
+name a key that an earlier rotation retired. The old key vouched for the new key,
+so module trust follows the new signer. The output prints
+`signing key rotated: <old> -> <new>`.
+
+A rotation that names a key in `revoked_signers` is refused. Only the offline
+revocation key can re-authorize a revoked key. The pinned key is never recorded
+as retired, so the current key always verifies its own revisions.
+
+Sync accepts a revocation when all of these hold:
+
+- `revocation.sig` verifies with the pinned revocation key.
+- `revoked` is the pinned signing key ID.
+- `catalog.pub` publishes exactly the key in `replacement` with the same full
+  public key bytes, and `catalog.sig` verifies with it.
+
+Sync then pins the public key text from the signed statement and records the old
+key ID in `revoked_signers`. The replacement key ID is removed from both
+`previous_signers` and `revoked_signers`, so a revocation re-authorizes a key
+that an earlier rotation retired. Module trust is cleared, because the user must
+trust modules again explicitly. The output prints
+`signing key revoked: <old> replaced by <new>`.
+
+Modn refuses a revision when both a rotation and a revocation apply to the
+pinned key, when the revision needs more than one key change from the pinned key
+(sync an intermediate revision or remove the bucket and register it again), a
+rotation signed by the revocation key, a revocation signed by the signing key,
+an unknown kind or schema version, a `catalog.pub` whose full public key bytes
+differ from the pinned key or the key a statement names, and a revision signed by
+a key in `previous_signers` or `revoked_signers`. Every refusal keeps the
+previous registration and catalog byte for byte.
+
+A revision that repeats a statement this pin already applied treats it as
+history, because the registration records the BLAKE3 of the applied
+`rotation.json` or `revocation.json`. Such a revision syncs normally while its
+`catalog.pub` is the pinned key. If it names another key and no new statement
+applies, Modn refuses the replay. A statement whose old key no longer matches
+the pin is also history.
+
+`bucket list --json` reports `signer_key_id`, `revocation_key_id` when pinned,
+and the `previous_signers` and `revoked_signers` arrays when non-empty.
+
+If a signing key leaks, rotate it with the pinned signing key, or revoke it with
+the offline revocation key and name an uncompromised replacement. Sign the new
+revision with the replacement key and sync. If the offline revocation key leaks,
+remove the bucket and sync it again to pin a new revocation key; Modn cannot
+change a pinned revocation key in place.
 
 ### Catalog digest
 
@@ -68,34 +299,36 @@ only by case, a root `.git` entry and a non-UTF-8 path. It refuses a root
 
 ### Signing a catalog
 
-Install the stock `minisign` CLI, then run these commands. Replace `<dir>` with
-the catalog path. The statement file must hold the bytes exactly, with no
-byte-order mark and no added newline.
+Create one signing key with `modn catalog keygen`. Run `modn catalog sign` before
+each publish, and `modn catalog verify` to check the tree. Replace `<dir>` with
+the catalog path.
 
 ```powershell
-cmd /c "cargo run -p modn-core --example catalog_digest -- <dir> > statement.txt"
-minisign -S -s <secret key> -m statement.txt -x <dir>/catalog.sig
-Copy-Item <public key> <dir>/catalog.pub
+modn catalog keygen --out ../author-keys
+modn catalog sign . --key ../author-keys/catalog.key
+modn catalog verify . --key catalog.pub
 ```
 
-Windows PowerShell 5.1 `>` writes UTF-16, so keep the `cmd /c` redirection.
-
-`catalog_digest` prints the statement for the catalog tree. `minisign -S` signs
-that file and writes `catalog.sig` at the catalog root. Do not pass `-l`, which
-writes the legacy format that Modn refuses. `catalog.pub` holds the signer
-public key as a bare key line or a two-line `minisign.pub` file.
+`modn catalog sign` writes `catalog.sig` and the matching `catalog.pub` at the
+catalog root. `modn catalog hash` prints the BLAKE3 pin of an archive for a
+package record. `modn catalog rotate` and `modn catalog revoke` write the signed
+key statements described above. A password-protected key takes
+`--password-env <VAR>`. Every command needs no manager state and registers
+nothing. See [catalog authoring](catalog-authoring.md) for the full workflow.
 
 Sign the tree that you ship. Any change to a catalog file changes the digest and
 invalidates the signature. A Git catalog publishes `catalog.sig` and `catalog.pub`
 at its root. A `main` release also uploads the same signature as
-`main-bucket.zip.minisig`.
+`main-bucket.zip.minisig`. That file comes from the main bucket release pipeline,
+which uses the stock `minisign` CLI with `-S`, never `-l`, and produces the same
+statement format. See [releasing](releasing.md).
 
 ## Module sources and trust
 
-`main` is always a trusted module source. Only a signed Git catalog can become
+`main` is always a trusted module source. Only a signed catalog can become
 another trusted module source. Local folder buckets cannot be module sources.
 An attempt to trust one is refused with an error that names the bucket and
-states that only `main` and the signed Git catalogs the user trusts for modules
+states that only `main` and the signed catalogs the user trusts for modules
 supply game modules.
 
 ```sh
@@ -104,15 +337,22 @@ modn bucket trust-modules community --fingerprint 0E250AD52A3BA2AA --yes
 modn bucket untrust-modules community
 ```
 
-`bucket trust-modules` needs a registered signed Git catalog. It prints the
+`bucket trust-modules` needs a registered signed catalog. It prints the
 pinned signer key ID and refuses without `--yes`. The refusal names the key and
 the `--yes` flag. An optional `--fingerprint <KEY_ID>` must equal the pinned
 signer key ID; a mismatch writes nothing.
 
 The trust record stores the signer key ID for the whole bucket. It does not
 record one game. A new game module in the same trusted bucket needs no new
-acknowledgement. If the bucket's pinned signer key changes, the stored key ID no
-longer matches, and its modules become untrusted. Key rotation is planned (#122).
+acknowledgement. A rotation keeps the trust record and moves it to the new key.
+A retention release imported under the old key stays usable, because the old key
+vouched for the new one. A revocation clears the trust record, and its modules
+become untrusted. If the offline revocation key later re-authorizes the revoked
+signer as its replacement, the bucket authorizes the releases it retained from
+that signer again; the user must still run `trust-modules` after the revocation.
+Otherwise a module release imported under the revoked key stays untrusted after
+`trust-modules` with the replacement key; publish a new release signed by the
+replacement key to supply module code again.
 
 `bucket untrust-modules` removes the trust record and leaves the bucket
 registered. Modules retained from that bucket are refused at use. Run
@@ -127,7 +367,7 @@ nothing. Each matching game is reported as ignored with the reason
 catalog module for a game that `main` provides is ignored with the reason
 `official_priority`.
 
-Only `main` and the signed Git catalogs that the user trusts for modules may
+Only `main` and the signed catalogs that the user trusts for modules may
 contain `games/<game-id>/module.json` and `module.lua`. Those folders may hold
 nothing else. In those sources, a package manifest or any other entry under
 `games/` is refused at sync.
@@ -177,9 +417,11 @@ has schema_version: 2, id, game, name, version, sources (`manual` with filename,
 with game_domain, mod_id, file_id and file_name), optional redistributable,
 upstream_sha256, dependencies (same-game IDs), dependency_versions, conflicts,
 executables, native_injector and homepage.
-`sources` is an ordered, non-empty list. Modn uses only the first entry; it
-reads the later entries but does not fall back to them until fallback across
-sources (issue #118) ships.
+`sources` is an ordered, non-empty list. Modn tries each fetchable source in
+order and uses the first one whose bytes match the `blake3` pin. It moves on
+after a timeout, a network or HTTP failure, or a digest mismatch. A `manual`
+source is never started automatically. See
+[artifact source fallback](sources.md#artifact-source-fallback).
 A record lists either archive sources or `git` sources, never both. Modn refuses
 a mixed record, because one archive pin cannot cover a packed Git archive.
 An archive record declares `blake3`, 64 lowercase hex characters that pin the
@@ -198,7 +440,7 @@ Registrations point to explicitly selected directories. Package manifests
 are revalidated on every read. A local folder bucket needs no signature, because
 it holds your own files. `catalog.sig` and `catalog.pub` serve distributed
 catalogs. A local folder bucket cannot supply game modules, and `modules/`
-directories are unsupported. Only `main` and a signed Git catalog the user
+directories are unsupported. Only `main` and a signed catalog the user
 trusts for modules may supply modules from `games/<game-id>/module.json` and
 `module.lua`. See
 [bucket contract v2](../buckets/README.md).

@@ -216,7 +216,7 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
     assert!(!refused.status.success());
     assert!(
         output(&refused).contains(&format!(
-            "Signer key changed from {SIGNED_KEY} to {REKEYED_KEY} for bucket community. Modn does not rotate keys yet (#122); remove the bucket and sync it again to trust the new key."
+            "Signer key changed from {SIGNED_KEY} to {REKEYED_KEY} for bucket community. A key change needs a signed rotation or revocation statement; remove the bucket and sync it again to trust the new key."
         )),
         "{}",
         output(&refused)

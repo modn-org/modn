@@ -10,7 +10,7 @@ use crate::bucket_update;
 use crate::buckets;
 use crate::commands::UpdateArgs;
 use anyhow::{bail, Result};
-use modn_core::buckets::{BucketStore, GitCatalogSync};
+use modn_core::buckets::{BucketStore, CatalogKeyChange, GitCatalogSync, ZipCatalogSync};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -25,6 +25,13 @@ enum Detail {
         changed: bool,
         commit: String,
         signer: String,
+        key_change: Option<CatalogKeyChange>,
+    },
+    Zip {
+        changed: bool,
+        digest: String,
+        signer: String,
+        key_change: Option<CatalogKeyChange>,
     },
     Local,
 }
@@ -56,12 +63,27 @@ impl Refresh {
                 changed,
                 commit,
                 signer,
+                key_change,
             }) => json!({
                 "name": self.name,
                 "kind": self.kind,
                 "changed": changed,
                 "commit": commit,
                 "signer_key_id": signer,
+                "key_change": key_change,
+            }),
+            Ok(Detail::Zip {
+                changed,
+                digest,
+                signer,
+                key_change,
+            }) => json!({
+                "name": self.name,
+                "kind": self.kind,
+                "changed": changed,
+                "digest": digest,
+                "signer_key_id": signer,
+                "key_change": key_change,
             }),
             Ok(Detail::Local) => json!({
                 "name": self.name,
@@ -86,7 +108,20 @@ impl Refresh {
                 changed,
                 commit,
                 signer,
-            }) => format!("{prefix}: changed: {changed}, commit {commit}, signer {signer}"),
+                key_change,
+            }) => format!(
+                "{prefix}: changed: {changed}, commit {commit}, signer {signer}{}",
+                key_change_suffix(key_change.as_ref())
+            ),
+            Ok(Detail::Zip {
+                changed,
+                digest,
+                signer,
+                key_change,
+            }) => format!(
+                "{prefix}: changed: {changed}, digest {digest}, signer {signer}{}",
+                key_change_suffix(key_change.as_ref())
+            ),
             Ok(Detail::Local) => format!("{prefix}: skipped; {LOCAL_SKIP}"),
             Err(error) => format!("{prefix}: error: {error}"),
         }
@@ -148,6 +183,7 @@ fn git_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
                 changed: previous.as_deref() != Some(commit.as_str()),
                 commit,
                 signer: synced.revision.signer.key_id.clone(),
+                key_change: synced.key_change,
             })
         },
     );
@@ -158,6 +194,33 @@ fn git_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
     }
 }
 
+fn zip_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
+    let previous = store
+        .zip_revision(name)
+        .ok()
+        .flatten()
+        .map(|revision| revision.digest);
+    let outcome = buckets::sync_zip_catalog(store, name, None, json).map_or_else(
+        |error| Err(format!("{error:#}")),
+        |synced: ZipCatalogSync| {
+            let digest = synced.revision.digest.clone();
+            Ok(Detail::Zip {
+                changed: previous.as_deref() != Some(digest.as_str()),
+                digest,
+                signer: synced.revision.signer.key_id.clone(),
+                key_change: synced.key_change,
+            })
+        },
+    );
+    Refresh {
+        name: name.into(),
+        kind: "zip",
+        outcome,
+    }
+}
+fn key_change_suffix(change: Option<&CatalogKeyChange>) -> String {
+    change.map_or_else(String::new, |change| format!(", {}", change.line()))
+}
 fn catalog_refreshes(state_path: &Path, json: bool) -> Vec<Refresh> {
     let mut refreshes = vec![main_refresh()];
     let Some(root) = state_path.parent() else {
@@ -189,14 +252,14 @@ fn catalog_refreshes(state_path: &Path, json: bool) -> Vec<Refresh> {
         }
     };
     for info in listed.into_iter().filter(|info| info.name != "main") {
-        if info.signer_key_id.is_some() {
-            refreshes.push(git_refresh(&store, &info.name, json));
-        } else {
-            refreshes.push(Refresh {
+        match info.source_kind.as_deref() {
+            Some("zip") => refreshes.push(zip_refresh(&store, &info.name, json)),
+            Some("git") => refreshes.push(git_refresh(&store, &info.name, json)),
+            _ => refreshes.push(Refresh {
                 name: info.name,
                 kind: "local",
                 outcome: Ok(Detail::Local),
-            });
+            }),
         }
     }
     refreshes

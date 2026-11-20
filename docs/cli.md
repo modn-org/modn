@@ -21,6 +21,10 @@ modn bucket add community "/path/to/catalog"
 modn bucket remove community
 modn bucket trust-modules community --fingerprint <KEY_ID> --yes
 modn bucket untrust-modules community
+modn catalog keygen --out ./author-keys
+modn catalog hash ./my-mod-1.0.zip
+modn catalog sign . --key ../author-keys/catalog.key
+modn catalog verify . --key catalog.pub
 
 modn module register ./module --trust
 modn module list
@@ -102,7 +106,7 @@ operation as it does without one. Close stdin when no cancellation is wanted.
 
 `modn update` without a target refreshes every catalog and changes no game
 files or install state. It first refreshes the official `main` bucket exactly as
-`modn bucket update` does. Then it syncs each registered Git catalog to the
+`modn bucket update` does. Then it syncs each registered Git or ZIP catalog to the
 latest revision of its registered source, exactly as `modn bucket sync <name>`
 does, and verifies the signature against the pinned signer. Local folder
 buckets are skipped because they have nothing to fetch.
@@ -117,6 +121,54 @@ The options for one installed mod need a target and are refused without one:
 `--download`, `--allow-executable` and `--allow-native-injector`. A refresh always
 fetches, so `modn update --dry-run` is refused rather than ignored. Use
 `modn update <target>` to replace one installed catalog mod as before.
+
+## Catalog authoring
+
+`modn catalog` creates signing keys and signs, verifies and hashes a catalog
+that an author distributes. It needs no manager state and registers nothing.
+[catalog-authoring.md](catalog-authoring.md) shows the full publishing workflow.
+
+```sh
+modn catalog keygen [--out <dir>] [--name <name>] [--password-env <VAR>]
+modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>] [--revocation-public-key <file>]
+modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--password-env <VAR>]
+modn catalog revoke <dir> --revocation-key <secret-key-file> --revoked <key-id> --replacement-public-key <file> [--password-env <VAR>]
+modn catalog verify <dir> --key <public-key-file>
+modn catalog hash <archive> [--json]
+```
+
+`keygen` writes `<name>.key` and `<name>.pub` and prints the 16-digit key
+fingerprint. It refuses to overwrite either file and never prints secret
+material. On Unix the secret key file is owner-only. On Windows it inherits the
+access control list of the user directory, so keep that directory private.
+`--password-env <VAR>` encrypts the secret key with the password in that
+environment variable.
+
+`sign` writes `catalog.sig` and `catalog.pub` at the catalog root and prints the
+fingerprint and the digest. It replaces `catalog.sig` atomically, so a failed run
+keeps the previous signature. It refuses a secret key inside the catalog, a path
+that is not a directory, an encrypted key without `--password-env`, and a wrong
+password. A refusal writes nothing. `--revocation-public-key` copies the named
+public key to `revocation.pub` before signing, so the digest covers it.
+`rotate` writes `rotation.json` and `rotation.sig` with the current signing key.
+`revoke` writes `revocation.json` and `revocation.sig` with the offline
+revocation key. Both refuse a secret key inside the catalog and write nothing on
+refusal. After either command, run `modn catalog sign` with the successor key.
+Sync prints both fingerprints and explains how trust changes. See
+[catalog authoring](catalog-authoring.md#rotate-or-revoke-a-signing-key).
+
+`verify` checks a catalog against a public key and registers nothing. It exits 0
+and prints the fingerprint on success. A wrong key names the signature key and
+the expected key. A missing signature, a changed file, an added file and a
+deleted file each exit nonzero.
+
+`hash` prints the 64 lowercase hexadecimal characters of the archive's BLAKE3
+digest, which is the value of the `blake3` field in a package record. `--json`
+prints `{"blake3":"<hex>"}`. It streams the file and refuses a missing file or a
+directory.
+
+`sign` and `verify` ignore a root `.git` entry, so both run in a Git checkout.
+Under `--json` a failure carries the `BUCKET_FAILED` error code.
 
 ## Module releases and trust
 
@@ -504,7 +556,10 @@ otherwise the command's default code is used. No command reports a generic
 ## Additional commands
 
 - `modn scan --path <game>` and `modn doctor --path <game>` read the game root and a module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
-- `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key, and later syncs refuse a key change. See [sources.md](sources.md).
+- `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key and the optional revocation key. A later sync refuses an unrelated key change and follows a signed rotation or revocation. See [sources.md](sources.md) and [buckets.md](buckets.md#catalog-key-rotation-and-revocation).
+- `modn bucket sync <name> --source <url>.zip` registers a signed ZIP catalog. Modn verifies it in staging before publication, and `--revision` is refused. The source must be `https://`, or an absolute local ZIP path for offline testing. See [buckets.md](buckets.md#community-catalog-sources).
+- `modn bucket sync` and `modn update` try the registered primary and then the mirrors that the latest verified revision lists. A signed `relocation.json` moves the registered primary. See [buckets.md](buckets.md#mirrors-and-relocation).
+- `modn bucket list --json` reports `source_kind` as `git` or `zip` for a registered catalog, `primary` as `{"kind":"git","remote":...,"revision":...}` or `{"kind":"zip","url":...}`, and `mirrors` as the ordered tagged list. Text output shows the primary and the mirror count. The existing keys stay. A signed catalog also reports `signer_key_id`, `revocation_key_id` when it pinned an offline revocation key, plus `previous_signers` and `revoked_signers` arrays when non-empty.
 - `modn adopt <archive> --dry-run` previews manual adoption. Commit requires `--acknowledge --yes`.
 - `modn uninstall <package> --force --yes` approves cleanup of modified owned files.
 

@@ -9,10 +9,11 @@ use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use crate::update_report::{self, DependentCheck, FileChanges, Preview};
 use anyhow::{bail, Context, Result};
+use identity::{installed_identity, same_release, target_identity};
 use modn_core::acquisition::CacheUse;
 use modn_core::approval::{ApprovalRefusal, Capabilities, Uncovered};
 use modn_core::archive::{inspect, ArchiveFormat};
-use modn_core::buckets::{BucketPackage, BucketStore, PackageManifest, PackageSource};
+use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
 use modn_core::planning::{
@@ -21,46 +22,15 @@ use modn_core::planning::{
 use modn_core::transactions::ManagedPackage;
 use std::collections::BTreeMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-/// What makes two releases the same release for `modn update`.
-///
-/// An archive record pins the archive BLAKE3. A Git-only record pins a commit;
-/// its packed archive digest becomes known only after acquisition, so the
-/// recorded commit is the identity Modn compares.
-#[derive(Clone, Copy)]
-enum ReleaseIdentity<'a> {
-    Archive(&'a str),
-    Commit(&'a str),
-    /// No pin and no commit: never equal to, or different from, another release.
-    Unknown,
-}
+#[path = "update_identity.rs"]
+mod identity;
 
-fn source_identity(manifest: &PackageManifest) -> ReleaseIdentity<'_> {
-    match manifest.primary_source() {
-        PackageSource::Git { commit, .. } => ReleaseIdentity::Commit(commit),
-        _ => manifest
-            .pin()
-            .map_or(ReleaseIdentity::Unknown, ReleaseIdentity::Archive),
-    }
-}
-
-fn installed_identity(package: &ManagedPackage) -> ReleaseIdentity<'_> {
-    match &package.source {
-        Some(PackageSource::Git { commit, .. }) => ReleaseIdentity::Commit(commit),
-        _ => ReleaseIdentity::Archive(&package.archive_blake3),
-    }
-}
-
-/// Return whether the target release is the one Modn already installed.
-fn same_release(installed: ReleaseIdentity<'_>, target: ReleaseIdentity<'_>) -> bool {
-    match (installed, target) {
-        (ReleaseIdentity::Archive(installed), ReleaseIdentity::Archive(target))
-        | (ReleaseIdentity::Commit(installed), ReleaseIdentity::Commit(target)) => {
-            installed == target
-        }
-        _ => false,
-    }
+/// The source that `modn update` will try first, or the declared primary.
+fn planned_source(release: &BucketPackage) -> &PackageSource {
+    crate::dependency_plan::fetchable_source(&release.package.sources)
+        .unwrap_or(release.package.primary_source())
 }
 
 fn choose_release(
@@ -102,7 +72,7 @@ fn supplied_archive(
     file: &Path,
     target: &BucketPackage,
     digests: &BTreeMap<String, String>,
-) -> Result<PathBuf> {
+) -> Result<download::SuppliedArchive> {
     if !std::fs::symlink_metadata(file)?.file_type().is_file() {
         bail!("archive must be a regular file: {}", file.display());
     }
@@ -124,7 +94,10 @@ fn supplied_archive(
     if Some(inspected.format) != supplied_format(target) {
         bail!("{reference}: archive format does not match catalog manifest");
     }
-    Ok(file.to_path_buf())
+    Ok(download::SuppliedArchive {
+        path: file.to_path_buf(),
+        blake3: inspected.blake3,
+    })
 }
 
 fn installed_package(
@@ -298,7 +271,10 @@ pub(super) fn run(
         &dependents,
         &current.package.id,
     ));
-    let up_to_date = same_release(installed_identity(&old), source_identity(&target.package));
+    let up_to_date = same_release(
+        installed_identity(&old),
+        target_identity(&target.package, &old),
+    );
     if target.package.native_injector && !native_covered && !up_to_date && !args.dry_run {
         return Err(
             ApprovalRefusal::new(reference.clone(), Uncovered::native_injector()).into_error(),
@@ -307,14 +283,19 @@ pub(super) fn run(
     let cache = download::cache_for(state_path)?;
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
+    let mut served = BTreeMap::new();
+    let mut download_attempts = Vec::new();
     let cache_use = if args.no_cache {
         CacheUse::Refresh
     } else {
-        download::add_cached(&cache, [&target], &mut archives, &mut digests)?;
+        download::add_cached(&cache, [&target], &mut archives, &mut digests, &mut served)?;
         CacheUse::Reuse
     };
+    let mut supplied: BTreeMap<String, download::SuppliedArchive> = BTreeMap::new();
     if let Some(file) = &args.file {
-        archives.insert(label.clone(), supplied_archive(file, &target, &digests)?);
+        let verified = supplied_archive(file, &target, &digests)?;
+        archives.insert(label.clone(), verified.path.clone());
+        supplied.insert(label.clone(), verified);
     }
     let protected = ProtectedTarget {
         game: Some(game_id.clone()),
@@ -322,8 +303,9 @@ pub(super) fn run(
     };
     let fetch = !up_to_date && !archives.contains_key(&label) && (args.download || !args.dry_run);
     if fetch && blockers.is_empty() {
+        let planned = planned_source(&target);
         if !download::downloadable(&target) {
-            let source = acquisition(target.package.primary_source());
+            let source = acquisition(planned);
             bail!("{label}: {source}, then use modn update {label} --file <archive>");
         }
         state.validate_download(cache.root(), &protected)?;
@@ -331,7 +313,7 @@ pub(super) fn run(
             let download = format!(
                 "{label} {}; {}",
                 target.package.version,
-                acquisition(target.package.primary_source())
+                acquisition(planned)
             );
             if !install_consent::confirm_download(
                 &[download],
@@ -341,16 +323,17 @@ pub(super) fn run(
                 bail!("{label}: download cancelled");
             }
         }
-        download::download(
+        download_attempts.extend(download::download(
             &cache,
             cache_use,
             &[&target],
             &mut archives,
             &mut digests,
+            &mut served,
             &args.nxm_links,
             json,
             progress,
-        )?;
+        )?);
     }
     let archive = archives.get(&label).cloned();
     let candidate = match (&archive, up_to_date) {
@@ -394,9 +377,10 @@ pub(super) fn run(
             .map(|candidate| FileChanges::new(&old, &candidate.plan)),
         plan: candidate.as_ref().map(|candidate| &candidate.plan),
         archive_needed: (archive.is_none() && !up_to_date)
-            .then(|| acquisition(target.package.primary_source())),
+            .then(|| acquisition(planned_source(&target))),
         dependents: &dependents,
         blockers: &blockers,
+        downloads: &download_attempts,
         unapproved_declared_executables: candidate
             .as_ref()
             .map_or(&[], |candidate| candidate.pending.as_slice()),
@@ -442,8 +426,10 @@ pub(super) fn run(
     let mut store = state.open_writable(&protected)?;
     store.set_control(progress.control().clone());
     store.set_history_context(
-        HistoryContext::new(game_id.clone(), game.clone())
-            .with_source(&reference, target.package.primary_source().clone()),
+        HistoryContext::new(game_id.clone(), game.clone()).with_source(
+            &reference,
+            download::serving_source(&label, &supplied, &served, &target),
+        ),
     );
     let package = store.update_catalog_release(
         &game,

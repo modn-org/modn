@@ -1,13 +1,17 @@
 //! Fetch one pinned Git commit and pack its tree into a deterministic ZIP.
 
 use super::super::digest::file_blake3;
+use super::super::FetchError;
 use crate::git::{self, GitEnvironment};
 use anyhow::{anyhow, bail, Context, Result};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use zip::write::SimpleFileOptions;
+
+#[cfg(test)]
+mod tests;
 
 const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED: u64 = 64 * 1024 * 1024 * 1024;
@@ -23,6 +27,111 @@ struct TreeEntry {
     path: String,
     object: String,
     executable: bool,
+}
+
+/// Fetch `commit` from `url`; Git bounds a stalled HTTP(S) transfer itself.
+///
+/// The shared Git command passes `http.lowSpeedLimit` and `http.lowSpeedTime`,
+/// so a transfer that stays below one byte per second for the documented
+/// inactivity limit ends with Git's own abort. That abort keeps the
+/// [`FetchError::Timeout`] class, which lets ordered acquisition try the next
+/// source. Git prints progress while it receives data, so a transfer that
+/// keeps receiving data may run longer than the limit.
+fn fetch_with(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Result<()> {
+    fetch_with_command(git::command(environment), url, commit)
+}
+
+/// Run one prepared fetch command and classify its failure.
+fn fetch_with_command(mut command: Command, url: &str, commit: &str) -> Result<()> {
+    command
+        .args([
+            "fetch",
+            "--progress",
+            "--depth",
+            "1",
+            "--no-tags",
+            "--",
+            url,
+            commit,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let output = command
+        .output()
+        .context("GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH")?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if low_speed_abort(&stderr) {
+        return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
+            "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} stopped below the Git low-speed limit: {}",
+            stderr.trim()
+        )));
+    }
+    bail!(
+        "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} failed: {}",
+        stderr.trim()
+    )
+}
+
+/// Clone one Git catalog revision under the shared low-speed limits.
+///
+/// The clone keeps every hostile-input protection of the catalog module: the
+/// empty hooks directory and the allow-listed transports of the shared Git
+/// command. Git ends a stalled HTTP(S) transfer itself; the catalog sync
+/// records that failure as `timed out` and tries the next mirror.
+pub(super) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
+    let hooks = git::empty_hooks()?;
+    let environment = GitEnvironment {
+        directory: destination,
+        hooks: hooks.path(),
+        allow_file: true,
+    };
+    let output = git::command(&environment)
+        .args([
+            "clone",
+            "--progress",
+            "--no-local",
+            "--no-checkout",
+            "--",
+            remote,
+            "catalog",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .context(
+            "GIT_CATALOG_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
+        )?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if low_speed_abort(&stderr) {
+        return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
+            "GIT_CATALOG_FETCH_FAILED: cloning {remote} timed out below the Git low-speed limit: {}",
+            stderr.trim()
+        )));
+    }
+    bail!(
+        "GIT_CATALOG_FETCH_FAILED: cloning {remote} failed: {}",
+        stderr.trim()
+    )
+}
+
+/// Whether Git's stderr names the transfer abort below its low-speed limit.
+///
+/// `git fetch` and `git clone` run with `http.lowSpeedLimit` and
+/// `http.lowSpeedTime`, so libcurl ends a stalled HTTP or HTTPS transfer with
+/// `Operation too slow. Less than 1 bytes/sec transferred the last N seconds`.
+/// The ordered fallback treats that abort like the deadline: both are a
+/// `timeout` attempt. File and SSH transports do not apply the limits.
+fn low_speed_abort(stderr: &str) -> bool {
+    let text = stderr.to_ascii_lowercase();
+    text.contains("operation too slow") || text.contains("bytes/sec transferred")
 }
 
 /// Fetch `commit` from `url` and pack its tree into `staging/archive.zip`.
@@ -47,13 +156,7 @@ pub(super) fn pack_commit(
     git::run(&environment, &["init", "--bare", "--quiet"]).map_err(|error| {
         anyhow!("GIT_SOURCE_FETCH_FAILED: cannot initialize the private Git repository: {error:#}")
     })?;
-    git::run(
-        &environment,
-        &["fetch", "--depth", "1", "--no-tags", "--", url, commit],
-    )
-    .map_err(|error| {
-        anyhow!("GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} failed: {error:#}")
-    })?;
+    fetch_with(&environment, url, commit)?;
     let pinned = format!("{commit}^{{commit}}");
     let resolved =
         git::run(&environment, &["rev-parse", "--verify", &pinned]).map_err(|error| {

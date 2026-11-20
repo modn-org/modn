@@ -250,9 +250,9 @@ fn refused_assignment(fixture: &Fixture) -> (PathBuf, PathBuf) {
     );
     write_module(fixture, 3, "v1/example.plugin", "game", false);
     fixture.register();
-    let installed = run(fixture, &["--json", "install", "example", "--yes"], &[&v1]);
-    assert!(installed.status.success(), "{}", error(&installed));
     cache(fixture, "test-game", "example", "1.0", v1_url, &v1);
+    let installed = run(fixture, &["--json", "install", "example", "--yes"], &[]);
+    assert!(installed.status.success(), "{}", error(&installed));
     write_manifest(
         fixture,
         "deps",
@@ -303,7 +303,7 @@ fn dry_run_update_undo_refuses_a_native_injector_without_approval() {
             "--yes",
             "--allow-native-injector",
         ],
-        &[&v1],
+        &[],
     );
     assert!(installed.status.success(), "{}", error(&installed));
     write_manifest(

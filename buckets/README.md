@@ -24,8 +24,10 @@ Each package manifest declares `schema_version` (integer 2), `id`, `game`,
 `name`, `version` and `sources`, and optional `redistributable`,
 `upstream_sha256`, `dependencies`, `homepage`, `executables` and
 `native_injector`.
-`sources` is an ordered, non-empty list of artifact sources. Modn uses only the
-first entry today; fallback to the later entries (issue #118) is not shipped yet.
+`sources` is an ordered, non-empty list of artifact sources. Modn tries each
+fetchable source in order and uses the first one whose bytes match the BLAKE3
+pin. It moves on after a timeout, a network or HTTP failure, or a digest
+mismatch. See [artifact source fallback](../docs/sources.md#artifact-source-fallback).
 A record lists either `git` sources or archive sources, never both. A mixed
 record is refused, because one archive pin cannot cover a packed Git archive.
 An archive record declares `blake3`, the archive pin of 64 lowercase hex
