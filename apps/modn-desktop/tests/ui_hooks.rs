@@ -3,8 +3,7 @@
 //!
 //! The document is the contract a theme author reads. A hook that the doc
 //! names must exist in `ui/`, and a `.modn-*` class that the UI styles must be
-//! named by the doc. The exception is the reserved `modn-theme*` prefix, which
-//! the Theme control adds later.
+//! named by the doc.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -226,7 +225,6 @@ fn every_styled_class_is_documented() {
     let documented: BTreeSet<String> = documented_classes(&document).into_iter().collect();
     let missing: Vec<String> = css_classes()
         .into_iter()
-        .filter(|class| !class.starts_with("modn-theme"))
         .filter(|class| !documented.contains(class))
         .map(|class| format!(".{class} has a rule in ui/css but is missing in docs/themes.md"))
         .collect();
