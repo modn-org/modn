@@ -214,7 +214,7 @@ They are not CSS rule ids.
 ## Stable hooks
 
 Paths in these tables are relative to `apps/modn-desktop/ui/`; files outside that directory have a `../` prefix.
-The UI has 21 shell classes, 17 home classes, 34 library classes, 15 details classes, 12 install-review classes, 7 approval classes, 4 toast classes, 2 message classes, 0 theme-control classes, 12 `data-*` attributes and 43 `--modn-*` custom properties.
+The UI has 21 shell classes, 17 home classes, 34 library classes, 15 details classes, 12 install-review classes, 7 approval classes, 4 toast classes, 2 message classes, 18 theme-control classes, 12 `data-*` attributes and 43 `--modn-*` custom properties.
 
 A selector may use only hooks listed on this page. An unlisted `.modn-*` class is the rule `unknown-hook`.
 An unlisted `data-*` attribute has the same rule.
@@ -335,11 +335,26 @@ An unlisted `data-*` attribute has the same rule.
 | `.modn-toasts` | Toast | `css/base.css` | `index.html`, `js/op-button.js`, `js/toast.js` | Toast stack container |
 | `.modn-status` | Messages | `css/base.css` | `index.html`, `js/app.js`, `js/details.js`, `js/library.js`, `js/details/history.js`, `js/home/card.js`, `js/home/dom.js`, `js/library/recent.js` | Status and progress message |
 | `.modn-status--error` | Messages | `css/base.css` | `js/app.js`, `js/details.js`, `js/library.js`, `js/details/history.js`, `js/home/card.js`, `js/home/dom.js`, `js/library/recent.js` | Error state status message |
+| `.modn-theme-actions` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme panel action row |
+| `.modn-theme-button` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme panel toggle button |
+| `.modn-theme-control` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme control root |
+| `.modn-theme-current` | Theme control | `css/theme.css` | `js/theme/panel.js` | Active theme block |
+| `.modn-theme-diagnostic` | Theme control | `css/theme.css` | `js/theme/panel.js` | Single theme diagnostic line |
+| `.modn-theme-diagnostics` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme diagnostic list |
+| `.modn-theme-item` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme list item |
+| `.modn-theme-list` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme choice list |
+| `.modn-theme-mark` | Theme control | `css/theme.css` | `js/theme/panel.js` | Chosen theme mark |
+| `.modn-theme-name` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme name |
+| `.modn-theme-panel` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme control panel |
+| `.modn-theme-pick` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme choice button |
+| `.modn-theme-pick--chosen` | Theme control | `css/theme.css` | `js/theme/panel.js` | Selected theme choice button |
+| `.modn-theme-select` | Theme control | `css/theme.css` | `js/theme/panel.js` | Variant dropdown |
+| `.modn-theme-shell` | Theme control | `css/theme.css` | `index.html` | Theme shell header |
+| `.modn-theme-source` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme source label |
+| `.modn-theme-status` | Theme control | `css/theme.css` | `js/theme/panel.js` | Theme status line |
+| `.modn-theme-variant` | Theme control | `css/theme.css` | `js/theme/panel.js` | Variant field |
 
-**Theme control.** No `modn-theme-*` hook exists today.
-The desktop Theme control adds those hooks.
-Its rows join this table when it lands.
-See [Desktop behavior](#desktop-behavior).
+The Theme control hooks are listed in the Classes table above under the group `Theme control`.
 
 ### Data attributes
 
@@ -733,7 +748,7 @@ It offers a "Default theme" choice, which resets the selection.
 It offers an Import button, which opens a folder picker.
 
 The control uses `.modn-theme-*` hooks.
-Theme API v1 reserves that prefix; the control task adds the exact names to the stable tables.
+Theme API v1 reserves that prefix, and the [stable hooks](#stable-hooks) list every class the control uses.
 
 ## Authoring checklist
 

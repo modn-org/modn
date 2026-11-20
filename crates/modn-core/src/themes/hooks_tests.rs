@@ -51,7 +51,7 @@ fn stable_classes_match_the_document() {
         .into_iter()
         .map(|name| name.trim_start_matches('.').to_string())
         .collect();
-    assert_eq!(doc.len(), 112, "classes table should hold 112 rows");
+    assert_eq!(doc.len(), 130, "classes table should hold 130 rows");
     assert_same(&doc, STABLE_CLASSES, "STABLE_CLASSES");
 }
 
