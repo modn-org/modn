@@ -22,8 +22,9 @@ fixtures in `scripts/theme_fixture.py`.
   the fallback and `digest-mismatch`.
 - T6: `Default theme` restores the base height, and `modn theme resolve`
   reports `theme: null`.
-- T7: with a theme selected, the install review keeps its protected region and
-  its controls.
+- T7: with a theme selected, `modn theme check` still refuses the protected
+  theme with `protected-region`. The install review is not opened (see
+  Not proven).
 
 ## Geometry method
 
@@ -58,7 +59,8 @@ digest covers the same bytes as a published bucket.
 - No Windows 10 hardware is tested.
 - Computed CSS is not visible to UI Automation, so the journey reads no
   colour, font or hidden element from the rendered webview.
-- Step T7 sees the install review's regions and controls, not their computed
-  styles. The `protected-region` rule rests on the `modn theme check` refusal
-  in step T1.
+- Step T7 does not open the install review: reaching it needs more than 40
+  lines, so the review's protected regions and controls are not proven at
+  runtime. The `protected-region` rule rests on the `modn theme check`
+  refusal in step T1.
 - Absolute pixel heights are not asserted, only their order.

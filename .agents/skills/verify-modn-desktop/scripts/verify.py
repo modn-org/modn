@@ -38,6 +38,7 @@ JOURNEYS = [
     (9, "play", "journeys_core:journey_play"),
     (10, "remove", "journeys_remove:journey_remove"),
     (11, "catalog", "journeys_catalog:journey_catalog"),
+    (12, "themes", "journeys_themes:journey_themes"),
 ]
 
 
