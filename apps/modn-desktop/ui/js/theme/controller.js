@@ -5,13 +5,24 @@
  * the toast are injectable. When the CLI has no theme commands the controller
  * leaves the default theme in place and reports `unavailable` without a toast,
  * so a missing CLI cannot flood the screen.
+ *
+ * Every load takes a ticket from one module-level generation counter. Only the
+ * newest ticket may apply sheets, so an answer for a game the user left cannot
+ * repaint the current screen. A load error for the current ticket removes the
+ * sheets of the previous game.
  */
 import * as api from '../api.js';
 import { messageFor } from '../messages.js';
 import { showToast } from '../toast.js';
 import { applyTheme, browserEnvironment } from './loader.js';
+/** The current load ticket; a newer request makes older answers stale. */
+let generation = 0;
 /** The game whose resolve answer the screen still waits for. */
-let latestGame = null;
+let activeGame = null;
+/** The most notices remembered for one session. */
+const MAX_NOTICES = 50;
+/** Notice keys already shown in this session, oldest first. */
+const shownNotices = new Set();
 /**
  * Applies one resolved answer. The sheet environment is created per call
  * because the webview owns the document.
@@ -41,10 +52,58 @@ function fallbackLine(fallback) {
   return `Theme not applied: ${fallback.reason}: ${fallback.message}`;
 }
 /**
+ * Reports whether one diagnostic explains the active theme rather than another
+ * theme of the same game. The panel already lists catalog problems, so a
+ * diagnostic about a different theme must not claim the selected theme failed.
+ * @param {{theme?: string|null}} diagnostic
+ * @param {string} game
+ * @param {Object} resolved
+ * @returns {boolean}
+ */
+function concernsActiveTheme(diagnostic, game, resolved) {
+  if (!resolved.theme || resolved.fallback) {
+    return true;
+  }
+  return diagnostic.theme === `${game}/${resolved.theme.id}`;
+}
+/**
+ * Remembers one notice key for the session and reports whether it is new.
+ * @param {string} key
+ * @returns {boolean}
+ */
+function rememberNotice(key) {
+  if (shownNotices.has(key)) {
+    return false;
+  }
+  if (shownNotices.size >= MAX_NOTICES) {
+    const oldest = shownNotices.values().next().value;
+    shownNotices.delete(oldest);
+  }
+  shownNotices.add(key);
+  return true;
+}
+/**
+ * Builds the notice key of one resolved answer and its toast text.
+ * @param {string} game
+ * @param {Object} resolved
+ * @param {string} text
+ * @returns {string}
+ */
+function noticeKey(game, resolved, text) {
+  const theme = resolved.theme || {};
+  return `${game}|${theme.id || ''}|${theme.variant || ''}|${text}`;
+}
+/** Forgets every notice shown so far. Tests use it between scenarios. */
+export function resetNoticeMemory() {
+  shownNotices.clear();
+}
+/**
  * Resolves and applies the theme of one game.
  *
- * A stale answer is dropped: the game id is compared after the promise
- * settles, so navigating to another game cannot repaint the newer screen.
+ * A stale answer is dropped: the ticket is compared after the promise settles,
+ * so navigating to another game cannot repaint the newer screen. A failed
+ * current request removes the previous game's sheets before it reports
+ * `unavailable`.
  * @param {string} game
  * @param {{api?: Object, applyTheme?: Function, toast?: Function}} [deps]
  * @returns {Promise<Object>}
@@ -53,27 +112,33 @@ export async function loadThemeForGame(game, deps = {}) {
   const client = deps.api || api;
   const apply = deps.applyTheme || applyResolved;
   const toast = deps.toast || showToast;
-  latestGame = game;
+  const ticket = ++generation;
+  activeGame = game;
   let resolved;
   try {
     resolved = await client.resolveTheme(game);
   } catch (error) {
+    if (ticket !== generation) {
+      return { applied: false, stale: true };
+    }
+    apply({ theme: null });
     return { applied: false, unavailable: true, message: messageFor(error) };
   }
-  if (game !== latestGame) {
+  if (ticket !== generation || (resolved && resolved.stale === true)) {
     return { applied: false, stale: true };
   }
   const result = apply(resolved);
   const diagnostics = Array.isArray(resolved.diagnostics) ? resolved.diagnostics : [];
+  const active = diagnostics.find((diagnostic) => concernsActiveTheme(diagnostic, game, resolved));
   let notice = null;
-  if (diagnostics.length > 0) {
-    notice = diagnosticLine(diagnostics[0]);
+  if (active) {
+    notice = diagnosticLine(active);
   } else if (resolved.fallback) {
     notice = fallbackLine(resolved.fallback);
   } else if (!result.applied && result.error) {
     notice = `Theme not applied: ${result.error.message || 'the stylesheet is invalid'}`;
   }
-  if (notice) {
+  if (notice && rememberNotice(noticeKey(game, resolved, notice))) {
     toast(notice);
   }
   return {
@@ -85,6 +150,9 @@ export async function loadThemeForGame(game, deps = {}) {
 }
 /**
  * Selects a theme and its variant, then resolves and applies the selection.
+ *
+ * The generation and game are checked after the selection settles, so a
+ * selection that finishes after the user navigated away applies nothing.
  * @param {string} game
  * @param {string} theme
  * @param {string|null} variant
@@ -93,7 +161,11 @@ export async function loadThemeForGame(game, deps = {}) {
  */
 export async function selectAndApply(game, theme, variant, deps = {}) {
   const client = deps.api || api;
+  const start = generation;
   await client.selectTheme(game, theme, variant === '' ? undefined : variant);
+  if (generation !== start || activeGame !== game) {
+    return { applied: false, stale: true };
+  }
   return loadThemeForGame(game, deps);
 }
 /**
@@ -104,7 +176,11 @@ export async function selectAndApply(game, theme, variant, deps = {}) {
  */
 export async function resetAndApply(game, deps = {}) {
   const client = deps.api || api;
+  const start = generation;
   await client.resetTheme(game);
+  if (generation !== start || activeGame !== game) {
+    return { applied: false, stale: true };
+  }
   return loadThemeForGame(game, deps);
 }
 /**
@@ -135,6 +211,7 @@ export async function importAndRefresh(game, deps = {}) {
  */
 export function clearTheme(deps = {}) {
   const apply = deps.applyTheme || applyResolved;
-  latestGame = null;
+  generation += 1;
+  activeGame = null;
   return apply({ theme: null });
 }
