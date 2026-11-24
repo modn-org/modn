@@ -238,7 +238,7 @@ fn a_symlinked_component_is_refused() {
     std::os::unix::fs::symlink(&outside, fixture.root.join("assets/link.png"))
         .expect("create the symlink");
     std::os::unix::fs::symlink(
-        &fixture.root.join("assets/icons"),
+        fixture.root.join("assets/icons"),
         fixture.root.join("assets/linked"),
     )
     .expect("create the directory symlink");
