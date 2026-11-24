@@ -278,3 +278,109 @@ fn reserved_hooks_stay_inside_their_regions() {
         }
     }
 }
+
+/// Returns the `PROTECTED_CONTEXT_CLASSES` list from the core hook table.
+///
+/// The list is read from `crates/modn-core/src/themes/hooks.rs`, because the
+/// desktop crate does not depend on the core crate.
+fn context_classes_in_code() -> Vec<String> {
+    const DECLARATION: &str = "pub const PROTECTED_CONTEXT_CLASSES: &[&str] = &[";
+    let source = read("../../crates/modn-core/src/themes/hooks.rs");
+    let start = source
+        .find(DECLARATION)
+        .expect("hooks.rs declares PROTECTED_CONTEXT_CLASSES")
+        + DECLARATION.len();
+    let rest = &source[start..];
+    let end = rest.find("];").expect("the context class list ends");
+    rest[..end]
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
+}
+
+/// One element that holds or surrounds a protected region.
+///
+/// The first cell is the class string the element carries, the second is the
+/// UI file that builds it, and the third is the source text that proves it.
+/// A new class in one of these strings, or a changed string, fails the test in
+/// `every_context_element_is_a_context_hook`.
+const PROTECTED_CONTEXT_ELEMENTS: &[(&str, &str, &str)] = &[
+    ("modn-app", "ui/index.html", "class=\"modn-app\""),
+    ("modn-main", "ui/index.html", "class=\"modn-main\""),
+    (
+        "modn-view modn-details",
+        "ui/js/details.js",
+        "'modn-view modn-details'",
+    ),
+    (
+        "modn-details__ask",
+        "ui/js/details.js",
+        "'modn-details__ask'",
+    ),
+    (
+        "modn-view modn-library",
+        "ui/js/library.js",
+        "'modn-view modn-library'",
+    ),
+    (
+        "modn-library__ask",
+        "ui/js/library.js",
+        "'modn-library__ask'",
+    ),
+    ("modn-recent", "ui/js/library/recent.js", "'modn-recent'"),
+    (
+        "modn-recent__menu",
+        "ui/js/library/recent.js",
+        "'modn-recent__menu'",
+    ),
+    (
+        "modn-recent__entry",
+        "ui/js/library/recent.js",
+        "'modn-recent__entry'",
+    ),
+    (
+        "modn-recent__text",
+        "ui/js/library/recent.js",
+        "'modn-recent__text'",
+    ),
+];
+
+#[test]
+fn every_context_element_is_a_context_hook() {
+    let index = read("ui/index.html");
+    assert!(
+        index.contains("<main class=\"modn-main\" id=\"modn-view\""),
+        "the router mounts every view inside .modn-main"
+    );
+    assert!(
+        read("ui/js/app.js").contains("getElementById('modn-view')"),
+        "app.js mounts the active view into #modn-view"
+    );
+
+    let context = context_classes_in_code();
+    assert!(!context.is_empty(), "hooks.rs lists no context hook");
+    let mut missing = Vec::new();
+    for (classes, file, needle) in PROTECTED_CONTEXT_ELEMENTS {
+        let source = read(file);
+        if !source.contains(needle) {
+            missing.push(format!("{file} no longer builds {needle}"));
+            continue;
+        }
+        for class in classes.split(' ') {
+            let reserved = class.starts_with("modn-review") || class.starts_with("modn-approval");
+            if !reserved && !context.iter().any(|known| known == class) {
+                missing.push(format!(
+                    ".{class} in {file} holds a protected region but is not a context hook"
+                ));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "context hook problems ({}):\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+}

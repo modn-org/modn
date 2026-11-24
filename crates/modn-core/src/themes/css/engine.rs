@@ -3,6 +3,7 @@
 use super::facts::{DeclFacts, FontFaceFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts};
 use super::forbidden_var::{contains_var, forbids_var};
 use super::media::valid_media_query;
+use super::overlay::{moves_out_of_place, position_keeps_place, stacks_over};
 use super::props::is_allowed_property;
 use super::selector::{check_selector, SelectorInfo};
 use super::token_range;
@@ -158,12 +159,37 @@ impl Checker<'_> {
             );
         }
         if declaration.property == "position"
-            && declaration.value.trim().eq_ignore_ascii_case("fixed")
+            && !contains_var(&declaration.value)
+            && !position_keeps_place(&declaration.value)
         {
             self.push(
                 declaration.line,
                 Rule::ForbiddenPositionFixed,
-                "position: fixed is not allowed in a theme",
+                format!(
+                    "position: {} is not allowed in a theme; only static and relative keep an element in place",
+                    declaration.value.trim()
+                ),
+            );
+        }
+        if stacks_over(&declaration.property, &declaration.value) {
+            self.push(
+                declaration.line,
+                Rule::ForbiddenOverlay,
+                format!(
+                    "z-index: {} is not allowed in a theme; a theme element cannot stack over another element",
+                    declaration.value.trim()
+                ),
+            );
+        }
+        if moves_out_of_place(&declaration.property, &declaration.value) {
+            self.push(
+                declaration.line,
+                Rule::ForbiddenOverlay,
+                format!(
+                    "{}: {} moves an element out of its place; use a zero or positive literal length",
+                    declaration.property,
+                    declaration.value.trim()
+                ),
             );
         }
         if forbids_var(&declaration.property) && contains_var(&declaration.value) {
@@ -414,3 +440,7 @@ mod token_tests;
 #[cfg(test)]
 #[path = "engine_var_tests.rs"]
 mod var_tests;
+
+#[cfg(test)]
+#[path = "engine_overlay_tests.rs"]
+mod overlay_tests;

@@ -5,6 +5,7 @@ mod facts;
 mod forbidden_var;
 mod lightning;
 mod media;
+mod overlay;
 mod props;
 mod selector;
 mod token_range;

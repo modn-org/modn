@@ -128,11 +128,26 @@ fn forbidden_content_is_rejected() {
 
 #[test]
 fn forbidden_position_fixed_is_rejected() {
-    assert_single(
-        vec![style(".modn-rail", vec![decl("position", "fixed")])],
-        Rule::ForbiddenPositionFixed,
-    );
-    assert!(check(vec![style(".modn-rail", vec![decl("position", "sticky")])]).is_ok());
+    for value in [
+        "fixed",
+        "absolute",
+        "sticky",
+        "static-ish",
+        "var(--modn-position)",
+    ] {
+        let facts = vec![style(".modn-rail", vec![decl("position", value)])];
+        if value.starts_with("var(") {
+            assert_single(facts, Rule::ForbiddenVar);
+        } else {
+            assert_single(facts, Rule::ForbiddenPositionFixed);
+        }
+    }
+    assert!(check(vec![style(
+        ".modn-rail",
+        vec![decl("position", "relative")]
+    )])
+    .is_ok());
+    assert!(check(vec![style(".modn-rail", vec![decl("position", "static")])]).is_ok());
 }
 
 #[test]
@@ -253,6 +268,10 @@ fn documented_bad_examples_yield_exactly_their_rule() {
             vec![style(".modn-rail", vec![decl("position", "fixed")])],
         ),
         (
+            Rule::ForbiddenOverlay,
+            vec![style(".modn-toasts", vec![decl("z-index", "99")])],
+        ),
+        (
             Rule::ForbiddenImportant,
             vec![style(
                 ".modn-card",
@@ -307,7 +326,9 @@ fn documented_good_examples_are_accepted() {
             vec![decl("background-image", "url(assets/a.png)")],
         ),
         style(".modn-card", vec![decl("opacity", "0.9")]),
-        style(".modn-rail", vec![decl("position", "sticky")]),
+        style(".modn-rail", vec![decl("position", "relative")]),
+        style(".modn-rail", vec![decl("z-index", "0")]),
+        style(".modn-card", vec![decl("margin", "8px")]),
         style(".modn-card", vec![decl("color", "#ffffff")]),
         style(".modn-card", vec![decl("opacity", "0.8")]),
         style(".modn-app", vec![decl("--modn-color-primary", "#ffffff")]),

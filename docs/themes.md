@@ -164,9 +164,18 @@ The following are also not allowed: `animation*`, `transform*`, `filter`, `backd
 A custom property is allowed only when its name starts with `--modn-`.
 Any other custom property is `forbidden-custom-property`.
 
-These properties must use a literal value, not `var()`: `position`, `display`, `visibility`, `opacity`, `overflow`, `overflow-x`, `overflow-y`, `z-index`, `top`, `right`, `bottom`, `left`, `inset`, `inset-block`, `inset-inline`, `width`, `height`, `min-width`, `min-height`, `max-width`, `max-height`, `font-size` and `line-height`.
+These properties must use a literal value, not `var()`: `position`, `display`, `visibility`, `opacity`, `overflow`, `overflow-x`, `overflow-y`, `z-index`, `top`, `right`, `bottom`, `left`, `inset`, `inset-*`, `margin`, `margin-*`, `width`, `height`, `min-width`, `min-height`, `max-width`, `max-height`, `font-size` and `line-height`.
 A `var()` in one of them is `forbidden-var`.
 `var()` stays allowed in every other property, including colour properties and unrelated `--modn-*` values.
+
+An element stays inside its own place:
+`position` may be `static` or `relative` only;
+`z-index` may be `auto`, `0` or a negative integer;
+`top`, `right`, `bottom`, `left`, `inset`, `inset-*`, `margin` and `margin-*` take a zero or positive literal length, or `auto`.
+A `calc()` or another function in one of those offset and margin properties is refused, because the checker cannot prove that it stays in place.
+A `position` value outside that set is `forbidden-position-fixed`.
+A `z-index`, offset or margin value outside its set is `forbidden-overlay`.
+A positioned, stacked, offset or negatively margined element is another element, so a cascade layer cannot stop it from covering the install review or the approval prompt.
 
 ### Rule ids
 
@@ -180,7 +189,8 @@ It names the line when the validator knows it.
 | `remote-url` | A `url()` with a scheme, `//`, `data:` or a leading `/`. | `background-image: url("https://example.com/a.png");` | `background-image: url(assets/a.png);` |
 | `url-outside-assets` | A `url()` outside `assets/`, with a rejected extension, or with no file. | `background-image: url("../a.png");` | `background-image: url(assets/a.png);` |
 | `forbidden-content` | The `content` property. | `.modn-card { content: "new"; }` | `.modn-card { opacity: 0.9; }` |
-| `forbidden-position-fixed` | `position: fixed`. | `.modn-rail { position: fixed; }` | `.modn-rail { position: sticky; }` |
+| `forbidden-position-fixed` | A `position` value other than `static` and `relative`. | `.modn-rail { position: absolute; }` | `.modn-rail { position: relative; }` |
+| `forbidden-overlay` | A `z-index` above 0, a negative offset or margin, or a function in an offset or margin property. | `.modn-toasts { z-index: 99; }` | `.modn-toasts { z-index: 0; }` |
 | `forbidden-var` | A `var()` in a property that must use a literal value. | `.modn-rail { position: var(--modn-position, fixed); }` | `.modn-card { padding: var(--modn-space-m); }` |
 | `forbidden-important` | The `!important` flag. | `.modn-card { color: #ffffff !important; }` | `.modn-card { color: #ffffff; }` |
 | `unknown-property` | A property outside the allowlist. | `.modn-card { transform: scale(1.1); }` | `.modn-card { opacity: 0.8; }` |
@@ -545,6 +555,10 @@ A CSS effect on one of them reaches the region.
 | Class | Source | Relation |
 | --- | --- | --- |
 | `.modn-app` | `apps/modn-desktop/ui/index.html` | Ancestor of both regions |
+| `.modn-main` | `apps/modn-desktop/ui/index.html` | Ancestor of both regions |
+| `.modn-view` | `apps/modn-desktop/ui/js/details.js`, `apps/modn-desktop/ui/js/library.js` | Ancestor of both regions |
+| `.modn-details` | `apps/modn-desktop/ui/js/details.js` | Ancestor of the install review and the details approval host |
+| `.modn-library` | `apps/modn-desktop/ui/js/library.js` | Ancestor of the library approval hosts |
 | `.modn-details__ask` | `apps/modn-desktop/ui/js/details.js` | Approval host |
 | `.modn-library__ask` | `apps/modn-desktop/ui/js/library.js` | Approval host |
 | `.modn-recent` | `apps/modn-desktop/ui/js/library/recent.js` | Ancestor of the recent approval |
@@ -556,12 +570,19 @@ On these hooks a rule may declare only `color`, `background-color`, `border-colo
 It may also declare `--modn-*` custom properties.
 Any other declaration is the rule `protected-region`.
 So an ancestor or sibling hook may change colours and fonts only.
-`.modn-app { opacity: 0 }`, `.modn-recent__menu { overflow: hidden }` and `.modn-recent__entry { position: absolute }` are refused.
+`.modn-app { opacity: 0 }`, `.modn-main { opacity: 0 }`, `.modn-view { opacity: 0 }`, `.modn-details { visibility: hidden }`, `.modn-library { visibility: hidden }`, `.modn-recent__menu { overflow: hidden }` and `.modn-recent__entry { position: absolute }` are refused.
 
 The UI invariant is: every element inside a `[data-modn-protected]` subtree carries only protected hook classes.
 It carries no shared widget hook class.
 Therefore no selector made of shared hooks can reach it.
 Attribute selectors and context hooks can reach it, and the two lists above limit them.
+
+The checker cannot read what a decoration shows.
+A theme can still draw a fake prompt with `background-image` inside an element it may style.
+`box-shadow` and `outline` can also paint outside their own box.
+A zero or positive relative offset can still nudge an element in its flow.
+What the checker does stop is the reported overlay: `forbidden-position-fixed` and `forbidden-overlay` refuse every position except `static` and `relative`, every `z-index` above 0, and every negative offset or margin.
+It does not prove that a prompt is genuine.
 
 Destructive confirmations are native dialogs.
 The remove-game confirmation is the only one today.

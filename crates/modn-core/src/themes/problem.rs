@@ -24,8 +24,10 @@ pub enum Rule {
     UrlOutsideAssets,
     /// The `content` property.
     ForbiddenContent,
-    /// `position: fixed`.
+    /// A `position` value other than `static` and `relative`.
     ForbiddenPositionFixed,
+    /// A `z-index` above 0, or a negative or unknown offset or margin.
+    ForbiddenOverlay,
     /// A `var()` in a property that must use a literal value.
     ForbiddenVar,
     /// The `!important` flag.
@@ -85,6 +87,7 @@ impl Rule {
             Self::UrlOutsideAssets => "url-outside-assets",
             Self::ForbiddenContent => "forbidden-content",
             Self::ForbiddenPositionFixed => "forbidden-position-fixed",
+            Self::ForbiddenOverlay => "forbidden-overlay",
             Self::ForbiddenVar => "forbidden-var",
             Self::ForbiddenImportant => "forbidden-important",
             Self::UnknownProperty => "unknown-property",
