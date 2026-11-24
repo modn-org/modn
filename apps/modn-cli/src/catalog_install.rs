@@ -16,7 +16,8 @@ use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketSto
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
 use modn_core::planning::{
-    preview_install_zip_with_appdata, preview_install_zip_with_permissions, InstallPlan, PlanStatus,
+    preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
+    InstallPlan, PlanStatus,
 };
 use modn_core::transactions::{CatalogReference, NativeInjectorPolicy};
 use std::collections::{BTreeMap, BTreeSet};
@@ -358,9 +359,13 @@ fn install_mod(
     };
     let preview = |approved: &[String]| -> Result<InstallPlan> {
         let plan = match content_root_appdata(&game_id)? {
-            Some(appdata) => {
-                preview_install_zip_with_appdata(&game_id, &installation, archive, &appdata)?
-            }
+            Some(appdata) => preview_install_zip_with_appdata_permissions(
+                &game_id,
+                &installation,
+                archive,
+                approved,
+                &appdata,
+            )?,
             None => {
                 preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?
             }
