@@ -874,7 +874,7 @@ The controller applies no theme when `disabled` is set.
 A Theme control is reachable from the game screen.
 It shows the active theme name and its source label.
 It lists the themes for the active game and offers a variant selector.
-It offers a "Use default theme" button, which stores the explicit none choice.
+It offers a "Use default theme" button, which calls `select_theme` with `theme: null` and stores the explicit none choice.
 The game then keeps the default look, even when it has an official theme.
 It offers an Import button, which opens a folder picker.
 
