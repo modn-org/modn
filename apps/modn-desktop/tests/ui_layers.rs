@@ -63,9 +63,9 @@ fn strip_comments(css: &str) -> String {
 fn layer_body<'a>(css: &'a str, name: &str) -> &'a str {
     let trimmed = css.trim();
     let header = format!("@layer {name} {{");
-    let body = trimmed.strip_prefix(header.as_str()).unwrap_or_else(|| {
-        panic!("the stylesheet must start with `{header}`: {trimmed:.80}")
-    });
+    let body = trimmed
+        .strip_prefix(header.as_str())
+        .unwrap_or_else(|| panic!("the stylesheet must start with `{header}`: {trimmed:.80}"));
     let mut depth = 1usize;
     for (index, character) in body.char_indices() {
         match character {
@@ -134,7 +134,10 @@ fn rules(body: &str) -> Vec<Rule> {
                 let (property, value) = declaration
                     .split_once(':')
                     .unwrap_or_else(|| panic!("malformed declaration {declaration}"));
-                Some((property.trim().to_ascii_lowercase(), value.trim().to_string()))
+                Some((
+                    property.trim().to_ascii_lowercase(),
+                    value.trim().to_string(),
+                ))
             })
             .collect();
         rules.push(Rule {
@@ -194,9 +197,9 @@ fn app_body(css: &str, name: &str) -> String {
     let cleaned = strip_comments(css);
     let mut rest = cleaned.trim();
     if name == "tokens.css" {
-        rest = rest.strip_prefix(LAYER_ORDER).unwrap_or_else(|| {
-            panic!("tokens.css must start with `{LAYER_ORDER}`")
-        });
+        rest = rest
+            .strip_prefix(LAYER_ORDER)
+            .unwrap_or_else(|| panic!("tokens.css must start with `{LAYER_ORDER}`"));
         rest = rest.trim();
     }
     layer_body(rest, "app").to_string()
@@ -273,7 +276,10 @@ fn every_app_stylesheet_is_one_app_layer() {
 fn the_protected_stylesheet_is_one_protected_layer() {
     let cleaned = strip_comments(&stylesheet("protected.css"));
     let body = layer_body(&cleaned, "protected");
-    assert!(!body.contains("@layer "), "protected.css must not nest layers");
+    assert!(
+        !body.contains("@layer "),
+        "protected.css must not nest layers"
+    );
     assert!(!rules(body).is_empty(), "protected.css must hold rules");
 }
 
@@ -330,7 +336,12 @@ fn protected_stylesheet_covers_every_moved_hook() {
     let body = layer_body(&cleaned, "protected");
     let selectors: Vec<String> = rules(body)
         .into_iter()
-        .map(|rule| rule.selector.split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(|rule| {
+            rule.selector
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
         .collect();
     for required in [
         ".modn-review",
@@ -368,5 +379,8 @@ fn layer_files_stay_within_the_size_limit() {
         assert!(lines <= 500, "ui/css/{name} has {lines} lines");
     }
     let test = read("tests/ui_layers.rs");
-    assert!(test.lines().count() <= 500, "tests/ui_layers.rs is too long");
+    assert!(
+        test.lines().count() <= 500,
+        "tests/ui_layers.rs is too long"
+    );
 }
