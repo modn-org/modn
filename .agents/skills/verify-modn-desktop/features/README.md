@@ -11,10 +11,13 @@ evidence directory. A journey proves only the entry points it exercised.
   play, remove, details, undo and the catalog (journeys 1, 5, 9, 10 and 11).
 - [Approval policy](approval.md): the native-code and executable ask
   (journeys 7 and 12).
+- [Themes](themes.md): the Theme control, the official fallback, variants,
+  local and community themes, the broken-theme diagnostic and the
+  digest-mismatch fallback (journey 13).
 - [Process lifecycle](process.md): close refusal and CLI-output containment
   (journeys 4 and 8).
 
-`scripts/verify.py` runs the twelve journeys against the real CLI and the
+`scripts/verify.py` runs the thirteen journeys against the real CLI and the
 verification test backend. Run `verify.py --list` for the current order and
 names.
 

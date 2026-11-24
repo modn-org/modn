@@ -1,5 +1,6 @@
 /* Home: registered games, detected games, and the actions that change them. */
 
+@layer app {
 .modn-home__actions {
   position: relative;
   align-items: center;
@@ -172,4 +173,5 @@
 .modn-menu__item:focus-visible {
   outline: var(--modn-space-2xs) solid var(--modn-color-primary);
   outline-offset: var(--modn-space-2xs);
+}
 }

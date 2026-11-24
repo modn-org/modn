@@ -39,6 +39,7 @@ JOURNEYS = [
     (10, "remove", "journeys_remove:journey_remove"),
     (11, "catalog", "journeys_catalog:journey_catalog"),
     (12, "approval-content-root", "journeys_approval_root:journey_approval_content_root"),
+    (13, "themes", "journeys_themes:journey_themes"),
 ]
 
 

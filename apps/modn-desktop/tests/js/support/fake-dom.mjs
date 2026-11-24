@@ -25,6 +25,39 @@ export class FakeNode {
     this.value = '';
     this._text = '';
     this.style = { setProperty() {} };
+    const tokenList = () => this.className.split(/\s+/).filter(Boolean);
+    /** @type {{add: Function, remove: Function, toggle: Function, contains: Function}} */
+    this.classList = {
+      /** @param {...string} names */
+      add: (...names) => {
+        const tokens = tokenList();
+        for (const name of names) {
+          if (!tokens.includes(name)) {
+            tokens.push(name);
+          }
+        }
+        this.className = tokens.join(' ');
+      },
+      /** @param {...string} names */
+      remove: (...names) => {
+        this.className = tokenList()
+          .filter((token) => !names.includes(token))
+          .join(' ');
+      },
+      /** @param {string} name @param {boolean} [force] */
+      toggle: (name, force) => {
+        const present = tokenList().includes(name);
+        const wanted = force === undefined ? !present : force;
+        if (wanted) {
+          this.classList.add(name);
+        } else {
+          this.classList.remove(name);
+        }
+        return wanted;
+      },
+      /** @param {string} name */
+      contains: (name) => tokenList().includes(name),
+    };
   }
 
   get id() {
@@ -142,6 +175,18 @@ export class FakeNode {
     this.listeners.set(type, list.filter((entry) => entry !== listener));
   }
 
+  focus() {
+    if (globalThis.document) {
+      globalThis.document.activeElement = this;
+    }
+  }
+
+  blur() {
+    if (globalThis.document && globalThis.document.activeElement === this) {
+      globalThis.document.activeElement = globalThis.document.body;
+    }
+  }
+
   click() {
     if (this.disabled) {
       return;
@@ -193,6 +238,7 @@ export function installDom() {
   const body = new FakeNode('body');
   const document = {
     body,
+    activeElement: body,
     /** @param {string} tag */
     createElement(tag) {
       return new FakeNode(tag);

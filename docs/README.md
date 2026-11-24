@@ -38,6 +38,9 @@ shipped behavior.
   archive and ownership concepts.
 - [`data-model.md`](data-model.md): entities, trust, selection and ownership
   boundaries, and their mapping to persistence.
+- [`themes.md`](themes.md): Theme API v1 contract: theme folders, `theme.json`,
+  CSS rules, protected regions, variants, sources, selection and the
+  `modn theme` commands.
 - [`game-modules.md`](game-modules.md): Lua game modules, module releases,
   pin, update and rollback, trusted sources, `modn module check`, host API
   version 3 only with older modules refused, and development overrides.

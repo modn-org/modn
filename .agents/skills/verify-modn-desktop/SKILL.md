@@ -1,6 +1,6 @@
 ---
 name: verify-modn-desktop
-description: "Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z."
+description: "Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z, and theme selection and fallback."
 ---
 
 # Verify Modn Desktop
@@ -87,6 +87,7 @@ Each result carries the same `evidence` paths as a list.
 | 10 | `remove` | `Remove from Modn` opens the native Yes/No dialog; `No` keeps the registration and `Yes` unregisters it | `modn game list` lists and then omits `balatro` | the game folder is unchanged after both answers |
 | 11 | `catalog` | a catalog install, an update to `Update available`, a toast undo and a genuine 7z install and uninstall each take one click | CLI lists version 1.0.0, then 2.0.0, then 1.0.0 | installed bytes match each release; undo and uninstall restore the earlier bytes |
 | 12 | `approval-content-root` | an executable mod for the content-root game asks with `Allow these executables:` and `RootPack/tools/helper.exe`; `Decline` writes nothing; `Allow` installs; the stored approval suppresses the next ask | `state.sqlite` table `mod_approvals` stores one executable approval for the mod; CLI lists the version | the ask and `Decline` change no game or content bytes; `Allow` writes the archive bytes into the content root |
+| 13 | `themes` | the Theme control shows the official fallback, applies the `bold` variant, a local theme and a community theme, lists the broken-theme diagnostic and falls back after a digest mismatch; `Use default theme` restores the base height | `theme list` shows official, local and bucket sources; `theme resolve` reports `bold` and `selected`, then `theme: null`; `theme check` refuses the protected theme | fixture theme heights order the button through UI Automation |
 
 Journey 7 proves the policy of issue #152. A native-code or executable mod asks
 once per mod. A new release that adds native code asks again.

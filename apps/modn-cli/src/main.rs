@@ -29,11 +29,12 @@ mod provider_fixture_tests;
 mod selection;
 mod stack_install;
 mod state_access;
+mod themes;
 mod undo;
 mod update;
 mod update_refresh;
 mod update_report;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use commands::{Cli, Command};
 use modn_core::archive::inspect;
@@ -55,6 +56,14 @@ fn run(mut cli: Cli, progress: &Progress) -> Result<()> {
     }
     if let Command::Catalog { command } = &cli.command {
         return catalog::run(command, cli.json);
+    }
+    if let Command::Theme { command } = &cli.command {
+        return themes::run(
+            command,
+            cli.state_dir.as_deref(),
+            cli.game_id.as_deref(),
+            cli.json,
+        );
     }
     prepare_nxm(&mut cli.command)?;
     let state_path = database_path(cli.state_dir.as_deref())?;
@@ -117,6 +126,7 @@ fn run_cli(cli: Cli, state_path: &Path, progress: &Progress) -> Result<()> {
         Command::Scan { path } => inventory::scan(path, state_path, requested, json),
         Command::Doctor { path } => inventory::doctor(path, state_path, requested, json),
         Command::Catalog { command } => catalog::run(&command, json),
+        Command::Theme { .. } => bail!("theme commands run before manager state is opened"),
     }
 }
 
@@ -149,6 +159,7 @@ fn default_code(command: &Command) -> ErrorCode {
         Command::Cache { .. } => ErrorCode::CacheFailed,
         Command::Bucket { .. } => ErrorCode::BucketFailed,
         Command::Catalog { .. } => ErrorCode::BucketFailed,
+        Command::Theme { .. } => ErrorCode::InvalidArguments,
         Command::List { .. } => ErrorCode::ListFailed,
         Command::History => ErrorCode::HistoryFailed,
         Command::Uninstall(_) => ErrorCode::UninstallFailed,

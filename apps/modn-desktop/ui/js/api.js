@@ -307,6 +307,65 @@ export async function copyDiagnostics() {
 }
 
 /**
+ * Themes registered or published for one game.
+ * @param {string} [game] game id; omit to list every game.
+ * @returns {Promise<{themes: Object[], diagnostics: Object[]}>}
+ */
+export async function listThemes(game) {
+  return invoke('list_themes', { game });
+}
+
+/**
+ * Resolves the theme to apply and stores the directory its assets come from.
+ * @param {string} game
+ * @returns {Promise<Object>} resolve answer with `asset_base`; `assets_dir`
+ *   never reaches the webview.
+ */
+export async function resolveTheme(game) {
+  return invoke('resolve_theme', { game });
+}
+
+/**
+ * Stores one theme selection. `theme: null` stores the explicit no-theme
+ * choice, so the game keeps the default look.
+ * @param {string} game
+ * @param {string|null} theme
+ * @param {string} [variant]
+ * @returns {Promise<{selected: {game: string, theme: string|null,
+ *   variant: string|null}}>}
+ */
+export async function selectTheme(game, theme, variant) {
+  return invoke('select_theme', { game, theme: theme ?? null, variant });
+}
+
+/**
+ * Stores the explicit no-theme choice for one game.
+ * @param {string} game
+ * @returns {Promise<{selected: {game: string, theme: null}}>}
+ */
+export async function selectNoTheme(game) {
+  return selectTheme(game, null);
+}
+
+/**
+ * Clears one game's theme selection, or every selection.
+ * @param {string} [game]
+ * @returns {Promise<{reset: string[]}>}
+ */
+export async function resetTheme(game) {
+  return invoke('reset_theme', { game });
+}
+
+/**
+ * Opens a native folder picker, then registers the chosen theme folder.
+ * @returns {Promise<Object|{cancelled: true}>} the register answer, or a
+ *   cancel result when the picker closes.
+ */
+export async function importTheme() {
+  return invoke('import_theme', {});
+}
+
+/**
  * Request cancellation of a run. Later task.
  * @param {{runId: string}} args @returns {Promise<void>}
  */

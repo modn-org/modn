@@ -1,3 +1,4 @@
+@layer app {
 *,
 *::before,
 *::after {
@@ -58,10 +59,15 @@ a {
 .modn-app {
   display: grid;
   grid-template-columns: calc(var(--modn-space-4xl) + var(--modn-space-3xl)) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "rail shell"
+    "rail main";
   min-height: 100%;
 }
 
 .modn-rail {
+  grid-area: rail;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -88,6 +94,7 @@ a {
 }
 
 .modn-main {
+  grid-area: main;
   padding: var(--modn-space-3xl);
   outline: none;
 }
@@ -125,6 +132,13 @@ a {
   flex-direction: column;
   gap: var(--modn-space-m);
   padding: var(--modn-space-xl);
+  border: 1px solid var(--modn-color-border);
+  border-radius: var(--modn-radius-m);
+  background: var(--modn-color-surface-raised);
+}
+
+.modn-review {
+  flex-direction: column;
   border: 1px solid var(--modn-color-border);
   border-radius: var(--modn-radius-m);
   background: var(--modn-color-surface-raised);
@@ -292,4 +306,5 @@ a {
   display: flex;
   flex-direction: column;
   gap: var(--modn-space-s);
+}
 }

@@ -24,35 +24,36 @@ function line(className, text) {
 export function renderAsk(host, permissions, onAllow, onDecline) {
   host.replaceChildren();
   const ask = document.createElement('div');
-  ask.className = 'modn-ask';
+  ask.className = 'modn-approval';
+  ask.setAttribute('data-modn-protected', 'approval');
   ask.setAttribute('role', 'group');
   ask.setAttribute('aria-label', 'Approval request');
-  ask.append(line('modn-ask__question', 'This change needs your approval.'));
+  ask.append(line('modn-approval__question', 'This change needs your approval.'));
   if (permissions.native) {
-    ask.append(line('modn-ask__question', 'Allow native code through the native injector.'));
+    ask.append(line('modn-approval__question', 'Allow native code through the native injector.'));
   }
   if (permissions.executables.length > 0) {
-    ask.append(line('modn-ask__question', 'Allow these executables:'));
+    ask.append(line('modn-approval__question', 'Allow these executables:'));
     const list = document.createElement('ul');
-    list.className = 'modn-ask__list';
+    list.className = 'modn-approval__list';
     for (const path of permissions.executables) {
       const item = document.createElement('li');
-      item.className = 'modn-ask__path';
+      item.className = 'modn-approval__path';
       item.textContent = path;
       list.append(item);
     }
     ask.append(list);
   }
   const actions = document.createElement('div');
-  actions.className = 'modn-ask__actions';
+  actions.className = 'modn-approval__actions';
   const allow = document.createElement('button');
   allow.type = 'button';
-  allow.className = 'modn-button';
+  allow.className = 'modn-approval__button';
   allow.textContent = 'Allow';
   allow.dataset.testid = 'ask-allow';
   const decline = document.createElement('button');
   decline.type = 'button';
-  decline.className = 'modn-button modn-button--quiet';
+  decline.className = 'modn-approval__button modn-approval__button--quiet';
   decline.textContent = 'Decline';
   decline.dataset.testid = 'ask-decline';
   allow.addEventListener('click', () => {

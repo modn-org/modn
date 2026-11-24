@@ -1,6 +1,7 @@
 use crate::backend::{Backend, CancelToken};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::error::CommandError;
@@ -9,14 +10,20 @@ use super::error::CommandError;
 /// process started with invalid arguments; a native dialog reports that case.
 pub(crate) struct AppState {
     backend: Option<Backend>,
+    default_theme: bool,
+    themes: Mutex<ThemeAssets>,
+    theme_ticket: AtomicU64,
     pub(crate) busy: Arc<Busy>,
     pub(crate) runs: Arc<Runs>,
 }
 
 impl AppState {
-    pub(crate) fn new(backend: Option<Backend>) -> Self {
+    pub(crate) fn new(backend: Option<Backend>, default_theme: bool) -> Self {
         Self {
             backend,
+            default_theme,
+            themes: Mutex::new(ThemeAssets::default()),
+            theme_ticket: AtomicU64::new(0),
             busy: Arc::new(Busy::default()),
             runs: Arc::new(Runs::default()),
         }
@@ -27,6 +34,58 @@ impl AppState {
             .clone()
             .ok_or_else(CommandError::backend_failed)
     }
+
+    /// Whether the process started with `--default-theme`.
+    pub(crate) fn default_theme(&self) -> bool {
+        self.default_theme
+    }
+
+    /// Takes the next theme request ticket. Later tickets supersede earlier ones.
+    ///
+    /// The latest ticket is recorded under the lock that publishes the root, so
+    /// a ticket and the root it authorises can never interleave with another
+    /// request. The atomic counter keeps tickets unique if the lock is poisoned.
+    pub(crate) fn next_theme_ticket(&self) -> u64 {
+        let Ok(mut assets) = self.themes.lock() else {
+            return self.theme_ticket.fetch_add(1, Ordering::SeqCst) + 1;
+        };
+        let ticket = self.theme_ticket.fetch_add(1, Ordering::SeqCst) + 1;
+        assets.latest_ticket = ticket;
+        ticket
+    }
+
+    /// Replaces the root the `modn-theme` protocol serves when `ticket` is the
+    /// latest theme request.
+    ///
+    /// The comparison and the store happen under one lock, so a superseded
+    /// `resolve_theme` can never publish its root or clear a newer one. The
+    /// answer reports whether the caller was still the latest.
+    pub(crate) fn store_theme_root_if_latest(&self, ticket: u64, root: Option<PathBuf>) -> bool {
+        let Ok(mut assets) = self.themes.lock() else {
+            return false;
+        };
+        if assets.latest_ticket != ticket {
+            return false;
+        }
+        assets.root = root;
+        true
+    }
+
+    /// The root the protocol may read, or `None` when the default theme is
+    /// active or no theme has resolved yet.
+    pub(crate) fn theme_root(&self) -> Option<PathBuf> {
+        self.themes
+            .lock()
+            .ok()
+            .and_then(|assets| assets.root.clone())
+    }
+}
+
+/// The only directory the `modn-theme` protocol may serve from.
+#[derive(Default)]
+pub(crate) struct ThemeAssets {
+    pub(crate) root: Option<PathBuf>,
+    latest_ticket: u64,
 }
 
 /// Counts backend calls. The close handler reads it synchronously to veto a
@@ -133,7 +192,7 @@ impl Drop for RunGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{Busy, Runs};
+    use super::{AppState, Busy, Runs};
     use std::sync::Arc;
 
     #[test]
@@ -192,5 +251,51 @@ mod tests {
         assert!(second.token().is_cancelled());
         drop(second);
         assert!(!runs.cancel("run-1"));
+    }
+
+    #[test]
+    fn the_latest_ticket_stores_replaces_and_clears_the_theme_root() {
+        let state = AppState::new(None, false);
+        assert!(state.theme_root().is_none());
+        let first = std::env::temp_dir().join("modn-desktop-themed-first");
+        let second = std::env::temp_dir().join("modn-desktop-themed-second");
+        let ticket = state.next_theme_ticket();
+        assert!(state.store_theme_root_if_latest(ticket, Some(first.clone())));
+        assert_eq!(state.theme_root(), Some(first));
+        let ticket = state.next_theme_ticket();
+        assert!(state.store_theme_root_if_latest(ticket, Some(second.clone())));
+        assert_eq!(state.theme_root(), Some(second));
+        let ticket = state.next_theme_ticket();
+        assert!(state.store_theme_root_if_latest(ticket, None));
+        assert!(state.theme_root().is_none());
+    }
+
+    #[test]
+    fn an_older_ticket_finishing_last_leaves_the_newer_root() {
+        let state = AppState::new(None, false);
+        let older = state.next_theme_ticket();
+        let newer = state.next_theme_ticket();
+        let older_root = std::env::temp_dir().join("modn-desktop-themed-older");
+        let newer_root = std::env::temp_dir().join("modn-desktop-themed-newer");
+        assert!(state.store_theme_root_if_latest(newer, Some(newer_root.clone())));
+        assert!(!state.store_theme_root_if_latest(older, Some(older_root)));
+        assert_eq!(state.theme_root(), Some(newer_root));
+    }
+
+    #[test]
+    fn a_superseded_failure_does_not_clear_the_newer_root() {
+        let state = AppState::new(None, false);
+        let older = state.next_theme_ticket();
+        let newer = state.next_theme_ticket();
+        let newer_root = std::env::temp_dir().join("modn-desktop-themed-newer");
+        assert!(state.store_theme_root_if_latest(newer, Some(newer_root.clone())));
+        assert!(!state.store_theme_root_if_latest(older, None));
+        assert_eq!(state.theme_root(), Some(newer_root));
+    }
+
+    #[test]
+    fn the_default_theme_flag_is_read_from_the_state() {
+        assert!(AppState::new(None, true).default_theme());
+        assert!(!AppState::new(None, false).default_theme());
     }
 }

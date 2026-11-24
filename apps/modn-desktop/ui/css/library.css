@@ -1,3 +1,4 @@
+@layer app {
 .modn-library {
   gap: var(--modn-space-xl);
 }
@@ -215,40 +216,61 @@
   transition: width 120ms linear;
 }
 
-.modn-ask {
-  display: flex;
+.modn-approval {
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--modn-space-s);
   text-align: left;
 }
 
-.modn-ask__question {
+.modn-approval__question {
   color: var(--modn-color-text);
-  font-size: var(--modn-font-size-body-s);
-  line-height: var(--modn-font-line-body-s);
 }
 
-.modn-ask__list {
-  display: flex;
+.modn-approval__list {
   flex-direction: column;
-  gap: var(--modn-space-2xs);
-  margin: 0;
-  padding-left: var(--modn-space-l);
   list-style: disc;
 }
 
-.modn-ask__path {
+.modn-approval__path {
   color: var(--modn-color-text);
-  font-size: var(--modn-font-size-body-s);
-  line-height: var(--modn-font-line-body-s);
   overflow-wrap: anywhere;
 }
 
-.modn-ask__actions {
-  display: flex;
+.modn-approval__actions {
   flex-wrap: wrap;
-  gap: var(--modn-space-s);
+}
+
+.modn-approval__button {
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--modn-radius-s);
+  background: var(--modn-color-primary);
+  color: var(--modn-color-on-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.modn-approval__button:hover {
+  background: var(--modn-color-primary-hover);
+}
+
+.modn-approval__button:focus-visible {
+  outline: var(--modn-space-2xs) solid var(--modn-color-primary);
+  outline-offset: var(--modn-space-2xs);
+}
+
+.modn-approval__button:disabled {
+  cursor: default;
+}
+
+.modn-approval__button--quiet {
+  background: transparent;
+  color: var(--modn-color-primary);
+}
+
+.modn-approval__button--quiet:hover {
+  background: var(--modn-color-surface-raised);
 }
 
 .modn-recent {
@@ -286,4 +308,5 @@
   color: var(--modn-color-text);
   font-size: var(--modn-font-size-label-m);
   line-height: var(--modn-font-line-label-m);
+}
 }

@@ -15,6 +15,7 @@ Read these documents before substantive changes:
 2. [docs/vision.md](docs/vision.md)  - approved bucket-first product direction and where planned work is tracked.
 3. [docs/glossary.md](docs/glossary.md)  - canonical names for bucket, module, mod, archive and ownership concepts.
 4. [docs/data-model.md](docs/data-model.md)  - conceptual entities, trust/selection/ownership boundaries and mapping to existing persistence.
+5. [docs/themes.md](docs/themes.md)  - Theme API v1 contract: theme folder `themes/<game-id>/<theme-id>/`, CSS rules, stable hooks and protected regions; read it before you change themes, the desktop UI hooks or `crates/modn-core/src/themes/`.
 
 Keep [README.md](README.md) short: what Modn does, installation, a quick start and a link to `docs/`. Put shipped-behavior detail in the matching `docs/` page, in the same change as the code.
 
@@ -51,6 +52,7 @@ follow `.agents/skills/design-modn/SKILL.md`.
 - Use `Option` for expected absence, `Result` for recoverable errors, and `expect("invariant")` rather than `unwrap()` when a true programmer invariant must be asserted. Never panic for ordinary malformed mod input or recoverable filesystem failures.
 - Keep game-agnostic functionality in the core and game-specific behavior in game modules. Keep host APIs focused on stable capabilities, not implementation details; use Lua 5.4 via mlua, keeping game policy outside Rust.
 - Preserve transactional installation, ownership tracking, rollback, and recovery guarantees. Do not make code prettier at the cost of recoverability.
+- The stable hook tables in [docs/themes.md](docs/themes.md) and `crates/modn-core/src/themes/hooks.rs` change together; a test compares them. Theme CSS is low-trust content that Rust validates, and the desktop never validates or trusts it.
 - Public libraries should apply Google's additional API/documentation guidelines; application-only code can prefer directness over general-purpose abstractions.
 - Keep source files at or below 500 lines when creating or modifying them; split an existing oversized file before making substantive changes to it.
 - Use `#[expect(clippy::lint_name, reason = "...")]` for a justified local exception rather than broadly disabling a lint.

@@ -2,9 +2,38 @@ import * as details from './details.js';
 import * as home from './home.js';
 import * as library from './library.js';
 import { showToast } from './toast.js';
+import { clearTheme, loadThemeForGame } from './theme/controller.js';
+import { createThemePanel } from './theme/panel.js';
 
 const mount = document.getElementById('modn-view');
+const themePanel = createThemePanel(document.getElementById('modn-theme-host'));
 let navigation = 0;
+let activeGame;
+
+/**
+ * Points the theme control at the active game and loads its theme without
+ * blocking the route. A later game change makes the earlier answer stale, and
+ * the controller and this check both drop it.
+ * @param {string|null} gameId
+ */
+function applyThemeFor(gameId) {
+  if (gameId === activeGame) {
+    return;
+  }
+  activeGame = gameId;
+  themePanel.setGame(gameId);
+  if (gameId === null) {
+    clearTheme();
+    themePanel.setTheme({ applied: false });
+    return;
+  }
+  void loadThemeForGame(gameId).then((result) => {
+    if (gameId !== activeGame) {
+      return;
+    }
+    themePanel.setTheme(result);
+  });
+}
 
 function parseRoute() {
   const raw = window.location.hash.replace(/^#/, '') || '/';
@@ -30,6 +59,7 @@ function parseRoute() {
 async function renderRoute() {
   const { module, ctx } = parseRoute();
   const current = ++navigation;
+  applyThemeFor(ctx.gameId || null);
   // Each navigation owns a fresh container. A late view keeps writing into
   // its detached container, so it cannot replace the screen on display.
   const container = document.createElement('div');
@@ -61,4 +91,5 @@ window.addEventListener('hashchange', () => {
   void renderRoute();
 });
 
+applyThemeFor(null);
 void renderRoute();

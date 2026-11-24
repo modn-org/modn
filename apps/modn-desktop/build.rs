@@ -22,6 +22,11 @@ const COMMANDS: &[&str] = &[
     "diagnostics",
     "copy_diagnostics",
     "cancel_run",
+    "list_themes",
+    "resolve_theme",
+    "select_theme",
+    "reset_theme",
+    "import_theme",
 ];
 
 #[cfg(windows)]

@@ -1,3 +1,4 @@
+@layer app {
 .modn-details {
   gap: var(--modn-space-xl);
 }
@@ -53,76 +54,63 @@
   line-height: var(--modn-font-line-heading-s);
 }
 
-.modn-details__plan {
-  gap: var(--modn-space-2xs);
-}
-
-.modn-details__summary {
+.modn-review__summary {
   color: var(--modn-color-text);
-  font-family: var(--modn-font-heading), Georgia, serif;
-  font-size: var(--modn-font-size-heading-m);
-  line-height: var(--modn-font-line-heading-m);
   cursor: pointer;
 }
 
-.modn-details__summary:focus-visible {
+.modn-review__summary:focus-visible {
   outline: var(--modn-space-2xs) solid var(--modn-color-primary);
   outline-offset: var(--modn-space-2xs);
 }
 
-.modn-details__plan[open] .modn-details__summary {
-  margin-bottom: var(--modn-space-m);
-}
-
-.modn-details__body {
-  display: flex;
+.modn-review__body {
   flex-direction: column;
-  gap: var(--modn-space-s);
 }
 
-.modn-details__approval {
+.modn-review__approval {
   color: var(--modn-color-text-muted);
 }
 
-.modn-plan {
-  display: flex;
-  flex-direction: column;
-  gap: var(--modn-space-xs);
+.modn-review__muted {
+  color: var(--modn-color-text-muted);
 }
 
-.modn-plan__row {
-  display: flex;
+.modn-review__status {
+  color: var(--modn-color-text-muted);
+}
+
+.modn-review__status--error {
+  color: var(--modn-color-danger);
+}
+
+.modn-review__list {
+  flex-direction: column;
+}
+
+.modn-review__row {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--modn-space-s);
-  padding: var(--modn-space-xs) var(--modn-space-s);
   border-radius: var(--modn-radius-s);
   background: var(--modn-color-surface);
 }
 
-.modn-plan__path {
+.modn-review__path {
   color: var(--modn-color-text);
-  font-size: var(--modn-font-size-body-s);
-  line-height: var(--modn-font-line-body-s);
   overflow-wrap: anywhere;
 }
 
-.modn-plan__tag {
+.modn-review__tag {
   color: var(--modn-color-text-muted);
-  font-size: var(--modn-font-size-label-s);
-  line-height: var(--modn-font-line-label-s);
 }
 
-.modn-plan__row[data-operation="remove"] .modn-plan__tag {
+.modn-review__row[data-operation="remove"] .modn-review__tag {
   color: var(--modn-color-danger);
 }
 
-.modn-plan__blocker {
-  padding: var(--modn-space-xs) var(--modn-space-s);
+.modn-review__blocker {
   color: var(--modn-color-danger);
-  font-size: var(--modn-font-size-body-s);
-  line-height: var(--modn-font-line-body-s);
 }
 
 .modn-history {
@@ -144,4 +132,5 @@
 .modn-details__footer {
   display: flex;
   justify-content: flex-start;
+}
 }
