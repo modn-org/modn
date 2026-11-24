@@ -160,9 +160,8 @@ A checksum match alone is not a publisher authenticity guarantee.
 ## Theme entities
 
 Theme data lives in the Modn data directory under `themes/`: `registry/` holds
-registered theme copies, `selection/` holds selection records, and
-`themes.lock` guards both. Themes never take part in install ownership or
-rollback.
+registered theme copies, `selection/` holds selection records, and `themes.lock`
+is the lock file. Themes never take part in install ownership or rollback.
 
 ### Theme
 
