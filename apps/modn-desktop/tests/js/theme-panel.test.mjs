@@ -31,7 +31,7 @@ function themes() {
 }
 
 /** Installs a fake document and builds one control with stubs. */
-function setup({ listThemes, selectAndApply, resetAndApply, importAndRefresh } = {}) {
+function setup({ listThemes, selectAndApply, selectNoneAndApply, importAndRefresh } = {}) {
   installDom();
   const host = document.createElement('div');
   document.body.append(host);
@@ -54,10 +54,10 @@ function setup({ listThemes, selectAndApply, resetAndApply, importAndRefresh } =
         calls.push(['select', game, theme, variant]);
         return { applied: true, name: theme, source: { label: 'local registry' }, variant };
       }),
-    resetAndApply:
-      resetAndApply ||
+    selectNoneAndApply:
+      selectNoneAndApply ||
       (async (game) => {
-        calls.push(['reset', game]);
+        calls.push(['none', game]);
         return { applied: false };
       }),
     importAndRefresh:
@@ -167,14 +167,36 @@ test('Use theme sends the chosen theme and variant', async () => {
   assert.equal(calls.filter((call) => call[0] === 'list').length, 2);
 });
 
-test('Use default theme resets and reloads the list', async () => {
+test('Use default theme selects the explicit default and reloads the list', async () => {
   const { control, trigger, panel, calls } = setup();
   control.setGame('fixture');
   await open(control, trigger);
   findByTestId(panel, 'theme-reset').click();
   await flush();
-  assert.ok(calls.some((call) => call.join('|') === 'reset|fixture'));
+  assert.ok(calls.some((call) => call.join('|') === 'none|fixture'));
+  assert.equal(calls.filter((call) => call[0] === 'reset').length, 0);
   assert.equal(calls.filter((call) => call[0] === 'list').length, 2);
+});
+
+test('Use default theme shows no chosen theme after the reload', async () => {
+  let lists = 0;
+  const { control, trigger, panel } = setup({
+    listThemes: async () => {
+      lists += 1;
+      const entries = themes();
+      return {
+        themes: lists === 1 ? entries : entries.map((theme) => ({ ...theme, selected: false })),
+        diagnostics: [],
+      };
+    },
+  });
+  control.setGame('fixture');
+  await open(control, trigger);
+  assert.equal(findAllByClass(panel, 'modn-theme-pick--chosen').length, 1);
+  findByTestId(panel, 'theme-reset').click();
+  await flush();
+  assert.equal(findAllByClass(panel, 'modn-theme-pick--chosen').length, 0);
+  assert.match(panel.textContent, /Default theme/);
 });
 
 test('Import theme reloads the list after a registration', async () => {

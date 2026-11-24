@@ -326,15 +326,25 @@ export async function resolveTheme(game) {
 }
 
 /**
- * Stores one theme selection.
+ * Stores one theme selection. `theme: null` stores the explicit no-theme
+ * choice, so the game keeps the default look.
  * @param {string} game
- * @param {string} theme
+ * @param {string|null} theme
  * @param {string} [variant]
- * @returns {Promise<{selected: {game: string, theme: string,
+ * @returns {Promise<{selected: {game: string, theme: string|null,
  *   variant: string|null}}>}
  */
 export async function selectTheme(game, theme, variant) {
-  return invoke('select_theme', { game, theme, variant });
+  return invoke('select_theme', { game, theme: theme ?? null, variant });
+}
+
+/**
+ * Stores the explicit no-theme choice for one game.
+ * @param {string} game
+ * @returns {Promise<{selected: {game: string, theme: null}}>}
+ */
+export async function selectNoTheme(game) {
+  return selectTheme(game, null);
 }
 
 /**
