@@ -13,7 +13,7 @@ use modn_core::buckets::{BucketPackage, BucketSnapshot, PackageSource};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
 use modn_core::planning::{
-    preview_install_zip_with_appdata, preview_install_zip_with_permissions, PlanStatus,
+    preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions, PlanStatus,
 };
 use modn_core::transactions::{NativeInjectorPolicy, StackMember};
 use std::collections::{BTreeMap, BTreeSet};
@@ -257,10 +257,11 @@ pub(super) fn run(
         store.install_catalog_stack(&stack.installation, &members, policy, |member| {
             let reference = member.release.reference.to_string();
             let plan = match content_root_appdata(&stack.game_id)? {
-                Some(appdata) => preview_install_zip_with_appdata(
+                Some(appdata) => preview_install_zip_with_appdata_permissions(
                     &stack.game_id,
                     &stack.installation,
                     &member.archive,
+                    &member.approved_executables,
                     &appdata,
                 )?,
                 None => preview_install_zip_with_permissions(

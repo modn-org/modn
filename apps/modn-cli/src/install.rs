@@ -6,7 +6,9 @@ use crate::state_access::{InstallationAccess, ManagerState};
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::PackageSource;
 use modn_core::history::{HistoryContext, StandalonePackage};
-use modn_core::planning::{preview_install_zip_with_appdata, preview_install_zip_with_permissions};
+use modn_core::planning::{
+    preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
+};
 use std::path::{Path, PathBuf};
 
 fn is_standalone_archive(args: &InstallArgs) -> bool {
@@ -68,7 +70,13 @@ fn install_archive(
     let game = selected.root;
     let archive = PathBuf::from(&args.target);
     let report = match content_root_appdata(&game_id)? {
-        Some(appdata) => preview_install_zip_with_appdata(&game_id, &game, &archive, &appdata)?,
+        Some(appdata) => preview_install_zip_with_appdata_permissions(
+            &game_id,
+            &game,
+            &archive,
+            &args.allow_executable,
+            &appdata,
+        )?,
         None => {
             preview_install_zip_with_permissions(&game_id, &game, &archive, &args.allow_executable)?
         }

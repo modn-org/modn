@@ -86,10 +86,14 @@ Each result carries the same `evidence` paths as a list.
 | 9 | `play` | `Play balatro` starts the fixture executable; details show history; one UI Automation activation of `Copy diagnostics` shows `Diagnostics copied.` and the report file holds the doctor report. Under `verification` the Rust command writes the file named by `MODN_VERIFY_CLIPBOARD_FILE`, so the activation needs no focused webview and works while another app holds the foreground, and an error toast fails the journey. The journey deletes the file first and never reads or writes the system clipboard. | the started process id is found by image path and stopped | the game folder is unchanged |
 | 10 | `remove` | `Remove from Modn` opens the native Yes/No dialog; `No` keeps the registration and `Yes` unregisters it | `modn game list` lists and then omits `balatro` | the game folder is unchanged after both answers |
 | 11 | `catalog` | a catalog install, an update to `Update available`, a toast undo and a genuine 7z install and uninstall each take one click | CLI lists version 1.0.0, then 2.0.0, then 1.0.0 | installed bytes match each release; undo and uninstall restore the earlier bytes |
+| 12 | `approval-content-root` | an executable mod for the content-root game asks with `Allow these executables:` and `RootPack/tools/helper.exe`; `Decline` writes nothing; `Allow` installs; the stored approval suppresses the next ask | `state.sqlite` table `mod_approvals` stores one executable approval for the mod; CLI lists the version | the ask and `Decline` change no game or content bytes; `Allow` writes the archive bytes into the content root |
 
 Journey 7 proves the policy of issue #152. A native-code or executable mod asks
 once per mod. A new release that adds native code asks again.
 Adoption and forced cleanup are not offered by the app.
+Journey 12 proves the executable ask on the content-root Balatro fixture, where
+the release writes into `appdata/Balatro/Mods` and the approval lives in
+manager state. Journey 7 keeps the native-code and tools-game cases.
 Journey 6 proves that a blocked plan shows its reason and never asks.
 
 Journeys 1, 2, 3 and 8 cover the Milestone 6 exit gate: detection at
@@ -162,9 +166,10 @@ The verifier proves the window and the listed operations on disposable
 fixtures. It does not cover a real game, Windows 10 hardware or a real store
 client.
 
-The CLI preview ignores explicit executable approvals for a content-root game
-(`apps/modn-cli/src/catalog_install.rs:328-331`, `install.rs:70-72`). The
-executable ask therefore runs on the `tools-game` fixture.
+The verifier drives approvals through the desktop window. Journey 7 covers the
+native-code and tools-game executable cases; journey 12 covers the executable
+case for the content-root game. CLI-only approval flags are outside this
+skill.
 
 The [MCP verifier](../verify-modn-mcp/SKILL.md) covers progress notifications
 and cancellation separately. See [desktop.md](../../../docs/desktop.md) for
