@@ -845,7 +845,10 @@ The variant sheet is omitted when the theme has no selected variant.
 
 A load error removes the theme sheets and shows the default theme.
 A load error is a command error, invalid CSS or a `replaceSync` throw.
-The app also shows a diagnostic toast that names the rule.
+A failed resolve removes the previous game's sheets.
+A late answer for a game the user left applies nothing.
+The app shows a diagnostic toast that names the rule.
+A notice shows once per game, theme, variant and text; the controller remembers at most 50 in one session.
 
 ### Refusal diagnostics
 
@@ -858,6 +861,9 @@ An entry has exactly the keys `theme`, `path`, `line`, `rule` and `message`.
 `message` is cut at 300 characters and `theme` at 130.
 ASCII control characters are removed.
 `path` becomes `null` when it is absolute, contains `..` or is longer than 200 characters.
+
+When a theme resolves, a diagnostic about another theme of the same game does not become a toast.
+The panel shows it with the theme list diagnostics.
 
 ### Default theme flag
 
