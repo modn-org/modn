@@ -22,6 +22,37 @@ suffix, such as `0.2.0-alpha.1`, becomes a GitHub pre-release. Pull requests
 that change the workflow or the smoke script run the build and smoke jobs, but
 they never publish.
 
+## Versioning
+
+Modn uses Cargo's 0.x semantic versioning convention.
+The version describes changes to the public API.
+
+The public API is:
+
+- the CLI commands and their options
+- the `--json` output
+- the state files, with the state schema version
+- the bucket contract, with `schema_version` in `bucket.json`
+- the game-module host API, with `api_version` in `module.json`
+- the theme API, with `theme_api` in `theme.json`
+
+Rules before 1.0:
+
+- A minor release (`0.y.0`) may break the public API.
+- A patch release (`0.y.z`) must not break the public API.
+- A release that raises the state schema, the bucket contract, the host API or the theme API is a minor release. Its release notes name each raised version.
+- A release that only fixes defects is a patch release.
+
+Modn 1.0 needs a stable bucket contract v2, host API 3 and theme API 1.
+
+### Release checklist
+
+1. Compare the changes since the last tag with the public API above.
+2. Choose the version by the rules above. Set it in the workspace `Cargo.toml` and update `Cargo.lock`.
+3. Write the release notes. Name each raised state schema, bucket contract, host API or theme API version.
+4. Publish the matching `modn-org/main` bucket release first when the Modn release needs it. See the precondition above.
+5. Push the `v<version>` tag.
+
 Run the same smoke test locally on a built executable:
 
 ```powershell
