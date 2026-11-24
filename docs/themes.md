@@ -99,16 +99,23 @@ A complete example:
 ## Limits
 
 The validator and the theme loader enforce these limits.
-The names below are the proposed Rust constant names.
+The names below are the Rust constant names.
 
 | Constant | Scope | Limit |
 | --- | --- | --- |
 | `MAX_THEME_CSS_BYTES` | `theme.css` | 256 KiB (262144 bytes) |
 | `MAX_THEME_VARIANT_CSS_BYTES` | One `theme.<variant>.css` file | 128 KiB (131072 bytes) |
+| `MAX_THEME_MANIFEST_BYTES` | `theme.json` | 16 KiB (16384 bytes) |
 | `MAX_THEME_ASSET_BYTES` | One file under `assets/` | 2 MiB (2097152 bytes) |
 | `MAX_THEME_ASSETS_BYTES` | All files under `assets/` together | 8 MiB (8388608 bytes) |
 | `MAX_THEME_ASSETS` | Number of files under `assets/` | 64 |
 | `MAX_THEME_VARIANTS` | Number of entries in `variants` | 16 |
+| `MAX_IGNORED_FILE_BYTES` | One ignored top-level file | 1 MiB (1048576 bytes) |
+| `MAX_IGNORED_FILES_BYTES` | All ignored top-level files together | 4 MiB (4194304 bytes) |
+| `MAX_THEME_ENTRIES` | Directory entries one inspection visits | 1024 |
+
+The ignored top-level files are `README.md`, `LICENSE` and `NOTICE.md`.
+An ignored file above its limit, the ignored files above their total or an inspection above the entry budget is `theme-too-large`.
 
 The digest is BLAKE3 over the theme directory.
 It covers each regular file in byte-wise sorted relative-path order: the path bytes, a NUL, the length as 8 little-endian bytes, then the content.
@@ -227,7 +234,7 @@ They are not CSS rule ids.
 | `asset-type` | An asset extension or magic signature does not match. |
 | `asset-too-large` | One asset exceeds 2 MiB. |
 | `too-many-assets` | `assets/` holds more than 64 files. |
-| `theme-too-large` | A CSS file, the theme total or a bucket scan count exceeds its limit. |
+| `theme-too-large` | A CSS file, an ignored file, the ignored-file total, the entry budget, a registration copy or a bucket scan exceeds its limit. |
 | `duplicate-theme-id` | A later duplicate `(game, id)` pair was skipped. |
 | `digest-mismatch` | A registered theme no longer matches its digest. |
 | `theme-missing` | The selected theme no longer exists. |
