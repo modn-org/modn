@@ -3,7 +3,7 @@
 
 use super::{
     ImportPlan, cancelled_answer, default_theme_answer, import_plan, resolve_request,
-    resolved_theme,
+    resolved_theme, stale_answer,
 };
 use crate::app::theme_assets::ASSET_BASE;
 use serde_json::{Value, json};
@@ -181,6 +181,19 @@ fn a_resolved_answer_keeps_the_fallback_and_diagnostics() {
     assert_eq!(
         resolved.answer["diagnostics"][0]["rule"],
         "unknown-property"
+    );
+}
+
+#[test]
+fn a_superseded_resolve_answers_with_only_stale_and_game() {
+    let answer = stale_answer("cyberpunk-2077");
+    assert_eq!(answer, json!({"stale": true, "game": "cyberpunk-2077"}));
+    assert_eq!(
+        answer
+            .as_object()
+            .expect("the stale answer is an object")
+            .len(),
+        2
     );
 }
 

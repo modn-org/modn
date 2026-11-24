@@ -11,9 +11,10 @@
 mod theme_assets;
 
 use std::fs;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use theme_assets::{ASSET_LIMIT, load_asset, resolve_asset};
+use theme_assets::{ASSET_LIMIT, load_asset, read_asset_body, resolve_asset};
 
 /// A disposable theme directory with an `assets` directory.
 struct Fixture {
@@ -183,6 +184,21 @@ fn an_oversize_asset_is_refused() {
 }
 
 #[test]
+fn a_body_that_grows_past_the_limit_is_refused() {
+    let limit = 16;
+    let mut grown = Cursor::new(vec![7; limit as usize + 1]);
+    assert!(
+        read_asset_body(&mut grown, limit - 1, limit).is_err(),
+        "a body larger than the limit is refused after a passing size check"
+    );
+    let mut exact = Cursor::new(vec![7; limit as usize]);
+    assert_eq!(
+        read_asset_body(&mut exact, limit, limit).expect("a body at the limit is allowed"),
+        vec![7; limit as usize]
+    );
+}
+
+#[test]
 fn a_dot_segment_and_a_double_separator_are_refused() {
     let fixture = Fixture::new();
     fixture.write("assets/icon.png", b"fixture");
@@ -222,7 +238,7 @@ fn a_symlinked_component_is_refused() {
     std::os::unix::fs::symlink(&outside, fixture.root.join("assets/link.png"))
         .expect("create the symlink");
     std::os::unix::fs::symlink(
-        &fixture.root.join("assets/icons"),
+        fixture.root.join("assets/icons"),
         fixture.root.join("assets/linked"),
     )
     .expect("create the directory symlink");
