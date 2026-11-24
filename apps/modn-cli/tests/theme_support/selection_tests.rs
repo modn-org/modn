@@ -107,3 +107,96 @@ fn reset_clears_one_game_then_every_game() {
     let all = fixture.json(&["theme", "reset"]);
     assert_eq!(all["reset"], serde_json::json!(["beta"]));
 }
+
+#[test]
+fn select_none_stores_the_explicit_default_choice() {
+    let fixture = Fixture::new();
+    fixture.official_theme(GAME, "a-official", &[]);
+    let selected = fixture.json(&["theme", "select", GAME, "--none"]);
+    assert_eq!(
+        selected["selected"],
+        serde_json::json!({"game": GAME, "theme": null, "variant": null})
+    );
+    let keys: Vec<_> = selected["selected"]
+        .as_object()
+        .expect("selected object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, ["game", "theme", "variant"]);
+}
+
+#[test]
+fn select_none_prints_the_documented_sentence() {
+    let fixture = Fixture::new();
+    let output = fixture.run_human(&["theme", "select", GAME, "--none"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        format!("Selected no theme for {GAME}.")
+    );
+}
+
+#[test]
+fn select_none_needs_no_theme_or_registry() {
+    let fixture = Fixture::new();
+    let selected = fixture.json(&["theme", "select", GAME, "--none"]);
+    assert_eq!(selected["selected"]["theme"], serde_json::Value::Null);
+    assert!(!fixture.state.join("themes").join("registry").exists());
+}
+
+#[test]
+fn select_none_conflicts_with_a_theme_and_a_variant() {
+    let fixture = Fixture::new();
+    let theme = fixture.source_theme(GAME, "night-city", &["neon"]);
+    fixture.register(&theme);
+
+    let with_theme = fixture.run(&["theme", "select", GAME, "night-city", "--none"]);
+    assert_eq!(with_theme.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&with_theme.stderr);
+    assert!(stderr.contains("--none"), "{stderr}");
+
+    let with_variant = fixture.run(&["theme", "select", GAME, "--none", "--variant", "neon"]);
+    assert_eq!(with_variant.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&with_variant.stderr);
+    assert!(stderr.contains("--none"), "{stderr}");
+}
+
+#[test]
+fn select_without_a_theme_or_none_is_a_usage_error() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["theme", "select", GAME]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--none"), "{stderr}");
+}
+
+#[test]
+fn select_none_refuses_an_invalid_game_id_like_select() {
+    let fixture = Fixture::new();
+    let none_error = fixture.error_json(&["theme", "select", "not a game", "--none"]);
+    let select_error = fixture.error_json(&["theme", "select", "not a game", "night-city"]);
+    assert_eq!(none_error["error"], select_error["error"], "{none_error}");
+    assert!(
+        none_error["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("not a valid")),
+        "{none_error}"
+    );
+}
+
+#[test]
+fn reset_clears_a_none_selection_and_the_official_theme_applies() {
+    let fixture = Fixture::new();
+    fixture.official_theme(GAME, "a-official", &[]);
+    fixture.json(&["theme", "select", GAME, "--none"]);
+    let reset = fixture.json(&["theme", "reset", "--game", GAME]);
+    assert_eq!(reset["reset"], serde_json::json!([GAME]));
+    let resolved = fixture.json(&["theme", "resolve", "--game", GAME]);
+    assert_eq!(resolved["theme"]["id"], "a-official");
+    assert_eq!(resolved["theme"]["origin"], "official");
+}

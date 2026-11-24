@@ -26,15 +26,23 @@ pub(crate) enum ThemeCommand {
         /// Theme id to remove from the local registry.
         theme_id: String,
     },
-    /// Select the theme that one game uses.
+    /// Select the theme that one game uses, or select no theme.
+    #[command(group(
+        clap::ArgGroup::new("choice")
+            .args(["theme", "none"])
+            .required(true)
+    ))]
     Select {
         /// Game id the choice applies to.
         game: String,
         /// Theme id to select.
-        theme: String,
+        theme: Option<String>,
         /// Variant id to apply, or omit for the base stylesheet.
-        #[arg(long, value_name = "VARIANT")]
+        #[arg(long, value_name = "VARIANT", conflicts_with = "none")]
         variant: Option<String>,
+        /// Use the default theme even when the game has an official theme.
+        #[arg(long)]
+        none: bool,
     },
     /// Clear one game's selection, or every selection.
     Reset,

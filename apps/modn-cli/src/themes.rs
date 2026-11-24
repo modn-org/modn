@@ -50,11 +50,13 @@ pub(super) fn run(
             game,
             theme,
             variant,
+            none,
         } => select(
             &data,
             &profile,
             game,
-            theme,
+            theme.as_deref(),
+            *none,
             variant.as_deref(),
             &checker,
             json,
@@ -171,16 +173,35 @@ fn remove(theme_id: &str, data: &Path, game: Option<&str>, json: bool) -> Result
     Ok(())
 }
 
-/// Store one selection after checking that the theme and variant exist.
+/// Store one selection after checking that the theme and variant exist, or
+/// store the explicit default-theme choice.
 fn select(
     data: &Path,
     profile: &Path,
     game: &str,
-    theme: &str,
+    theme: Option<&str>,
+    none: bool,
     variant: Option<&str>,
     checker: &dyn CssChecker,
     json: bool,
 ) -> Result<()> {
+    if none {
+        let selection = SelectionStore::new(data).select_none(game)?;
+        let value = json!({
+            "selected": {
+                "game": selection.game(),
+                "theme": Value::Null,
+                "variant": Value::Null,
+            },
+        });
+        if json {
+            print_value(&value)?;
+        } else {
+            println!("Selected no theme for {}.", selection.game());
+        }
+        return Ok(());
+    }
+    let theme = theme.expect("clap requires a theme unless --none is set");
     let catalog = catalog(data, profile, checker);
     let entry = catalog
         .entries()
