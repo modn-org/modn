@@ -31,7 +31,6 @@ COMMUNITY = "fixture-community"
 COMMUNITY_NAME = "Fixture Community"
 BROKEN = "fixture-broken"
 BROKEN_NAME = "Fixture Broken"
-PROTECTED = "fixture-protected"
 BROKEN_RULE = "forbidden-position-fixed"
 PROTECTED_RULE = "protected-region"
 DIGEST_RULE = "digest-mismatch"
@@ -54,10 +53,7 @@ def _payload(runner, step, result, context):
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
-        runner.check(
-            False,
-            f"step {step}: {context} printed no JSON: {result.stdout.strip()!r}",
-        )
+        runner.check(False, f"step {step}: {context} printed no JSON: {result.stdout.strip()!r}")
         return {}
 
 
@@ -86,15 +82,26 @@ def _wait(runner, step, session, predicate, description, timeout=90):
 
 def _theme_button(runner, step, session):
     buttons = session.find_all(name="Theme", control_type="ButtonControl")
-    runner.check(
-        len(buttons) == 1,
-        f"step {step}: expected one Theme button, found {len(buttons)}",
-    )
+    runner.check(len(buttons) == 1, f"step {step}: expected one Theme button, found {len(buttons)}")
     return buttons[0]
 
 
 def _height(control):
     return control.BoundingRectangle.height()
+
+
+def _wait_height(runner, step, session, accept, description, timeout=60):
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        buttons = session.find_all(name="Theme", control_type="ButtonControl")
+        if buttons:
+            last = _height(buttons[0])
+            if accept(last):
+                return last
+        time.sleep(0.2)
+    runner.check(False, f"step {step}: timed out waiting for {description}; last height was {last}")
+    return last
 
 
 def _open_panel(runner, step, session):
@@ -121,9 +128,7 @@ def _picks(session, name):
 
 def _choose(runner, step, session, name):
     controls = _picks(session, name)
-    runner.check(
-        bool(controls), f"step {step}: the Theme control has no {name} choice"
-    )
+    runner.check(bool(controls), f"step {step}: the Theme control has no {name} choice")
     session.activate(controls[0])
 
 
@@ -137,9 +142,7 @@ def _apply(session):
 
 def _choose_variant(runner, step, session, variant):
     combos = session.find_all(control_type="ComboBoxControl")
-    runner.check(
-        bool(combos), f"step {step}: the Theme control has no variant selector"
-    )
+    runner.check(bool(combos), f"step {step}: the Theme control has no variant selector")
     combo = next((entry for entry in combos if "Variant" in (entry.Name or "")), combos[0])
     try:
         combo.GetValuePattern().SetValue(variant)
@@ -158,15 +161,11 @@ def _choose_variant(runner, step, session, variant):
             f"the {variant} variant option",
             timeout=30,
         )
-        session.activate(
-            session.find_all(name=variant, control_type="ListItemControl")[0]
-        )
+        session.activate(session.find_all(name=variant, control_type="ListItemControl")[0])
     except uia.Failure:
         raise
     except Exception as error:
-        runner.check(
-            False, f"step {step}: could not choose the {variant} variant: {error}"
-        )
+        runner.check(False, f"step {step}: could not choose the {variant} variant: {error}")
 
 
 def _resolve(fx):
@@ -186,7 +185,8 @@ def _wait_resolve(runner, step, fx, predicate, description, timeout=90):
         time.sleep(0.2)
     runner.check(
         False,
-        f"step {step}: timed out waiting for {description}; last resolve was {last}",
+        f"step {step}: timed out waiting for {description}; "
+        f"last resolve was {last}",
     )
     return None
 
@@ -198,14 +198,11 @@ def _applied(runner, step, fx, theme_id, variant=None, source_label=None):
             return False
         if variant is not None and theme.get("variant") != variant:
             return False
-        if source_label is not None:
-            if (theme.get("source") or {}).get("label") != source_label:
-                return False
+        if source_label is not None and (theme.get("source") or {}).get("label") != source_label:
+            return False
         return resolved.get("fallback") is None
 
-    return _wait_resolve(
-        runner, step, fx, matches, f"{theme_id} to be applied as selected"
-    )
+    return _wait_resolve(runner, step, fx, matches, f"{theme_id} to be applied as selected")
 
 
 def _assert_growth(runner, step, earlier_px, later_px, earlier_key, later_key):
@@ -224,12 +221,7 @@ def _assert_growth(runner, step, earlier_px, later_px, earlier_key, later_key):
 
 
 def _step1_cli(runner, fx, protected):
-    listed = _payload(
-        runner,
-        1,
-        _cli(fx, "theme", "list", "--game", GAME_ID),
-        "theme list",
-    )
+    listed = _payload(runner, 1, _cli(fx, "theme", "list", "--game", GAME_ID), "theme list")
     entries = _entries(listed)
     sources = (
         (OFFICIAL, "official", "main bucket"),
@@ -249,10 +241,7 @@ def _step1_cli(runner, fx, protected):
                 f"step 1: {theme_id} source is {observed[0]}/{observed[1]}, "
                 f"not {kind}/{label}",
             )
-    runner.check(
-        BROKEN not in entries,
-        f"step 1: theme list offers the broken theme {BROKEN}",
-    )
+    runner.check(BROKEN not in entries, f"step 1: theme list offers the broken theme {BROKEN}")
     rules = [item.get("rule") for item in listed.get("diagnostics", [])]
     runner.check(
         BROKEN_RULE in rules,
@@ -260,10 +249,7 @@ def _step1_cli(runner, fx, protected):
     )
 
     checked = _cli(fx, "theme", "check", str(protected))
-    runner.check(
-        checked.returncode != 0,
-        "step 1: theme check accepted the protected theme",
-    )
+    runner.check(checked.returncode != 0, "step 1: theme check accepted the protected theme")
     refusal = _json_or_empty(checked.stdout)
     rules = [item.get("rule") for item in refusal.get("diagnostics", [])]
     runner.check(
@@ -287,22 +273,14 @@ def _step2_default(runner, session):
         timeout=60,
     )
     text = session.text()
-    runner.check(
-        OFFICIAL_NAME in text,
-        f"step 2: the Theme control does not show {OFFICIAL_NAME}",
-    )
+    runner.check(OFFICIAL_NAME in text, f"step 2: the Theme control does not show {OFFICIAL_NAME}")
     runner.check(
         "main bucket" in text,
         "step 2: the Theme control does not show the main bucket source",
     )
-    _wait(
-        runner,
-        2,
-        session,
-        lambda current: _selected(current, OFFICIAL_NAME),
-        "the official theme to be marked Selected",
-    )
-    return _height(_theme_button(runner, 2, session))
+    base_height = _height(_theme_button(runner, 2, session))
+    runner.check(base_height > 0, "step 2: the Theme button has no measured height")
+    return base_height
 
 
 def _step3_variant(runner, session, fx, base_height):
@@ -317,10 +295,10 @@ def _step3_variant(runner, session, fx, base_height):
         lambda current: _selected(current, OFFICIAL_NAME),
         "the bold choice to be marked Selected",
     )
-    bold_height = _height(_theme_button(runner, 3, session))
-    _assert_growth(
-        runner, 3, base_height, bold_height, OFFICIAL, OFFICIAL_BOLD
+    bold_height = _wait_height(
+        runner, 3, session, lambda px: taller(px, base_height), "the bold button to grow"
     )
+    _assert_growth(runner, 3, base_height, bold_height, OFFICIAL, OFFICIAL_BOLD)
     _assert_clean_ui(runner, session, "themes-3-bold")
     return bold_height
 
@@ -329,16 +307,22 @@ def _step4_themes(runner, session, fx, bold_height):
     _choose(runner, 4, session, LOCAL_NAME)
     _apply(session)
     _applied(runner, 4, fx, LOCAL, source_label="local registry")
-    local_height = _height(_theme_button(runner, 4, session))
+    local_height = _wait_height(
+        runner, 4, session, lambda px: taller(px, bold_height), "the local theme button to grow"
+    )
     _assert_growth(runner, 4, bold_height, local_height, OFFICIAL_BOLD, LOCAL)
 
     _choose(runner, 4, session, COMMUNITY_NAME)
     _apply(session)
     _applied(runner, 4, fx, COMMUNITY, source_label="community")
-    community_height = _height(_theme_button(runner, 4, session))
-    _assert_growth(
-        runner, 4, local_height, community_height, LOCAL, COMMUNITY
+    community_height = _wait_height(
+        runner,
+        4,
+        session,
+        lambda px: taller(px, local_height),
+        "the community theme button to grow",
     )
+    _assert_growth(runner, 4, local_height, community_height, LOCAL, COMMUNITY)
     text = session.text()
     runner.check(
         LOCAL_NAME in text and "local registry" in text,
@@ -374,18 +358,8 @@ def _step5_refusal(runner, app, fx, session):
         "theme select fixture-local",
     )
     app.kill()
-    css = (
-        fx.state
-        / "themes"
-        / "registry"
-        / GAME_ID
-        / LOCAL
-        / "theme"
-        / "theme.css"
-    )
-    runner.check(
-        css.is_file(), f"step 5: the registered local theme has no {css}"
-    )
+    css = fx.state / "themes" / "registry" / GAME_ID / LOCAL / "theme" / "theme.css"
+    runner.check(css.is_file(), f"step 5: the registered local theme has no {css}")
     if css.is_file():
         payload = css.read_bytes()
         runner.check(bool(payload), "step 5: the registered theme.css is empty")
@@ -405,14 +379,8 @@ def _step5_refusal(runner, app, fx, session):
         f"the {DIGEST_RULE} diagnostic",
     )
     text = session.text()
-    runner.check(
-        OFFICIAL_NAME in text,
-        f"step 5: the fallback does not show {OFFICIAL_NAME}",
-    )
-    runner.check(
-        "main bucket" in text,
-        "step 5: the fallback does not show the main bucket source",
-    )
+    runner.check(OFFICIAL_NAME in text, f"step 5: the fallback does not show {OFFICIAL_NAME}")
+    runner.check("main bucket" in text, "step 5: the fallback does not show the main bucket source")
     _assert_clean_ui(runner, session, "themes-5-fallback")
     return app, session
 
@@ -435,7 +403,13 @@ def _step6_default(runner, session, fx, official_height, local_height):
         "the Default theme label",
         timeout=60,
     )
-    default_height = _height(_theme_button(runner, 6, session))
+    default_height = _wait_height(
+        runner,
+        6,
+        session,
+        lambda px: not taller(px, official_height),
+        "the default button height",
+    )
     runner.check(
         not taller(default_height, official_height),
         "step 6: the default control is taller than the official base "
@@ -451,10 +425,7 @@ def _step6_default(runner, session, fx, official_height, local_height):
 
 def _step7_protected(runner, fx, protected):
     checked = _cli(fx, "theme", "check", str(protected))
-    runner.check(
-        checked.returncode != 0,
-        "step 7: theme check accepted the protected theme",
-    )
+    runner.check(checked.returncode != 0, "step 7: theme check accepted the protected theme")
     refusal = _json_or_empty(checked.stdout)
     rules = [item.get("rule") for item in refusal.get("diagnostics", [])]
     runner.check(
@@ -490,22 +461,15 @@ def journey_themes(runner):
     local = build_local_theme(fx.root / "themes")
     protected = build_protected_theme(fx.root / "themes")
     added = _cli(fx, "bucket", "add", "community", str(community))
-    runner.check(
-        added.returncode == 0, f"bucket add failed: {added.stderr.strip()}"
-    )
+    runner.check(added.returncode == 0, f"bucket add failed: {added.stderr.strip()}")
     registered = _cli(fx, "theme", "register", str(local))
-    runner.check(
-        registered.returncode == 0,
-        f"theme register failed: {registered.stderr.strip()}",
-    )
+    runner.check(registered.returncode == 0, f"theme register failed: {registered.stderr.strip()}")
 
     game = fx.root / "game"
     game.mkdir()
     (game / "Balatro.exe").write_bytes(b"fixture")
     found = _cli(fx, "game", "add", GAME_ID, "--path", game)
-    runner.check(
-        found.returncode == 0, f"game add failed: {found.stderr.strip()}"
-    )
+    runner.check(found.returncode == 0, f"game add failed: {found.stderr.strip()}")
 
     _step1_cli(runner, fx, protected)
 
