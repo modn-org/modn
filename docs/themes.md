@@ -476,6 +476,9 @@ Two regions exist:
 
 The protected class prefixes are `.modn-review*` and `.modn-approval*`.
 
+The safety properties of both regions are literals in `apps/modn-desktop/ui/css/protected.css`, inside `@layer protected`.
+The layer order puts `protected` last, so a theme cannot override them.
+
 ### Protected hooks
 
 | Class | Region | Purpose |
@@ -832,7 +835,9 @@ Update both copies.
 The loader rewrites each `url(assets/` prefix to `url(<asset_base>assets/`.
 It creates a `CSSStyleSheet`, calls `replaceSync(css)` and adds the sheet to `document.adoptedStyleSheets`.
 CSSOM is not blocked by `style-src 'self'`.
+The loader wraps each theme stylesheet, base and variant, in `@layer theme`.
 
+The base layer order is `@layer app, theme, protected;`, declared once in `apps/modn-desktop/ui/css/tokens.css`.
 The sheet order is: app sheets (the `link` elements), then `theme.css`, then the variant CSS.
 The variant sheet is omitted when the theme has no selected variant.
 

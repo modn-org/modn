@@ -148,6 +148,7 @@ Two overlapping resolves keep the newest answer. The older call answers `{"stale
 A theme that Modn cannot validate or load never breaks a screen. The app removes the theme sheets, shows the default theme and shows one toast that names the rule and the file. It does not repeat that toast on each screen.
 Start the app with `--default-theme` to turn themes off for that session. The panel says `Themes are off for this session` and disables its buttons.
 Destructive confirmations are native dialogs, so no theme changes them. The install review stays readable, because a theme may change its colours and fonts only.
+Theme CSS applies in a `theme` cascade layer, below the `app` and `protected` layers. The protected regions' safety properties are literals in `ui/css/protected.css`.
 The Theme commands need a `modn` build with the `theme` commands. With an older build the app keeps the default theme, and the panel says that themes are unavailable. It shows no error toast.
 ## One-click operations
 
