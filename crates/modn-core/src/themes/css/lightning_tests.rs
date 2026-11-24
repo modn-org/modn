@@ -192,7 +192,7 @@ fn valid_sheet_is_canonical_and_idempotent() {
         "font-family: \"Chakra Petch\";\n",
         "src: url(\"assets/x.woff2\");\n",
         "}\n",
-        ".modn-app { background-image: url(\"assets/a.png\"); }\n",
+        ".modn-main { background-image: url(\"assets/a.png\"); }\n",
         ".modn-card { background-image: url('assets/b.png'); }\n",
         ".modn-rail { background-image: url(assets/c.png); }\n",
     );

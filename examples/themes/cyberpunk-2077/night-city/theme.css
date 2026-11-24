@@ -11,11 +11,7 @@ font-display: swap;
 font-family: "Chakra Petch", sans-serif;
 }
 .modn-app {
-display: grid;
-grid-template-columns: 132px 1fr;
-gap: 0;
 font-family: "Chakra Petch", sans-serif;
-letter-spacing: 0.02em;
 }
 .modn-rail {
 display: flex;
@@ -135,9 +131,6 @@ background-color: #14182c;
 font-weight: 600;
 }
 @media (max-width: 900px) {
-.modn-app {
-grid-template-columns: 72px 1fr;
-}
 .modn-library__grid {
 grid-template-columns: repeat(2, minmax(0, 1fr));
 }

@@ -207,6 +207,35 @@ pub const PROTECTED_CLASS_PREFIXES: &[&str] = &["modn-review", "modn-approval"];
 /// The attribute that marks a protected region.
 pub const PROTECTED_REGION_ATTRIBUTE: &str = "data-modn-protected";
 
+/// Stable data attributes that appear on an element inside a protected region.
+///
+/// `apps/modn-desktop/ui/js/details/plan.js` sets `data-operation`,
+/// `data-testid` and `data-code` inside the install review.
+/// `apps/modn-desktop/ui/js/library/ask.js` sets `data-testid` inside the
+/// approval ask. A selector that names one of these attributes can reach a
+/// protected element, so it is limited like a protected hook.
+pub const PROTECTED_REACHABLE_ATTRIBUTES: &[&str] = &["data-code", "data-operation", "data-testid"];
+
+/// Stable classes that hold, surround or share a host with a protected region.
+///
+/// `apps/modn-desktop/ui/index.html` holds `.modn-app`, the ancestor of both
+/// regions. `apps/modn-desktop/ui/js/library/recent.js` holds `.modn-recent`
+/// and `.modn-recent__menu` above the approval host, and `.modn-recent__entry`
+/// and `.modn-recent__text` beside it. `apps/modn-desktop/ui/js/library.js`
+/// and `apps/modn-desktop/ui/js/details.js` hold the `.modn-library__ask` and
+/// `.modn-details__ask` approval hosts. An ancestor or sibling effect such as
+/// `opacity: 0` reaches the region, so these hooks may change colours and
+/// fonts only.
+pub const PROTECTED_CONTEXT_CLASSES: &[&str] = &[
+    "modn-app",
+    "modn-details__ask",
+    "modn-library__ask",
+    "modn-recent",
+    "modn-recent__entry",
+    "modn-recent__menu",
+    "modn-recent__text",
+];
+
 /// Return whether `name` is a stable class, without the leading `.`.
 #[must_use]
 pub fn is_stable_class(name: &str) -> bool {
@@ -225,6 +254,18 @@ pub fn is_protected_class(name: &str) -> bool {
     PROTECTED_CLASS_PREFIXES
         .iter()
         .any(|prefix| name.starts_with(prefix))
+}
+
+/// Return whether a data attribute can sit on a protected element.
+#[must_use]
+pub fn is_protected_reachable_attribute(name: &str) -> bool {
+    PROTECTED_REACHABLE_ATTRIBUTES.contains(&name)
+}
+
+/// Return whether `name` is a context class, without the leading `.`.
+#[must_use]
+pub fn is_protected_context_class(name: &str) -> bool {
+    PROTECTED_CONTEXT_CLASSES.contains(&name)
 }
 
 #[cfg(test)]

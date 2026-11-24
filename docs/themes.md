@@ -181,7 +181,7 @@ It names the line when the validator knows it.
 | `token-out-of-range` | A size or opacity token outside its allowed range. | `:root { --modn-font-size-body-s: 0; }` | `:root { --modn-font-size-body-s: 13px; }` |
 | `forbidden-selector` | A selector outside the selector grammar. | `div .modn-card { color: #ffffff; }` | `.modn-app .modn-card { color: #ffffff; }` |
 | `unknown-hook` | A `.modn-*` class or `data-*` attribute not in the stable tables. | `.modn-missing { color: #ffffff; }` | `.modn-card { color: #ffffff; }` |
-| `protected-region` | A non-allowed property on a protected hook. | `.modn-review { display: none; }` | `.modn-review { color: #ffffff; }` |
+| `protected-region` | A non-allowed property on a protected hook, a reachable attribute or a context hook. | `.modn-review { display: none; }` | `.modn-review { color: #ffffff; }` |
 | `protected-color-not-opaque` | A translucent colour in a protected region, a translucent `--modn-color-*` token, or a translucent `color` on `:root` or `html`. | `.modn-approval { background-color: rgba(0, 0, 0, 0.5); }` | `.modn-approval { background-color: #000000; }` |
 | `css-syntax` | A syntax error. | `.modn-card { color: #ffffff;` | `.modn-card { color: #ffffff; }` |
 
@@ -513,9 +513,45 @@ A colour value inside a protected region must be opaque.
 `transparent`, `currentcolor` with alpha, and `rgba()` or `hsla()` values with alpha below 1 are the rule `protected-color-not-opaque`.
 The colour tokens `--modn-color-*` and `color` on `:root` or `html` must be opaque too, because protected regions read them.
 
+### Reachable attributes
+
+These stable data attributes sit on elements inside a protected region.
+A selector that names one of them, with any value and any operator, is limited like a protected hook.
+
+| Attribute | Source | Elements |
+| --- | --- | --- |
+| `data-code` | `apps/modn-desktop/ui/js/details/plan.js` | Review blocker reason |
+| `data-operation` | `apps/modn-desktop/ui/js/details/plan.js` | Install review row |
+| `data-testid` | `apps/modn-desktop/ui/js/details/plan.js`, `apps/modn-desktop/ui/js/library/ask.js` | Review lines, empty note and approval buttons |
+
+`[data-operation="remove"] { display: none }` and `[data-testid="ask-decline"] { display: none }` are the rule `protected-region`.
+`[data-operation="remove"] { color: #eeeeee }` stays allowed.
+
+### Context hooks
+
+These stable classes hold a protected region, surround it, or share its host.
+A CSS effect on one of them reaches the region.
+
+| Class | Source | Relation |
+| --- | --- | --- |
+| `.modn-app` | `apps/modn-desktop/ui/index.html` | Ancestor of both regions |
+| `.modn-details__ask` | `apps/modn-desktop/ui/js/details.js` | Approval host |
+| `.modn-library__ask` | `apps/modn-desktop/ui/js/library.js` | Approval host |
+| `.modn-recent` | `apps/modn-desktop/ui/js/library/recent.js` | Ancestor of the recent approval |
+| `.modn-recent__entry` | `apps/modn-desktop/ui/js/library/recent.js` | Sibling of the recent approval host |
+| `.modn-recent__menu` | `apps/modn-desktop/ui/js/library/recent.js` | Ancestor of the recent approval |
+| `.modn-recent__text` | `apps/modn-desktop/ui/js/library/recent.js` | Sibling hook beside the recent approval |
+
+On these hooks a rule may declare only `color`, `background-color`, `border-color`, `outline-color`, `font-family`, `font-weight` and `font-style`.
+It may also declare `--modn-*` custom properties.
+Any other declaration is the rule `protected-region`.
+So an ancestor or sibling hook may change colours and fonts only.
+`.modn-app { opacity: 0 }`, `.modn-recent__menu { overflow: hidden }` and `.modn-recent__entry { position: absolute }` are refused.
+
 The UI invariant is: every element inside a `[data-modn-protected]` subtree carries only protected hook classes.
 It carries no shared widget hook class.
 Therefore no selector made of shared hooks can reach it.
+Attribute selectors and context hooks can reach it, and the two lists above limit them.
 
 Destructive confirmations are native dialogs.
 The remove-game confirmation is the only one today.

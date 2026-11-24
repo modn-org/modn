@@ -32,6 +32,17 @@ const PROTECTED_PROPERTIES: &[&str] = &[
     "font-style",
 ];
 
+/// Properties accepted on a hook that holds or surrounds a protected region.
+const CONTEXT_PROPERTIES: &[&str] = &[
+    "color",
+    "background-color",
+    "border-color",
+    "outline-color",
+    "font-family",
+    "font-weight",
+    "font-style",
+];
+
 /// Protected properties whose value must be an opaque colour.
 const PROTECTED_COLOUR_PROPERTIES: &[&str] =
     &["color", "background-color", "border-color", "outline-color"];
@@ -113,12 +124,14 @@ impl Checker<'_> {
         let mut info = SelectorInfo {
             root_only: false,
             protected: false,
+            context: false,
         };
         for selector in &style.selectors {
             match check_selector(selector, &style.declarations) {
                 Ok(found) => {
                     info.root_only |= found.root_only;
                     info.protected |= found.protected;
+                    info.context |= found.context;
                 }
                 Err(violation) => self.push(style.line, violation.rule, violation.message),
             }
@@ -195,6 +208,16 @@ impl Checker<'_> {
         self.check_urls(declaration.line, &declaration.value, None);
         if scope.protected {
             self.check_protected(declaration);
+        }
+        if scope.context && !context_allowed(declaration) && globally_allowed(declaration) {
+            self.push(
+                declaration.line,
+                Rule::ProtectedRegion,
+                format!(
+                    "property \"{}\" is not allowed on a hook that holds a protected region",
+                    declaration.property
+                ),
+            );
         }
         if protected_regions_read(declaration, scope) && !colour_is_opaque(&declaration.value) {
             self.push(
@@ -340,6 +363,15 @@ fn protected_regions_read(declaration: &DeclFacts, scope: SelectorInfo) -> bool 
         || (scope.root_only && declaration.property == "color")
 }
 
+/// Return whether a declaration is allowed on a context hook.
+///
+/// A context hook holds or surrounds a protected region, so it may change only
+/// colours and fonts. Custom properties stay allowed for token definitions.
+fn context_allowed(declaration: &DeclFacts) -> bool {
+    declaration.property.starts_with("--modn-")
+        || CONTEXT_PROPERTIES.contains(&declaration.property.as_str())
+}
+
 /// Return whether a declaration is allowed outside protected regions.
 fn globally_allowed(declaration: &DeclFacts) -> bool {
     if declaration.property.starts_with("--") {
@@ -370,6 +402,10 @@ mod media_tests;
 #[cfg(test)]
 #[path = "engine_protected_tests.rs"]
 mod protected_tests;
+
+#[cfg(test)]
+#[path = "engine_context_tests.rs"]
+mod context_tests;
 
 #[cfg(test)]
 #[path = "engine_token_tests.rs"]
