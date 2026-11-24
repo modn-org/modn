@@ -3,7 +3,7 @@
 
 use super::{
     ImportPlan, cancelled_answer, default_theme_answer, import_plan, resolve_request,
-    resolved_theme, stale_answer,
+    resolved_theme, select_request, stale_answer,
 };
 use crate::app::theme_assets::ASSET_BASE;
 use serde_json::{Value, json};
@@ -29,6 +29,53 @@ fn unique_folder() -> PathBuf {
     let _ = fs::remove_dir_all(&folder);
     fs::create_dir(&folder).expect("create the disposable theme folder");
     folder
+}
+
+#[test]
+fn a_theme_select_names_the_pair_and_its_variant() {
+    let args = select_request("cyberpunk-2077", Some("night-city"), Some("neon"))
+        .expect("a named theme accepts a variant");
+    assert_eq!(
+        strings(args),
+        [
+            "theme",
+            "select",
+            "cyberpunk-2077",
+            "night-city",
+            "--variant",
+            "neon"
+        ]
+    );
+}
+
+#[test]
+fn a_missing_theme_selects_the_explicit_default() {
+    let args = select_request("cyberpunk-2077", None, None).expect("a valid game");
+    assert_eq!(
+        strings(args),
+        ["theme", "select", "cyberpunk-2077", "--none"]
+    );
+}
+
+#[test]
+fn a_variant_without_a_theme_is_refused() {
+    let error = select_request("cyberpunk-2077", None, Some("neon"))
+        .expect_err("a variant belongs to a named theme");
+    assert_eq!(error.code, "INVALID_ID");
+}
+
+#[test]
+fn a_select_with_an_invalid_game_or_variant_is_refused() {
+    let too_long = "a".repeat(65);
+    for (game, theme, variant) in [
+        ("Night-City", None, None),
+        (&too_long, None, None),
+        ("cyberpunk-2077", Some("night-city"), Some("Neon")),
+        ("cyberpunk-2077", Some("Night-City"), None),
+    ] {
+        let error = select_request(game, theme, variant).expect_err("an invalid id is refused");
+        assert_eq!(error.code, "INVALID_ID", "{game} must be refused");
+    }
 }
 
 #[test]

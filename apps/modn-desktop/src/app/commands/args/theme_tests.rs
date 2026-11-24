@@ -45,6 +45,20 @@ fn theme_select_names_the_pair_and_an_optional_variant() {
 }
 
 #[test]
+fn theme_select_none_names_the_explicit_default() {
+    assert_eq!(
+        strings(ok(theme_select_none("cyberpunk-2077"))),
+        vec!["theme", "select", "cyberpunk-2077", "--none"]
+    );
+}
+
+#[test]
+fn theme_select_none_refuses_an_invalid_game_id() {
+    let error = theme_select_none("Night-City").expect_err("an invalid id must be refused");
+    assert_eq!(error.code, "INVALID_ID");
+}
+
+#[test]
 fn theme_reset_selects_one_game_or_every_game() {
     assert_eq!(strings(ok(theme_reset(None))), vec!["theme", "reset"]);
     assert_eq!(

@@ -290,6 +290,17 @@ pub(super) fn theme_select(
     Ok(args)
 }
 
+/// The explicit no-theme selection: the game keeps the default look even when
+/// it has an official theme.
+pub(super) fn theme_select_none(game: &str) -> Result<Vec<OsString>, CommandError> {
+    Ok(vec![
+        "theme".into(),
+        "select".into(),
+        checked_id(game)?.into(),
+        "--none".into(),
+    ])
+}
+
 pub(super) fn theme_reset(game: Option<&str>) -> Result<Vec<OsString>, CommandError> {
     let mut args: Vec<OsString> = vec!["theme".into(), "reset".into()];
     if let Some(game) = game {

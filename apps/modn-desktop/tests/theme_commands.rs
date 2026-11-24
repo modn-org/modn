@@ -10,6 +10,14 @@ mod backend;
 
 #[expect(
     dead_code,
+    reason = "The theme tests include every argument builder but pin only the select request"
+)]
+#[cfg(windows)]
+#[path = "../src/app/commands/args.rs"]
+mod args;
+
+#[expect(
+    dead_code,
     reason = "The theme tests include the command error, busy guard and blocking runner, not every command-layer item"
 )]
 #[cfg(windows)]
@@ -155,6 +163,23 @@ mod theme_commands {
         assert_eq!(fixture.recorded(), fixture.expected(&tail));
         assert_eq!(answer["selected"]["game"], "fixture");
         assert_eq!(answer["selected"]["theme"], "night-city");
+    }
+
+    #[test]
+    fn theme_select_none_sends_the_explicit_default() {
+        let Some(binary) = fixture_binary() else {
+            return;
+        };
+        let fixture = Fixture::new(binary);
+        let tail = ["theme", "select", "fixture", "--none"];
+        let built: Vec<String> = args::theme_select_none("fixture")
+            .expect("a valid game id")
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(built, tail);
+        fixture.call(&tail);
+        assert_eq!(fixture.recorded(), fixture.expected(&tail));
     }
 
     #[test]

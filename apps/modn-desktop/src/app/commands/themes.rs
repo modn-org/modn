@@ -69,13 +69,33 @@ pub(crate) async fn resolve_theme(
 pub(crate) async fn select_theme(
     state: tauri::State<'_, AppState>,
     game: String,
-    theme: String,
+    theme: Option<String>,
     variant: Option<String>,
 ) -> Result<Value, CommandError> {
-    let args = args::theme_select(&game, &theme, variant.as_deref())?;
+    let args = select_request(&game, theme.as_deref(), variant.as_deref())?;
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     run_blocking(&busy, move || backend.call_with_inactivity_timeout(&args)).await
+}
+
+/// The exact select request: a named theme, or the explicit `--none` default.
+///
+/// A variant belongs to a named theme, so a variant without a theme is
+/// refused before any CLI process starts.
+pub(super) fn select_request(
+    game: &str,
+    theme: Option<&str>,
+    variant: Option<&str>,
+) -> Result<Vec<OsString>, CommandError> {
+    match theme {
+        Some(theme) => args::theme_select(game, theme, variant),
+        None => {
+            if variant.is_some() {
+                return Err(CommandError::invalid_id());
+            }
+            args::theme_select_none(game)
+        }
+    }
 }
 
 #[tauri::command]
