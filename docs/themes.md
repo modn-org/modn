@@ -587,7 +587,7 @@ A theme has one of three sources:
 | `local` | The local theme registry. |
 | `bucket` | Any other registered bucket kind. |
 
-On a duplicate `(game, id)` pair, precedence is `official`, then `local`, then other buckets in registration order.
+On a duplicate `(game, id)` pair, precedence is `official`, then `local`, then other buckets in bucket id order.
 A later duplicate is skipped with `duplicate-theme-id`.
 So a `(game, theme-id)` pair identifies a theme.
 
