@@ -33,7 +33,10 @@ fn review_examples_are_refused() {
         ("[data-testid=\"ask-decline\"]", "display", "none"),
         (".modn-recent__menu", "opacity", "0"),
         (".modn-app", "opacity", "0"),
-        (".modn-recent__entry", "position", "absolute"),
+        (".modn-main", "opacity", "0"),
+        (".modn-view", "opacity", "0"),
+        (".modn-details", "visibility", "hidden"),
+        (".modn-library", "visibility", "hidden"),
         (".modn-recent__menu", "overflow", "hidden"),
         (".modn-recent__menu", "height", "1px"),
     ] {
@@ -43,6 +46,41 @@ fn review_examples_are_refused() {
             [Rule::ProtectedRegion],
             "{selector} {{ {property}: {value} }} should be refused"
         );
+    }
+}
+
+#[test]
+fn a_positioned_context_hook_reports_both_rules() {
+    let facts = vec![style(
+        ".modn-recent__entry",
+        vec![decl("position", "absolute")],
+    )];
+    assert_eq!(
+        check(facts),
+        [Rule::ForbiddenPositionFixed, Rule::ProtectedRegion]
+    );
+}
+
+#[test]
+fn hiding_the_details_view_hides_the_whole_review() {
+    let facts = vec![
+        style(".modn-details", vec![decl("visibility", "hidden")]),
+        style(".modn-details__header", vec![decl("visibility", "visible")]),
+    ];
+    assert_eq!(check(facts), [Rule::ProtectedRegion]);
+}
+
+#[test]
+fn context_hooks_accept_colours_on_the_main_ancestor() {
+    for (selector, property, value) in [
+        (".modn-main", "color", "#eeeeee"),
+        (".modn-main", "background-color", "#101010"),
+        (".modn-main", "font-family", "\"Night City\", sans-serif"),
+        (".modn-view", "color", "#eeeeee"),
+        (".modn-details", "border-color", "#333333"),
+        (".modn-library", "outline-color", "#333333"),
+    ] {
+        accepts(selector, vec![decl(property, value)]);
     }
 }
 

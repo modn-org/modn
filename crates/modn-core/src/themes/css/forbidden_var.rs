@@ -19,24 +19,30 @@ const FORBIDDEN_VAR_PROPERTIES: &[&str] = &[
     "bottom",
     "left",
     "inset",
-    "inset-block",
-    "inset-inline",
     "width",
     "height",
     "min-width",
     "min-height",
     "max-width",
     "max-height",
+    "margin",
     "font-size",
     "line-height",
 ];
 
+/// Property prefixes that must not read a variable with `var()`.
+const FORBIDDEN_VAR_PREFIXES: &[&str] = &["inset-", "margin-"];
+
 /// Return whether `property` must use a literal value, ignoring case.
 #[must_use]
 pub(crate) fn forbids_var(property: &str) -> bool {
+    let property = property.to_ascii_lowercase();
     FORBIDDEN_VAR_PROPERTIES
         .iter()
-        .any(|candidate| property.eq_ignore_ascii_case(candidate))
+        .any(|candidate| property == *candidate)
+        || FORBIDDEN_VAR_PREFIXES
+            .iter()
+            .any(|prefix| property.starts_with(prefix))
 }
 
 /// Return whether `value` contains a `var()` function, ignoring case.

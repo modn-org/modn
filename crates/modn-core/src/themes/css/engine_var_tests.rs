@@ -43,12 +43,16 @@ fn var_in_a_guarded_property_is_refused() {
         "inset",
         "inset-block",
         "inset-inline",
+        "inset-block-start",
         "width",
         "height",
         "min-width",
         "min-height",
         "max-width",
         "max-height",
+        "margin",
+        "margin-top",
+        "margin-inline-start",
         "font-size",
         "line-height",
     ] {
@@ -97,7 +101,6 @@ fn var_is_refused_inside_media_queries() {
 fn var_stays_allowed_in_other_properties_and_custom_values() {
     for (property, value) in [
         ("padding", "var(--modn-space-4)"),
-        ("margin", "var(--modn-space-s)"),
         ("color", "var(--modn-color-ink)"),
         ("background-color", "var(--modn-color-surface)"),
         ("grid-template-columns", "var(--modn-columns)"),
@@ -115,6 +118,7 @@ fn var_stays_allowed_in_other_properties_and_custom_values() {
 fn the_var_check_ignores_case() {
     assert!(forbids_var("POSITION"));
     assert!(forbids_var("Line-Height"));
+    assert!(forbids_var("margin-top"));
     assert!(!forbids_var("padding"));
     assert!(contains_var("VAR(--modn-position, fixed)"));
     assert!(contains_var("color: Var(--modn-color-ink)"));

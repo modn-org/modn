@@ -218,22 +218,28 @@ pub const PROTECTED_REACHABLE_ATTRIBUTES: &[&str] = &["data-code", "data-operati
 
 /// Stable classes that hold, surround or share a host with a protected region.
 ///
-/// `apps/modn-desktop/ui/index.html` holds `.modn-app`, the ancestor of both
-/// regions. `apps/modn-desktop/ui/js/library/recent.js` holds `.modn-recent`
-/// and `.modn-recent__menu` above the approval host, and `.modn-recent__entry`
-/// and `.modn-recent__text` beside it. `apps/modn-desktop/ui/js/library.js`
-/// and `apps/modn-desktop/ui/js/details.js` hold the `.modn-library__ask` and
-/// `.modn-details__ask` approval hosts. An ancestor or sibling effect such as
-/// `opacity: 0` reaches the region, so these hooks may change colours and
-/// fonts only.
+/// `apps/modn-desktop/ui/index.html` holds `.modn-app` and `.modn-main`, the
+/// ancestors of both regions. `apps/modn-desktop/ui/js/details.js` holds
+/// `.modn-view` and `.modn-details` above the `.modn-details__ask` approval
+/// host, and `apps/modn-desktop/ui/js/library.js` holds `.modn-view` and
+/// `.modn-library` above the `.modn-library__ask` approval hosts.
+/// `apps/modn-desktop/ui/js/library/recent.js` holds `.modn-recent` and
+/// `.modn-recent__menu` above the recent approval host, and
+/// `.modn-recent__entry` and `.modn-recent__text` beside it. An ancestor or
+/// sibling effect such as `opacity: 0` reaches the region, so these hooks may
+/// change colours and fonts only.
 pub const PROTECTED_CONTEXT_CLASSES: &[&str] = &[
     "modn-app",
+    "modn-details",
     "modn-details__ask",
+    "modn-library",
     "modn-library__ask",
+    "modn-main",
     "modn-recent",
     "modn-recent__entry",
     "modn-recent__menu",
     "modn-recent__text",
+    "modn-view",
 ];
 
 /// Return whether `name` is a stable class, without the leading `.`.
