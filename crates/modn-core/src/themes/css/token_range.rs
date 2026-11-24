@@ -83,25 +83,28 @@ struct Dimension {
 
 /// Parse `value` as one number with an optional `px`, `rem` or `em` unit.
 ///
-/// Whitespace, signs, decimals and leading zeros are accepted. Every other
-/// unit, a function, a keyword or an empty value returns `None`.
+/// Whitespace, signs, decimals, exponents and leading zeros are accepted.
+/// Every other unit, a function, a keyword or an empty value returns `None`.
 fn parse_dimension(value: &str) -> Option<Dimension> {
     let value = value.trim();
-    let split = value
-        .find(|character: char| {
-            !(character.is_ascii_digit() || matches!(character, '+' | '-' | '.'))
-        })
-        .unwrap_or(value.len());
-    let (number, unit) = value.split_at(split);
-    let number: f64 = number.parse().ok()?;
-    let unit = match unit.trim().to_ascii_lowercase().as_str() {
-        "" => None,
-        "px" => Some("px"),
-        "rem" => Some("rem"),
-        "em" => Some("em"),
-        _ => return None,
-    };
-    Some(Dimension { number, unit })
+    for (index, _) in value
+        .char_indices()
+        .chain(std::iter::once((value.len(), '\0')))
+    {
+        let (number, unit) = value.split_at(index);
+        let Ok(number) = number.parse::<f64>() else {
+            continue;
+        };
+        let unit = match unit.trim().to_ascii_lowercase().as_str() {
+            "" => None,
+            "px" => Some("px"),
+            "rem" => Some("rem"),
+            "em" => Some("em"),
+            _ => continue,
+        };
+        return Some(Dimension { number, unit });
+    }
+    None
 }
 
 #[cfg(test)]

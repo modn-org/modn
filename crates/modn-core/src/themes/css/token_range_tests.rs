@@ -8,7 +8,9 @@ fn font_size_tokens_need_a_large_enough_length() {
             "--modn-font-size-body-s: {value} should be refused"
         );
     }
-    for value in ["10px", "13px", "1rem", "0.625rem", "0.625em", "2em"] {
+    for value in [
+        "10px", "13px", "1rem", "0.625rem", "0.625em", "2em", "1e1px",
+    ] {
         assert!(
             accepts("--modn-font-size-body-s", value),
             "--modn-font-size-body-s: {value} should be accepted"
@@ -78,7 +80,7 @@ fn disabled_opacity_stays_between_zero_point_four_and_one() {
             "--modn-opacity-disabled: {value} should be refused"
         );
     }
-    for value in ["0.4", "0.75", "1"] {
+    for value in ["0.4", "0.75", "1", "4e-1"] {
         assert!(
             accepts("--modn-opacity-disabled", value),
             "--modn-opacity-disabled: {value} should be accepted"
