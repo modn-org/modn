@@ -1,3 +1,4 @@
+@layer app {
 .modn-details {
   gap: var(--modn-space-xl);
 }
@@ -55,9 +56,6 @@
 
 .modn-review__summary {
   color: var(--modn-color-text);
-  font-family: var(--modn-font-heading), Georgia, serif;
-  font-size: var(--modn-font-size-heading-m);
-  line-height: var(--modn-font-line-heading-m);
   cursor: pointer;
 }
 
@@ -66,14 +64,8 @@
   outline-offset: var(--modn-space-2xs);
 }
 
-.modn-review[open] .modn-review__summary {
-  margin-bottom: var(--modn-space-m);
-}
-
 .modn-review__body {
-  display: flex;
   flex-direction: column;
-  gap: var(--modn-space-s);
 }
 
 .modn-review__approval {
@@ -82,15 +74,10 @@
 
 .modn-review__muted {
   color: var(--modn-color-text-muted);
-  font-size: var(--modn-font-size-body-s);
-  line-height: var(--modn-font-line-body-s);
 }
 
 .modn-review__status {
-  min-height: var(--modn-font-line-body-m);
   color: var(--modn-color-text-muted);
-  font-size: var(--modn-font-size-body-s);
-  line-height: var(--modn-font-line-body-s);
 }
 
 .modn-review__status--error {
@@ -98,33 +85,24 @@
 }
 
 .modn-review__list {
-  display: flex;
   flex-direction: column;
-  gap: var(--modn-space-xs);
 }
 
 .modn-review__row {
-  display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--modn-space-s);
-  padding: var(--modn-space-xs) var(--modn-space-s);
   border-radius: var(--modn-radius-s);
   background: var(--modn-color-surface);
 }
 
 .modn-review__path {
   color: var(--modn-color-text);
-  font-size: var(--modn-font-size-body-s);
-  line-height: var(--modn-font-line-body-s);
   overflow-wrap: anywhere;
 }
 
 .modn-review__tag {
   color: var(--modn-color-text-muted);
-  font-size: var(--modn-font-size-label-s);
-  line-height: var(--modn-font-line-label-s);
 }
 
 .modn-review__row[data-operation="remove"] .modn-review__tag {
@@ -132,10 +110,7 @@
 }
 
 .modn-review__blocker {
-  padding: var(--modn-space-xs) var(--modn-space-s);
   color: var(--modn-color-danger);
-  font-size: var(--modn-font-size-body-s);
-  line-height: var(--modn-font-line-body-s);
 }
 
 .modn-history {
@@ -157,4 +132,5 @@
 .modn-details__footer {
   display: flex;
   justify-content: flex-start;
+}
 }

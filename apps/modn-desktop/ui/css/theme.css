@@ -2,6 +2,7 @@
  * Theme control: the shell header, the Theme button and its panel.
  * Every class uses the reserved `modn-theme-` prefix.
  */
+@layer app {
 .modn-theme-shell {
   grid-area: shell;
   position: relative;
@@ -139,4 +140,5 @@
   color: var(--modn-color-danger);
   font-size: var(--modn-font-size-body-s);
   line-height: var(--modn-font-line-body-s);
+}
 }

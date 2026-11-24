@@ -108,9 +108,46 @@ test('adds the theme sheet then the variant sheet after the existing sheets', ()
   assert.equal(document.adoptedStyleSheets[0], existing);
   assert.equal(
     document.adoptedStyleSheets[1].text,
-    `.modn-app{background-image:url(${BASE}assets/bg.webp)}`,
+    `@layer theme {\n.modn-app{background-image:url(${BASE}assets/bg.webp)}\n}`,
   );
-  assert.equal(document.adoptedStyleSheets[2].text, '.modn-app{color:#ffffff}');
+  assert.equal(
+    document.adoptedStyleSheets[2].text,
+    '@layer theme {\n.modn-app{color:#ffffff}\n}',
+  );
+});
+
+test('the base theme sheet starts with the theme layer statement', () => {
+  const document = documentWith();
+  applyTheme(resolved(), { document, createSheet: sheetFactory() });
+  const text = document.adoptedStyleSheets[0].text;
+  assert.ok(text.startsWith('@layer theme {'), text);
+  assert.ok(text.endsWith('}'), text);
+  assert.ok(text.includes(`url(${BASE}assets/bg.webp)`), text);
+});
+
+test('the variant theme sheet starts with the theme layer statement', () => {
+  const document = documentWith();
+  applyTheme(resolved(), { document, createSheet: sheetFactory() });
+  const text = document.adoptedStyleSheets[1].text;
+  assert.ok(text.startsWith('@layer theme {'), text);
+  assert.ok(text.endsWith('}'), text);
+});
+
+test('a theme rule with a closing brace stays inside the theme layer', () => {
+  const css = '.modn-app{color:#ffffff}} .modn-app{background:url(assets/bg.webp)}';
+  const document = documentWith();
+  applyTheme({ ...resolved({ theme: { ...resolved().theme, css, variant_css: null } }) }, {
+    document,
+    createSheet: sheetFactory(),
+  });
+  assert.equal(
+    document.adoptedStyleSheets[0].text,
+    `@layer theme {\n.modn-app{color:#ffffff}} .modn-app{background:url(${BASE}assets/bg.webp)}\n}`,
+  );
+  assert.ok(
+    !document.adoptedStyleSheets[0].text.startsWith('@layer theme {\n@layer'),
+    'the wrapper must never concatenate theme text into the layer statement',
+  );
 });
 
 test('keeps every adopted sheet that the theme did not add', () => {
