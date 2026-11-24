@@ -71,7 +71,6 @@ fn copy_tree(source: &Path, target: &Path) {
 fn fixture_tree() -> tempfile::TempDir {
     let tree = tempfile::tempdir().expect("fixture tree directory");
     copy_tree(&repository(), tree.path());
-    main_bucket::to_contract_v2(tree.path());
     tree
 }
 
@@ -165,8 +164,8 @@ fn rejected_updates_keep_previous_bucket_unchanged() {
     let original = modn_core::bucket_digest::directory_digest(&main).unwrap();
     let module = "games/cyberpunk-2077/module.json";
     let current = fs::read_to_string(repository().join(module)).unwrap();
-    let future = current.replace("\"api_version\":1", "\"api_version\":4");
-    assert_ne!(future, current, "fixture module declares host API 1");
+    let future = current.replace("\"api_version\":3", "\"api_version\":4");
+    assert_ne!(future, current, "fixture module declares host API 3");
 
     let cases = [
         ("unsigned", "is unsigned; Modn refuses unsigned releases"),

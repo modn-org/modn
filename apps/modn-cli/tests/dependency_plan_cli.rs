@@ -75,7 +75,7 @@ fn official_mod_dry_run_lists_its_dependency_stack_without_an_archive() {
     let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
     assert_eq!(report["package"], "main/cyberpunk-2077/virtual-atelier");
     assert_eq!(report["plan"], Value::Null);
-    assert_eq!(report["source"]["kind"], "manual");
+    assert_eq!(report["source"]["kind"], "nexus");
     assert_eq!(report["dependencies_ready"], false);
     let expected: Vec<(String, String)> = [
         "red4ext",
@@ -105,7 +105,7 @@ fn official_mod_dry_run_lists_its_dependency_stack_without_an_archive() {
         "{stdout}"
     );
     assert!(
-        stdout.contains("archive needed; download \"Virtual Atelier"),
+        stdout.contains("archive needed; Modn downloads from Nexus Mods: cyberpunk2077 mod 2987 file 168466 (Virtual Atelier"),
         "{stdout}"
     );
 

@@ -28,7 +28,6 @@ impl Fixture {
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main"),
             &tree,
         );
-        main_bucket::to_contract_v2(&tree);
         let main_zip = temp.path().join("main.zip");
         pack(&tree, &main_zip);
         main_bucket::write_signature(&tree, &main_zip);

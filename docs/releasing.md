@@ -11,8 +11,8 @@ contents are unchanged. The smoke test needs a contract v2 `main` bucket. It
 installs the pinned `buckets/main` submodule, packed with the bucket
 repository's v2 packer and signed with an ephemeral test key. **Precondition
 for a Modn release:** `modn-org/main` must publish a contract v2 bucket, and
-this repository must pin that commit. The submodule still points at contract
-v1 today. A Modn release and the restructured, signed `modn-org/main` release
+this repository must pin that commit. Since Modn 0.7.0 the submodule pins the
+contract v2 bucket of `main` release `v2026.11.24`. A Modn release and the restructured, signed `modn-org/main` release
 ship together. Only then does the workflow publish the GitHub release with
 `modn.exe`, its checksum and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
 must include `main-bucket.zip.minisig`. The bucket repository's tag release signs
@@ -286,7 +286,7 @@ Record the tag, the commit and the SHA-256. Install Python 3, Git, `gh` and 7-Zi
 The release must use contract v2: `bucket.json` with `schema_version: 2`, package manifests under `mods/<game-id>/` and game modules under `games/<game-id>/`.
 This Modn refuses a contract v1 bucket.
 The release must include `main-bucket.zip.minisig`, signed by the key built into Modn.
-This repository's submodule still pins contract v1 until the maintainer republishes `main`; a Modn release and that v2 bucket release ship together.
+Since Modn 0.7.0, this repository's submodule pins a contract v2 commit; a Modn release and the bucket release that contains its pin ship together.
 Confirm that the bucket release contains that commit:
 
 ```powershell

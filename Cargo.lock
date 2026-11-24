@@ -2685,7 +2685,7 @@ dependencies = [
 
 [[package]]
 name = "modn-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -2706,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "modn-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -2746,7 +2746,7 @@ dependencies = [
 
 [[package]]
 name = "modn-mcp"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "clap",
