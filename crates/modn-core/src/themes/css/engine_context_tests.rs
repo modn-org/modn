@@ -91,6 +91,22 @@ fn hooks_outside_the_context_list_keep_layout() {
 }
 
 #[test]
+fn context_hooks_stay_limited_with_pseudo_classes() {
+    for selector in [
+        ".modn-app:hover",
+        ".modn-recent__menu:focus-visible",
+        ".modn-app > .modn-card",
+    ] {
+        let facts = vec![style(selector, vec![decl("opacity", "0")])];
+        assert_eq!(
+            check(facts),
+            [Rule::ProtectedRegion],
+            "{selector} should keep the context limit"
+        );
+    }
+}
+
+#[test]
 fn multiple_selectors_union_the_context_flag() {
     let facts = vec![RuleFacts::Style(StyleFacts::new(
         vec![".modn-card".to_string(), ".modn-app".to_string()],
