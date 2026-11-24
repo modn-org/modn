@@ -73,6 +73,19 @@ fn register_refuses_an_invalid_theme_and_copies_nothing() {
 }
 
 #[test]
+fn a_refused_registration_leaves_the_data_directory_untouched() {
+    let temp = tempdir().unwrap();
+    let data = temp.path().join("data");
+    let registry = ThemeRegistry::new(&data);
+    let source = theme_source(&temp, GAME, ID, "Night City");
+    assert!(registry.register(&source, &Reject).is_err());
+    assert!(
+        !data.exists(),
+        "a refused registration must not create the data directory"
+    );
+}
+
+#[test]
 fn register_refuses_a_manifest_with_an_invalid_id() {
     let temp = tempdir().unwrap();
     let registry = ThemeRegistry::new(&temp.path().join("data"));
