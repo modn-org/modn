@@ -13,8 +13,8 @@ import { element } from '../details/dom.js';
 import {
   importAndRefresh,
   loadThemeForGame,
-  resetAndApply,
   selectAndApply,
+  selectNoneAndApply,
 } from './controller.js';
 /** The panel id that the trigger names with `aria-controls`. */
 const PANEL_ID = 'modn-theme-panel';
@@ -22,7 +22,7 @@ const PANEL_ID = 'modn-theme-panel';
  * Creates the control and appends it to `host`.
  * @param {HTMLElement} host
  * @param {{api?: Object, loadThemeForGame?: Function,
- *   selectAndApply?: Function, resetAndApply?: Function,
+ *   selectAndApply?: Function, selectNoneAndApply?: Function,
  *   importAndRefresh?: Function}} [deps]
  * @returns {{element: HTMLElement, setGame: Function, setTheme: Function,
  *   isOpen: Function}}
@@ -31,7 +31,7 @@ export function createThemePanel(host, deps = {}) {
   const client = deps.api || api;
   const load = deps.loadThemeForGame || loadThemeForGame;
   const select = deps.selectAndApply || selectAndApply;
-  const reset = deps.resetAndApply || resetAndApply;
+  const selectNone = deps.selectNoneAndApply || selectNoneAndApply;
   const importTheme = deps.importAndRefresh || importAndRefresh;
   const root = element('div', 'modn-theme-control');
   const trigger = element('button', 'modn-button modn-button--quiet modn-theme-button', 'Theme');
@@ -222,7 +222,7 @@ export function createThemePanel(host, deps = {}) {
       const expected = generation;
       const target = game;
       try {
-        const result = await reset(target);
+        const result = await selectNone(target);
         if (expected !== generation) {
           return;
         }

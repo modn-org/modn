@@ -169,6 +169,24 @@ export async function selectAndApply(game, theme, variant, deps = {}) {
   return loadThemeForGame(game, deps);
 }
 /**
+ * Stores the explicit no-theme choice, then resolves and applies the default.
+ *
+ * The generation and game are checked after the selection settles, so a
+ * selection that finishes after the user navigated away applies nothing.
+ * @param {string} game
+ * @param {{api?: Object, applyTheme?: Function, toast?: Function}} [deps]
+ * @returns {Promise<Object>}
+ */
+export async function selectNoneAndApply(game, deps = {}) {
+  const client = deps.api || api;
+  const start = generation;
+  await client.selectTheme(game, null);
+  if (generation !== start || activeGame !== game) {
+    return { applied: false, stale: true };
+  }
+  return loadThemeForGame(game, deps);
+}
+/**
  * Clears the selection of one game, then resolves and applies the default.
  * @param {string} game
  * @param {{api?: Object, applyTheme?: Function, toast?: Function}} [deps]

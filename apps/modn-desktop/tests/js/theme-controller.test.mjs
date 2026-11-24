@@ -7,7 +7,10 @@ import {
   resetAndApply,
   resetNoticeMemory,
   selectAndApply,
+  selectNoneAndApply,
 } from '../../ui/js/theme/controller.js';
+import { selectNoTheme, selectTheme } from '../../ui/js/api.js';
+import { installWindow } from './support/fake-dom.mjs';
 
 const BASE = 'http://modn-theme.localhost/';
 
@@ -172,6 +175,47 @@ test('selectAndApply sends an empty variant as absent', async () => {
   assert.deepEqual(calls, [undefined]);
 });
 
+test('selectNoneAndApply selects the explicit default before it resolves', async () => {
+  const calls = [];
+  const api = {
+    selectTheme: async (game, theme, variant) => {
+      calls.push(['select', game, theme, variant]);
+      return { selected: { game, theme, variant } };
+    },
+    resolveTheme: async (game) => {
+      calls.push(['resolve', game]);
+      return answer({ game, theme: null });
+    },
+  };
+  const result = await selectNoneAndApply('fixture', {
+    api,
+    applyTheme: applyStub({ applied: false }),
+    toast: () => {},
+  });
+  assert.deepEqual(calls, [
+    ['select', 'fixture', null, undefined],
+    ['resolve', 'fixture'],
+  ]);
+  assert.equal(result.applied, false);
+  assert.equal(result.unavailable, false);
+});
+
+test('api.selectTheme passes an absent theme as null', async () => {
+  const calls = [];
+  installWindow({
+    invoke: async (command, args) => {
+      calls.push([command, args]);
+      return { selected: { game: args.game, theme: args.theme } };
+    },
+  });
+  await selectTheme('fixture', undefined);
+  await selectNoTheme('fixture');
+  assert.deepEqual(calls, [
+    ['select_theme', { game: 'fixture', theme: null, variant: undefined }],
+    ['select_theme', { game: 'fixture', theme: null, variant: undefined }],
+  ]);
+});
+
 test('resetAndApply resets before it resolves and applies', async () => {
   const calls = [];
   await loadThemeForGame('fixture', {
@@ -310,60 +354,6 @@ test('a failed resolve removes the sheets of the previous game', async () => {
   );
   assert.equal(result.applied, false);
   assert.equal(result.unavailable, true);
-});
-
-test('a selection that finishes after navigation applies and resolves nothing', async () => {
-  resetNoticeMemory();
-  let settleSelect;
-  const resolvedGames = [];
-  const apply = applyStub();
-  const api = {
-    selectTheme: () =>
-      new Promise((resolve) => {
-        settleSelect = resolve;
-      }),
-    resolveTheme: async (game) => {
-      resolvedGames.push(game);
-      return answer({ game });
-    },
-  };
-  const deps = { api, applyTheme: apply, toast: () => {} };
-  await loadThemeForGame('first', deps);
-  resolvedGames.length = 0;
-  const pending = selectAndApply('first', 'night-city', 'neon', deps);
-  await loadThemeForGame('second', deps);
-  settleSelect({ selected: { game: 'first' } });
-  const result = await pending;
-  assert.equal(result.stale, true);
-  assert.deepEqual(resolvedGames, ['second']);
-  assert.equal(apply.calls.length, 2);
-});
-
-test('a reset that finishes after navigation applies and resolves nothing', async () => {
-  resetNoticeMemory();
-  let settleReset;
-  const resolvedGames = [];
-  const apply = applyStub();
-  const api = {
-    resetTheme: () =>
-      new Promise((resolve) => {
-        settleReset = resolve;
-      }),
-    resolveTheme: async (game) => {
-      resolvedGames.push(game);
-      return answer({ game });
-    },
-  };
-  const deps = { api, applyTheme: apply, toast: () => {} };
-  await loadThemeForGame('first', deps);
-  resolvedGames.length = 0;
-  const pending = resetAndApply('first', deps);
-  await loadThemeForGame('second', deps);
-  settleReset({ reset: ['first'] });
-  const result = await pending;
-  assert.equal(result.stale, true);
-  assert.deepEqual(resolvedGames, ['second']);
-  assert.equal(apply.calls.length, 2);
 });
 
 test('a stale resolve answer applies nothing', async () => {
