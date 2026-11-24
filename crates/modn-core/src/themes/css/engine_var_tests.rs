@@ -105,8 +105,9 @@ fn var_stays_allowed_in_other_properties_and_custom_values() {
         ("--modn-font-body", "var(--modn-font-heading)"),
     ] {
         let facts = vec![style(".modn-card", vec![decl(property, value, 1)], 1)];
-        check_sheet("theme.css", &SheetFacts::new(facts))
-            .unwrap_or_else(|problems| panic!("{property}: {value} should be accepted: {problems:?}"));
+        check_sheet("theme.css", &SheetFacts::new(facts)).unwrap_or_else(|problems| {
+            panic!("{property}: {value} should be accepted: {problems:?}")
+        });
     }
 }
 

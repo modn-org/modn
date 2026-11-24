@@ -88,7 +88,9 @@ struct Dimension {
 fn parse_dimension(value: &str) -> Option<Dimension> {
     let value = value.trim();
     let split = value
-        .find(|character: char| !(character.is_ascii_digit() || matches!(character, '+' | '-' | '.')))
+        .find(|character: char| {
+            !(character.is_ascii_digit() || matches!(character, '+' | '-' | '.'))
+        })
         .unwrap_or(value.len());
     let (number, unit) = value.split_at(split);
     let number: f64 = number.parse().ok()?;
