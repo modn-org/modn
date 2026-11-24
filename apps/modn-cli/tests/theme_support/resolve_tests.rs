@@ -140,3 +140,33 @@ fn list_and_resolve_key_sets_match_the_documented_examples() {
     let fallback = fixture.json(&["theme", "resolve", "--game", GAME]);
     assert_keys(&fallback["fallback"], &["reason", "message"]);
 }
+
+#[test]
+fn resolve_returns_no_theme_after_select_none_with_an_official_theme() {
+    let fixture = Fixture::new();
+    fixture.official_theme(GAME, "a-official", &[]);
+    fixture.json(&["theme", "select", GAME, "--none"]);
+    let resolved = fixture.json(&["theme", "resolve", "--game", GAME]);
+    assert_eq!(resolved["game"], GAME);
+    assert_eq!(resolved["theme"], Value::Null);
+    assert_eq!(resolved["fallback"], Value::Null);
+    assert_eq!(resolved["diagnostics"], serde_json::json!([]));
+}
+
+#[test]
+fn list_marks_no_theme_selected_after_select_none() {
+    let fixture = Fixture::new();
+    fixture.official_theme(GAME, "a-official", &[]);
+    fixture.json(&["theme", "select", GAME, "--none"]);
+    let listed = fixture.json(&["theme", "list", "--game", GAME]);
+    let themes = listed["themes"].as_array().expect("themes");
+    assert!(!themes.is_empty(), "{listed}");
+    assert!(
+        themes.iter().all(|theme| theme["selected"] == false),
+        "{listed}"
+    );
+    let human = fixture.run_human(&["theme", "list", "--game", GAME]);
+    assert!(human.status.success());
+    let stdout = String::from_utf8_lossy(&human.stdout);
+    assert!(!stdout.contains("(selected)"), "{stdout}");
+}
