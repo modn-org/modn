@@ -29,29 +29,40 @@ pub(crate) async fn list_themes(
 ///
 /// The CLI answer names the theme directory. Its `assets_dir` never reaches
 /// the webview: the handler replaces it with the stored protocol root and adds
-/// `asset_base`. An invalid directory clears any earlier one.
+/// `asset_base`. An invalid directory clears any earlier one. A newer request
+/// supersedes this one: a stale answer never changes the root and reports
+/// `{"stale": true, "game": "<game>"}` so the controller can discard it.
 #[tauri::command]
 pub(crate) async fn resolve_theme(
     state: tauri::State<'_, AppState>,
     game: String,
 ) -> Result<Value, CommandError> {
     let Some(args) = resolve_request(state.default_theme(), &game)? else {
-        state.store_theme_root(None);
-        return Ok(default_theme_answer(&game));
+        let ticket = state.next_theme_ticket();
+        return Ok(if state.store_theme_root_if_latest(ticket, None) {
+            default_theme_answer(&game)
+        } else {
+            stale_answer(&game)
+        });
     };
+    let ticket = state.next_theme_ticket();
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
     let value = run_blocking(&busy, move || backend.call(&args)).await?;
-    match resolved_theme(value) {
-        Ok(resolved) => {
-            state.store_theme_root(resolved.root);
-            Ok(resolved.answer)
-        }
+    let resolved = match resolved_theme(value) {
+        Ok(resolved) => resolved,
         Err(error) => {
-            state.store_theme_root(None);
-            Err(error)
+            if state.store_theme_root_if_latest(ticket, None) {
+                return Err(error);
+            }
+            return Ok(stale_answer(&game));
         }
-    }
+    };
+    Ok(if state.store_theme_root_if_latest(ticket, resolved.root) {
+        resolved.answer
+    } else {
+        stale_answer(&game)
+    })
 }
 
 #[tauri::command]
@@ -125,6 +136,14 @@ pub(super) fn default_theme_answer(game: &str) -> Value {
         "diagnostics": [],
         "asset_base": ASSET_BASE,
     })
+}
+
+/// The answer of a resolve that a newer request superseded.
+///
+/// The root stays as the newer call set it. The controller discards this
+/// answer, so it carries no theme data or `asset_base`.
+pub(super) fn stale_answer(game: &str) -> Value {
+    json!({"stale": true, "game": game})
 }
 
 /// Prepares one resolve answer for the webview.
