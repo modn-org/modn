@@ -34,15 +34,16 @@ fn recover_backups(registry: &Path, problems: &mut Vec<ThemeProblem>) -> Result<
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
             return Err(ThemeError::io(
-                "cannot list the theme backup directory",
+                "cannot list the theme registry backup directory",
                 error,
             ));
         }
         Ok(games) => games,
     };
     for game in games {
-        let game =
-            game.map_err(|error| ThemeError::io("cannot list the theme backup directory", error))?;
+        let game = game.map_err(|error| {
+            ThemeError::io("cannot list the theme registry backup directory", error)
+        })?;
         let Some(name) = game.file_name().to_str().map(str::to_owned) else {
             continue;
         };
