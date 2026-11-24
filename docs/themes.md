@@ -824,8 +824,9 @@ ASCII control characters are removed.
 
 ### Default theme flag
 
-The start flag `--default-theme` makes `resolve_theme` return a synthetic answer with `theme: null` and `fallback.reason: "default-theme-flag"`.
-It does so without spawning the CLI.
+The start flag `--default-theme` makes `resolve_theme` return a synthetic answer without spawning the CLI.
+That answer is `{"game":"<game>","theme":null,"fallback":null,"disabled":"default-theme-flag","diagnostics":[],"asset_base":"http://modn-theme.localhost/"}`.
+The controller applies no theme when `disabled` is set.
 
 ### Theme control
 
