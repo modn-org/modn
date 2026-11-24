@@ -706,8 +706,6 @@ A refusal prints this envelope on stderr and exits with status 1 in `--json` mod
 {"error":"THEME_INVALID","message":"<text>","diagnostics":[<diagnostic object>...]}
 ```
 
-The CLI half is not written yet.
-
 ```json
 {"registered":{"id":"night-city","game":"cyberpunk-2077","name":"Night City","theme_api":1,"variants":["neon","noir"],"icon":"assets/icon.png","source":{"kind":"local","bucket":null,"label":"local registry"},"selected":false},"digest":"blake3:9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a"}
 ```
