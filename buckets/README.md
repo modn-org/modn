@@ -119,6 +119,23 @@ requirements and conflicts, and downloads `https` artifacts. Git-backed
 catalogs are registered with `modn bucket sync <name> --source <remote>
 --revision <ref>`; see [sources.md](../docs/sources.md).
 
+## Themes
+
+A bucket may also ship themes at this path:
+
+```text
+themes/<game-id>/<theme-id>/theme.json
+themes/<game-id>/<theme-id>/theme.css
+themes/<game-id>/<theme-id>/theme.<variant>.css      (one per listed variant)
+themes/<game-id>/<theme-id>/assets/...               (PNG, WebP, WOFF2 only)
+```
+
+The `main` bucket may hold an official theme for a game. Any bucket kind may
+ship themes, and themes need no trust step: Rust validates them, and they cannot
+run code, load remote resources or change a destructive confirmation. A broken
+theme is a diagnostic; it never fails `bucket update` or `bucket sync`. See
+[Game themes](../docs/themes.md) for the contract.
+
 ## Adding a package to `main`
 
 Open a pull request in [`modn-org/main`](https://github.com/modn-org/main). Its
