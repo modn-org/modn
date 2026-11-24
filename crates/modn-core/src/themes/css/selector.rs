@@ -1,7 +1,10 @@
 //! A strict parser for the theme API v1 selector grammar.
 
 use super::facts::DeclFacts;
-use crate::themes::hooks::{is_protected_class, is_stable_class, is_stable_data_attribute};
+use crate::themes::hooks::{
+    is_protected_class, is_protected_context_class, is_protected_reachable_attribute,
+    is_stable_class, is_stable_data_attribute,
+};
 use crate::themes::problem::Rule;
 
 /// Selector facts the rule engine needs after a successful parse.
@@ -11,6 +14,8 @@ pub(crate) struct SelectorInfo {
     pub root_only: bool,
     /// The selector names a protected hook.
     pub protected: bool,
+    /// The subject compound names a hook that holds a protected region.
+    pub context: bool,
 }
 
 /// One selector that violates the grammar.
@@ -78,6 +83,7 @@ struct Parser<'a> {
     position: usize,
     root_only: bool,
     protected: bool,
+    context: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -89,6 +95,7 @@ impl<'a> Parser<'a> {
             position: 0,
             root_only: false,
             protected: false,
+            context: false,
         }
     }
 
@@ -123,12 +130,14 @@ impl<'a> Parser<'a> {
         Ok(SelectorInfo {
             root_only: self.root_only,
             protected: self.protected,
+            context: self.context,
         })
     }
 
     /// Parse one compound selector and enforce its hook requirement.
     fn parse_compound(&mut self) -> Result<(), SelectorViolation> {
         let start = self.position;
+        self.context = false;
         let mut compound = Compound::default();
         while let Some(byte) = self.peek() {
             match byte {
@@ -184,6 +193,9 @@ impl<'a> Parser<'a> {
         compound.hooks += 1;
         if is_protected_class(name) {
             self.protected = true;
+        }
+        if is_protected_context_class(name) {
+            self.context = true;
         }
         Ok(())
     }
@@ -249,7 +261,9 @@ impl<'a> Parser<'a> {
         }
         compound.simples += 1;
         compound.hooks += 1;
-        if name == crate::themes::hooks::PROTECTED_REGION_ATTRIBUTE {
+        if name == crate::themes::hooks::PROTECTED_REGION_ATTRIBUTE
+            || is_protected_reachable_attribute(name)
+        {
             self.protected = true;
         }
         Ok(())
@@ -300,6 +314,7 @@ impl<'a> Parser<'a> {
 
     /// Parse the one compound allowed inside `:not()`.
     fn parse_inner_compound(&mut self, compound: &mut Compound) -> Result<(), SelectorViolation> {
+        let context = self.context;
         while let Some(byte) = self.peek() {
             match byte {
                 b'.' => self.parse_class(compound)?,
@@ -320,6 +335,7 @@ impl<'a> Parser<'a> {
                 self.input
             )));
         }
+        self.context = context;
         Ok(())
     }
 
