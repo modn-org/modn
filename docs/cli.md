@@ -495,6 +495,8 @@ and accepts the same flags for a restored release; it stores nothing after the
 restore. An explicit `--allow-executable` path may authorize an archive member
 that the manifest does not declare. It is passed to planning and execution but
 is not saved in the stored approval, which keeps only declared capabilities.
+The flag applies to game-root and content-root destinations alike; for a
+content-root operation, name the destination exactly as the preview reports it.
 `install --dry-run --json` reports `approval.required`,
 `approval.covered_by_stored_approval`, the stored approval and the uncovered
 capabilities. There is no command to revoke an approval; `modn uninstall` does

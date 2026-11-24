@@ -1,7 +1,7 @@
 # Approval policy
 
 A native injector or an executable mod needs one explicit approval per mod.
-This file maps the policy of issue #152 to journey 7.
+This file maps the policy of issue #152 to journeys 7 and 12.
 
 ## What to check
 
@@ -19,6 +19,10 @@ This file maps the policy of issue #152 to journey 7.
   covered capabilities does not ask.
 - A8: adoption and forced cleanup are not offered by the app, so no journey
   exercises them.
+- A9: on a content-root game, an executable release asks the same question,
+  lists its content-relative path, `Decline` writes nothing, `Allow` installs
+  into the content root, and the stored approval suppresses the next ask
+  (journey 12).
 
 ## Fixture
 
@@ -26,16 +30,22 @@ Journey 7 registers two games. `balatro` is a content-root game and carries
 the native-code and plain-pack releases. `tools-game` uses the permissions
 model and carries the executable release with `tools/helper.exe`.
 
+Journey 12 registers only `balatro`. Its `root-exe-pack` release declares
+`RootPack/tools/helper.exe`, the content-relative destination of the archive
+entry. The Balatro fixture plans both archive files below the `RootPack`
+folder, so the install lands in the content root `appdata/Balatro/Mods`, and
+the core accepts the declaration because the destination is a `.exe` below a
+`tools` folder. The journey checks the installed bytes there.
+
 The executable helper is a byte copy of a signed Windows binary. The archive
 fixtures come from `catalog_fixture.add_catalog_release`, which writes a
 contract v2 release and pins the ZIP by its BLAKE3 digest.
 
-## Content-root limit
+## Content-root coverage
 
-The CLI preview ignores explicit executable approvals for a content-root game
-(`apps/modn-cli/src/catalog_install.rs:328-331`, `install.rs:70-72`). The
-executable ask therefore runs on the `tools-game` fixture.
-This is a CLI limit, not an app limit. Do not move that check to `balatro`.
+Journey 7 keeps the native-code case and the executable case on `tools-game`.
+Journey 12 covers the executable case on the content-root game, through the
+desktop window and the manager-state approval the app stores.
 
 ## How to inspect the store
 

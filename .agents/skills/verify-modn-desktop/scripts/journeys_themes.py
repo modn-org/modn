@@ -451,7 +451,7 @@ def _step7_protected(runner, fx, protected):
 
 
 def journey_themes(runner):
-    """12. Theme control: official fallback, variant, local and bucket themes, diagnostics."""
+    """13. Theme control: official fallback, variant, local and bucket themes, diagnostics."""
     fx = Fixture()
     runner.cleanup.append(fx.remove)
     main = build_main_with_official(fx.data / "modn" / "buckets" / "main")

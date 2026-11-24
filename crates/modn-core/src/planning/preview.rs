@@ -28,7 +28,19 @@ pub fn preview_install_zip_with_appdata(
     archive: &Path,
     appdata: &Path,
 ) -> anyhow::Result<InstallPlan> {
-    preview_update_with_appdata(game_id, game, archive, &[], &[], appdata)
+    preview_install_zip_with_appdata_permissions(game_id, game, archive, &[], appdata)
+}
+
+/// Preview a ZIP installation with an explicit appdata base and trusted
+/// per-destination tool-executable permissions.
+pub fn preview_install_zip_with_appdata_permissions(
+    game_id: &str,
+    game: &Path,
+    archive: &Path,
+    approved: &[String],
+    appdata: &Path,
+) -> anyhow::Result<InstallPlan> {
+    preview_update_with_appdata(game_id, game, archive, approved, &[], appdata)
 }
 
 /// Preview `archive` as an update that replaces `replaced`: the game-relative

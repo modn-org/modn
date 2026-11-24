@@ -197,6 +197,25 @@ impl Fixture {
         self.bucket_root = root;
     }
 
+    /// Write a package record with an explicit id and dependency references.
+    pub fn package(&self, id: &str, hash: &str, dependencies: &[&str]) {
+        fs::write(
+            self.bucket_root
+                .join("mods")
+                .join(GAME_ID)
+                .join(format!("{id}.json")),
+            serde_json::to_vec(&json!({
+                "schema_version": 2, "id": id, "game": GAME_ID,
+                "name": id, "version": "1.0.0", "archive_format": "zip",
+                "blake3": hash,
+                "sources": [{"kind": "manual", "filename": format!("{id}.zip")}],
+                "dependencies": dependencies
+            }))
+            .expect("JSON"),
+        )
+        .expect("package record");
+    }
+
     pub fn release(&self, file: &str, version: &str, hash: &str) {
         fs::write(
             self.bucket_root.join("mods").join(GAME_ID).join(file),
