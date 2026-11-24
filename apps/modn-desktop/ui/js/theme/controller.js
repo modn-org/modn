@@ -149,6 +149,51 @@ export async function loadThemeForGame(game, deps = {}) {
   };
 }
 /**
+ * Selections running or queued. A new selection waits for the older ones so
+ * that two quick choices store and apply in click order.
+ */
+let selectionDepth = 0;
+/** Settles when the newest queued selection ends. */
+let selectionTail = Promise.resolve();
+/**
+ * Runs one selection. The first one starts at once; a later one waits for the
+ * older selection.
+ * @template T
+ * @param {() => Promise<T>} run
+ * @returns {Promise<T>}
+ */
+function queueSelection(run) {
+  const next = selectionDepth === 0 ? run() : selectionTail.then(run, run);
+  selectionDepth += 1;
+  selectionTail = next.then(
+    () => {
+      selectionDepth -= 1;
+    },
+    () => {
+      selectionDepth -= 1;
+    },
+  );
+  return next;
+}
+/**
+ * Stores one selection and applies its theme unless the game already changed.
+ * @param {string} game
+ * @param {() => Promise<Object>} store
+ * @param {{api?: Object, applyTheme?: Function, toast?: Function}} deps
+ * @returns {Promise<Object>}
+ */
+async function storeAndApply(game, store, deps) {
+  if (activeGame !== game) {
+    return { applied: false, stale: true };
+  }
+  const start = generation;
+  await store();
+  if (generation !== start || activeGame !== game) {
+    return { applied: false, stale: true };
+  }
+  return loadThemeForGame(game, deps);
+}
+/**
  * Selects a theme and its variant, then resolves and applies the selection.
  *
  * The generation and game are checked after the selection settles, so a
@@ -159,14 +204,15 @@ export async function loadThemeForGame(game, deps = {}) {
  * @param {{api?: Object, applyTheme?: Function, toast?: Function}} [deps]
  * @returns {Promise<Object>}
  */
-export async function selectAndApply(game, theme, variant, deps = {}) {
+export function selectAndApply(game, theme, variant, deps = {}) {
   const client = deps.api || api;
-  const start = generation;
-  await client.selectTheme(game, theme, variant === '' ? undefined : variant);
-  if (generation !== start || activeGame !== game) {
-    return { applied: false, stale: true };
-  }
-  return loadThemeForGame(game, deps);
+  return queueSelection(() =>
+    storeAndApply(
+      game,
+      () => client.selectTheme(game, theme, variant === '' ? undefined : variant),
+      deps,
+    ),
+  );
 }
 /**
  * Stores the explicit no-theme choice, then resolves and applies the default.
@@ -177,14 +223,9 @@ export async function selectAndApply(game, theme, variant, deps = {}) {
  * @param {{api?: Object, applyTheme?: Function, toast?: Function}} [deps]
  * @returns {Promise<Object>}
  */
-export async function selectNoneAndApply(game, deps = {}) {
+export function selectNoneAndApply(game, deps = {}) {
   const client = deps.api || api;
-  const start = generation;
-  await client.selectTheme(game, null);
-  if (generation !== start || activeGame !== game) {
-    return { applied: false, stale: true };
-  }
-  return loadThemeForGame(game, deps);
+  return queueSelection(() => storeAndApply(game, () => client.selectTheme(game, null), deps));
 }
 /**
  * Clears the selection of one game, then resolves and applies the default.
@@ -192,14 +233,9 @@ export async function selectNoneAndApply(game, deps = {}) {
  * @param {{api?: Object, applyTheme?: Function, toast?: Function}} [deps]
  * @returns {Promise<Object>}
  */
-export async function resetAndApply(game, deps = {}) {
+export function resetAndApply(game, deps = {}) {
   const client = deps.api || api;
-  const start = generation;
-  await client.resetTheme(game);
-  if (generation !== start || activeGame !== game) {
-    return { applied: false, stale: true };
-  }
-  return loadThemeForGame(game, deps);
+  return queueSelection(() => storeAndApply(game, () => client.resetTheme(game), deps));
 }
 /**
  * Registers an imported theme and returns the answer unchanged.

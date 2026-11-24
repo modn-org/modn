@@ -446,6 +446,38 @@ test('the same refusal shows one toast across two loads of a game', async () => 
   assert.equal(toasts.length, 1);
 });
 
+test('two quick selections store and apply in click order', async () => {
+  resetNoticeMemory();
+  let stored = 'night-city';
+  const selected = [];
+  const applied = [];
+  const api = {
+    selectTheme: async (game, theme) => {
+      selected.push(theme);
+      stored = theme;
+    },
+    resolveTheme: async (game) =>
+      answer({
+        game,
+        theme: stored ? { ...answer().theme, id: stored } : null,
+      }),
+  };
+  const apply = (resolved) => {
+    applied.push(resolved.theme ? resolved.theme.id : 'default');
+    return { applied: Boolean(resolved.theme), error: null };
+  };
+  const deps = { api, applyTheme: apply, toast: () => {} };
+  await loadThemeForGame('fixture', deps);
+  applied.length = 0;
+  const useTheme = selectAndApply('fixture', 'night-city', 'neon', deps);
+  const useDefault = selectNoneAndApply('fixture', deps);
+  const results = await Promise.all([useTheme, useDefault]);
+  assert.deepEqual(selected, ['night-city', null]);
+  assert.equal(stored, null, 'the last choice is the stored one');
+  assert.deepEqual(applied, ['night-city', 'default']);
+  assert.equal(results[1].applied, false);
+});
+
 test('a failed resolve of an older request does not clear the newer sheets', async () => {
   resetNoticeMemory();
   let failFirst;

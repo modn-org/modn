@@ -63,6 +63,8 @@ pub(super) enum Failpoint {
     InstallFails,
     /// Fail when the new copy moves into place and when the restore runs.
     InstallAndRestoreFail,
+    /// Leave the backup behind after a complete replacement.
+    BackupDeleteFails,
 }
 
 #[cfg(test)]
@@ -74,6 +76,7 @@ impl Failpoint {
             Self::BeforeBackupDelete => 2,
             Self::InstallFails => 3,
             Self::InstallAndRestoreFail => 4,
+            Self::BackupDeleteFails => 5,
         }
     }
 
@@ -84,6 +87,7 @@ impl Failpoint {
             2 => Some(Self::BeforeBackupDelete),
             3 => Some(Self::InstallFails),
             4 => Some(Self::InstallAndRestoreFail),
+            5 => Some(Self::BackupDeleteFails),
             _ => None,
         }
     }
@@ -135,9 +139,10 @@ pub(super) fn remove_stale_staging(registry: &Path) -> Result<Vec<ThemeProblem>>
 /// Move a staged registration into place, replacing any earlier copy.
 ///
 /// The previous registration is moved to `backup` before the new copy moves
-/// in. The record is written after the copy is in place. When step 4 or 5
-/// fails, the backup is restored. When that restore fails too, the backup is
-/// kept and the returned error names its path.
+/// in. The record is written after the copy is in place, then the backup is
+/// deleted. A failed deletion is left to recovery on the next operation. When
+/// step 4 or 5 fails, the backup is restored. When that restore fails too, the
+/// backup is kept and the returned error names its path.
 pub(super) fn install(
     staging: &Path,
     registry: &Path,
@@ -241,10 +246,10 @@ pub(super) fn install(
             "the registration stopped before the backup was deleted",
         ));
     }
-    if backup_exists {
+    if failpoint != Some(Failpoint::BackupDeleteFails) {
         // The new registration is complete. A failed deletion is retried by
         // recovery on the next operation.
-        let _ = fs::remove_dir_all(backup);
+        let _ = remove_path(backup);
     }
     drop(holding);
     Ok(())

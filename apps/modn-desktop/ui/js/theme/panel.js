@@ -59,6 +59,7 @@ export function createThemePanel(host, deps = {}) {
   let unavailable = null;
   let disabled = null;
   let message = null;
+  let pending = false;
   /** Adds one text line to `parent`. */
   function line(parent, className, text) {
     const node = element('p', className, text);
@@ -133,6 +134,8 @@ export function createThemePanel(host, deps = {}) {
       );
       pick.type = 'button';
       pick.setAttribute('aria-pressed', String(picked));
+      pick.disabled = pending;
+      pick.setAttribute('aria-disabled', String(pending));
       pick.append(element('span', 'modn-theme-name', theme.name || theme.id));
       const source = theme.source && theme.source.label ? theme.source.label : 'unknown source';
       pick.append(element('span', 'modn-theme-source', source));
@@ -175,11 +178,33 @@ export function createThemePanel(host, deps = {}) {
       selectElement.append(option);
     }
     selectElement.value = choices.includes(variant) ? variant : '';
+    selectElement.disabled = pending;
+    selectElement.setAttribute('aria-disabled', String(pending));
     selectElement.addEventListener('change', () => {
       variant = selectElement.value;
     });
     field.append(selectElement);
     panel.append(field);
+  }
+  /**
+   * Runs one selection with every choice disabled until it ends.
+   * @param {() => Promise<void>} action
+   */
+  async function runSelection(action) {
+    if (pending) {
+      return;
+    }
+    pending = true;
+    message = null;
+    render();
+    try {
+      await action();
+    } catch (error) {
+      message = messageFor(error);
+    } finally {
+      pending = false;
+      render();
+    }
   }
   /** Adds the three explicit actions. */
   function renderActions() {
@@ -187,56 +212,58 @@ export function createThemePanel(host, deps = {}) {
     const use = element('button', 'modn-button modn-theme-action', 'Use theme');
     use.type = 'button';
     use.dataset.testid = 'theme-use';
-    use.disabled = !chosen || Boolean(disabled);
-    use.addEventListener('click', async () => {
-      if (!game || !chosen) {
+    use.disabled = !chosen || Boolean(disabled) || pending;
+    use.setAttribute('aria-disabled', String(use.disabled));
+    use.addEventListener('click', () => {
+      if (!game || !chosen || pending) {
         return;
       }
-      const expected = generation;
-      const target = game;
-      const theme = chosen;
-      const selected = variant || null;
-      try {
-        const result = await select(target, theme, selected);
-        if (expected !== generation) {
-          return;
+      void runSelection(async () => {
+        const expected = generation;
+        const target = game;
+        const theme = chosen;
+        const selected = variant || null;
+        try {
+          const result = await select(target, theme, selected);
+          if (expected !== generation) {
+            return;
+          }
+          setTheme(result);
+          await refresh();
+        } catch (error) {
+          if (expected === generation) {
+            throw error;
+          }
         }
-        setTheme(result);
-        await refresh();
-      } catch (error) {
-        if (expected !== generation) {
-          return;
-        }
-        message = messageFor(error);
-        render();
-      }
+      });
     });
     const defaultButton = element('button', 'modn-button modn-button--quiet modn-theme-action', 'Use default theme');
     defaultButton.type = 'button';
     defaultButton.dataset.testid = 'theme-reset';
-    defaultButton.disabled = Boolean(disabled);
-    defaultButton.addEventListener('click', async () => {
-      if (!game) {
+    defaultButton.disabled = Boolean(disabled) || pending;
+    defaultButton.setAttribute('aria-disabled', String(defaultButton.disabled));
+    defaultButton.addEventListener('click', () => {
+      if (!game || pending) {
         return;
       }
-      const expected = generation;
-      const target = game;
-      try {
-        const result = await selectNone(target);
-        if (expected !== generation) {
-          return;
+      void runSelection(async () => {
+        const expected = generation;
+        const target = game;
+        try {
+          const result = await selectNone(target);
+          if (expected !== generation) {
+            return;
+          }
+          chosen = null;
+          variant = '';
+          setTheme(result);
+          await refresh();
+        } catch (error) {
+          if (expected === generation) {
+            throw error;
+          }
         }
-        chosen = null;
-        variant = '';
-        setTheme(result);
-        await refresh();
-      } catch (error) {
-        if (expected !== generation) {
-          return;
-        }
-        message = messageFor(error);
-        render();
-      }
+      });
     });
     const importButton = element('button', 'modn-button modn-button--quiet modn-theme-action', 'Import theme');
     importButton.type = 'button';
@@ -356,6 +383,7 @@ export function createThemePanel(host, deps = {}) {
       unavailable = null;
       disabled = null;
       message = null;
+      pending = false;
       render();
       if (open) {
         void refresh();
