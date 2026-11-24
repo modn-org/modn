@@ -7,6 +7,7 @@
 mod layout;
 mod listing;
 mod record;
+mod recovery;
 mod removal;
 #[cfg(test)]
 #[path = "registry/tests.rs"]
@@ -125,6 +126,8 @@ impl RemovedTheme {
 #[derive(Debug)]
 pub struct ThemeRegistry {
     root: PathBuf,
+    #[cfg(test)]
+    failpoint: std::sync::atomic::AtomicU8,
 }
 
 impl ThemeRegistry {
@@ -133,71 +136,130 @@ impl ThemeRegistry {
     pub fn new(data_directory: &Path) -> Self {
         Self {
             root: storage::root(data_directory),
+            #[cfg(test)]
+            failpoint: std::sync::atomic::AtomicU8::new(0),
+        }
+    }
+
+    /// Make the next replacement stop at `point`.
+    #[cfg(test)]
+    pub(in crate::themes::registry) fn fail_at(&self, point: layout::Failpoint) {
+        self.failpoint
+            .store(point.code(), std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Take the failpoint set for the next replacement, if any.
+    fn next_failpoint(&self) -> Option<layout::Failpoint> {
+        #[cfg(test)]
+        {
+            let code = self.failpoint.swap(0, std::sync::atomic::Ordering::SeqCst);
+            layout::Failpoint::from_code(code)
+        }
+        #[cfg(not(test))]
+        {
+            None
         }
     }
 
     /// Inspect, copy and register one local theme directory.
     ///
-    /// Registration validates the source first. A valid source is copied into a
-    /// staging directory, hashed again and moved into place. Registering an
-    /// existing `(game, id)` replaces the earlier copy. The source directory is
-    /// never modified.
+    /// The source is copied once into a private staging directory. Only that
+    /// bounded copy is inspected, hashed and installed, so the bytes that
+    /// passed inspection are the bytes that registration stores. Registering an
+    /// existing `(game, id)` replaces the earlier copy and keeps a recoverable
+    /// backup until the replacement is complete. The source directory is never
+    /// modified.
     pub fn register(&self, source: &Path, checker: &dyn CssChecker) -> Result<RegisteredTheme> {
-        let inspected = inspect_theme_dir(source, checker).map_err(ThemeError::Invalid)?;
-        let game = inspected.manifest.game.clone();
-        let id = inspected.manifest.id.clone();
-        let registered_at = unix_seconds();
         let _lock = storage::lock(&self.root)?;
         let registry = layout::registry_root(&self.root);
         fs::create_dir_all(&registry)
             .map_err(|error| ThemeError::io("cannot create the theme registry", error))?;
         storage::ensure_real_directory(&registry, "theme registry")?;
-        layout::remove_stale_staging(&registry)?;
+        let _recovery_problems = recovery::recover(&self.root)?;
         let staging = tempfile::Builder::new()
             .prefix(layout::STAGING_PREFIX)
             .tempdir_in(&registry)
             .map_err(|error| ThemeError::io("cannot create a theme staging directory", error))?;
         let copy = layout::theme_dir(staging.path());
         copy_tree(source, &copy)?;
-        let digest = theme_digest(&copy)
-            .map_err(|problem| ThemeError::Invalid(vec![with_label(problem, &game, &id)]))?;
-        if digest != inspected.digest {
-            return Err(ThemeError::corrupt(
-                &copy,
-                "the theme source changed while it was being copied",
-            ));
-        }
+        let inspected = inspect_theme_dir(&copy, checker).map_err(ThemeError::Invalid)?;
+        let game = inspected.manifest.game.clone();
+        let id = inspected.manifest.id.clone();
         let record = RegistrationRecord {
             schema_version: layout::SCHEMA_VERSION,
             game: game.clone(),
             id: id.clone(),
-            blake3: digest.clone(),
-            registered_at,
+            blake3: inspected.digest.clone(),
+            registered_at: unix_seconds(),
         };
-        record::write(staging.path(), &record)?;
         let target = layout::entry_root(&registry, &game, &id);
-        layout::install(staging.path(), &registry, &target)?;
+        let backup = layout::backup_root(&registry, &game, &id);
+        layout::install(
+            staging.path(),
+            &registry,
+            &target,
+            &backup,
+            &record,
+            self.next_failpoint(),
+        )?;
         Ok(RegisteredTheme {
             game,
             id,
             name: inspected.manifest.name,
             variants: inspected.manifest.variants,
             icon: inspected.manifest.icon,
-            blake3: digest,
-            registered_at,
+            blake3: inspected.digest,
+            registered_at: record.registered_at,
             dir: layout::theme_dir(&target),
         })
     }
 
     /// List every valid registration and every skipped one.
+    ///
+    /// Interrupted replacements are recovered first. A recovery problem is a
+    /// diagnostic, never a failed list.
     pub fn list(&self) -> Result<ListedThemes> {
-        listing::list(&self.root)
+        match fs::symlink_metadata(&self.root) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ListedThemes {
+                    themes: Vec::new(),
+                    problems: Vec::new(),
+                });
+            }
+            Err(error) => {
+                return Err(ThemeError::io(
+                    "cannot inspect the theme data directory",
+                    error,
+                ));
+            }
+            Ok(_) => {}
+        }
+        let _lock = storage::lock(&self.root)?;
+        let mut problems = recovery::recover(&self.root)?;
+        let mut listed = listing::list(&self.root)?;
+        problems.append(&mut listed.problems);
+        listed.problems = problems;
+        Ok(listed)
     }
 
     /// Load one registered theme after verifying its stored digest.
     pub fn load(&self, game: &str, id: &str, checker: &dyn CssChecker) -> Result<InspectedTheme> {
         check_id(game)?;
         check_id(id)?;
+        match fs::symlink_metadata(&self.root) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(ThemeError::NotRegistered { id: id.to_owned() });
+            }
+            Err(error) => {
+                return Err(ThemeError::io(
+                    "cannot inspect the theme data directory",
+                    error,
+                ));
+            }
+            Ok(_) => {}
+        }
+        let _lock = storage::lock(&self.root)?;
+        let _recovery_problems = recovery::recover(&self.root)?;
         let registry = layout::registry_root(&self.root);
         let entry = layout::entry_root(&registry, game, id);
         match fs::symlink_metadata(&entry) {
@@ -249,20 +311,44 @@ impl ThemeRegistry {
     }
 }
 
+/// Bytes and entries copied so far, bounded before inspection runs.
+struct CopyBudget {
+    bytes: u64,
+    entries: usize,
+}
+
 /// Copy every regular file below `source` into `destination`.
 fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
     fs::create_dir_all(destination)
         .map_err(|error| ThemeError::io("cannot create the copied theme directory", error))?;
-    copy_entries(source, destination)
+    copy_entries(
+        source,
+        destination,
+        &mut CopyBudget {
+            bytes: 0,
+            entries: 0,
+        },
+    )
 }
 
 /// Copy one directory level and recurse into real subdirectories.
-fn copy_entries(source: &Path, destination: &Path) -> Result<()> {
+///
+/// The copy stops as soon as it would exceed [`layout::MAX_COPY_ENTRIES`]
+/// entries or [`layout::MAX_COPY_BYTES`] bytes, before an untrusted source can
+/// fill the disk.
+fn copy_entries(source: &Path, destination: &Path, budget: &mut CopyBudget) -> Result<()> {
     let entries = fs::read_dir(source)
         .map_err(|error| ThemeError::io("cannot read the theme source directory", error))?;
     for entry in entries {
         let entry = entry
             .map_err(|error| ThemeError::io("cannot read the theme source directory", error))?;
+        budget.entries = budget.entries.saturating_add(1);
+        if budget.entries > layout::MAX_COPY_ENTRIES {
+            return Err(too_large(format!(
+                "the theme has more than {} entries",
+                layout::MAX_COPY_ENTRIES
+            )));
+        }
         let file_type = entry
             .file_type()
             .map_err(|error| ThemeError::io("cannot inspect a theme source entry", error))?;
@@ -271,11 +357,28 @@ fn copy_entries(source: &Path, destination: &Path) -> Result<()> {
         if file_type.is_dir() {
             fs::create_dir(&to)
                 .map_err(|error| ThemeError::io("cannot create a copied theme directory", error))?;
-            copy_entries(&from, &to)?;
+            copy_entries(&from, &to, budget)?;
         } else if file_type.is_file() {
-            fs::copy(&from, &to).map_err(|error| {
+            let length = entry
+                .metadata()
+                .map_err(|error| ThemeError::io("cannot inspect a theme source file", error))?
+                .len();
+            if budget.bytes.saturating_add(length) > layout::MAX_COPY_BYTES {
+                return Err(too_large(format!(
+                    "the theme is larger than {} bytes",
+                    layout::MAX_COPY_BYTES
+                )));
+            }
+            let copied = fs::copy(&from, &to).map_err(|error| {
                 ThemeError::io(format!("cannot copy \"{}\"", from.display()), error)
             })?;
+            budget.bytes = budget.bytes.saturating_add(copied);
+            if budget.bytes > layout::MAX_COPY_BYTES {
+                return Err(too_large(format!(
+                    "the theme is larger than {} bytes",
+                    layout::MAX_COPY_BYTES
+                )));
+            }
         } else {
             return Err(ThemeError::corrupt(
                 &from,
@@ -284,6 +387,13 @@ fn copy_entries(source: &Path, destination: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Report a source that exceeds the private copy limits.
+fn too_large(message: String) -> ThemeError {
+    ThemeError::Invalid(vec![
+        ThemeProblem::new(Rule::ThemeTooLarge, message).with_path(".")
+    ])
 }
 
 /// Report a digest that does not match the recorded one.
@@ -333,21 +443,4 @@ fn unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())
-}
-
-#[cfg(test)]
-thread_local! {
-    static INJECT_SWAP_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Make the next replacement of an existing registration fail after the old
-/// copy moved aside, so the restore path can be exercised.
-#[cfg(test)]
-fn fail_next_swap() {
-    INJECT_SWAP_FAILURE.with(|flag| flag.set(true));
-}
-
-#[cfg(test)]
-fn take_injected_swap_failure() -> bool {
-    INJECT_SWAP_FAILURE.with(std::cell::Cell::get)
 }
