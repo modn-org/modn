@@ -9,6 +9,7 @@
 use crate::bucket_update;
 use crate::buckets;
 use crate::commands::UpdateArgs;
+use crate::main_release::UnsupportedRelease;
 use anyhow::{bail, Result};
 use modn_core::buckets::{BucketStore, CatalogKeyChange, GitCatalogSync, ZipCatalogSync};
 use serde_json::{json, Value};
@@ -20,6 +21,8 @@ enum Detail {
     Main {
         changed: bool,
         key_id: String,
+        release: Option<String>,
+        newer: Option<UnsupportedRelease>,
     },
     Git {
         changed: bool,
@@ -53,11 +56,18 @@ impl Refresh {
 
     fn json(&self) -> Value {
         match &self.outcome {
-            Ok(Detail::Main { changed, key_id }) => json!({
+            Ok(Detail::Main {
+                changed,
+                key_id,
+                release,
+                newer,
+            }) => json!({
                 "name": self.name,
                 "kind": self.kind,
                 "changed": changed,
+                "release": release,
                 "signed_by": key_id,
+                "newer_release_needs_modn": newer.as_ref().map(|newer| &newer.min_modn_version),
             }),
             Ok(Detail::Git {
                 changed,
@@ -101,8 +111,19 @@ impl Refresh {
     fn line(&self) -> String {
         let prefix = format!("{} ({})", self.name, self.kind);
         match &self.outcome {
-            Ok(Detail::Main { changed, key_id }) => {
-                format!("{prefix}: changed: {changed}, signed by {key_id}")
+            Ok(Detail::Main {
+                changed,
+                key_id,
+                release,
+                newer,
+            }) => {
+                let release = release
+                    .as_ref()
+                    .map_or_else(String::new, |tag| format!(", release {tag}"));
+                let newer = newer.as_ref().map_or_else(String::new, |newer| {
+                    format!(", newer release {} {}", newer.tag, newer.needs())
+                });
+                format!("{prefix}: changed: {changed}, signed by {key_id}{release}{newer}")
             }
             Ok(Detail::Git {
                 changed,
@@ -164,6 +185,8 @@ fn main_refresh() -> Refresh {
         Ok(refreshed) => Refresh::main(Ok(Detail::Main {
             changed: refreshed.changed,
             key_id: refreshed.key_id.to_string(),
+            release: refreshed.release,
+            newer: refreshed.newer,
         })),
         Err(error) => Refresh::main(Err(format!("{error:#}"))),
     }

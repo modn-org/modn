@@ -2697,6 +2697,8 @@ dependencies = [
  "proptest",
  "rusqlite",
  "same-file",
+ "semver",
+ "serde",
  "serde_json",
  "sevenz-rust2",
  "tempfile",

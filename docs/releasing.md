@@ -15,9 +15,9 @@ this repository must pin that commit. Since Modn 0.7.0 the submodule pins the
 contract v2 bucket of `main` release `v2026.11.24`. A Modn release and the restructured, signed `modn-org/main` release
 ship together. Only then does the workflow publish the GitHub release with
 `modn.exe`, its checksum and `install.ps1`. Bucket releases come from `modn-org/main`. Each bucket release
-must include `main-bucket.zip.minisig`. The bucket repository's tag release signs
-the v2 catalog with the key built into Modn; `v2026.11.08` was the first signed
-v1 bucket release. A version with a pre-release
+must include `main-bucket.zip.minisig` and `main-bucket.requires.json`. The bucket
+repository's tag release signs the v2 catalog with the key built into Modn;
+`v2026.11.08` was the first signed v1 bucket release. A version with a pre-release
 suffix, such as `0.2.0-alpha.1`, becomes a GitHub pre-release. Pull requests
 that change the workflow or the smoke script run the build and smoke jobs, but
 they never publish.
@@ -43,6 +43,29 @@ Rules before 1.0:
 - A release that raises the state schema, the bucket contract, the host API or the theme API is a minor release. Its release notes name each raised version.
 - A release that only fixes defects is a patch release.
 
+### Bucket release requirements
+
+Every `modn-org/main` release must upload `main-bucket.requires.json` beside
+`main-bucket.zip` and `main-bucket.zip.minisig`. The file has this shape:
+
+```json
+{"schema_version":2,"min_modn_version":"0.7.0"}
+```
+
+Set `schema_version` to the `bucket.json` contract in the packed ZIP. It is `2`
+for the current contract. Set `min_modn_version` to the oldest Modn release that
+can read the packed bucket. Check the bucket contract, package manifests, game
+modules and host API versions. Use the Cargo version without a leading `v`.
+When the bucket needs a new Modn feature, publish that Modn release first and
+name it here. Do not lower the value to make the bucket available to an older
+build.
+
+The release job must generate this file from the packed tree and validate both
+values before upload. A missing or malformed file must fail the release. Modn
+skips a newer release when its schema is unsupported or its minimum Modn version
+is above the running build. A release without this file remains readable for
+legacy compatibility, but the install checks still validate its contents.
+
 Modn 1.0 needs a stable bucket contract v2, host API 3 and theme API 1.
 
 ### Release checklist
@@ -50,7 +73,7 @@ Modn 1.0 needs a stable bucket contract v2, host API 3 and theme API 1.
 1. Compare the changes since the last tag with the public API above.
 2. Choose the version by the rules above. Set it in the workspace `Cargo.toml` and update `Cargo.lock`.
 3. Write the release notes. Name each raised state schema, bucket contract, host API or theme API version.
-4. Publish the matching `modn-org/main` bucket release first when the Modn release needs it. See the precondition above.
+4. Publish the matching `modn-org/main` bucket release first when the Modn release needs it. Include `main-bucket.requires.json` with the values from [Bucket release requirements](#bucket-release-requirements). See the precondition above.
 5. Push the `v<version>` tag.
 
 Run the same smoke test locally on a built executable:
@@ -313,10 +336,10 @@ gh api "repos/modn-org/modn/commits/$tag" --jq .sha
 Expect the two hashes to match, in any case, and a full commit SHA.
 Record the tag, the commit and the SHA-256. Install Python 3, Git, `gh` and 7-Zip on `PATH`.
 
-**Bucket release.** `modn bucket update` installs the latest `modn-org/main` release, not the bucket commit that `$tag` pins.
+**Bucket release.** `modn bucket update` installs the newest `modn-org/main` release this build supports, not the bucket commit that `$tag` pins.
 The release must use contract v2: `bucket.json` with `schema_version: 2`, package manifests under `mods/<game-id>/` and game modules under `games/<game-id>/`.
 This Modn refuses a contract v1 bucket.
-The release must include `main-bucket.zip.minisig`, signed by the key built into Modn.
+The release must include `main-bucket.zip.minisig`, signed by the key built into Modn, and `main-bucket.requires.json` with `min_modn_version` no higher than this Modn version.
 Since Modn 0.7.0, this repository's submodule pins a contract v2 commit; a Modn release and the bucket release that contains its pin ship together.
 Confirm that the bucket release contains that commit:
 

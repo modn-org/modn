@@ -5,19 +5,41 @@
 Modn reads the official bucket from `<data dir>/buckets/main/`. If it is missing,
 Modn tells the user to run `modn bucket update`. Modn never fetches it implicitly.
 The install script runs that command once. The local copy works offline.
-`MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP for an update.
+`MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP for an update and
+bypasses release selection.
 
-`modn bucket update` downloads `main-bucket.zip` and `main-bucket.zip.minisig`
-from the latest [`modn-org/main`](https://github.com/modn-org/main) release over
-HTTPS. It extracts the ZIP, verifies the minisign signature and validates the
-bucket and modules before an atomic swap. Failure preserves the previous copy.
-A module whose `api_version` this Modn does not support makes the whole update
-fail. `main` is always a trusted module source, and only `main` can be updated
-with this command. The bucket has its own release cycle, so a catalog change
-needs no Modn release.
+Without that override, `modn bucket update` lists non-draft, non-prerelease
+[`modn-org/main`](https://github.com/modn-org/main) releases newest first. It reads
+each release's `main-bucket.requires.json` asset when present. A release is
+supported when its `schema_version` equals the bucket contract this build reads
+and its `min_modn_version` is less than or equal to this build's version under
+SemVer precedence. Modn installs the newest supported release's listed
+`main-bucket.zip` and `main-bucket.zip.minisig` assets over HTTPS. It extracts the
+ZIP, verifies the minisign signature and validates the bucket and modules before
+an atomic swap. Failure preserves the previous copy. A malformed requirements
+file skips that release with a diagnostic.
+
+A release without `main-bucket.requires.json` is treated as readable for legacy
+releases such as `v2026.11.24`. The install checks still refuse it if its contract
+or modules are unsupported. A module whose `api_version` this Modn does not
+support makes the whole update fail. `main` is always a trusted module source,
+and only `main` can be updated with this command. The bucket has its own release
+cycle, so a catalog change needs no Modn release.
 Modn refreshes the copy only when requested. Signed Git and ZIP catalogs can also supply
 game modules after the user trusts them. See [module sources and trust](#module-sources-and-trust).
 Explicit Git-backed and ZIP-backed community catalog sync is available; see [sources.md](sources.md).
+
+When Modn skips a newer release as unsupported, text mode writes one stderr line
+such as:
+
+```text
+main release v2026.12.01 needs Modn 0.8.0; keeping v2026.11.24. Update Modn to get it.
+```
+
+JSON output adds `release` and `newer_release_needs_modn`. The latter is null
+when no newer release was skipped. If no release is supported, the command
+names the required Modn version, fails and leaves the installed bucket
+unchanged.
 
 `modn update` with no target refreshes the official bucket and every registered
 Git or ZIP catalog in one run. It uses the same signed-release path as
@@ -166,7 +188,8 @@ key, and a release whose `bucket.json` name is not `main`. The refusal keeps the
 installed copy. The `main-bucket.zip.sha256` sidecar is no longer used.
 
 Each `modn-org/main` release must include `main-bucket.zip.minisig` next to the
-ZIP. The bucket repository's release pipeline does not produce that file yet.
+ZIP. Each new release must also include `main-bucket.requires.json`; see
+[bucket release requirements](releasing.md#bucket-release-requirements).
 The official `main` catalog has no stored registration, so the rotation and
 revocation statements on this page apply to registered community catalogs.
 
