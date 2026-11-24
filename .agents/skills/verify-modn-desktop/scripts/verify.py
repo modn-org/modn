@@ -38,6 +38,7 @@ JOURNEYS = [
     (9, "play", "journeys_core:journey_play"),
     (10, "remove", "journeys_remove:journey_remove"),
     (11, "catalog", "journeys_catalog:journey_catalog"),
+    (12, "approval-content-root", "journeys_approval_root:journey_approval_content_root"),
 ]
 
 
@@ -163,6 +164,30 @@ def selftest():
     import selftest_scripts  # noqa: PLC0415 - fakes and files only
 
     results.update(selftest_scripts.checks())
+
+    # V6: the content-root approval journey is registered once and its release
+    # helper names the package folder and the declared executable.
+    import journeys_approval_root  # noqa: PLC0415 - pure helpers only
+
+    registered = [entry for entry in JOURNEYS if entry[1] == "approval-content-root"]
+    results["approval_content_root_is_registered"] = (
+        len(registered) == 1
+        and registered[0][2] == "journeys_approval_root:journey_approval_content_root"
+        and callable(resolve(registered[0][2]))
+    )
+    results["journey_numbers_and_names_are_unique"] = (
+        len({number for number, _, _ in JOURNEYS}) == len(JOURNEYS)
+        and len({name for _, name, _ in JOURNEYS}) == len(JOURNEYS)
+    )
+    results["approval_content_root_release_files"] = (
+        journeys_approval_root.release_files(b"helper")
+        == {
+            journeys_approval_root.ROOT_LUA_PATH: (
+                f'return {{ name = "{journeys_approval_root.ROOT_EXE_ID}" }}'
+            ),
+            journeys_approval_root.ROOT_EXE_PATH: b"helper",
+        }
+    )
 
     # The play fixture must show no window: the watcher reports one and the real
     # enumerator runs on this desktop.
