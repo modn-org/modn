@@ -231,6 +231,39 @@ fn readme_license_and_notice_are_ignored() {
 }
 
 #[test]
+fn a_one_mib_ignored_file_is_accepted() {
+    let (_temp, root) = valid_theme();
+    sized_file(&root.join("README.md"), 1_048_576);
+    assert!(inspect_theme_dir(&root, &Accept).is_ok());
+}
+
+#[test]
+fn an_ignored_file_over_one_mib_is_refused() {
+    let (_temp, root) = valid_theme();
+    sized_file(&root.join("README.md"), 1_048_577);
+    let problem = find(&problems(&root), Rule::ThemeTooLarge).clone();
+    assert_eq!(problem.path.as_deref(), Some("README.md"));
+    assert!(problem.message.contains("1048576"), "{}", problem.message);
+}
+
+#[test]
+fn ignored_files_over_the_total_limit_are_refused() {
+    let mut problems = Vec::new();
+    let mut total = 0u64;
+    for index in 0..10 {
+        super::entries::check_ignored_file(
+            &format!("ignored-{index}.md"),
+            524_288,
+            &mut total,
+            &mut problems,
+        );
+    }
+    let problem = find(&problems, Rule::ThemeTooLarge);
+    assert!(problem.message.contains("4194304"), "{}", problem.message);
+    assert_eq!(problem.path.as_deref(), Some("."));
+}
+
+#[test]
 fn a_missing_assets_directory_is_allowed_without_an_icon() {
     let temp = tempdir().unwrap();
     let root = temp.path().join("theme");
