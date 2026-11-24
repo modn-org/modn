@@ -163,13 +163,26 @@ impl ThemeRegistry {
 
     /// Inspect, copy and register one local theme directory.
     ///
-    /// The source is copied once into a private staging directory. Only that
-    /// bounded copy is inspected, hashed and installed, so the bytes that
-    /// passed inspection are the bytes that registration stores. Registering an
+    /// The source is first copied into a bounded private inspection directory
+    /// outside the registry. Only that copy is inspected. After inspection
+    /// passes, the inspected copy is copied into a staging directory inside the
+    /// registry, hashed again and installed, so the bytes that passed
+    /// inspection are the bytes that registration stores. A refused
+    /// registration therefore creates no registry state. Registering an
     /// existing `(game, id)` replaces the earlier copy and keeps a recoverable
     /// backup until the replacement is complete. The source directory is never
     /// modified.
     pub fn register(&self, source: &Path, checker: &dyn CssChecker) -> Result<RegisteredTheme> {
+        let inspection = tempfile::Builder::new()
+            .prefix("modn-theme-inspect-")
+            .tempdir()
+            .map_err(|error| ThemeError::io("cannot create a theme inspection directory", error))?;
+        let inspected_copy = layout::theme_dir(inspection.path());
+        copy_tree(source, &inspected_copy)?;
+        let inspected = inspect_theme_dir(&inspected_copy, checker).map_err(ThemeError::Invalid)?;
+        let game = inspected.manifest.game.clone();
+        let id = inspected.manifest.id.clone();
+
         let _lock = storage::lock(&self.root)?;
         let registry = layout::registry_root(&self.root);
         fs::create_dir_all(&registry)
@@ -181,15 +194,20 @@ impl ThemeRegistry {
             .tempdir_in(&registry)
             .map_err(|error| ThemeError::io("cannot create a theme staging directory", error))?;
         let copy = layout::theme_dir(staging.path());
-        copy_tree(source, &copy)?;
-        let inspected = inspect_theme_dir(&copy, checker).map_err(ThemeError::Invalid)?;
-        let game = inspected.manifest.game.clone();
-        let id = inspected.manifest.id.clone();
+        copy_tree(&inspected_copy, &copy)?;
+        let digest = theme_digest(&copy)
+            .map_err(|problem| ThemeError::Invalid(vec![with_label(problem, &game, &id)]))?;
+        if digest != inspected.digest {
+            return Err(ThemeError::corrupt(
+                &copy,
+                "the inspected theme changed while it was being copied",
+            ));
+        }
         let record = RegistrationRecord {
             schema_version: layout::SCHEMA_VERSION,
             game: game.clone(),
             id: id.clone(),
-            blake3: inspected.digest.clone(),
+            blake3: digest.clone(),
             registered_at: unix_seconds(),
         };
         let target = layout::entry_root(&registry, &game, &id);
@@ -208,7 +226,7 @@ impl ThemeRegistry {
             name: inspected.manifest.name,
             variants: inspected.manifest.variants,
             icon: inspected.manifest.icon,
-            blake3: inspected.digest,
+            blake3: digest,
             registered_at: record.registered_at,
             dir: layout::theme_dir(&target),
         })
