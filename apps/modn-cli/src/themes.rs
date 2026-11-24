@@ -50,7 +50,15 @@ pub(super) fn run(
             game,
             theme,
             variant,
-        } => select(&data, &profile, game, theme, variant.as_deref(), &checker, json),
+        } => select(
+            &data,
+            &profile,
+            game,
+            theme,
+            variant.as_deref(),
+            &checker,
+            json,
+        ),
         ThemeCommand::Reset => reset(&data, game, json),
         ThemeCommand::Resolve => resolve(&data, &profile, game, &checker, json),
     }
@@ -95,12 +103,7 @@ fn check(directory: &Path, checker: &dyn CssChecker, json: bool) -> Result<()> {
 }
 
 /// Validate and copy one theme, or refuse it with the documented envelope.
-fn register(
-    directory: &Path,
-    data: &Path,
-    checker: &dyn CssChecker,
-    json: bool,
-) -> Result<()> {
+fn register(directory: &Path, data: &Path, checker: &dyn CssChecker, json: bool) -> Result<()> {
     match ThemeRegistry::new(data).register(directory, checker) {
         Ok(theme) => {
             let value = json!({
@@ -206,11 +209,7 @@ fn select(
     if json {
         print_value(&value)?;
     } else {
-        println!(
-            "Selected {} for {}.",
-            selection.theme(),
-            selection.game()
-        );
+        println!("Selected {} for {}.", selection.theme(), selection.game());
     }
     Ok(())
 }
@@ -261,11 +260,7 @@ fn resolve(
 
 /// Build the catalog from the official copy, the registry and every bucket.
 fn catalog(data: &Path, profile: &Path, checker: &dyn CssChecker) -> ThemeCatalog {
-    ThemeCatalog::build(
-        &bucket_roots(profile),
-        &ThemeRegistry::new(data),
-        checker,
-    )
+    ThemeCatalog::build(&bucket_roots(profile), &ThemeRegistry::new(data), checker)
 }
 
 /// The official `main` copy and every other registered bucket, in bucket id order.
@@ -387,7 +382,12 @@ fn print_error(value: &Value) -> Result<()> {
 fn print_resolved(resolved: &Resolved) {
     match resolved.theme() {
         Some(theme) => {
-            println!("{} ({}): {}", theme.name(), theme.id(), theme.source().label());
+            println!(
+                "{} ({}): {}",
+                theme.name(),
+                theme.id(),
+                theme.source().label()
+            );
             if let Some(variant) = theme.variant() {
                 println!("Variant: {variant}");
             }

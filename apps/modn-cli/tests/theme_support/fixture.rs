@@ -181,14 +181,7 @@ fn path(value: &Path) -> &str {
     value.to_str().expect("test path is UTF-8")
 }
 
-fn write_theme(
-    directory: &Path,
-    game: &str,
-    id: &str,
-    name: &str,
-    variants: &[&str],
-    css: &str,
-) {
+fn write_theme(directory: &Path, game: &str, id: &str, name: &str, variants: &[&str], css: &str) {
     fs::create_dir_all(directory).expect("theme directory");
     fs::write(
         directory.join("theme.json"),

@@ -5,14 +5,14 @@
 //! `MODN_APPDATA` all point at the temporary base, so no test reads or writes
 //! the user's real Modn state.
 
-#[path = "support/main_bucket.rs"]
-mod main_bucket;
-#[path = "theme_support/fixture.rs"]
-mod fixture;
 #[path = "theme_support/check_register_tests.rs"]
 mod check_register;
+#[path = "theme_support/fixture.rs"]
+mod fixture;
 #[path = "theme_support/list_tests.rs"]
 mod list;
+#[path = "support/main_bucket.rs"]
+mod main_bucket;
 #[path = "theme_support/resolve_tests.rs"]
 mod resolve;
 #[path = "theme_support/selection_tests.rs"]
@@ -73,9 +73,7 @@ fn desktop_theme_select_with_and_without_variant_parses() {
     fixture.register(&theme);
     let selected = fixture.json(&["theme", "select", GAME, "night-city"]);
     assert_eq!(selected["selected"]["variant"], serde_json::Value::Null);
-    let variant = fixture.json(&[
-        "theme", "select", GAME, "night-city", "--variant", "neon",
-    ]);
+    let variant = fixture.json(&["theme", "select", GAME, "night-city", "--variant", "neon"]);
     assert_eq!(variant["selected"]["variant"], "neon");
 }
 

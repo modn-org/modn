@@ -10,9 +10,7 @@ fn list_shows_official_local_and_bucket_themes_and_broken_diagnostics() {
     fixture.bucket_theme("community", GAME, "bucket-city", &[]);
     let local = fixture.source_theme(GAME, "night-city", &["neon"]);
     fixture.register(&local);
-    fixture.json(&[
-        "theme", "select", GAME, "night-city", "--variant", "neon",
-    ]);
+    fixture.json(&["theme", "select", GAME, "night-city", "--variant", "neon"]);
 
     let listed = fixture.json(&["theme", "list", "--game", GAME]);
     let themes = listed["themes"].as_array().expect("themes");
@@ -20,7 +18,11 @@ fn list_shows_official_local_and_bucket_themes_and_broken_diagnostics() {
         .iter()
         .map(|theme| theme["id"].as_str().expect("theme id"))
         .collect();
-    assert_eq!(ids, ["official-city", "night-city", "bucket-city"], "{listed}");
+    assert_eq!(
+        ids,
+        ["official-city", "night-city", "bucket-city"],
+        "{listed}"
+    );
 
     let official = &themes[0];
     assert_eq!(official["source"]["kind"], "official");

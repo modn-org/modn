@@ -7,9 +7,7 @@ fn select_accepts_a_catalog_theme_and_variant() {
     let fixture = Fixture::new();
     let theme = fixture.source_theme(GAME, "night-city", &["neon"]);
     fixture.register(&theme);
-    let selected = fixture.json(&[
-        "theme", "select", GAME, "night-city", "--variant", "neon",
-    ]);
+    let selected = fixture.json(&["theme", "select", GAME, "night-city", "--variant", "neon"]);
     assert_eq!(selected["selected"]["game"], GAME);
     assert_eq!(selected["selected"]["theme"], "night-city");
     assert_eq!(selected["selected"]["variant"], "neon");
@@ -22,7 +20,9 @@ fn select_refuses_an_unknown_theme_or_variant() {
     fixture.register(&theme);
 
     let unknown_theme = fixture.error_json(&["theme", "select", GAME, "ghost-city"]);
-    assert!(unknown_theme["error"].as_str().is_some_and(|code| !code.is_empty()));
+    assert!(unknown_theme["error"]
+        .as_str()
+        .is_some_and(|code| !code.is_empty()));
     assert!(
         unknown_theme["message"]
             .as_str()
@@ -32,7 +32,9 @@ fn select_refuses_an_unknown_theme_or_variant() {
 
     let unknown_variant =
         fixture.error_json(&["theme", "select", GAME, "night-city", "--variant", "noir"]);
-    assert!(unknown_variant["error"].as_str().is_some_and(|code| !code.is_empty()));
+    assert!(unknown_variant["error"]
+        .as_str()
+        .is_some_and(|code| !code.is_empty()));
     assert!(
         unknown_variant["message"]
             .as_str()
@@ -79,7 +81,10 @@ fn remove_without_a_game_refuses_an_ambiguous_id() {
     let value: serde_json::Value = serde_json::from_slice(&output.stderr).expect("error JSON");
     let message = value["message"].as_str().expect("message");
     assert!(message.contains("several games"), "{message}");
-    assert!(message.contains("alpha") && message.contains("beta"), "{message}");
+    assert!(
+        message.contains("alpha") && message.contains("beta"),
+        "{message}"
+    );
     assert!(fixture.registry_entry("alpha", "night-city").is_dir());
     assert!(fixture.registry_entry("beta", "night-city").is_dir());
 

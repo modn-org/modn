@@ -84,7 +84,9 @@ fn register_refuses_an_invalid_theme_and_copies_nothing() {
     assert_eq!(output.status.code(), Some(1));
     let value: Value = serde_json::from_slice(&output.stderr).expect("refusal envelope");
     assert_eq!(value["error"], "THEME_INVALID");
-    assert!(value["message"].as_str().is_some_and(|text| !text.is_empty()));
+    assert!(value["message"]
+        .as_str()
+        .is_some_and(|text| !text.is_empty()));
     let diagnostics = value["diagnostics"].as_array().expect("diagnostics");
     assert!(!diagnostics.is_empty());
     assert_eq!(diagnostics[0]["rule"], "unknown-property");
@@ -97,14 +99,13 @@ fn the_staged_example_passes_check_and_register() {
     let fixture = Fixture::new();
     let example = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/themes/cyberpunk-2077/night-city");
-    let checked = fixture.json(&[
-        "theme",
-        "check",
-        example.to_str().expect("example path"),
-    ]);
+    let checked = fixture.json(&["theme", "check", example.to_str().expect("example path")]);
     assert_eq!(checked["ok"], true, "{checked}");
     assert_eq!(checked["theme"]["id"], "night-city");
-    assert_eq!(checked["theme"]["variants"], serde_json::json!(["neon", "noir"]));
+    assert_eq!(
+        checked["theme"]["variants"],
+        serde_json::json!(["neon", "noir"])
+    );
     assert_eq!(checked["theme"]["icon"], "assets/icon.png");
     let registered = fixture.register(&example);
     assert_eq!(registered["registered"]["id"], "night-city");

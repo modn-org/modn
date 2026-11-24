@@ -28,8 +28,8 @@ mod progress;
 mod provider_fixture_tests;
 mod selection;
 mod stack_install;
-mod themes;
 mod state_access;
+mod themes;
 mod undo;
 mod update;
 mod update_refresh;
@@ -58,7 +58,12 @@ fn run(mut cli: Cli, progress: &Progress) -> Result<()> {
         return catalog::run(command, cli.json);
     }
     if let Command::Theme { command } = &cli.command {
-        return themes::run(command, cli.state_dir.as_deref(), cli.game_id.as_deref(), cli.json);
+        return themes::run(
+            command,
+            cli.state_dir.as_deref(),
+            cli.game_id.as_deref(),
+            cli.json,
+        );
     }
     prepare_nxm(&mut cli.command)?;
     let state_path = database_path(cli.state_dir.as_deref())?;
