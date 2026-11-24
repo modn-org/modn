@@ -259,14 +259,20 @@ fn reserved_hooks_stay_inside_their_regions() {
             .replace('\\', "/");
         if text.contains("modn-review") {
             assert!(
-                ["js/details/plan.js", "css/details.css", "css/base.css"]
-                    .contains(&relative.as_str()),
+                [
+                    "js/details/plan.js",
+                    "css/details.css",
+                    "css/base.css",
+                    "css/protected.css"
+                ]
+                .contains(&relative.as_str()),
                 "{relative} uses the install-review hooks outside their region"
             );
         }
         if text.contains("modn-approval") {
             assert!(
-                ["js/library/ask.js", "css/library.css"].contains(&relative.as_str()),
+                ["js/library/ask.js", "css/library.css", "css/protected.css"]
+                    .contains(&relative.as_str()),
                 "{relative} uses the approval hooks outside their region"
             );
         }

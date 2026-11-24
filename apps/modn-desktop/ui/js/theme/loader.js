@@ -44,6 +44,19 @@ export function rewriteAssetUrls(css, assetBase) {
     return `url(${quote}${assetBase}assets/`;
   });
 }
+/**
+ * Wraps one theme stylesheet in the `theme` cascade layer.
+ *
+ * The Rust checker returns balanced CSS, so a theme cannot close the layer.
+ * Theme rules then apply below the `protected` layer that holds the safety
+ * properties of the install review and the approval prompt.
+ * @param {string} css
+ * @param {string} assetBase
+ * @returns {string}
+ */
+function layerThemeCss(css, assetBase) {
+  return `@layer theme {\n${rewriteAssetUrls(css, assetBase)}\n}`;
+}
 /** Returns one copy of the adopted sheet list, or an empty list. */
 function adopted(document) {
   return Array.from(document.adoptedStyleSheets || []);
@@ -84,12 +97,12 @@ export function applyTheme(resolved, env) {
   }
   try {
     const themeSheet = createSheet();
-    themeSheet.replaceSync(rewriteAssetUrls(theme.css, resolved.asset_base));
+    themeSheet.replaceSync(layerThemeCss(theme.css, resolved.asset_base));
     adopt(document, [...adopted(document), themeSheet]);
     ownedSheets.push(themeSheet);
     if (theme.variant_css !== null && theme.variant_css !== undefined) {
       const variantSheet = createSheet();
-      variantSheet.replaceSync(rewriteAssetUrls(theme.variant_css, resolved.asset_base));
+      variantSheet.replaceSync(layerThemeCss(theme.variant_css, resolved.asset_base));
       adopt(document, [...adopted(document), variantSheet]);
       ownedSheets.push(variantSheet);
     }

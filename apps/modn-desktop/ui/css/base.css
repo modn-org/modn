@@ -1,3 +1,4 @@
+@layer app {
 *,
 *::before,
 *::after {
@@ -137,10 +138,7 @@ a {
 }
 
 .modn-review {
-  display: flex;
   flex-direction: column;
-  gap: var(--modn-space-2xs);
-  padding: var(--modn-space-xl);
   border: 1px solid var(--modn-color-border);
   border-radius: var(--modn-radius-m);
   background: var(--modn-color-surface-raised);
@@ -308,4 +306,5 @@ a {
   display: flex;
   flex-direction: column;
   gap: var(--modn-space-s);
+}
 }

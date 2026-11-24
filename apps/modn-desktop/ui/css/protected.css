@@ -1,0 +1,104 @@
+@layer protected {
+.modn-review {
+  display: flex;
+  gap: 2px;
+  padding: 20px;
+}
+
+.modn-review__summary {
+  font-family: Marcellus, Georgia, serif;
+  font-size: 22px;
+  line-height: 30px;
+}
+
+.modn-review[open] .modn-review__summary {
+  margin-bottom: 12px;
+}
+
+.modn-review__body {
+  display: flex;
+  gap: 8px;
+}
+
+.modn-review__muted {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.modn-review__status {
+  min-height: 22px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.modn-review__list {
+  display: flex;
+  gap: 4px;
+}
+
+.modn-review__row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.modn-review__path {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.modn-review__tag {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.modn-review__blocker {
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.modn-approval {
+  display: flex;
+  gap: 8px;
+}
+
+.modn-approval__question {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.modn-approval__list {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.modn-approval__path {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.modn-approval__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.modn-approval__button {
+  display: inline-flex;
+  min-height: 40px;
+  padding: 8px 16px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.modn-approval__button:disabled {
+  opacity: 40%;
+}
+
+.modn-approval__button--quiet {
+  min-height: 32px;
+  padding: 4px 8px;
+}
+}
