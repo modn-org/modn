@@ -459,6 +459,25 @@ installed from a supplied, BLAKE3-verified ZIP/7z with an explicit approval;
 standalone local archives use the same managed transaction engine. A checksum
 proves the bytes match a catalog record, not publisher trust.
 
+## Themes in buckets
+
+Any bucket kind may ship themes. A bucket holds themes at this path, relative to
+the bucket root:
+
+```text
+themes/<game-id>/<theme-id>/theme.json
+themes/<game-id>/<theme-id>/theme.css
+themes/<game-id>/<theme-id>/theme.<variant>.css      (one per listed variant)
+themes/<game-id>/<theme-id>/assets/...               (PNG, WebP, WOFF2 only)
+```
+
+Themes need no trust step. A theme is low-trust content that Rust validates:
+CSS, images and fonts only. It cannot run code, load remote resources or change
+a destructive confirmation.
+A broken theme is a diagnostic. It never fails `bucket update`, `bucket sync`,
+`install`, `update` or `list`. See [Game themes](themes.md) for the full
+contract.
+
 ## Requirements, conflicts and releases
 
 A manifest may require a dependency version with `dependency_versions` and

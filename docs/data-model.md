@@ -157,6 +157,41 @@ Verified cache reuse can return an existing payload for another package or sourc
 Every reuse verifies bytes. It creates no alias file and never deduplicates mutable game files.
 A checksum match alone is not a publisher authenticity guarantee.
 
+## Theme entities
+
+Theme data lives in the Modn data directory under `themes/`: `registry/` holds
+registered theme copies, `selection/` holds selection records, and `themes.lock`
+is the lock file. Themes never take part in install ownership or rollback.
+
+### Theme
+
+A **Theme** is a validated set of CSS files and assets that changes how the
+Modn desktop looks for one game. It lives in a bucket at
+`themes/<game-id>/<theme-id>/` and holds `theme.json`, `theme.css`, optional
+variant stylesheets and `assets/`. Rust validates it, because a theme is
+low-trust content. It cannot run code, load remote resources or change a
+destructive confirmation. A theme never owns a game file.
+
+### Theme variant
+
+A **Theme variant** is one optional `theme.<variant>.css` stylesheet that the
+theme lists in `theme.json`. It applies after `theme.css`.
+
+### Theme registration
+
+A **Theme registration** is Modn's copy of a local theme. `modn theme register
+<directory>` validates the directory, copies it under `themes/registry/` and
+records the id, game, BLAKE3 digest, source label and registered-at time. Every
+load checks the digest and skips a mismatch with `digest-mismatch`. Registration
+needs no trust step, because a theme cannot run code.
+
+### Theme selection
+
+A **Theme selection** is the Modn state record of one game's theme id and
+optional theme variant. Modn owns it; the desktop reads it and never stores the
+choice. For a game, resolve uses the selected theme first, then the official
+theme from `main`, then the default theme (none).
+
 ## Installation and ownership entities
 
 ### Installation plan

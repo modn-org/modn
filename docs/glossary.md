@@ -163,6 +163,46 @@ The 16 uppercase hexadecimal digits that name a minisign key, for example
 `0E250AD52A3BA2AA`. Modn shows the key ID as the signer fingerprint.
 _Avoid_: Full public key, commit ID
 
+### Themes
+
+**Theme**:
+A validated set of CSS and assets that changes how the Modn desktop looks
+for one game. Rust validates it; it cannot run code, load remote resources or
+change a destructive confirmation.
+_Avoid_: Skin, mod, plugin
+
+**Theme variant**:
+An optional `theme.<variant>.css` stylesheet that applies after a theme's
+`theme.css`. The theme lists its variants in `theme.json`.
+_Avoid_: Theme mode, preset
+
+**Official theme**:
+A theme that the official `main` bucket ships for one game. It is the fallback
+when a game has no selected theme.
+_Avoid_: Default theme, built-in theme
+
+**Local theme**:
+A theme that the theme registry holds after `modn theme register <directory>`.
+A theme from any other bucket stays a bucket theme.
+_Avoid_: Installed theme, managed package
+
+**Theme registry**:
+The Modn-owned copy of each registered local theme under the data directory
+`themes/registry/`. It records the id, game, BLAKE3 digest, source label and
+registered-at time, and it checks the digest on every load.
+_Avoid_: Bucket, catalog
+
+**Theme selection**:
+The Modn state record of one game's theme id and optional theme variant. The
+desktop reads it; it never stores the choice.
+_Avoid_: Desktop setting, theme configuration
+
+**Protected region**:
+A desktop subtree that a theme may restyle only with color and font properties:
+the install review and the approval prompt. A theme cannot change a destructive
+confirmation.
+_Avoid_: Locked theme, hidden area
+
 ### Packages and acquisition
 
 **Mod**:
