@@ -35,6 +35,14 @@ modn module rollback <game-id>
 modn module rollback <game-id> --to <version>
 modn module remove <game-id>
 
+modn theme check ./my-theme
+modn theme register ./my-theme
+modn theme list
+modn theme remove night-city
+modn theme select cyberpunk-2077 night-city --variant neon
+modn theme reset
+modn theme resolve --game cyberpunk-2077
+
 modn search cet
 modn search --game cyberpunk-2077
 modn install cet --file "/path/to/CET.zip" --dry-run
@@ -303,6 +311,37 @@ unsafe target with `LAUNCH_TARGET_UNAVAILABLE` or `LAUNCH_TARGET_UNSAFE`. When
 manager-owned files are missing or changed outside Modn, it warns with
 `LAUNCH_MANAGED_FILES_CHANGED` and still launches. Run `modn doctor` to inspect
 the changed files.
+
+## Themes
+
+`modn theme` validates, registers and selects desktop themes. A theme lives in
+a bucket at `themes/<game-id>/<theme-id>/`. See
+[Game themes](themes.md) for the folder layout, the CSS contract and the
+selection order. The group has seven commands: `check`, `register`, `list`,
+`remove`, `select`, `reset` and `resolve`. Every command accepts `--json` and
+exits 0 on success. The global `--game` flag selects a game for `list`, `remove`
+and `resolve`.
+
+- `modn theme check <directory>` validates a theme directory. It writes `ok`,
+  `theme` and `diagnostics`. The exit status is 0 when `ok` is true, and
+  non-zero otherwise.
+- `modn theme register <directory>` validates, copies and registers a local
+  theme. It writes `registered` and `digest`. It has no `--trust` flag. A
+  refused theme copies nothing and exits with status 1 in `--json` mode. It
+  prints this envelope on stderr:
+  `{"error":"THEME_INVALID","message":"<text>","diagnostics":[<diagnostic object>...]}`.
+- `modn theme list [--game <game-id>]` lists registered and bucket themes. It
+  writes `themes` and `diagnostics`.
+- `modn theme remove <theme-id> [--game <game-id>]` removes one registration.
+  It writes `removed`. `--game` is required when the id exists for several
+  games.
+- `modn theme select <game-id> <theme-id> [--variant <variant>]` stores the
+  selection. It writes `selected`.
+- `modn theme reset [--game <game-id>]` clears one game or every game. It
+  writes `reset`.
+- `modn theme resolve --game <game-id>` returns the theme that the desktop
+  must apply. It writes `game`, `theme`, `fallback` and `diagnostics`.
+  `theme: null` means the default theme.
 
 ## Games, packages and uninstall
 
