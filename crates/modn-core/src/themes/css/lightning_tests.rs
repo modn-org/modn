@@ -248,3 +248,10 @@ fn staged_theme_is_accepted() {
 fn theme_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/themes/cyberpunk-2077/night-city")
 }
+
+#[test]
+fn parser_message_is_cut_to_two_hundred_characters() {
+    let long = "x".repeat(500);
+    let cut = super::cut(&long, super::MAX_MESSAGE_CHARS);
+    assert_eq!(cut.chars().count(), 200);
+}
