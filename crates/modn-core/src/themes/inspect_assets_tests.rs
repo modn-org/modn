@@ -163,6 +163,16 @@ fn sixty_five_assets_are_too_many() {
 }
 
 #[test]
+fn four_full_assets_and_a_stylesheet_are_accepted() {
+    let (_temp, root) = with_assets();
+    for index in 0..4 {
+        sized_png(&root.join(format!("assets/a{index}.png")), 2_097_152);
+    }
+    let theme = inspect_theme_dir(&root, &Accept).expect("assets alone are within the limit");
+    assert_eq!(theme.assets.len(), 4);
+}
+
+#[test]
 fn assets_over_the_total_limit_are_theme_too_large() {
     let (_temp, root) = with_assets();
     for index in 0..5 {

@@ -143,10 +143,8 @@ pub fn inspect_theme_dir(
             stylesheets.push((file, *size));
         }
     }
-    let mut css_bytes = 0u64;
     for (file, size) in &stylesheets {
         let limit = css_limit(file);
-        css_bytes = css_bytes.saturating_add(*size);
         if *size > limit {
             problems.push(
                 ThemeProblem::new(
@@ -176,12 +174,14 @@ pub fn inspect_theme_dir(
             .with_path(ASSETS_DIR),
         );
     }
-    let total = scan.total_bytes.saturating_add(css_bytes);
+    let total = scan.total_bytes;
     if total > MAX_THEME_ASSETS_BYTES {
         problems.push(
             ThemeProblem::new(
                 Rule::ThemeTooLarge,
-                format!("theme files total {total} bytes; the limit is {MAX_THEME_ASSETS_BYTES}"),
+                format!(
+                    "assets/ files total {total} bytes; the limit is {MAX_THEME_ASSETS_BYTES}"
+                ),
             )
             .with_path("."),
         );
