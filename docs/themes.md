@@ -810,8 +810,8 @@ It rejects `..`, backslashes, absolute paths and any path that canonicalises out
 It sets Content-Type by extension and `Access-Control-Allow-Origin: *`, because fonts are fetched in CORS mode.
 
 On Windows the page URL is `http://modn-theme.localhost/`.
-Other platforms use the `modn-theme://localhost/` form.
 `resolve_theme` returns that value as `asset_base`.
+The loader also accepts the `modn-theme://localhost/` form.
 The request-to-file resolution is a plain function with unit tests.
 It is not behind `cfg(windows)`.
 
