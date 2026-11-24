@@ -1,6 +1,6 @@
 ---
 name: verify-modn-desktop
-description: "Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z."
+description: "Verify the Modn Desktop Tauri window through Windows UI Automation on disposable fixtures: startup detection, install progress and cancel, finishing, the local archive lifecycle, blocked plans, native-code and executable approval, CLI-output containment, play, remove, catalog update and 7z, and theme selection and fallback."
 ---
 
 # Verify Modn Desktop
@@ -86,6 +86,7 @@ Each result carries the same `evidence` paths as a list.
 | 9 | `play` | `Play balatro` starts the fixture executable; details show history; one UI Automation activation of `Copy diagnostics` shows `Diagnostics copied.` and the report file holds the doctor report. Under `verification` the Rust command writes the file named by `MODN_VERIFY_CLIPBOARD_FILE`, so the activation needs no focused webview and works while another app holds the foreground, and an error toast fails the journey. The journey deletes the file first and never reads or writes the system clipboard. | the started process id is found by image path and stopped | the game folder is unchanged |
 | 10 | `remove` | `Remove from Modn` opens the native Yes/No dialog; `No` keeps the registration and `Yes` unregisters it | `modn game list` lists and then omits `balatro` | the game folder is unchanged after both answers |
 | 11 | `catalog` | a catalog install, an update to `Update available`, a toast undo and a genuine 7z install and uninstall each take one click | CLI lists version 1.0.0, then 2.0.0, then 1.0.0 | installed bytes match each release; undo and uninstall restore the earlier bytes |
+| 12 | `themes` | the Theme control shows the official fallback, applies the `bold` variant, a local theme and a community theme, lists the broken-theme diagnostic and falls back after a digest mismatch; `Use default theme` restores the base height | `theme list` shows official, local and bucket sources; `theme resolve` reports `bold` and `selected`, then `theme: null`; `theme check` refuses the protected theme | fixture theme heights order the button through UI Automation |
 
 Journey 7 proves the policy of issue #152. A native-code or executable mod asks
 once per mod. A new release that adds native code asks again.
