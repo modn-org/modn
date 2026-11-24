@@ -61,7 +61,8 @@ fn remove_refuses_an_unregistered_id() {
     assert!(
         value["message"]
             .as_str()
-            .is_some_and(|message| message.contains("not registered")),
+            .is_some_and(|message| message.contains("ghost-city")
+                && message.contains("registered")),
         "{value}"
     );
 }
