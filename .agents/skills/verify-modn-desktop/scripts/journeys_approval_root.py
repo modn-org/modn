@@ -146,6 +146,7 @@ def journey_approval_content_root(runner):
 
     # 4. The stored approval suppresses the next ask for the same mod.
     _clear_toasts(session)
+    _wait_enabled(session, f"Install {ROOT_EXE_NAME}")
     session.click(name=f"Install {ROOT_EXE_NAME}")
     seen = _wait_toast_no_ask(
         session, "Install done", "content-root reinstall with the stored approval"

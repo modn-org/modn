@@ -31,9 +31,11 @@ the native-code and plain-pack releases. `tools-game` uses the permissions
 model and carries the executable release with `tools/helper.exe`.
 
 Journey 12 registers only `balatro`. Its `root-exe-pack` release declares
-`RootPack/tools/helper.exe`, and the Balatro fixture plans both archive files
-below the `RootPack` folder, so the install lands in the content root
-`appdata/Balatro/Mods`. The journey checks the installed bytes there.
+`RootPack/tools/helper.exe`, the content-relative destination of the archive
+entry. The Balatro fixture plans both archive files below the `RootPack`
+folder, so the install lands in the content root `appdata/Balatro/Mods`, and
+the core accepts the declaration because the destination is a `.exe` below a
+`tools` folder. The journey checks the installed bytes there.
 
 The executable helper is a byte copy of a signed Windows binary. The archive
 fixtures come from `catalog_fixture.add_catalog_release`, which writes a
