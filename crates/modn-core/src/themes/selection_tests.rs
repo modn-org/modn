@@ -89,7 +89,11 @@ fn clear_and_clear_all_remove_a_none_selection() {
 #[test]
 fn a_stored_theme_field_reads_as_a_choice_or_none() {
     let (temp, store) = store();
-    write_selection(&temp, "old-game", &selection_body("old-game", THEME, "null"));
+    write_selection(
+        &temp,
+        "old-game",
+        &selection_body("old-game", THEME, "null"),
+    );
     let old = store.get("old-game").unwrap().expect("the old selection");
     assert!(!old.is_none());
     assert_eq!(old.theme_id(), Some(THEME));
