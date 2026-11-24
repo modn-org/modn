@@ -1,8 +1,9 @@
 //! Asset scanning for one theme directory.
 
-use super::super::limits::{is_valid_asset_path, MAX_THEME_ASSET_BYTES};
+use super::super::limits::{is_valid_asset_path, MAX_THEME_ASSET_BYTES, MAX_THEME_ASSETS};
 use super::super::problem::{Rule, ThemeProblem};
 use super::reading::read_prefix;
+use super::EntryBudget;
 use std::collections::BTreeSet;
 use std::fs::{self, DirEntry};
 use std::path::Path;
@@ -80,16 +81,19 @@ pub(super) struct AssetScan {
 }
 
 /// Walk `dir`, which is the theme's `assets/` directory.
-pub(super) fn scan_assets(dir: &Path) -> AssetScan {
+pub(super) fn scan_assets(dir: &Path, budget: &mut EntryBudget) -> AssetScan {
     let mut scan = AssetScan::default();
     let mut stack = vec![(dir.to_path_buf(), String::from("assets"), 0usize)];
-    while let Some((directory, prefix, depth)) = stack.pop() {
-        let entries = match read_sorted(&directory, &prefix, &mut scan.problems) {
+    'walk: while let Some((directory, prefix, depth)) = stack.pop() {
+        let entries = match read_sorted(&directory, &prefix, budget, &mut scan) {
             Some(entries) => entries,
-            None => continue,
+            None => break,
         };
         for entry in entries {
             scan_entry(&entry, &prefix, depth, &mut stack, &mut scan);
+            if scan.count > MAX_THEME_ASSETS {
+                break 'walk;
+            }
         }
     }
     scan.files.sort_by(|left, right| left.path.cmp(&right.path));
@@ -99,12 +103,13 @@ pub(super) fn scan_assets(dir: &Path) -> AssetScan {
 fn read_sorted(
     directory: &Path,
     prefix: &str,
-    problems: &mut Vec<ThemeProblem>,
+    budget: &mut EntryBudget,
+    scan: &mut AssetScan,
 ) -> Option<Vec<DirEntry>> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) => {
-            problems.push(problem(
+            scan.problems.push(problem(
                 prefix,
                 Rule::UnexpectedFile,
                 format!("cannot list \"{prefix}\": {error}"),
@@ -114,9 +119,15 @@ fn read_sorted(
     };
     let mut collected = Vec::new();
     for entry in entries {
+        if !budget.take() {
+            if let Some(problem) = budget.refusal() {
+                scan.problems.push(problem);
+            }
+            return None;
+        }
         match entry {
             Ok(entry) => collected.push(entry),
-            Err(error) => problems.push(problem(
+            Err(error) => scan.problems.push(problem(
                 prefix,
                 Rule::UnexpectedFile,
                 format!("cannot list an entry in \"{prefix}\": {error}"),
