@@ -7,6 +7,7 @@ the desktop.
 """
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -237,3 +238,16 @@ def checks():
 
     results.update(selftest_themes.checks())
     return results
+
+
+if __name__ == "__main__":
+    outcome = checks()
+    print(
+        json.dumps(
+            {
+                "selftest": "passed" if all(outcome.values()) else "failed",
+                "checks": outcome,
+            }
+        )
+    )
+    raise SystemExit(0 if all(outcome.values()) else 1)
