@@ -26,6 +26,8 @@ fn font_line_tokens_need_a_large_enough_number_or_length() {
         "9px",
         "1rem",
         "normal",
+        "inf",
+        "NaN",
         "var(--modn-font-line-body-m)",
     ] {
         assert!(

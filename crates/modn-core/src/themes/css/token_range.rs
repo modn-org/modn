@@ -95,6 +95,9 @@ fn parse_dimension(value: &str) -> Option<Dimension> {
         let Ok(number) = number.parse::<f64>() else {
             continue;
         };
+        if !number.is_finite() {
+            continue;
+        }
         let unit = match unit.trim().to_ascii_lowercase().as_str() {
             "" => None,
             "px" => Some("px"),
