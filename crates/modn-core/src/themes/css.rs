@@ -2,6 +2,7 @@
 
 mod engine;
 mod facts;
+mod lightning;
 mod media;
 mod props;
 mod selector;
@@ -13,6 +14,7 @@ pub use engine::{check_sheet, RuleOutcome};
 pub use facts::{
     DeclFacts, FontFaceFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts, UnsupportedFacts,
 };
+pub use lightning::LightningChecker;
 
 /// Extra context for one stylesheet check.
 #[non_exhaustive]

@@ -31,8 +31,8 @@ mod test_support;
 
 pub use catalog::{CatalogEntry, ThemeCatalog};
 pub use css::{
-    check_sheet, CheckedCss, CssChecker, CssContext, DeclFacts, FontFaceFacts, MediaFacts,
-    RuleFacts, RuleOutcome, SheetFacts, StyleFacts, UnsupportedFacts,
+    check_sheet, CheckedCss, CssChecker, CssContext, DeclFacts, FontFaceFacts, LightningChecker,
+    MediaFacts, RuleFacts, RuleOutcome, SheetFacts, StyleFacts, UnsupportedFacts,
 };
 pub use digest::theme_digest;
 pub use error::ThemeError;
