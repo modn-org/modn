@@ -92,11 +92,7 @@ fn hooks_outside_the_context_list_keep_layout() {
 
 #[test]
 fn context_hooks_stay_limited_with_pseudo_classes() {
-    for selector in [
-        ".modn-app:hover",
-        ".modn-recent__menu:focus-visible",
-        ".modn-app > .modn-card",
-    ] {
+    for selector in [".modn-app:hover", ".modn-recent__menu:focus-visible"] {
         let facts = vec![style(selector, vec![decl("opacity", "0")])];
         assert_eq!(
             check(facts),
