@@ -5,7 +5,8 @@ pub use adoption::{preview_adoption, preview_adoption_with_appdata};
 mod preview;
 pub(crate) use preview::preview_install_zip_optional_appdata;
 pub use preview::{
-    preview_install_zip, preview_install_zip_with_appdata, preview_install_zip_with_permissions,
+    preview_install_zip, preview_install_zip_with_appdata,
+    preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
     preview_update_with_appdata, preview_update_with_permissions,
 };
 use serde::Serialize;

@@ -264,10 +264,7 @@ test fails with a message that names CI, node and PATH. The CI workflow prints
 the Node version from a step that runs `ui_node` with `--nocapture`.
 
 The verifier proves the window and the listed operations on fixtures. It does
-not cover a real game, Windows 10 hardware or a real store client. A
-content-root game cannot exercise the executable ask, because the CLI preview
-ignores an explicit executable approval. That ask runs on a `tools-game`
-fixture instead.
+not cover a real game, Windows 10 hardware or a real store client.
 
 ## Limits
 
