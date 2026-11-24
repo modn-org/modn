@@ -120,10 +120,24 @@ fn register_removes_stale_staging_and_restores_backups() {
         &registry_root(&temp).join(".staging-crashed/theme/theme.css"),
         b"stale",
     );
+    // A backup that recovery keeps because its live copy is broken must
+    // survive both the next register and the staging cleanup.
+    let kept = theme_source(&temp, GAME, "kept-theme", "Kept");
+    let kept_registered = registry.register(&kept, &Accept).unwrap();
+    write(
+        &kept_registered.dir().join("theme.css"),
+        b".modn-app { color: #777777; }",
+    );
+    let kept_backup = registry_root(&temp)
+        .join(".backup")
+        .join(GAME)
+        .join("kept-theme");
+    write(&kept_backup.join("theme/theme.css"), b"kept");
     let other = theme_source(&temp, GAME, "day-city", "Day City");
     registry.register(&other, &Accept).unwrap();
     assert!(!registry_root(&temp).join(".staging-crashed").exists());
     assert!(!has_staging(&registry_root(&temp)));
+    assert!(kept_backup.is_dir());
     assert!(live_root(&temp).is_dir());
     assert_eq!(digest(&theme_copy(&live_root(&temp))), old_digest);
     assert!(!backup_root(&temp).exists());
