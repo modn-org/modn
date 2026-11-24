@@ -11,13 +11,13 @@ This page is the specification of theme API v1. The Status table says what Modn 
 
 | Component | State |
 | --- | --- |
-| Theme folder | Implemented in modn-core; no CLI command exposes it yet |
-| `theme.json` | Implemented in modn-core; no CLI command exposes it yet |
-| Limits and digest | Implemented in modn-core; no CLI command exposes it yet |
-| CSS rule engine | Implemented over parsed facts in modn-core; the CSS parser arrives with the CLI work |
-| Variants | Implemented in modn-core; no CLI command exposes it yet |
-| Sources and selection | Implemented in modn-core; no CLI command exposes it yet |
-| CLI theme commands | Specified, not implemented |
+| Theme folder | Implemented in modn-core and the theme commands |
+| `theme.json` | Implemented in modn-core and the theme commands |
+| Limits and digest | Implemented in modn-core and enforced by the theme commands |
+| CSS rule engine | Implemented in modn-core and used by the theme commands |
+| Variants | Implemented in modn-core and the theme commands |
+| Sources and selection | Implemented in modn-core and the theme commands |
+| CLI theme commands | Implemented: `check`, `register`, `list`, `remove`, `select`, `reset` and `resolve` |
 | Desktop theme control | Implemented; it needs a `modn` build with the theme commands |
 | Desktop hooks | Implemented: hooks and protected regions in the UI |
 | Official theme | Staged in `examples/themes/cyberpunk-2077/night-city/`; publication in `modn-org/main` is a follow-up in that repository |
@@ -99,16 +99,23 @@ A complete example:
 ## Limits
 
 The validator and the theme loader enforce these limits.
-The names below are the proposed Rust constant names.
+The names below are the Rust constant names.
 
 | Constant | Scope | Limit |
 | --- | --- | --- |
 | `MAX_THEME_CSS_BYTES` | `theme.css` | 256 KiB (262144 bytes) |
 | `MAX_THEME_VARIANT_CSS_BYTES` | One `theme.<variant>.css` file | 128 KiB (131072 bytes) |
+| `MAX_THEME_MANIFEST_BYTES` | `theme.json` | 16 KiB (16384 bytes) |
 | `MAX_THEME_ASSET_BYTES` | One file under `assets/` | 2 MiB (2097152 bytes) |
 | `MAX_THEME_ASSETS_BYTES` | All files under `assets/` together | 8 MiB (8388608 bytes) |
 | `MAX_THEME_ASSETS` | Number of files under `assets/` | 64 |
 | `MAX_THEME_VARIANTS` | Number of entries in `variants` | 16 |
+| `MAX_IGNORED_FILE_BYTES` | One ignored top-level file | 1 MiB (1048576 bytes) |
+| `MAX_IGNORED_FILES_BYTES` | All ignored top-level files together | 4 MiB (4194304 bytes) |
+| `MAX_THEME_ENTRIES` | Directory entries one inspection visits | 1024 |
+
+The ignored top-level files are `README.md`, `LICENSE` and `NOTICE.md`.
+An ignored file above its limit, the ignored files above their total or an inspection above the entry budget is `theme-too-large`.
 
 The digest is BLAKE3 over the theme directory.
 It covers each regular file in byte-wise sorted relative-path order: the path bytes, a NUL, the length as 8 little-endian bytes, then the content.
@@ -227,7 +234,7 @@ They are not CSS rule ids.
 | `asset-type` | An asset extension or magic signature does not match. |
 | `asset-too-large` | One asset exceeds 2 MiB. |
 | `too-many-assets` | `assets/` holds more than 64 files. |
-| `theme-too-large` | A CSS file, the theme total or a bucket scan count exceeds its limit. |
+| `theme-too-large` | A CSS file, an ignored file, the ignored-file total, the entry budget, a registration copy or a bucket scan exceeds its limit. |
 | `duplicate-theme-id` | A later duplicate `(game, id)` pair was skipped. |
 | `digest-mismatch` | A registered theme no longer matches its digest. |
 | `theme-missing` | The selected theme no longer exists. |
@@ -469,6 +476,9 @@ Two regions exist:
 
 The protected class prefixes are `.modn-review*` and `.modn-approval*`.
 
+The safety properties of both regions are literals in `apps/modn-desktop/ui/css/protected.css`, inside `@layer protected`.
+The layer order puts `protected` last, so a theme cannot override them.
+
 ### Protected hooks
 
 | Class | Region | Purpose |
@@ -580,25 +590,39 @@ A theme has one of three sources:
 | `local` | The local theme registry. |
 | `bucket` | Any other registered bucket kind. |
 
-On a duplicate `(game, id)` pair, precedence is `official`, then `local`, then other buckets in registration order.
+On a duplicate `(game, id)` pair, precedence is `official`, then `local`, then other buckets in bucket id order.
 A later duplicate is skipped with `duplicate-theme-id`.
 So a `(game, theme-id)` pair identifies a theme.
 
 The theme registry is a separate directory under the Modn data directory.
-It holds a copy of each registered theme and a registry file.
-The registry file records the id, game, digest, source label and registered-at time.
+It holds a copy of each registered theme and one record beside it.
+The record holds the schema version, game, id, digest and registered-at time.
 A registered theme is checked against its digest on every load.
 A mismatch is skipped with `digest-mismatch`.
 
+A replacement keeps the previous registration at `registry/.backup/<game>/<id>` until the new copy and its record are in place.
+Recovery runs before register, list, load and remove.
+It restores a backup when the live registration is missing, and deletes it when the live registration verifies.
+When the live registration fails verification, recovery keeps the backup and reports a diagnostic.
+A failed restore keeps the backup and names it in the error.
+
+Registration inspects a bounded copy outside the registry.
+The copy holds at most 16 MiB and 2048 entries.
+Registration then copies the inspected copy into staging, rechecks its digest and installs it.
+A refused registration leaves no state: the data directory is untouched.
+
 Selection belongs to Modn state, not to the desktop.
-Modn keeps one record per game: the theme id and an optional variant.
-`modn theme reset` clears all records, or one game with `--game`.
+Modn keeps one record per game: a theme choice or the explicit none choice.
+The none choice is stored as `"theme": null` and keeps the default theme even when the game has an official theme.
+`modn theme reset` clears one game with `--game`, or every record, so the official theme applies again.
 
 The resolve order for a game is:
 
 1. The selected theme, when it is valid.
 2. The official theme from `main` for that game: the lexicographically first theme id, with no variant.
 3. The default theme: no theme.
+
+An explicit none selection returns `theme: null` and `fallback: null` and skips the official theme.
 
 A selected theme that fails validation, digest or loading yields a fallback with a diagnostic, then the next step of the order.
 The fallback reasons are `theme-invalid`, `theme-missing` and `digest-mismatch`.
@@ -682,8 +706,6 @@ A refusal prints this envelope on stderr and exits with status 1 in `--json` mod
 {"error":"THEME_INVALID","message":"<text>","diagnostics":[<diagnostic object>...]}
 ```
 
-The CLI half is not written yet.
-
 ```json
 {"registered":{"id":"night-city","game":"cyberpunk-2077","name":"Night City","theme_api":1,"variants":["neon","noir"],"icon":"assets/icon.png","source":{"kind":"local","bucket":null,"label":"local registry"},"selected":false},"digest":"blake3:9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a"}
 ```
@@ -692,6 +714,7 @@ The CLI half is not written yet.
 
 `modn theme list [--game <game-id>]` lists registered and bucket themes.
 It writes `{"themes":[<theme entry>...],"diagnostics":[...]}`.
+A none selection marks no theme selected.
 
 ```json
 {"themes":[{"id":"night-city","game":"cyberpunk-2077","name":"Night City","theme_api":1,"variants":["neon","noir"],"icon":"assets/icon.png","source":{"kind":"official","bucket":"main","label":"main bucket"},"selected":true}],"diagnostics":[]}
@@ -709,8 +732,10 @@ It writes `{"removed":{"id":"..","game":".."}}`.
 
 ### select
 
-`modn theme select <game-id> <theme-id> [--variant <variant>]` stores the selection.
-It writes `{"selected":{"game":"..","theme":"..","variant":null|".."}}`.
+`modn theme select <game-id> <theme-id> [--variant <variant>]` stores a theme selection.
+`modn theme select <game-id> --none` stores the explicit none choice.
+`--none` conflicts with a theme id and with `--variant`; a bare `select <game-id>` is a usage error.
+It writes `{"selected":{"game":"..","theme":".."|null,"variant":null|".."}}`; the none answer has `theme: null` and `variant: null`.
 
 ```json
 {"selected":{"game":"cyberpunk-2077","theme":"night-city","variant":"neon"}}
@@ -719,6 +744,7 @@ It writes `{"selected":{"game":"..","theme":"..","variant":null|".."}}`.
 ### reset
 
 `modn theme reset [--game <game-id>]` clears one game or every game.
+It clears a theme selection and the none choice, so the official theme applies again.
 It writes `{"reset":["<game-id>"...]}`.
 
 ```json
@@ -734,7 +760,8 @@ It writes this shape:
 {"game":"..","theme":null|{"id":"..","name":"..","source":<source>,"variant":null|"..","origin":"selected"|"official","css":"<validated theme.css text>","variant_css":null|"<validated variant css>","assets_dir":"<absolute path of the theme directory>"},"fallback":null|{"reason":"theme-invalid"|"theme-missing"|"digest-mismatch","message":".."},"diagnostics":[...]}
 ```
 
-`theme: null` means the default theme.
+`theme: null` means the default theme, including after an explicit none selection.
+Then `fallback` is null and the official theme is not used.
 `css` and `variant_css` are canonical CSS text with every `url()` written as `url(assets/<path>)`.
 `assets_dir` is the absolute path of the theme directory.
 
@@ -762,11 +789,17 @@ Five commands wrap the CLI contract:
 | --- | --- |
 | `list_themes` | Runs `theme list --game <id>` for the active game and returns the answer. |
 | `resolve_theme` | Runs `theme resolve --game <id>`, stores `assets_dir` and adds `asset_base`. |
-| `select_theme` | Runs `theme select <game> <theme> [--variant <variant>]`. |
+| `select_theme` | Runs `theme select <game> <theme> [--variant <variant>]`, or `theme select <game> --none` when `theme` is null. |
 | `reset_theme` | Runs `theme reset [--game <game>]`. |
 | `import_theme` | Opens a native folder picker, then runs `theme register <dir>`. |
 
 Each command needs five registrations: the handler, `generate_handler!`, `COMMANDS` in `build.rs`, `capabilities/default.json` and the wrapper in `ui/js/api.js`.
+
+`resolve_theme` answers with the CLI answer plus `asset_base`.
+It removes `assets_dir` at every depth and stores the theme root for the protocol.
+An answer with a null theme stores no root.
+When two `resolve_theme` calls overlap, the older one answers exactly `{"stale":true,"game":"<game>"}`.
+That answer changes nothing in Rust, and the controller applies nothing.
 
 ### modn-theme protocol
 
@@ -777,8 +810,8 @@ It rejects `..`, backslashes, absolute paths and any path that canonicalises out
 It sets Content-Type by extension and `Access-Control-Allow-Origin: *`, because fonts are fetched in CORS mode.
 
 On Windows the page URL is `http://modn-theme.localhost/`.
-Other platforms use the `modn-theme://localhost/` form.
 `resolve_theme` returns that value as `asset_base`.
+The loader also accepts the `modn-theme://localhost/` form.
 The request-to-file resolution is a plain function with unit tests.
 It is not behind `cfg(windows)`.
 
@@ -800,7 +833,9 @@ Update both copies.
 The loader rewrites each `url(assets/` prefix to `url(<asset_base>assets/`.
 It creates a `CSSStyleSheet`, calls `replaceSync(css)` and adds the sheet to `document.adoptedStyleSheets`.
 CSSOM is not blocked by `style-src 'self'`.
+The loader wraps each theme stylesheet, base and variant, in `@layer theme`.
 
+The base layer order is `@layer app, theme, protected;`, declared once in `apps/modn-desktop/ui/css/tokens.css`.
 The sheet order is: app sheets (the `link` elements), then `theme.css`, then the variant CSS.
 The variant sheet is omitted when the theme has no selected variant.
 
@@ -808,7 +843,10 @@ The variant sheet is omitted when the theme has no selected variant.
 
 A load error removes the theme sheets and shows the default theme.
 A load error is a command error, invalid CSS or a `replaceSync` throw.
-The app also shows a diagnostic toast that names the rule.
+A failed resolve removes the previous game's sheets.
+A late answer for a game the user left applies nothing.
+The app shows a diagnostic toast that names the rule.
+A notice shows once per game, theme, variant and text; the controller remembers at most 50 in one session.
 
 ### Refusal diagnostics
 
@@ -822,17 +860,22 @@ An entry has exactly the keys `theme`, `path`, `line`, `rule` and `message`.
 ASCII control characters are removed.
 `path` becomes `null` when it is absolute, contains `..` or is longer than 200 characters.
 
+When a theme resolves, a diagnostic about another theme of the same game does not become a toast.
+The panel shows it with the theme list diagnostics.
+
 ### Default theme flag
 
-The start flag `--default-theme` makes `resolve_theme` return a synthetic answer with `theme: null` and `fallback.reason: "default-theme-flag"`.
-It does so without spawning the CLI.
+The start flag `--default-theme` makes `resolve_theme` return a synthetic answer without spawning the CLI.
+That answer is `{"game":"<game>","theme":null,"fallback":null,"disabled":"default-theme-flag","diagnostics":[],"asset_base":"http://modn-theme.localhost/"}`.
+The controller applies no theme when `disabled` is set.
 
 ### Theme control
 
 A Theme control is reachable from the game screen.
 It shows the active theme name and its source label.
 It lists the themes for the active game and offers a variant selector.
-It offers a "Default theme" choice, which resets the selection.
+It offers a "Use default theme" button, which calls `select_theme` with `theme: null` and stores the explicit none choice.
+The game then keeps the default look, even when it has an official theme.
 It offers an Import button, which opens a folder picker.
 
 The control uses `.modn-theme-*` hooks.

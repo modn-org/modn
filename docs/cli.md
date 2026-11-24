@@ -331,17 +331,22 @@ and `resolve`.
   prints this envelope on stderr:
   `{"error":"THEME_INVALID","message":"<text>","diagnostics":[<diagnostic object>...]}`.
 - `modn theme list [--game <game-id>]` lists registered and bucket themes. It
-  writes `themes` and `diagnostics`.
+  writes `themes` and `diagnostics`. A none selection marks no theme selected.
 - `modn theme remove <theme-id> [--game <game-id>]` removes one registration.
   It writes `removed`. `--game` is required when the id exists for several
   games.
-- `modn theme select <game-id> <theme-id> [--variant <variant>]` stores the
-  selection. It writes `selected`.
+- `modn theme select <game-id> <theme-id> [--variant <variant>]` stores a theme
+  selection. `modn theme select <game-id> --none` stores the explicit none
+  choice, which keeps the default theme even when the game has an official
+  theme. `--none` conflicts with a theme id and with `--variant`; a bare
+  `select <game-id>` is a usage error. It writes `selected`.
 - `modn theme reset [--game <game-id>]` clears one game or every game. It
-  writes `reset`.
+  clears a theme selection and the none choice, so the official theme applies
+  again. It writes `reset`.
 - `modn theme resolve --game <game-id>` returns the theme that the desktop
   must apply. It writes `game`, `theme`, `fallback` and `diagnostics`.
-  `theme: null` means the default theme.
+  `theme: null` means the default theme, including after a none selection;
+  then `fallback` is null and the official theme is not used.
 
 ## Games, packages and uninstall
 
