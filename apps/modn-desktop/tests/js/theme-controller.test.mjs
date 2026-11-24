@@ -5,6 +5,7 @@ import {
   importAndRefresh,
   loadThemeForGame,
   resetAndApply,
+  resetNoticeMemory,
   selectAndApply,
 } from '../../ui/js/theme/controller.js';
 
@@ -106,7 +107,7 @@ test('shows one toast when the stylesheet cannot be applied', async () => {
   assert.deepEqual(toasts, ['Theme not applied: the stylesheet is invalid']);
 });
 
-test('a failing command reports unavailable, applies nothing and shows no toast', async () => {
+test('a failing command removes the sheets, reports unavailable and shows no toast', async () => {
   const apply = applyStub();
   const toasts = [];
   const result = await loadThemeForGame('fixture', {
@@ -118,7 +119,7 @@ test('a failing command reports unavailable, applies nothing and shows no toast'
     applyTheme: apply,
     toast: (text) => toasts.push(text),
   });
-  assert.equal(apply.calls.length, 0);
+  assert.deepEqual(apply.calls, [{ theme: null }]);
   assert.deepEqual(toasts, []);
   assert.equal(result.applied, false);
   assert.equal(result.unavailable, true);
@@ -127,6 +128,11 @@ test('a failing command reports unavailable, applies nothing and shows no toast'
 
 test('selectAndApply selects before it resolves and applies', async () => {
   const calls = [];
+  await loadThemeForGame('fixture', {
+    api: { resolveTheme: async () => answer() },
+    applyTheme: applyStub(),
+    toast: () => {},
+  });
   const api = {
     selectTheme: async (game, theme, variant) => {
       calls.push(['select', game, theme, variant]);
@@ -150,6 +156,11 @@ test('selectAndApply selects before it resolves and applies', async () => {
 
 test('selectAndApply sends an empty variant as absent', async () => {
   const calls = [];
+  await loadThemeForGame('fixture', {
+    api: { resolveTheme: async () => answer() },
+    applyTheme: applyStub(),
+    toast: () => {},
+  });
   await selectAndApply('fixture', 'night-city', '', {
     api: {
       selectTheme: async (game, theme, variant) => calls.push(variant),
@@ -163,6 +174,11 @@ test('selectAndApply sends an empty variant as absent', async () => {
 
 test('resetAndApply resets before it resolves and applies', async () => {
   const calls = [];
+  await loadThemeForGame('fixture', {
+    api: { resolveTheme: async () => answer() },
+    applyTheme: applyStub(),
+    toast: () => {},
+  });
   await resetAndApply('fixture', {
     api: {
       resetTheme: async (game) => {
@@ -269,4 +285,199 @@ test('clearTheme drops a pending answer and applies the default theme', async ()
   assert.equal(result.stale, true);
   assert.deepEqual(applied, [{ theme: null }]);
   assert.deepEqual(clearTheme({ applyTheme: apply }), { applied: false, error: null });
+});
+
+test('a failed resolve removes the sheets of the previous game', async () => {
+  resetNoticeMemory();
+  const apply = applyStub();
+  await loadThemeForGame('first', {
+    api: { resolveTheme: async () => answer({ game: 'first' }) },
+    applyTheme: apply,
+    toast: () => {},
+  });
+  const result = await loadThemeForGame('second', {
+    api: {
+      resolveTheme: async () => {
+        throw { code: 'THEME_INVALID', message: 'the theme is not valid' };
+      },
+    },
+    applyTheme: apply,
+    toast: () => assert.fail('no toast for a failed load'),
+  });
+  assert.deepEqual(
+    apply.calls.map((call) => (call.theme ? call.theme.id : 'default')),
+    ['night-city', 'default'],
+  );
+  assert.equal(result.applied, false);
+  assert.equal(result.unavailable, true);
+});
+
+test('a selection that finishes after navigation applies and resolves nothing', async () => {
+  resetNoticeMemory();
+  let settleSelect;
+  const resolvedGames = [];
+  const apply = applyStub();
+  const api = {
+    selectTheme: () =>
+      new Promise((resolve) => {
+        settleSelect = resolve;
+      }),
+    resolveTheme: async (game) => {
+      resolvedGames.push(game);
+      return answer({ game });
+    },
+  };
+  const deps = { api, applyTheme: apply, toast: () => {} };
+  await loadThemeForGame('first', deps);
+  resolvedGames.length = 0;
+  const pending = selectAndApply('first', 'night-city', 'neon', deps);
+  await loadThemeForGame('second', deps);
+  settleSelect({ selected: { game: 'first' } });
+  const result = await pending;
+  assert.equal(result.stale, true);
+  assert.deepEqual(resolvedGames, ['second']);
+  assert.equal(apply.calls.length, 2);
+});
+
+test('a reset that finishes after navigation applies and resolves nothing', async () => {
+  resetNoticeMemory();
+  let settleReset;
+  const resolvedGames = [];
+  const apply = applyStub();
+  const api = {
+    resetTheme: () =>
+      new Promise((resolve) => {
+        settleReset = resolve;
+      }),
+    resolveTheme: async (game) => {
+      resolvedGames.push(game);
+      return answer({ game });
+    },
+  };
+  const deps = { api, applyTheme: apply, toast: () => {} };
+  await loadThemeForGame('first', deps);
+  resolvedGames.length = 0;
+  const pending = resetAndApply('first', deps);
+  await loadThemeForGame('second', deps);
+  settleReset({ reset: ['first'] });
+  const result = await pending;
+  assert.equal(result.stale, true);
+  assert.deepEqual(resolvedGames, ['second']);
+  assert.equal(apply.calls.length, 2);
+});
+
+test('a stale resolve answer applies nothing', async () => {
+  resetNoticeMemory();
+  const apply = applyStub();
+  const toasts = [];
+  const result = await loadThemeForGame('fixture', {
+    api: { resolveTheme: async () => ({ stale: true, game: 'fixture' }) },
+    applyTheme: apply,
+    toast: (text) => toasts.push(text),
+  });
+  assert.equal(result.applied, false);
+  assert.equal(result.stale, true);
+  assert.equal(apply.calls.length, 0);
+  assert.deepEqual(toasts, []);
+});
+
+test('a diagnostic about another theme shows no toast when the selected theme applies', async () => {
+  resetNoticeMemory();
+  const toasts = [];
+  const result = await loadThemeForGame('fixture', {
+    api: {
+      resolveTheme: async () =>
+        answer({
+          diagnostics: [
+            {
+              theme: 'fixture/broken-theme',
+              path: 'theme.css',
+              line: 3,
+              rule: 'duplicate-theme',
+              message: 'another theme has the same id',
+            },
+          ],
+        }),
+    },
+    applyTheme: applyStub(),
+    toast: (text) => toasts.push(text),
+  });
+  assert.equal(result.applied, true);
+  assert.deepEqual(toasts, []);
+});
+
+test('a diagnostic about the active theme still shows one toast', async () => {
+  resetNoticeMemory();
+  const toasts = [];
+  await loadThemeForGame('fixture', {
+    api: {
+      resolveTheme: async () =>
+        answer({
+          diagnostics: [
+            {
+              theme: 'fixture/night-city',
+              path: 'theme.css',
+              line: 3,
+              rule: 'unknown-hook',
+              message: 'the hook is not stable',
+            },
+          ],
+        }),
+    },
+    applyTheme: applyStub(),
+    toast: (text) => toasts.push(text),
+  });
+  assert.deepEqual(toasts, [
+    'Theme not applied: unknown-hook in theme.css: the hook is not stable',
+  ]);
+});
+
+test('the same refusal shows one toast across two loads of a game', async () => {
+  resetNoticeMemory();
+  const toasts = [];
+  const api = {
+    resolveTheme: async () =>
+      answer({
+        fallback: { reason: 'theme-invalid', message: 'the selection is invalid' },
+        diagnostics: [
+          {
+            theme: 'fixture/night-city',
+            path: 'theme.css',
+            line: 3,
+            rule: 'remote-url',
+            message: 'a remote url is not allowed',
+          },
+        ],
+      }),
+  };
+  const deps = { api, applyTheme: applyStub(), toast: (text) => toasts.push(text) };
+  await loadThemeForGame('fixture', deps);
+  await loadThemeForGame('fixture', deps);
+  assert.equal(toasts.length, 1);
+});
+
+test('a failed resolve of an older request does not clear the newer sheets', async () => {
+  resetNoticeMemory();
+  let failFirst;
+  const first = new Promise((resolve, reject) => {
+    failFirst = reject;
+  });
+  const apply = applyStub();
+  const older = loadThemeForGame('first', {
+    api: { resolveTheme: () => first },
+    applyTheme: apply,
+    toast: () => {},
+  });
+  await loadThemeForGame('second', {
+    api: { resolveTheme: async () => answer({ game: 'second' }) },
+    applyTheme: apply,
+    toast: () => {},
+  });
+  failFirst({ code: 'BACKEND_FAILED', message: 'the backend stopped' });
+  const result = await older;
+  assert.deepEqual(result, { applied: false, stale: true });
+  assert.deepEqual(
+    apply.calls.map((call) => (call.theme ? call.theme.id : 'default')),
+    ['night-city'],
+  );
 });
