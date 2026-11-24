@@ -28,7 +28,6 @@ const PROTECTED_PROPERTIES: &[&str] = &[
     "background-color",
     "border-color",
     "outline-color",
-    "font-family",
     "font-weight",
     "font-style",
 ];
