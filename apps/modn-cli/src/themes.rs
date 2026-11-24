@@ -50,13 +50,12 @@ pub(super) fn run(
             game,
             theme,
             variant,
-            none,
+            ..
         } => select(
             &data,
             &profile,
             game,
             theme.as_deref(),
-            *none,
             variant.as_deref(),
             &checker,
             json,
@@ -180,12 +179,11 @@ fn select(
     profile: &Path,
     game: &str,
     theme: Option<&str>,
-    none: bool,
     variant: Option<&str>,
     checker: &dyn CssChecker,
     json: bool,
 ) -> Result<()> {
-    if none {
+    let Some(theme) = theme else {
         let selection = SelectionStore::new(data).select_none(game)?;
         let value = json!({
             "selected": {
@@ -200,8 +198,7 @@ fn select(
             println!("Selected no theme for {}.", selection.game());
         }
         return Ok(());
-    }
-    let theme = theme.expect("clap requires a theme unless --none is set");
+    };
     let catalog = catalog(data, profile, checker);
     let entry = catalog
         .entries()
