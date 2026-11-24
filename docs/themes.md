@@ -768,6 +768,12 @@ Five commands wrap the CLI contract:
 
 Each command needs five registrations: the handler, `generate_handler!`, `COMMANDS` in `build.rs`, `capabilities/default.json` and the wrapper in `ui/js/api.js`.
 
+`resolve_theme` answers with the CLI answer plus `asset_base`.
+It removes `assets_dir` at every depth and stores the theme root for the protocol.
+An answer with a null theme stores no root.
+When two `resolve_theme` calls overlap, the older one answers exactly `{"stale":true,"game":"<game>"}`.
+That answer changes nothing in Rust, and the controller applies nothing.
+
 ### modn-theme protocol
 
 The app registers a URI scheme protocol named `modn-theme` with `register_uri_scheme_protocol`.
