@@ -3,8 +3,10 @@ use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 mod catalog;
+mod theme;
 
 pub(super) use catalog::CatalogCommand;
+pub(super) use theme::ThemeCommand;
 
 #[derive(Parser)]
 #[command(name = "modn", about = "Game mod inspection and guarded management")]
@@ -62,6 +64,11 @@ pub(super) enum Command {
     Catalog {
         #[command(subcommand)]
         command: CatalogCommand,
+    },
+    /// Validate, register, list, select and resolve game themes.
+    Theme {
+        #[command(subcommand)]
+        command: ThemeCommand,
     },
     /// List manager-owned packages (unmanaged mods are never included).
     List {
