@@ -17,6 +17,7 @@ pub(super) fn remove(root: &Path, id: &str, game: Option<&str>) -> Result<Remove
     }
     let registry = layout::registry_root(root);
     let _lock = storage::lock(root)?;
+    let _recovery_problems = super::recovery::recover(root)?;
     let mut games = match game {
         Some(game) => {
             let entry = layout::entry_root(&registry, game, id);
@@ -49,6 +50,14 @@ pub(super) fn remove(root: &Path, id: &str, game: Option<&str>) -> Result<Remove
             let entry = layout::entry_root(&registry, &game, id);
             fs::remove_dir_all(&entry)
                 .map_err(|error| ThemeError::io("cannot remove the theme registration", error))?;
+            let backup = layout::backup_root(&registry, &game, id);
+            match fs::remove_dir_all(&backup) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(ThemeError::io("cannot remove the theme backup", error));
+                }
+            }
             Ok(RemovedTheme {
                 game,
                 id: id.to_owned(),

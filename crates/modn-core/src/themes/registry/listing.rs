@@ -30,7 +30,7 @@ pub(super) fn list(root: &Path) -> Result<ListedThemes> {
         let Some(name) = name.to_str().map(str::to_owned) else {
             continue;
         };
-        if name.starts_with(layout::STAGING_PREFIX) {
+        if name.starts_with(layout::STAGING_PREFIX) || name == layout::BACKUP {
             continue;
         }
         let path = format!("{}/{name}", layout::REGISTRY);

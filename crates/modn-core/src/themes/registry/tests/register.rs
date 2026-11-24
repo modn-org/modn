@@ -1,4 +1,4 @@
-use super::super::fail_next_swap;
+use super::super::layout::Failpoint;
 use super::support::{
     bare_manifest, digest, fixture, make_bare_theme, make_theme, registration_path, theme_source,
     write, Accept, Reject, BASE_CSS, GAME, ID, PNG,
@@ -64,7 +64,12 @@ fn register_refuses_an_invalid_theme_and_copies_nothing() {
         .iter()
         .all(|problem| problem.rule == Rule::ForbiddenImportant));
     assert_eq!(problems[0].path.as_deref(), Some("theme.css"));
-    assert!(!temp.path().join("data/themes/registry").exists());
+    assert!(!temp
+        .path()
+        .join("data/themes/registry")
+        .join(GAME)
+        .join(ID)
+        .exists());
 }
 
 #[test]
@@ -88,7 +93,7 @@ fn register_refuses_a_manifest_with_an_invalid_id() {
                 && problem.message.contains("not a valid id")),
         "{problems:#?}"
     );
-    assert!(!temp.path().join("data/themes/registry").exists());
+    assert!(!temp.path().join("data/themes/registry").join(GAME).exists());
 }
 
 #[test]
@@ -213,7 +218,7 @@ fn a_failed_replacement_restores_the_previous_copy() {
     let (_temp, registry, source) = fixture();
     let first = registry.register(&source, &Accept).unwrap();
     write(&source.join("theme.css"), b".modn-app { color: #101010; }");
-    fail_next_swap();
+    registry.fail_at(Failpoint::InstallFails);
     let error = registry.register(&source, &Accept).unwrap_err();
     assert!(matches!(error, ThemeError::Io { .. }), "{error}");
     let listed = registry.list().unwrap();
