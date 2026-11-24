@@ -319,6 +319,8 @@ pub(super) fn theme_register(directory: &Path) -> Vec<OsString> {
 }
 
 #[cfg(test)]
+#[path = "args/tests.rs"]
 mod tests;
 #[cfg(test)]
+#[path = "args/theme_tests.rs"]
 mod theme_tests;

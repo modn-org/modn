@@ -37,6 +37,7 @@ mod theme_commands {
 
     use super::backend;
     use crate::app;
+    use crate::args;
     use serde_json::Value;
     use std::ffi::OsString;
     use std::fs;
