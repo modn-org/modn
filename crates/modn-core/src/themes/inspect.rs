@@ -239,9 +239,7 @@ pub fn inspect_theme_dir(
         problems.push(
             ThemeProblem::new(
                 Rule::ThemeTooLarge,
-                format!(
-                    "assets/ files total {total} bytes; the limit is {MAX_THEME_ASSETS_BYTES}"
-                ),
+                format!("assets/ files total {total} bytes; the limit is {MAX_THEME_ASSETS_BYTES}"),
             )
             .with_path("."),
         );

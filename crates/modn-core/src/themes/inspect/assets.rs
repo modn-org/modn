@@ -1,6 +1,6 @@
 //! Asset scanning for one theme directory.
 
-use super::super::limits::{is_valid_asset_path, MAX_THEME_ASSET_BYTES, MAX_THEME_ASSETS};
+use super::super::limits::{is_valid_asset_path, MAX_THEME_ASSETS, MAX_THEME_ASSET_BYTES};
 use super::super::problem::{Rule, ThemeProblem};
 use super::reading::read_prefix;
 use super::EntryBudget;
