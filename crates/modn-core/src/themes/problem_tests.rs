@@ -10,9 +10,11 @@ fn rule_ids_match_the_documented_list() {
         "url-outside-assets",
         "forbidden-content",
         "forbidden-position-fixed",
+        "forbidden-var",
         "forbidden-important",
         "unknown-property",
         "forbidden-custom-property",
+        "token-out-of-range",
         "forbidden-selector",
         "unknown-hook",
         "protected-region",
@@ -39,9 +41,11 @@ fn rule_ids_match_the_documented_list() {
         Rule::UrlOutsideAssets,
         Rule::ForbiddenContent,
         Rule::ForbiddenPositionFixed,
+        Rule::ForbiddenVar,
         Rule::ForbiddenImportant,
         Rule::UnknownProperty,
         Rule::ForbiddenCustomProperty,
+        Rule::TokenOutOfRange,
         Rule::ForbiddenSelector,
         Rule::UnknownHook,
         Rule::ProtectedRegion,
@@ -61,8 +65,8 @@ fn rule_ids_match_the_documented_list() {
         Rule::DigestMismatch,
         Rule::ThemeMissing,
     ];
-    assert_eq!(rules.len(), 27);
-    assert_eq!(expected.len(), 27);
+    assert_eq!(rules.len(), 29);
+    assert_eq!(expected.len(), 29);
     for (rule, id) in rules.iter().zip(expected) {
         assert_eq!(rule.id(), id);
         assert_eq!(

@@ -19,13 +19,12 @@ fn check(rules: Vec<RuleFacts>) -> Vec<Rule> {
 }
 
 #[test]
-fn protected_hooks_accept_the_seven_allowed_properties() {
+fn protected_hooks_accept_the_six_allowed_properties() {
     for (property, value) in [
         ("color", "#ffffff"),
         ("background-color", "#000000"),
         ("border-color", "#111111"),
         ("outline-color", "#222222"),
-        ("font-family", "\"Night City\""),
         ("font-weight", "600"),
         ("font-style", "italic"),
     ] {
@@ -37,6 +36,30 @@ fn protected_hooks_accept_the_seven_allowed_properties() {
 }
 
 #[test]
+fn font_family_is_refused_on_a_protected_hook() {
+    let facts = vec![style(
+        ".modn-approval__question",
+        vec![decl("font-family", "x")],
+    )];
+    assert_eq!(check(facts), [Rule::ProtectedRegion]);
+    let facts = vec![style(
+        ".modn-approval__question",
+        vec![decl("font-family", "\"Night City\", sans-serif")],
+    )];
+    assert_eq!(check(facts), [Rule::ProtectedRegion]);
+}
+
+#[test]
+fn font_family_stays_allowed_on_a_shared_hook() {
+    let facts = vec![style(
+        ".modn-card",
+        vec![decl("font-family", "\"Night City\", sans-serif")],
+    )];
+    check_sheet("theme.css", &SheetFacts::new(facts))
+        .expect("font-family outside a protected hook stays allowed");
+}
+
+#[test]
 fn other_allowed_properties_are_protected_region() {
     for (property, value) in [
         ("display", "none"),
@@ -44,6 +67,7 @@ fn other_allowed_properties_are_protected_region() {
         ("margin", "0"),
         ("background-image", "url(assets/a.png)"),
         ("border", "0"),
+        ("font-family", "\"Night City\""),
         ("--modn-color-primary", "#ffffff"),
     ] {
         let facts = vec![style(".modn-review", vec![decl(property, value)])];

@@ -135,21 +135,80 @@ fn translucent_colours_on_shared_hooks_stay_valid() {
     }
 }
 
-/// Document a known gap: protected content reads spacing, radius, font-size,
-/// font-line and opacity tokens, and the rule engine accepts any value for
-/// them. A theme can set `:root{--modn-font-size-body-s:0}` and shrink or hide
-/// protected text. Do not delete this test; it fails when the gap closes.
 #[test]
-#[ignore = "known gap: protected regions read non-colour tokens that accept any value"]
-fn known_gap_root_tokens_can_shrink_protected_content() {
+fn root_size_tokens_cannot_shrink_protected_content() {
     for (property, value) in [
         ("--modn-font-size-body-s", "0"),
         ("--modn-font-line-body-s", "0"),
-        ("--modn-space-4xl", "0"),
+        ("--modn-space-4xl", "100px"),
         ("--modn-opacity-disabled", "0"),
+    ] {
+        let facts = vec![style_at(":root", vec![decl_at(property, value, 1)], 1)];
+        let problems = rejecting(facts);
+        assert_eq!(
+            problems.len(),
+            1,
+            "{property}: {value} should report one problem: {problems:?}"
+        );
+        assert_eq!(problems[0].rule, Rule::TokenOutOfRange);
+        assert_eq!(problems[0].line, Some(1));
+        assert!(
+            problems[0].message.contains(property),
+            "message names {property}: {}",
+            problems[0].message
+        );
+    }
+}
+
+#[test]
+fn in_range_root_size_tokens_are_accepted() {
+    for (property, value) in [
+        ("--modn-font-size-body-s", "13px"),
+        ("--modn-font-size-body-s", "0.8125rem"),
+        ("--modn-font-size-body-s", "0.625em"),
+        ("--modn-font-line-body-s", "1.4"),
+        ("--modn-font-line-body-s", "18px"),
+        ("--modn-space-4xl", "64px"),
+        ("--modn-space-4xl", "4rem"),
+        ("--modn-opacity-disabled", "0.5"),
+        ("--modn-opacity-disabled", "1"),
     ] {
         let facts = vec![style_at(":root", vec![decl_at(property, value, 1)], 1)];
         check_sheet("theme.css", &SheetFacts::new(facts))
             .unwrap_or_else(|problems| panic!("{property}: {value}: {problems:?}"));
     }
+}
+
+#[test]
+fn size_tokens_are_checked_on_any_selector() {
+    for selector in [":root", "html", ".modn-app", ".modn-card"] {
+        let facts = vec![style_at(
+            selector,
+            vec![decl_at("--modn-font-size-body-s", "0", 1)],
+            1,
+        )];
+        let problems = rejecting(facts);
+        assert_eq!(
+            problems.len(),
+            1,
+            "{selector} should report one problem: {problems:?}"
+        );
+        assert_eq!(problems[0].rule, Rule::TokenOutOfRange);
+    }
+}
+
+#[test]
+fn a_var_value_is_refused_for_size_tokens() {
+    let facts = vec![style_at(
+        ":root",
+        vec![decl_at(
+            "--modn-font-size-body-s",
+            "var(--modn-font-size-body-m)",
+            1,
+        )],
+        1,
+    )];
+    let problems = rejecting(facts);
+    assert_eq!(problems.len(), 1, "one problem: {problems:?}");
+    assert_eq!(problems[0].rule, Rule::TokenOutOfRange);
 }

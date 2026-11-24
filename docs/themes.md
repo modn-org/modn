@@ -157,6 +157,10 @@ The following are also not allowed: `animation*`, `transform*`, `filter`, `backd
 A custom property is allowed only when its name starts with `--modn-`.
 Any other custom property is `forbidden-custom-property`.
 
+These properties must use a literal value, not `var()`: `position`, `display`, `visibility`, `opacity`, `overflow`, `overflow-x`, `overflow-y`, `z-index`, `top`, `right`, `bottom`, `left`, `inset`, `inset-block`, `inset-inline`, `width`, `height`, `min-width`, `min-height`, `max-width`, `max-height`, `font-size` and `line-height`.
+A `var()` in one of them is `forbidden-var`.
+`var()` stays allowed in every other property, including colour properties and unrelated `--modn-*` values.
+
 ### Rule ids
 
 A refusal names the rule and the file.
@@ -170,9 +174,11 @@ It names the line when the validator knows it.
 | `url-outside-assets` | A `url()` outside `assets/`, with a rejected extension, or with no file. | `background-image: url("../a.png");` | `background-image: url(assets/a.png);` |
 | `forbidden-content` | The `content` property. | `.modn-card { content: "new"; }` | `.modn-card { opacity: 0.9; }` |
 | `forbidden-position-fixed` | `position: fixed`. | `.modn-rail { position: fixed; }` | `.modn-rail { position: sticky; }` |
+| `forbidden-var` | A `var()` in a property that must use a literal value. | `.modn-rail { position: var(--modn-position, fixed); }` | `.modn-card { padding: var(--modn-space-m); }` |
 | `forbidden-important` | The `!important` flag. | `.modn-card { color: #ffffff !important; }` | `.modn-card { color: #ffffff; }` |
 | `unknown-property` | A property outside the allowlist. | `.modn-card { transform: scale(1.1); }` | `.modn-card { opacity: 0.8; }` |
 | `forbidden-custom-property` | A custom property not named `--modn-*`. | `.modn-app { --accent: #ffffff; }` | `.modn-app { --modn-color-primary: #ffffff; }` |
+| `token-out-of-range` | A size or opacity token outside its allowed range. | `:root { --modn-font-size-body-s: 0; }` | `:root { --modn-font-size-body-s: 13px; }` |
 | `forbidden-selector` | A selector outside the selector grammar. | `div .modn-card { color: #ffffff; }` | `.modn-app .modn-card { color: #ffffff; }` |
 | `unknown-hook` | A `.modn-*` class or `data-*` attribute not in the stable tables. | `.modn-missing { color: #ffffff; }` | `.modn-card { color: #ffffff; }` |
 | `protected-region` | A non-allowed property on a protected hook. | `.modn-review { display: none; }` | `.modn-review { color: #ffffff; }` |
@@ -394,6 +400,15 @@ All 43 `--modn-*` properties are defined in `css/tokens.css`.
 The "used in" column lists the consumers in the component stylesheets.
 Every `--modn-color-*` token a theme sets must be opaque, because protected regions read it.
 
+These tokens accept only a literal value inside a range:
+
+- `--modn-font-size-*` takes a length of at least 10px, or at least 0.625rem or 0.625em.
+- `--modn-font-line-*` takes a unitless number of at least 1, or a length of at least 10px.
+- `--modn-space-*` takes a length from 0 to 64px, or from 0 to 4rem.
+- `--modn-opacity-disabled` takes a number from 0.4 to 1.
+
+A `var()`, a keyword or an unparsable value is `token-out-of-range`.
+
 | Property | Defined in | Used in | Purpose |
 | --- | --- | --- | --- |
 | `--modn-color-border` | `css/tokens.css` | `css/base.css`, `css/details.css`, `css/home.css`, `css/library.css` | Border and divider colour |
@@ -442,7 +457,7 @@ Every `--modn-color-*` token a theme sets must be opaque, because protected regi
 
 ## Protected regions
 
-A protected region is a subtree that a theme may recolor and restyle only with color and font properties.
+A protected region is a subtree that a theme may recolor and restyle only with colours, font weight and font style.
 Two regions exist:
 
 - `data-modn-protected="install-review"` marks the plan and review section of the install flow.
@@ -487,11 +502,12 @@ Inside a protected region, a rule may declare only these properties:
 - `background-color`
 - `border-color`
 - `outline-color`
-- `font-family`
 - `font-weight`
 - `font-style`
 
 Any other property on a protected hook is the rule `protected-region`.
+Protected text uses the fonts and sizes the application controls.
+A theme may change the colour, weight and style of protected text, not its font family.
 
 A colour value inside a protected region must be opaque.
 `transparent`, `currentcolor` with alpha, and `rgba()` or `hsla()` values with alpha below 1 are the rule `protected-color-not-opaque`.

@@ -127,13 +127,11 @@ padding: 16px 0;
 color: #fcee0a;
 background-color: #0b0e1a;
 border-color: #00d6ff;
-font-family: "Chakra Petch", sans-serif;
 font-weight: 600;
 }
 .modn-approval {
 color: #fcee0a;
 background-color: #14182c;
-font-family: "Chakra Petch", sans-serif;
 font-weight: 600;
 }
 @media (max-width: 900px) {
