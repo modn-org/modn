@@ -12,6 +12,7 @@ import time
 
 import uia
 from fixtures import Fixture
+from journeys_themes_support import press
 from lifecycle import GAME_ID, _app, _assert_clean_ui, _cli, _cli_path, _open_game
 from theme_fixture import (
     build_community_bucket,
@@ -105,8 +106,7 @@ def _wait_height(runner, step, session, accept, description, timeout=60):
 
 
 def _open_panel(runner, step, session):
-    _theme_button(runner, step, session)
-    session.click(name="Theme", control_type="ButtonControl")
+    press(_theme_button(runner, step, session))
     _wait(
         runner,
         step,
@@ -129,7 +129,7 @@ def _picks(session, name):
 def _choose(runner, step, session, name):
     controls = _picks(session, name)
     runner.check(bool(controls), f"step {step}: the Theme control has no {name} choice")
-    session.activate(controls[0])
+    press(controls[0])
 
 
 def _selected(session, name):
@@ -145,25 +145,24 @@ def _choose_variant(runner, step, session, variant):
     runner.check(bool(combos), f"step {step}: the Theme control has no variant selector")
     combo = next((entry for entry in combos if "Variant" in (entry.Name or "")), combos[0])
     try:
-        combo.GetValuePattern().SetValue(variant)
-        return
-    except Exception:
-        pass
-    try:
         combo.GetExpandCollapsePattern().Expand()
-        _wait(
-            runner,
-            step,
-            session,
+    except Exception as error:
+        runner.check(False, f"step {step}: could not open the variant selector: {error}")
+        return
+    try:
+        session.wait_for(
             lambda current: current.find_all(
                 name=variant, control_type="ListItemControl"
             ),
             f"the {variant} variant option",
             timeout=30,
         )
-        session.activate(session.find_all(name=variant, control_type="ListItemControl")[0])
-    except uia.Failure:
-        raise
+    except uia.Failure as error:
+        runner.check(False, f"step {step}: {error}")
+        return
+    option = session.find_all(name=variant, control_type="ListItemControl")[0]
+    try:
+        option.GetSelectionItemPattern().Select()
     except Exception as error:
         runner.check(False, f"step {step}: could not choose the {variant} variant: {error}")
 
