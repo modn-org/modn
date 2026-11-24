@@ -9,12 +9,19 @@ use std::fs;
 /// Top-level files that a theme may contain without affecting it.
 const IGNORED_FILES: [&str; 3] = ["README.md", "LICENSE", "NOTICE.md"];
 
+/// Maximum size of one ignored top-level file in bytes.
+const MAX_IGNORED_FILE_BYTES: u64 = 1_048_576;
+
+/// Maximum size of all ignored top-level files together in bytes.
+const MAX_IGNORED_FILES_BYTES: u64 = 4_194_304;
+
 /// What the top-level directory listing contained.
 #[derive(Debug, Default)]
 pub(super) struct TopLevel {
     pub(super) seen: BTreeSet<String>,
     pub(super) files: BTreeMap<String, u64>,
     pub(super) assets: bool,
+    pub(super) ignored_bytes: u64,
 }
 
 /// Check one top-level entry against the allowed theme folder layout.
@@ -99,6 +106,9 @@ pub(super) fn inspect_entry(
         }
     };
     top.files.insert(name.clone(), size);
+    if IGNORED_FILES.contains(&name.as_str()) {
+        check_ignored_file(&name, size, &mut top.ignored_bytes, problems);
+    }
     if allowed_file(&name, variants) {
         return;
     }
@@ -109,6 +119,38 @@ pub(super) fn inspect_entry(
         )
         .with_path(&name),
     );
+}
+
+/// Add one ignored file to the running total and report either limit.
+pub(super) fn check_ignored_file(
+    name: &str,
+    size: u64,
+    total: &mut u64,
+    problems: &mut Vec<ThemeProblem>,
+) {
+    *total = total.saturating_add(size);
+    if size > MAX_IGNORED_FILE_BYTES {
+        problems.push(
+            ThemeProblem::new(
+                Rule::ThemeTooLarge,
+                format!(
+                    "ignored file \"{name}\" is {size} bytes; the limit is {MAX_IGNORED_FILE_BYTES}"
+                ),
+            )
+            .with_path(name),
+        );
+    }
+    if *total > MAX_IGNORED_FILES_BYTES {
+        problems.push(
+            ThemeProblem::new(
+                Rule::ThemeTooLarge,
+                format!(
+                    "ignored files total {total} bytes; the limit is {MAX_IGNORED_FILES_BYTES}"
+                ),
+            )
+            .with_path("."),
+        );
+    }
 }
 
 fn allowed_file(name: &str, variants: &[String]) -> bool {

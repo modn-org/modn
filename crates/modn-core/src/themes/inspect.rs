@@ -24,6 +24,59 @@ use std::path::{Path, PathBuf};
 const CSS_FILE: &str = "theme.css";
 /// The directory that holds theme assets.
 const ASSETS_DIR: &str = "assets";
+/// The most directory entries one inspection visits in the theme directory.
+const MAX_THEME_ENTRIES: usize = 1024;
+
+/// Counts the directory entries visited while one theme is inspected.
+#[derive(Debug)]
+pub(super) struct EntryBudget {
+    limit: usize,
+    remaining: usize,
+    refused: bool,
+}
+
+impl EntryBudget {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            remaining: limit,
+            refused: false,
+        }
+    }
+
+    /// Take one entry from the budget; return false when it is exhausted.
+    pub(super) fn take(&mut self) -> bool {
+        if self.remaining == 0 {
+            false
+        } else {
+            self.remaining -= 1;
+            true
+        }
+    }
+
+    /// Return the single refusal for an exhausted budget.
+    pub(super) fn refusal(&mut self) -> Option<ThemeProblem> {
+        if self.refused {
+            return None;
+        }
+        self.refused = true;
+        Some(
+            ThemeProblem::new(
+                Rule::ThemeTooLarge,
+                format!(
+                    "the theme directory holds more than {} entries; scanning stopped",
+                    self.limit
+                ),
+            )
+            .with_path("."),
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn visited(&self) -> usize {
+        self.limit - self.remaining
+    }
+}
 
 /// A theme directory that passed every check.
 #[non_exhaustive]
@@ -92,9 +145,16 @@ pub fn inspect_theme_dir(
         .map_or_else(Vec::new, |manifest| manifest.variants.clone());
 
     let mut top = TopLevel::default();
+    let mut budget = EntryBudget::new(MAX_THEME_ENTRIES);
     match fs::read_dir(dir) {
         Ok(entries) => {
             for entry in entries {
+                if !budget.take() {
+                    if let Some(problem) = budget.refusal() {
+                        problems.push(problem);
+                    }
+                    break;
+                }
                 match entry {
                     Ok(entry) => inspect_entry(&entry, &variants, &mut top, &mut problems),
                     Err(error) => problems.push(
@@ -143,10 +203,8 @@ pub fn inspect_theme_dir(
             stylesheets.push((file, *size));
         }
     }
-    let mut css_bytes = 0u64;
     for (file, size) in &stylesheets {
         let limit = css_limit(file);
-        css_bytes = css_bytes.saturating_add(*size);
         if *size > limit {
             problems.push(
                 ThemeProblem::new(
@@ -159,7 +217,7 @@ pub fn inspect_theme_dir(
     }
 
     let mut scan = if top.assets {
-        scan_assets(&dir.join(ASSETS_DIR))
+        scan_assets(&dir.join(ASSETS_DIR), &mut budget)
     } else {
         AssetScan::default()
     };
@@ -176,12 +234,12 @@ pub fn inspect_theme_dir(
             .with_path(ASSETS_DIR),
         );
     }
-    let total = scan.total_bytes.saturating_add(css_bytes);
+    let total = scan.total_bytes;
     if total > MAX_THEME_ASSETS_BYTES {
         problems.push(
             ThemeProblem::new(
                 Rule::ThemeTooLarge,
-                format!("theme files total {total} bytes; the limit is {MAX_THEME_ASSETS_BYTES}"),
+                format!("assets/ files total {total} bytes; the limit is {MAX_THEME_ASSETS_BYTES}"),
             )
             .with_path("."),
         );

@@ -1,3 +1,4 @@
+use super::{scan_assets, EntryBudget, MAX_THEME_ENTRIES};
 use crate::themes::{
     inspect_theme_dir, AssetKind, CheckedCss, CssChecker, CssContext, Rule, ThemeProblem,
 };
@@ -163,6 +164,16 @@ fn sixty_five_assets_are_too_many() {
 }
 
 #[test]
+fn four_full_assets_and_a_stylesheet_are_accepted() {
+    let (_temp, root) = with_assets();
+    for index in 0..4 {
+        sized_png(&root.join(format!("assets/a{index}.png")), 2_097_152);
+    }
+    let theme = inspect_theme_dir(&root, &Accept).expect("assets alone are within the limit");
+    assert_eq!(theme.assets.len(), 4);
+}
+
+#[test]
 fn assets_over_the_total_limit_are_theme_too_large() {
     let (_temp, root) = with_assets();
     for index in 0..5 {
@@ -175,6 +186,56 @@ fn assets_over_the_total_limit_are_theme_too_large() {
     assert!(problems
         .iter()
         .all(|problem| problem.rule != Rule::AssetTooLarge));
+}
+
+#[test]
+fn two_thousand_assets_are_refused_after_an_early_stop() {
+    let (_temp, root) = with_assets();
+    for index in 0..2000 {
+        write(&root.join(format!("assets/a{index:04}.png")), &[]);
+    }
+    find(&problems(&root), Rule::ThemeTooLarge);
+    let mut budget = EntryBudget::new(MAX_THEME_ENTRIES);
+    let scan = scan_assets(&root.join("assets"), &mut budget);
+    assert!(scan
+        .problems
+        .iter()
+        .any(|problem| problem.rule == Rule::ThemeTooLarge));
+    assert_eq!(budget.visited(), MAX_THEME_ENTRIES);
+}
+
+#[test]
+fn a_hundred_assets_stop_at_the_count_limit() {
+    let (_temp, root) = with_assets();
+    for index in 0..100 {
+        write(&root.join(format!("assets/a{index:03}.png")), &[]);
+    }
+    find(&problems(&root), Rule::TooManyAssets);
+    let mut budget = EntryBudget::new(MAX_THEME_ENTRIES);
+    let scan = scan_assets(&root.join("assets"), &mut budget);
+    assert_eq!(scan.count, 65, "the scan stopped at the count limit");
+    assert!(
+        budget.visited() <= MAX_THEME_ENTRIES,
+        "visited {} entries of 100",
+        budget.visited()
+    );
+}
+
+#[test]
+fn an_asset_tree_over_the_entry_budget_is_refused() {
+    let (_temp, root) = with_assets();
+    for index in 0..2000 {
+        fs::create_dir(root.join(format!("assets/d{index:04}"))).unwrap();
+    }
+    let problem = find(&problems(&root), Rule::ThemeTooLarge).clone();
+    assert_eq!(problem.path.as_deref(), Some("."));
+    let mut budget = EntryBudget::new(MAX_THEME_ENTRIES);
+    let scan = scan_assets(&root.join("assets"), &mut budget);
+    assert!(scan
+        .problems
+        .iter()
+        .any(|problem| problem.rule == Rule::ThemeTooLarge));
+    assert_eq!(budget.visited(), MAX_THEME_ENTRIES);
 }
 
 #[test]
