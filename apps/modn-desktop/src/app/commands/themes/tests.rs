@@ -2,9 +2,11 @@
 //! import plan, without a native dialog or a Tauri window.
 
 use super::{
-    ImportPlan, cancelled_answer, default_theme_answer, import_plan, resolve_request,
-    resolved_theme, select_request, stale_answer,
+    ImportPlan, cancelled_answer, default_theme_answer, import_plan, resolve_failure,
+    resolve_request, resolved_theme, select_request, stale_answer,
 };
+use crate::app::error::CommandError;
+use crate::app::state::AppState;
 use crate::app::theme_assets::ASSET_BASE;
 use serde_json::{Value, json};
 use std::ffi::OsString;
@@ -242,6 +244,46 @@ fn a_superseded_resolve_answers_with_only_stale_and_game() {
             .len(),
         2
     );
+}
+
+#[test]
+fn a_failed_resolve_clears_the_root_of_its_own_ticket() {
+    let state = AppState::new(None, false);
+    let folder = unique_folder();
+    let ticket = state.next_theme_ticket();
+    assert!(state.store_theme_root_if_latest(ticket, Some(folder.clone())));
+    let error = resolve_failure(
+        &state,
+        ticket,
+        "cyberpunk-2077",
+        CommandError::backend_failed(),
+    )
+    .expect_err("the failed request reports its error");
+    assert_eq!(error.code, "BACKEND_FAILED");
+    assert!(
+        state.theme_root().is_none(),
+        "a failed resolve must stop serving the previous theme folder"
+    );
+    fs::remove_dir_all(&folder).expect("remove the disposable folder");
+}
+
+#[test]
+fn a_superseded_failed_resolve_keeps_the_newer_root() {
+    let state = AppState::new(None, false);
+    let folder = unique_folder();
+    let older = state.next_theme_ticket();
+    let newer = state.next_theme_ticket();
+    assert!(state.store_theme_root_if_latest(newer, Some(folder.clone())));
+    let answer = resolve_failure(
+        &state,
+        older,
+        "cyberpunk-2077",
+        CommandError::theme_invalid(),
+    )
+    .expect("a superseded failure answers with the stale shape");
+    assert_eq!(answer, stale_answer("cyberpunk-2077"));
+    assert_eq!(state.theme_root(), Some(folder.clone()));
+    fs::remove_dir_all(&folder).expect("remove the disposable folder");
 }
 
 #[test]

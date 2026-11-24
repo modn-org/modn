@@ -149,6 +149,50 @@ fn register_replaces_the_same_id_and_updates_the_digest() {
 }
 
 #[test]
+fn a_completed_replacement_removes_the_previous_backup() {
+    let (temp, registry, source) = fixture();
+    registry.register(&source, &Accept).unwrap();
+    write(&source.join("theme.css"), b".modn-app { color: #111111; }");
+    let second = registry.register(&source, &Accept).unwrap();
+    let backup = temp
+        .path()
+        .join("data/themes/registry/.backup")
+        .join(GAME)
+        .join(ID);
+    assert!(
+        !backup.exists(),
+        "a completed replacement must not keep its backup"
+    );
+    assert_eq!(
+        registry.load(GAME, ID, &Accept).unwrap().digest,
+        second.blake3()
+    );
+}
+
+#[test]
+fn a_failed_backup_delete_does_not_fail_the_registration() {
+    let (temp, registry, source) = fixture();
+    registry.register(&source, &Accept).unwrap();
+    write(&source.join("theme.css"), b".modn-app { color: #222222; }");
+    registry.fail_at(Failpoint::BackupDeleteFails);
+    let second = registry.register(&source, &Accept).unwrap();
+    let backup = temp
+        .path()
+        .join("data/themes/registry/.backup")
+        .join(GAME)
+        .join(ID);
+    assert!(
+        backup.is_dir(),
+        "the simulated failure must leave the backup"
+    );
+    // Recovery deletes a leftover backup once the new copy verifies.
+    let listed = registry.list().unwrap();
+    assert!(listed.problems.is_empty(), "{:#?}", listed.problems);
+    assert!(!backup.exists());
+    assert_eq!(listed.themes[0].blake3(), second.blake3());
+}
+
+#[test]
 fn register_removes_files_that_the_new_copy_lacks() {
     let (_temp, registry, source) = fixture();
     let first = registry.register(&source, &Accept).unwrap();

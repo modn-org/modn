@@ -4,6 +4,7 @@ import { createThemePanel } from '../../ui/js/theme/panel.js';
 import {
   findAllByClass,
   findByTestId,
+  deferred,
   flush,
   installDom,
 } from './support/fake-dom.mjs';
@@ -197,6 +198,64 @@ test('Use default theme shows no chosen theme after the reload', async () => {
   await flush();
   assert.equal(findAllByClass(panel, 'modn-theme-pick--chosen').length, 0);
   assert.match(panel.textContent, /Default theme/);
+});
+
+test('a pending selection disables every choice until it succeeds', async () => {
+  const gate = deferred();
+  let selections = 0;
+  const { control, trigger, panel } = setup({
+    selectAndApply: async () => {
+      selections += 1;
+      await gate.promise;
+      return { applied: true, name: 'Daylight', source: { label: 'local registry' }, variant: '' };
+    },
+  });
+  control.setGame('fixture');
+  await open(control, trigger);
+  findAllByClass(panel, 'modn-theme-pick')[1].click();
+  findByTestId(panel, 'theme-use').click();
+  for (const id of ['theme-use', 'theme-reset']) {
+    assert.equal(findByTestId(panel, id).disabled, true, `${id} must be disabled`);
+    assert.equal(findByTestId(panel, id).getAttribute('aria-disabled'), 'true');
+  }
+  assert.equal(findByTestId(panel, 'theme-variant').disabled, true);
+  assert.equal(findByTestId(panel, 'theme-variant').getAttribute('aria-disabled'), 'true');
+  for (const pick of findAllByClass(panel, 'modn-theme-pick')) {
+    assert.equal(pick.disabled, true, 'a theme choice must be disabled');
+    assert.equal(pick.getAttribute('aria-disabled'), 'true');
+  }
+  findByTestId(panel, 'theme-reset').click();
+  assert.equal(selections, 1, 'a disabled default button starts no selection');
+  gate.resolve();
+  await flush();
+  for (const id of ['theme-use', 'theme-reset']) {
+    assert.equal(findByTestId(panel, id).disabled, false, `${id} must be enabled`);
+    assert.equal(findByTestId(panel, id).getAttribute('aria-disabled'), 'false');
+  }
+  assert.equal(findByTestId(panel, 'theme-variant').disabled, false);
+  for (const pick of findAllByClass(panel, 'modn-theme-pick')) {
+    assert.equal(pick.disabled, false);
+  }
+});
+
+test('a pending selection re-enables every choice after a failure', async () => {
+  const gate = deferred();
+  const { control, trigger, panel } = setup({
+    selectNoneAndApply: async () => {
+      await gate.promise;
+      throw { code: 'BACKEND_FAILED' };
+    },
+  });
+  control.setGame('fixture');
+  await open(control, trigger);
+  findByTestId(panel, 'theme-reset').click();
+  assert.equal(findByTestId(panel, 'theme-reset').disabled, true);
+  assert.equal(findByTestId(panel, 'theme-use').disabled, true);
+  gate.reject({ code: 'BACKEND_FAILED' });
+  await flush();
+  assert.equal(findByTestId(panel, 'theme-reset').disabled, false);
+  assert.equal(findByTestId(panel, 'theme-use').disabled, false);
+  assert.match(panel.textContent, /could not start/);
 });
 
 test('Import theme reloads the list after a registration', async () => {

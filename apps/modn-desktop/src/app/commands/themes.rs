@@ -46,23 +46,42 @@ pub(crate) async fn resolve_theme(
         });
     };
     let ticket = state.next_theme_ticket();
-    let backend = state.backend()?;
+    let backend = match state.backend() {
+        Ok(backend) => backend,
+        Err(error) => return resolve_failure(&state, ticket, &game, error),
+    };
     let busy = Arc::clone(&state.busy);
-    let value = run_blocking(&busy, move || backend.call(&args)).await?;
+    let value = match run_blocking(&busy, move || backend.call(&args)).await {
+        Ok(value) => value,
+        Err(error) => return resolve_failure(&state, ticket, &game, error),
+    };
     let resolved = match resolved_theme(value) {
         Ok(resolved) => resolved,
-        Err(error) => {
-            if state.store_theme_root_if_latest(ticket, None) {
-                return Err(error);
-            }
-            return Ok(stale_answer(&game));
-        }
+        Err(error) => return resolve_failure(&state, ticket, &game, error),
     };
     Ok(if state.store_theme_root_if_latest(ticket, resolved.root) {
         resolved.answer
     } else {
         stale_answer(&game)
     })
+}
+
+/// Reports a resolve failure that happened after its ticket was taken.
+///
+/// The stored root belongs to the request that took the ticket, so this clears
+/// it before the error reaches the webview. A newer request keeps its own root
+/// and receives the stale answer instead.
+fn resolve_failure(
+    state: &AppState,
+    ticket: u64,
+    game: &str,
+    error: CommandError,
+) -> Result<Value, CommandError> {
+    if state.store_theme_root_if_latest(ticket, None) {
+        Err(error)
+    } else {
+        Ok(stale_answer(game))
+    }
 }
 
 #[tauri::command]
