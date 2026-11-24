@@ -139,6 +139,26 @@ fn list_output_marks_the_stored_selection() {
 }
 
 #[test]
+fn a_none_selection_marks_no_theme_selected() {
+    let temp = tempdir().expect("tempdir");
+    let (catalog, data) = fixture(temp.path());
+    let store = SelectionStore::new(&data);
+    let selection = store.select_none(GAME).expect("select none");
+    let output = catalog.list_output(Some(GAME), &[selection]);
+    assert!(!output.themes().is_empty());
+    assert!(output.themes().iter().all(|theme| !theme.selected()));
+    let selection = store.select(GAME, "alpha", None).expect("select");
+    let output = catalog.list_output(Some(GAME), &[selection]);
+    let selected: Vec<&str> = output
+        .themes()
+        .iter()
+        .filter(|theme| theme.selected())
+        .map(|theme| theme.id())
+        .collect();
+    assert_eq!(selected, ["alpha"]);
+}
+
+#[test]
 fn a_selection_for_another_game_marks_nothing() {
     let temp = tempdir().expect("tempdir");
     let (catalog, data) = fixture(temp.path());

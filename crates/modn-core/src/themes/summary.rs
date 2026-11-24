@@ -126,7 +126,7 @@ impl ThemeCatalog {
             .into_iter()
             .map(|entry| {
                 let selected = selections.iter().any(|selection| {
-                    selection.game() == entry.game() && selection.theme() == entry.id()
+                    selection.game() == entry.game() && selection.theme_id() == Some(entry.id())
                 });
                 entry.summary(selected)
             })

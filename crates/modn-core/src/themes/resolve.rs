@@ -184,11 +184,20 @@ impl ThemeCatalog {
     ///
     /// Order: the selected theme when it is valid, then the official theme
     /// with the smallest id, then the default theme. A selection for another
-    /// game is ignored. A failed selection sets `fallback` and continues with
-    /// the official theme.
+    /// game is ignored. An explicit none selection returns the default theme
+    /// without the official theme. A failed theme selection sets `fallback`
+    /// and continues with the official theme.
     #[must_use]
     pub fn resolve(&self, game: &str, selection: Option<&Selection>) -> Resolved {
         let selection = selection.filter(|selection| selection.game() == game);
+        if selection.is_some_and(Selection::is_none) {
+            return Resolved {
+                game: game.to_owned(),
+                theme: None,
+                fallback: None,
+                diagnostics: self.problems_for_game(game),
+            };
+        }
         let (fallback, diagnostics) = match selection {
             Some(selection) => match self.selected_theme(game, selection) {
                 Ok(theme) => {
