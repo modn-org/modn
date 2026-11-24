@@ -143,7 +143,7 @@ A game can carry a theme for the app. A theme changes colours, typography, spaci
 It lists the themes that the active game has in the `main` bucket, in trusted buckets and in the local registry.
 Choose a theme, choose one of its variants or `No variant`, then select **Use theme**. The selection belongs to the game, so every other game keeps its own theme or the default.
 Two overlapping resolves keep the newest answer. The older call answers `{"stale": true, "game": "<game>"}`, changes nothing in Rust and applies nothing.
-**Use default theme** clears the selection and removes the theme sheets at once.
+**Use default theme** stores the explicit none choice, so the game keeps its default look even when it has an official theme. The theme sheets are removed at once.
 **Import theme** opens the native folder picker and registers the chosen local theme. Modn validates the folder before it copies anything. A refused theme lists at most 50 problems, one line each, in the form `<rule-id>: <message>`.
 A theme that Modn cannot validate or load never breaks a screen. The app removes the theme sheets, shows the default theme and shows one toast that names the rule and the file. It does not repeat that toast on each screen.
 Start the app with `--default-theme` to turn themes off for that session. The panel says `Themes are off for this session` and disables its buttons.

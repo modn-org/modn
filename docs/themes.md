@@ -11,13 +11,13 @@ This page is the specification of theme API v1. The Status table says what Modn 
 
 | Component | State |
 | --- | --- |
-| Theme folder | Implemented in modn-core; no CLI command exposes it yet |
-| `theme.json` | Implemented in modn-core; no CLI command exposes it yet |
-| Limits and digest | Implemented in modn-core; no CLI command exposes it yet |
-| CSS rule engine | Implemented over parsed facts in modn-core; the CSS parser arrives with the CLI work |
-| Variants | Implemented in modn-core; no CLI command exposes it yet |
-| Sources and selection | Implemented in modn-core; no CLI command exposes it yet |
-| CLI theme commands | Specified, not implemented |
+| Theme folder | Implemented in modn-core and the theme commands |
+| `theme.json` | Implemented in modn-core and the theme commands |
+| Limits and digest | Implemented in modn-core and enforced by the theme commands |
+| CSS rule engine | Implemented in modn-core and used by the theme commands |
+| Variants | Implemented in modn-core and the theme commands |
+| Sources and selection | Implemented in modn-core and the theme commands |
+| CLI theme commands | Implemented: `check`, `register`, `list`, `remove`, `select`, `reset` and `resolve` |
 | Desktop theme control | Implemented; it needs a `modn` build with the theme commands |
 | Desktop hooks | Implemented: hooks and protected regions in the UI |
 | Official theme | Staged in `examples/themes/cyberpunk-2077/night-city/`; publication in `modn-org/main` is a follow-up in that repository |
@@ -609,14 +609,17 @@ Registration then copies the inspected copy into staging, rechecks its digest an
 A refused registration leaves no state: the data directory is untouched.
 
 Selection belongs to Modn state, not to the desktop.
-Modn keeps one record per game: the theme id and an optional variant.
-`modn theme reset` clears all records, or one game with `--game`.
+Modn keeps one record per game: a theme choice or the explicit none choice.
+The none choice is stored as `"theme": null` and keeps the default theme even when the game has an official theme.
+`modn theme reset` clears one game with `--game`, or every record, so the official theme applies again.
 
 The resolve order for a game is:
 
 1. The selected theme, when it is valid.
 2. The official theme from `main` for that game: the lexicographically first theme id, with no variant.
 3. The default theme: no theme.
+
+An explicit none selection returns `theme: null` and `fallback: null` and skips the official theme.
 
 A selected theme that fails validation, digest or loading yields a fallback with a diagnostic, then the next step of the order.
 The fallback reasons are `theme-invalid`, `theme-missing` and `digest-mismatch`.
@@ -710,6 +713,7 @@ The CLI half is not written yet.
 
 `modn theme list [--game <game-id>]` lists registered and bucket themes.
 It writes `{"themes":[<theme entry>...],"diagnostics":[...]}`.
+A none selection marks no theme selected.
 
 ```json
 {"themes":[{"id":"night-city","game":"cyberpunk-2077","name":"Night City","theme_api":1,"variants":["neon","noir"],"icon":"assets/icon.png","source":{"kind":"official","bucket":"main","label":"main bucket"},"selected":true}],"diagnostics":[]}
@@ -727,8 +731,10 @@ It writes `{"removed":{"id":"..","game":".."}}`.
 
 ### select
 
-`modn theme select <game-id> <theme-id> [--variant <variant>]` stores the selection.
-It writes `{"selected":{"game":"..","theme":"..","variant":null|".."}}`.
+`modn theme select <game-id> <theme-id> [--variant <variant>]` stores a theme selection.
+`modn theme select <game-id> --none` stores the explicit none choice.
+`--none` conflicts with a theme id and with `--variant`; a bare `select <game-id>` is a usage error.
+It writes `{"selected":{"game":"..","theme":".."|null,"variant":null|".."}}`; the none answer has `theme: null` and `variant: null`.
 
 ```json
 {"selected":{"game":"cyberpunk-2077","theme":"night-city","variant":"neon"}}
@@ -737,6 +743,7 @@ It writes `{"selected":{"game":"..","theme":"..","variant":null|".."}}`.
 ### reset
 
 `modn theme reset [--game <game-id>]` clears one game or every game.
+It clears a theme selection and the none choice, so the official theme applies again.
 It writes `{"reset":["<game-id>"...]}`.
 
 ```json
@@ -752,7 +759,8 @@ It writes this shape:
 {"game":"..","theme":null|{"id":"..","name":"..","source":<source>,"variant":null|"..","origin":"selected"|"official","css":"<validated theme.css text>","variant_css":null|"<validated variant css>","assets_dir":"<absolute path of the theme directory>"},"fallback":null|{"reason":"theme-invalid"|"theme-missing"|"digest-mismatch","message":".."},"diagnostics":[...]}
 ```
 
-`theme: null` means the default theme.
+`theme: null` means the default theme, including after an explicit none selection.
+Then `fallback` is null and the official theme is not used.
 `css` and `variant_css` are canonical CSS text with every `url()` written as `url(assets/<path>)`.
 `assets_dir` is the absolute path of the theme directory.
 
@@ -780,7 +788,7 @@ Five commands wrap the CLI contract:
 | --- | --- |
 | `list_themes` | Runs `theme list --game <id>` for the active game and returns the answer. |
 | `resolve_theme` | Runs `theme resolve --game <id>`, stores `assets_dir` and adds `asset_base`. |
-| `select_theme` | Runs `theme select <game> <theme> [--variant <variant>]`. |
+| `select_theme` | Runs `theme select <game> <theme> [--variant <variant>]`, or `theme select <game> --none` when `theme` is null. |
 | `reset_theme` | Runs `theme reset [--game <game>]`. |
 | `import_theme` | Opens a native folder picker, then runs `theme register <dir>`. |
 
@@ -857,7 +865,8 @@ The controller applies no theme when `disabled` is set.
 A Theme control is reachable from the game screen.
 It shows the active theme name and its source label.
 It lists the themes for the active game and offers a variant selector.
-It offers a "Default theme" choice, which resets the selection.
+It offers a "Use default theme" button, which stores the explicit none choice.
+The game then keeps the default look, even when it has an official theme.
 It offers an Import button, which opens a folder picker.
 
 The control uses `.modn-theme-*` hooks.
