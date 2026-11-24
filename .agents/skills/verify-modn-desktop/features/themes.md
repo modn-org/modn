@@ -20,7 +20,8 @@ fixtures in `scripts/theme_fixture.py`.
 - T5: the control lists the diagnostic for the broken theme and does not offer
   it. After one byte of the registered local copy changes, a relaunch shows
   the fallback and `digest-mismatch`.
-- T6: `Default theme` restores the base height, and `modn theme resolve`
+- T6: `Default theme` stores the explicit no-theme selection. It restores the
+  base height even though an official theme exists, and `modn theme resolve`
   reports `theme: null`.
 - T7: with a theme selected, `modn theme check` still refuses the protected
   theme with `protected-region`. The install review is not opened (see
