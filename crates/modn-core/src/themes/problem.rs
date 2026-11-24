@@ -26,12 +26,16 @@ pub enum Rule {
     ForbiddenContent,
     /// `position: fixed`.
     ForbiddenPositionFixed,
+    /// A `var()` in a property that must use a literal value.
+    ForbiddenVar,
     /// The `!important` flag.
     ForbiddenImportant,
     /// A property outside the allowlist.
     UnknownProperty,
     /// A custom property not named `--modn-*`.
     ForbiddenCustomProperty,
+    /// A size or opacity token outside its allowed value range.
+    TokenOutOfRange,
     /// A selector outside the selector grammar.
     ForbiddenSelector,
     /// A `.modn-*` class or `data-*` attribute outside the stable tables.
@@ -81,9 +85,11 @@ impl Rule {
             Self::UrlOutsideAssets => "url-outside-assets",
             Self::ForbiddenContent => "forbidden-content",
             Self::ForbiddenPositionFixed => "forbidden-position-fixed",
+            Self::ForbiddenVar => "forbidden-var",
             Self::ForbiddenImportant => "forbidden-important",
             Self::UnknownProperty => "unknown-property",
             Self::ForbiddenCustomProperty => "forbidden-custom-property",
+            Self::TokenOutOfRange => "token-out-of-range",
             Self::ForbiddenSelector => "forbidden-selector",
             Self::UnknownHook => "unknown-hook",
             Self::ProtectedRegion => "protected-region",

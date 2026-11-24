@@ -1,9 +1,11 @@
 //! The theme API v1 rule engine over parser-independent stylesheet facts.
 
 use super::facts::{DeclFacts, FontFaceFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts};
+use super::forbidden_var::{contains_var, forbids_var};
 use super::media::valid_media_query;
 use super::props::is_allowed_property;
 use super::selector::{check_selector, SelectorInfo};
+use super::token_range;
 use super::value::{
     colour_is_opaque, find_url_targets, forbidden_image_function, is_remote_url,
     normalise_asset_target,
@@ -152,6 +154,13 @@ impl Checker<'_> {
                 "position: fixed is not allowed in a theme",
             );
         }
+        if forbids_var(&declaration.property) && contains_var(&declaration.value) {
+            self.push(
+                declaration.line,
+                Rule::ForbiddenVar,
+                "var() is not allowed in this property",
+            );
+        }
         if declaration.property.starts_with("--") {
             if !declaration.property.starts_with("--modn-") {
                 self.push(
@@ -162,6 +171,15 @@ impl Checker<'_> {
                         declaration.property
                     ),
                 );
+            }
+            if let Some(range) = token_range::accepted_range(&declaration.property) {
+                if !token_range::accepts(&declaration.property, &declaration.value) {
+                    self.push(
+                        declaration.line,
+                        Rule::TokenOutOfRange,
+                        format!("\"{}\" must be {range}", declaration.property),
+                    );
+                }
             }
         } else if declaration.property == "content" {
             // The dedicated forbidden-content rule already names it.
@@ -357,3 +375,7 @@ mod protected_tests;
 #[cfg(test)]
 #[path = "engine_token_tests.rs"]
 mod token_tests;
+
+#[cfg(test)]
+#[path = "engine_var_tests.rs"]
+mod var_tests;
