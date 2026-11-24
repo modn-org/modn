@@ -7,6 +7,7 @@
 //! platform.
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// The origin the Windows webview loads theme assets from.
@@ -102,17 +103,44 @@ pub(crate) fn load_asset(root: Option<&Path>, method: &str, request_path: &str) 
     let Ok(asset) = resolve_asset(root, request_path) else {
         return AssetResponse::status(404);
     };
-    let Ok(body) = fs::read(&asset.path) else {
+    let Ok(file) = fs::File::open(&asset.path) else {
         return AssetResponse::status(404);
     };
-    if body.len() as u64 > ASSET_LIMIT {
+    let Ok(metadata) = file.metadata() else {
         return AssetResponse::status(404);
-    }
+    };
+    let Ok(body) = read_asset_body(file, metadata.len(), ASSET_LIMIT) else {
+        return AssetResponse::status(404);
+    };
     AssetResponse {
         status: 200,
         content_type: Some(asset.content_type),
         body,
     }
+}
+
+/// Reads one asset body without trusting its declared length.
+///
+/// The metadata check can go stale when a file grows between checking and
+/// reading. `Read::take(limit + 1)` bounds the buffer, and a body larger than
+/// the limit is refused instead of being read whole.
+pub(crate) fn read_asset_body(
+    mut reader: impl Read,
+    declared: u64,
+    limit: u64,
+) -> Result<Vec<u8>, AssetError> {
+    if declared > limit {
+        return Err(AssetError);
+    }
+    let mut body = Vec::new();
+    reader
+        .take(limit + 1)
+        .read_to_end(&mut body)
+        .map_err(|_| AssetError)?;
+    if body.len() as u64 > limit {
+        return Err(AssetError);
+    }
+    Ok(body)
 }
 
 /// Checks the request prefix, decodes escapes and rechecks the decoded shape.

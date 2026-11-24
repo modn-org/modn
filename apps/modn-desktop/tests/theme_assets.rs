@@ -11,9 +11,10 @@
 mod theme_assets;
 
 use std::fs;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use theme_assets::{ASSET_LIMIT, load_asset, resolve_asset};
+use theme_assets::{ASSET_LIMIT, load_asset, read_asset_body, resolve_asset};
 
 /// A disposable theme directory with an `assets` directory.
 struct Fixture {
@@ -180,6 +181,21 @@ fn an_oversize_asset_is_refused() {
     fixture.write("assets/exact.png", &vec![0; ASSET_LIMIT as usize]);
     assert!(unresolved(&fixture, "/assets/large.png"));
     assert!(resolve_asset(&fixture.root, "/assets/exact.png").is_ok());
+}
+
+#[test]
+fn a_body_that_grows_past_the_limit_is_refused() {
+    let limit = 16;
+    let mut grown = Cursor::new(vec![7; limit as usize + 1]);
+    assert!(
+        read_asset_body(&mut grown, limit - 1, limit).is_err(),
+        "a body larger than the limit is refused after a passing size check"
+    );
+    let mut exact = Cursor::new(vec![7; limit as usize]);
+    assert_eq!(
+        read_asset_body(&mut exact, limit, limit).expect("a body at the limit is allowed"),
+        vec![7; limit as usize]
+    );
 }
 
 #[test]
