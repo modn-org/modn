@@ -93,75 +93,6 @@ pub fn write_foreign_signature(root: &Path, zip: &Path) {
         .expect("fixture signature file");
 }
 
-/// Rewrite a copied v1 main bucket as a contract v2 fixture.
-///
-/// The checked-in `buckets/main` submodule stays v1. Test fixtures move
-/// package records under `mods/<game>/` and map the v1 fields to v2 fields.
-pub fn to_contract_v2(root: &Path) {
-    let metadata_path = root.join("bucket.json");
-    let mut metadata: serde_json::Value =
-        serde_json::from_slice(&fs::read(&metadata_path).expect("bucket metadata"))
-            .expect("bucket JSON");
-    metadata["schema_version"] = serde_json::json!(2);
-    fs::write(&metadata_path, serde_json::to_vec(&metadata).expect("JSON"))
-        .expect("bucket metadata");
-
-    let games = root.join("games");
-    let entries = match fs::read_dir(&games) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
-        Err(error) => panic!("cannot read fixture games: {error}"),
-    };
-    for game in entries {
-        let game = game.expect("fixture game");
-        if !game.file_type().expect("fixture type").is_dir() {
-            continue;
-        }
-        let mods = root.join("mods").join(game.file_name());
-        for record in fs::read_dir(game.path()).expect("fixture records") {
-            let record = record.expect("fixture record");
-            let path = record.path();
-            if path.file_name().is_some_and(|name| name == "module.json") {
-                let mut manifest: serde_json::Value =
-                    serde_json::from_slice(&fs::read(&path).expect("fixture module"))
-                        .expect("module JSON");
-                manifest["api_version"] = serde_json::json!(3);
-                fs::write(&path, serde_json::to_vec(&manifest).expect("JSON"))
-                    .expect("fixture module");
-                continue;
-            }
-            if path.file_name().is_some_and(|name| name == "module.lua")
-                || path.extension().is_none_or(|extension| extension != "json")
-            {
-                continue;
-            }
-            let mut value: serde_json::Value =
-                serde_json::from_slice(&fs::read(&path).expect("fixture record"))
-                    .expect("record JSON");
-            value["schema_version"] = serde_json::json!(2);
-            let source = value
-                .as_object_mut()
-                .and_then(|record| record.remove("source"));
-            if let Some(source) = source {
-                value["sources"] = serde_json::json!([source]);
-            }
-            let pin = value
-                .as_object_mut()
-                .and_then(|record| record.remove("sha256"));
-            if let Some(pin) = pin {
-                value["blake3"] = pin;
-            }
-            fs::create_dir_all(&mods).expect("mods directory");
-            fs::write(
-                mods.join(record.file_name()),
-                serde_json::to_vec(&value).expect("JSON"),
-            )
-            .expect("v2 record");
-            fs::remove_file(&path).expect("remove v1 record");
-        }
-    }
-}
-
 fn copy_tree(source: &Path, target: &Path) {
     fs::create_dir_all(target).expect("bucket directory");
     for entry in fs::read_dir(source).expect("bucket entries") {
@@ -181,8 +112,8 @@ fn copy_tree(source: &Path, target: &Path) {
 /// Copy a real game module from the checked-in `buckets/main` submodule and
 /// declare host API 3 in its manifest.
 ///
-/// The submodule stays on contract v1 and its manifests declare host API 1 or
-/// 2. Only `api_version` changes; every other field and file is copied as is.
+/// The pinned module already declares host API 3. The copy repeats that field
+/// so the fixture stays explicit if the pin changes.
 pub fn copy_main_module(source: &Path, target: &Path) {
     copy_tree(source, target);
     let manifest_path = target.join("module.json");
@@ -200,7 +131,6 @@ pub fn seed(data: &Path) {
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main"),
         &main,
     );
-    to_contract_v2(&main);
 }
 
 pub struct SeededCommand {

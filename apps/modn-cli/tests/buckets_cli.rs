@@ -19,16 +19,15 @@ fn run(state: &Path, args: &[&str]) -> Output {
 }
 
 fn official_count() -> usize {
-    let games = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games");
-    fs::read_dir(games)
-        .expect("games directory")
+    let mods = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/mods");
+    fs::read_dir(mods)
+        .expect("mods directory")
         .map(|game| {
             fs::read_dir(game.expect("game entry").path())
                 .expect("packages")
                 .filter(|entry| {
                     let path = entry.as_ref().expect("fixture invariant").path();
                     path.extension().is_some_and(|e| e == "json")
-                        && path.file_name().expect("fixture invariant") != "module.json"
                 })
                 .count()
         })

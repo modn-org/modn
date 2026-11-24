@@ -71,7 +71,6 @@ fn copy_tree(source: &Path, target: &Path) {
 fn fixture_tree() -> tempfile::TempDir {
     let tree = tempfile::tempdir().expect("fixture tree directory");
     copy_tree(&repository(), tree.path());
-    main_bucket::to_contract_v2(tree.path());
     tree
 }
 

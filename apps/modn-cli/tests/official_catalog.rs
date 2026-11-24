@@ -7,14 +7,12 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 fn checked_in_manifests() -> Vec<Value> {
-    let games = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games");
+    let mods = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/mods");
     let mut manifests = Vec::new();
-    for game in fs::read_dir(games).expect("games directory") {
+    for game in fs::read_dir(mods).expect("mods directory") {
         for package in fs::read_dir(game.expect("game entry").path()).expect("game packages") {
             let path = package.expect("package entry").path();
-            if path.file_name().expect("fixture invariant") == "module.json"
-                || path.extension().expect("fixture invariant") != "json"
-            {
+            if path.extension().expect("fixture invariant") != "json" {
                 continue;
             }
             let bytes = fs::read(path).expect("manifest");
@@ -33,40 +31,18 @@ fn checked_in_ids() -> Vec<String> {
 }
 
 fn checkout_copy(destination: &Path) -> PathBuf {
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/mods");
     let bucket = destination.join("checkout");
-    for game in fs::read_dir(&source).expect("games directory") {
+    for game in fs::read_dir(&source).expect("mods directory") {
         let game = game.expect("game entry");
         let target = bucket.join("mods").join(game.file_name());
         fs::create_dir_all(&target).expect("record directory");
         for package in fs::read_dir(game.path()).expect("game packages") {
             let package = package.expect("package entry");
-            if package.file_name() == "module.json"
-                || package.path().extension().expect("fixture invariant") != "json"
-            {
+            if package.path().extension().expect("fixture invariant") != "json" {
                 continue;
             }
-            let mut record: Value =
-                serde_json::from_slice(&fs::read(package.path()).expect("record"))
-                    .expect("record JSON");
-            record["schema_version"] = serde_json::json!(2);
-            if let Some(source) = record
-                .as_object_mut()
-                .and_then(|entry| entry.remove("source"))
-            {
-                record["sources"] = serde_json::json!([source]);
-            }
-            if let Some(pin) = record
-                .as_object_mut()
-                .and_then(|entry| entry.remove("sha256"))
-            {
-                record["blake3"] = pin;
-            }
-            fs::write(
-                target.join(package.file_name()),
-                serde_json::to_vec(&record).expect("record JSON"),
-            )
-            .expect("record");
+            fs::copy(package.path(), target.join(package.file_name())).expect("record");
         }
     }
     fs::write(

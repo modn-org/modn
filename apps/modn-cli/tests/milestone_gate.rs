@@ -17,7 +17,7 @@ use support::{error, Fixture};
 use tree::{file_count, sha, snapshot};
 use zip::write::SimpleFileOptions;
 
-const CATALOG: &str = "../../buckets/main/games/cyberpunk-2077";
+const CATALOG: &str = "../../buckets/main/mods/cyberpunk-2077";
 
 struct Release {
     id: String,
@@ -40,10 +40,12 @@ fn official_releases() -> Vec<Release> {
     let mut releases: Vec<Release> = fs::read_dir(catalog_dir())
         .expect("official catalog")
         .filter(|entry| {
-            let path = entry.as_ref().expect("entry").path();
-            path.extension()
+            entry
+                .as_ref()
+                .expect("entry")
+                .path()
+                .extension()
                 .is_some_and(|extension| extension == "json")
-                && path.file_name().expect("filename") != "module.json"
         })
         .map(|entry| {
             let path = entry.expect("entry").path();
@@ -346,8 +348,15 @@ fn real_cyberpunk_stack_installs_and_rolls_back_in_a_disposable_directory() {
             &fs::read(catalog.join(format!("{id}.json"))).expect("manifest"),
         )
         .expect("JSON");
-        if manifest["source"]["kind"] == "manual" {
-            let sha256 = manifest["sha256"].as_str().expect("sha256");
+        let nexus = manifest["sources"]
+            .as_array()
+            .expect("sources")
+            .iter()
+            .any(|source| source["kind"] == "nexus");
+        if nexus {
+            let sha256 = manifest["upstream_sha256"]
+                .as_str()
+                .expect("upstream sha256");
             let path = digests.get(sha256).unwrap_or_else(|| {
                 panic!(
                     "{id}: no archive with SHA-256 {sha256} in {}",
