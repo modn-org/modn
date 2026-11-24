@@ -12,6 +12,7 @@ from pathlib import Path
 
 import fixtures
 import journeys_core
+import selftest_themes
 import uia
 import windows
 
@@ -233,4 +234,6 @@ def checks():
         and "without taking the foreground" not in claims
         and "keep using the desktop" not in claims
     )
+
+    results.update(selftest_themes.checks())
     return results
