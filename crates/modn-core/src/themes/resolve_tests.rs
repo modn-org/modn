@@ -202,6 +202,35 @@ fn a_selection_for_another_game_is_ignored() {
 }
 
 #[test]
+fn a_none_selection_keeps_the_default_theme_over_the_official_theme() {
+    let temp = tempdir().expect("tempdir");
+    let catalog = official_catalog(temp.path(), &[("night-city", "Night City", &[])]);
+    let store = SelectionStore::new(&temp.path().join("data"));
+    let selection = store.select_none(GAME).expect("store none");
+    let resolved = catalog.resolve(GAME, Some(&selection));
+    assert_eq!(resolved.game(), GAME);
+    assert!(resolved.theme().is_none());
+    assert!(resolved.fallback().is_none());
+    assert!(resolved.diagnostics().is_empty());
+    let official = catalog.resolve(GAME, None);
+    let theme = official.theme().expect("theme");
+    assert_eq!(theme.id(), "night-city");
+    assert_eq!(theme.origin(), ResolvedOrigin::Official);
+}
+
+#[test]
+fn a_none_selection_for_another_game_is_ignored() {
+    let temp = tempdir().expect("tempdir");
+    let catalog = official_catalog(temp.path(), &[("night-city", "Night City", &[])]);
+    let store = SelectionStore::new(&temp.path().join("data"));
+    let selection = store.select_none(OTHER_GAME).expect("store none");
+    let resolved = catalog.resolve(GAME, Some(&selection));
+    let theme = resolved.theme().expect("theme");
+    assert_eq!(theme.id(), "night-city");
+    assert_eq!(theme.origin(), ResolvedOrigin::Official);
+}
+
+#[test]
 fn diagnostics_without_a_fallback_name_the_game() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("official");

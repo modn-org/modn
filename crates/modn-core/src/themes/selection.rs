@@ -22,12 +22,15 @@ const MAX_SELECTION_BYTES: u64 = 4096;
 /// Suffix of every selection file.
 const SUFFIX: &str = ".json";
 
-/// The stored theme choice for one game.
+/// The stored choice for one game.
+///
+/// A selection is either a theme choice or the explicit none choice, which
+/// keeps the default theme even when the game has an official theme.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selection {
     game: String,
-    theme: String,
+    theme: Option<String>,
     variant: Option<String>,
 }
 
@@ -38,10 +41,25 @@ impl Selection {
         &self.game
     }
 
-    /// Selected theme id.
+    /// Selected theme id, or the empty string for the none choice.
+    ///
+    /// Prefer [`Selection::theme_id`], which distinguishes the none choice from
+    /// a stored theme id.
     #[must_use]
     pub fn theme(&self) -> &str {
-        &self.theme
+        self.theme_id().unwrap_or_default()
+    }
+
+    /// Selected theme id, or `None` for the none choice.
+    #[must_use]
+    pub fn theme_id(&self) -> Option<&str> {
+        self.theme.as_deref()
+    }
+
+    /// Whether this selection asks for the default theme.
+    #[must_use]
+    pub fn is_none(&self) -> bool {
+        self.theme.is_none()
     }
 
     /// Selected variant id, or `None` for the base stylesheet.
@@ -76,21 +94,43 @@ impl SelectionStore {
         if let Some(variant) = variant {
             check_id(variant)?;
         }
+        let selection = Selection {
+            game: game.to_owned(),
+            theme: Some(theme.to_owned()),
+            variant: variant.map(str::to_owned),
+        };
+        self.store(&selection)?;
+        Ok(selection)
+    }
+
+    /// Store the explicit default-theme choice for `game`.
+    ///
+    /// The choice replaces any earlier selection and survives later resolves,
+    /// so the official theme for the game does not apply until a `select` call
+    /// replaces it.
+    pub fn select_none(&self, game: &str) -> Result<Selection> {
+        check_id(game)?;
+        let selection = Selection {
+            game: game.to_owned(),
+            theme: None,
+            variant: None,
+        };
+        self.store(&selection)?;
+        Ok(selection)
+    }
+
+    /// Write `selection` as the choice for its game, replacing any earlier one.
+    fn store(&self, selection: &Selection) -> Result<()> {
         let _lock = storage::lock(&self.root)?;
         let directory = self.directory();
         fs::create_dir_all(&directory).map_err(|error| {
             ThemeError::io("cannot create the theme selection directory", error)
         })?;
         storage::ensure_real_directory(&directory, "theme selection directory")?;
-        let record = SelectionRecord {
-            schema_version: SCHEMA_VERSION,
-            game: game.to_owned(),
-            theme: theme.to_owned(),
-            variant: variant.map(str::to_owned),
-        };
+        let record = SelectionRecord::from_selection(selection);
         let bytes = serde_json::to_vec(&record).map_err(|error| {
             ThemeError::corrupt(
-                self.path(game),
+                self.path(&selection.game),
                 format!("cannot encode the theme selection: {error}"),
             )
         })?;
@@ -104,13 +144,9 @@ impl SelectionStore {
             .sync_all()
             .map_err(|error| ThemeError::io("cannot sync the theme selection", error))?;
         temporary
-            .persist(self.path(game))
+            .persist(self.path(&selection.game))
             .map_err(|error| ThemeError::io("cannot store the theme selection", error.error))?;
-        Ok(Selection {
-            game: record.game,
-            theme: record.theme,
-            variant: record.variant,
-        })
+        Ok(())
     }
 
     /// Read the choice for `game`, or `None` when no file exists.
@@ -234,17 +270,56 @@ impl SelectionStore {
     }
 }
 
+/// The `theme` field of one record: a theme id, or `null` for the none choice.
+///
+/// A missing field is an error, so a truncated record is never read as none.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum StoredTheme {
+    /// A theme choice.
+    Id(String),
+    /// The explicit none choice, stored as `null`.
+    None,
+}
+
 /// Serialized shape of one selection file.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SelectionRecord {
     schema_version: u32,
     game: String,
-    theme: String,
+    theme: StoredTheme,
     variant: Option<String>,
 }
 
 impl SelectionRecord {
+    /// Build the record that stores `selection`.
+    fn from_selection(selection: &Selection) -> Self {
+        let theme = match &selection.theme {
+            Some(id) => StoredTheme::Id(id.clone()),
+            None => StoredTheme::None,
+        };
+        Self {
+            schema_version: SCHEMA_VERSION,
+            game: selection.game.clone(),
+            theme,
+            variant: selection.variant.clone(),
+        }
+    }
+
+    /// Rebuild the selection stored in this record.
+    fn into_selection(self) -> Selection {
+        let theme = match self.theme {
+            StoredTheme::Id(id) => Some(id),
+            StoredTheme::None => None,
+        };
+        Selection {
+            game: self.game,
+            theme,
+            variant: self.variant,
+        }
+    }
+
     /// Check every field, including that the record belongs to `game`.
     fn validate(&self, game: &str) -> std::result::Result<(), String> {
         if self.schema_version != SCHEMA_VERSION {
@@ -265,11 +340,19 @@ impl SelectionRecord {
                 self.game
             ));
         }
-        if !is_valid_id(&self.theme) {
-            return Err(format!(
-                "selection theme \"{}\" is not a valid theme id",
-                self.theme
-            ));
+        match &self.theme {
+            StoredTheme::Id(theme) => {
+                if !is_valid_id(theme) {
+                    return Err(format!(
+                        "selection theme \"{theme}\" is not a valid theme id"
+                    ));
+                }
+            }
+            StoredTheme::None => {
+                if self.variant.is_some() {
+                    return Err("a none selection must not name a variant".to_owned());
+                }
+            }
         }
         if let Some(variant) = &self.variant {
             if !is_valid_id(variant) {
@@ -309,11 +392,7 @@ fn read_selection(path: &Path, game: &str) -> Result<Option<Selection>> {
     record
         .validate(game)
         .map_err(|reason| ThemeError::corrupt(path, reason))?;
-    Ok(Some(Selection {
-        game: record.game,
-        theme: record.theme,
-        variant: record.variant,
-    }))
+    Ok(Some(record.into_selection()))
 }
 
 /// Return the game id of a `<game>.json` file name.
