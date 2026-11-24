@@ -125,7 +125,7 @@ pub(crate) fn load_asset(root: Option<&Path>, method: &str, request_path: &str) 
 /// reading. `Read::take(limit + 1)` bounds the buffer, and a body larger than
 /// the limit is refused instead of being read whole.
 pub(crate) fn read_asset_body(
-    mut reader: impl Read,
+    reader: impl Read,
     declared: u64,
     limit: u64,
 ) -> Result<Vec<u8>, AssetError> {
