@@ -31,7 +31,8 @@ python .agents/skills/verify-modn-mcp/verify.py --server target/debug/modn-mcp.e
 ```
 
 The driver creates a unique temporary fixture directory.
-It copies the official bucket from this repository and registers a fake Cyberpunk installation through the real CLI.
+It writes its own contract v2 `main` bucket from `fixtures/` with one Cyberpunk 2077 module and one package, then registers a fake Cyberpunk installation through the real CLI.
+It never reads the repository's `buckets/main` submodule.
 It exchanges MCP messages through pipes, then checks file hashes and CLI state independently.
 It also requests progress on a real install and cancels a real install before its commit point.
 The fault backend proves that a cancel after the commit point completes the call.

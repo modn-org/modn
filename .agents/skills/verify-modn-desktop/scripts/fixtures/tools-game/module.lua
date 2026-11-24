@@ -1,12 +1,9 @@
 -- Fixture policy for the executable-approval journey.
 --
 -- This game declares no content root, so the install plan writes below the
--- game folder. The CLI's content-root archive preview ignores explicit
--- executable approvals (`catalog_install.rs` and `install.rs` call the
--- appdata preview without them), so this fixture exercises the executable
--- approval on the path that keeps the approvals. It recognizes a marker, a
--- Lua file and a game-relative `tools/*.exe`; the core still blocks the
--- executable until the user approves it.
+-- game folder. It recognizes a marker, a Lua file and a game-relative
+-- `tools/*.exe`; the core still blocks the executable until the user approves
+-- it.
 
 local policy = {
     game_id = "tools-game",

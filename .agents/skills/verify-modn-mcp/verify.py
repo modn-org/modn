@@ -5,12 +5,13 @@ import json
 import os
 from pathlib import Path
 import queue
-import shutil
 import subprocess
 import tempfile
 import threading
 import time
 import zipfile
+
+from bucket_fixture import write_main_bucket
 
 
 def snapshot(root):
@@ -137,7 +138,6 @@ def main():
     options = parser.parse_args()
     options.evidence.mkdir(parents=True, exist_ok=True)
     Client.evidence = options.evidence
-    repo = Path(__file__).resolve().parents[3]
     checks = []
     transcripts = []
 
@@ -167,7 +167,7 @@ def main():
         root = Path(temporary).resolve()
         state = root / 'data' / 'modn'
         state.mkdir(parents=True)
-        shutil.copytree(repo / 'buckets' / 'main', state / 'buckets' / 'main')
+        write_main_bucket(state / 'buckets' / 'main')
         game = root / 'game'
         (game / 'bin' / 'x64').mkdir(parents=True)
         (game / 'bin' / 'x64' / 'Cyberpunk2077.exe').write_bytes(b'disposable fixture')
