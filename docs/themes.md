@@ -592,10 +592,21 @@ A later duplicate is skipped with `duplicate-theme-id`.
 So a `(game, theme-id)` pair identifies a theme.
 
 The theme registry is a separate directory under the Modn data directory.
-It holds a copy of each registered theme and a registry file.
-The registry file records the id, game, digest, source label and registered-at time.
+It holds a copy of each registered theme and one record beside it.
+The record holds the schema version, game, id, digest and registered-at time.
 A registered theme is checked against its digest on every load.
 A mismatch is skipped with `digest-mismatch`.
+
+A replacement keeps the previous registration at `registry/.backup/<game>/<id>` until the new copy and its record are in place.
+Recovery runs before register, list, load and remove.
+It restores a backup when the live registration is missing, and deletes it when the live registration verifies.
+When the live registration fails verification, recovery keeps the backup and reports a diagnostic.
+A failed restore keeps the backup and names it in the error.
+
+Registration inspects a bounded copy outside the registry.
+The copy holds at most 16 MiB and 2048 entries.
+Registration then copies the inspected copy into staging, rechecks its digest and installs it.
+A refused registration leaves no state: the data directory is untouched.
 
 Selection belongs to Modn state, not to the desktop.
 Modn keeps one record per game: the theme id and an optional variant.
