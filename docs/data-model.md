@@ -59,7 +59,7 @@ Modn never fetches it implicitly. A missing copy prompts the user to run that co
 The update verifies a minisign signature over the catalog digest with the signer
 key built into Modn. It refuses an unsigned or invalid release and keeps the
 installed copy.
-The update fetches the latest `modn-org/main`
+The update fetches the newest supported `modn-org/main`
 release, and it refuses a bucket with a module this Modn cannot run.
 The local copy works offline and changes only on explicit update. `main` and the
 signed Git and ZIP catalogs the user trusts for modules may contain game modules.

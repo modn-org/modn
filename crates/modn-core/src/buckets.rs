@@ -8,6 +8,7 @@ mod rotation;
 mod signature;
 mod snapshot;
 mod store;
+mod test_hooks;
 mod trust;
 mod update;
 mod version;
@@ -28,6 +29,7 @@ pub use signature::{
 };
 pub use snapshot::BucketSnapshot;
 pub use store::{BucketInfo, BucketPackage, BucketStore};
+pub use test_hooks::main_release_list_override;
 pub use trust::{
     local_bucket_module_refusal, ModuleSourceTrust, ModuleTrustAck, ModuleTrustState,
     TrustModulesOutcome, TrustedModuleSource,

@@ -15,6 +15,7 @@ mod install;
 mod install_consent;
 mod inventory;
 mod main_key;
+mod main_release;
 mod managed;
 mod module_releases;
 mod modules;
