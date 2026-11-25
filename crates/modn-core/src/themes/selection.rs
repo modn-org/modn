@@ -1,5 +1,3 @@
-//! One persisted theme selection per game.
-
 #[cfg(test)]
 #[path = "selection_tests.rs"]
 mod tests;
@@ -13,13 +11,9 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// Directory under the theme root that holds one file per game.
 const SELECTION: &str = "selection";
-/// Current shape of one selection file.
 const SCHEMA_VERSION: u32 = 1;
-/// Largest accepted selection file, far above its real size.
 const MAX_SELECTION_BYTES: u64 = 4096;
-/// Suffix of every selection file.
 const SUFFIX: &str = ".json";
 
 /// The stored choice for one game.
@@ -119,7 +113,6 @@ impl SelectionStore {
         Ok(selection)
     }
 
-    /// Write `selection` as the choice for its game, replacing any earlier one.
     fn store(&self, selection: &Selection) -> Result<()> {
         let _lock = storage::lock(&self.root)?;
         let directory = self.directory();
@@ -259,30 +252,22 @@ impl SelectionStore {
         Ok(selections)
     }
 
-    /// Directory holding every selection file.
     fn directory(&self) -> PathBuf {
         self.root.join(SELECTION)
     }
 
-    /// File holding the selection for one game.
     fn path(&self, game: &str) -> PathBuf {
         self.directory().join(format!("{game}{SUFFIX}"))
     }
 }
 
-/// The `theme` field of one record: a theme id, or `null` for the none choice.
-///
-/// A missing field is an error, so a truncated record is never read as none.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum StoredTheme {
-    /// A theme choice.
     Id(String),
-    /// The explicit none choice, stored as `null`.
     None,
 }
 
-/// Serialized shape of one selection file.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SelectionRecord {
@@ -293,7 +278,6 @@ struct SelectionRecord {
 }
 
 impl SelectionRecord {
-    /// Build the record that stores `selection`.
     fn from_selection(selection: &Selection) -> Self {
         let theme = match &selection.theme {
             Some(id) => StoredTheme::Id(id.clone()),
@@ -307,7 +291,6 @@ impl SelectionRecord {
         }
     }
 
-    /// Rebuild the selection stored in this record.
     fn into_selection(self) -> Selection {
         let theme = match self.theme {
             StoredTheme::Id(id) => Some(id),
@@ -320,7 +303,6 @@ impl SelectionRecord {
         }
     }
 
-    /// Check every field, including that the record belongs to `game`.
     fn validate(&self, game: &str) -> std::result::Result<(), String> {
         if self.schema_version != SCHEMA_VERSION {
             return Err(format!(
@@ -365,7 +347,6 @@ impl SelectionRecord {
     }
 }
 
-/// Read and validate the selection file for `game`.
 fn read_selection(path: &Path, game: &str) -> Result<Option<Selection>> {
     let metadata = match fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -395,14 +376,12 @@ fn read_selection(path: &Path, game: &str) -> Result<Option<Selection>> {
     Ok(Some(record.into_selection()))
 }
 
-/// Return the game id of a `<game>.json` file name.
 fn selection_stem(name: &OsStr) -> Option<String> {
     name.to_str()
         .and_then(|name| name.strip_suffix(SUFFIX))
         .map(str::to_owned)
 }
 
-/// Reject an id before it reaches a path.
 fn check_id(value: &str) -> Result<()> {
     if is_valid_id(value) {
         Ok(())

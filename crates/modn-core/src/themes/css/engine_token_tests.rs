@@ -1,5 +1,3 @@
-//! Rule checks for colour tokens and root colours that protected regions read.
-
 use super::check_sheet;
 use crate::themes::css::facts::{DeclFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts};
 use crate::themes::{Rule, ThemeProblem};

@@ -217,7 +217,6 @@ pub struct HistoryOperation {
     pub undoes: Option<String>,
 }
 
-/// Release metadata persisted for a managed package.
 #[derive(Clone, Debug)]
 pub(crate) struct ReleaseMetadata {
     pub mod_id: String,
@@ -228,7 +227,6 @@ pub(crate) struct ReleaseMetadata {
     pub declarations: Option<ReleaseDeclarations>,
 }
 
-/// One file digest for a new or removed release.
 pub(crate) struct FileSpec {
     pub root: String,
     pub destination: String,

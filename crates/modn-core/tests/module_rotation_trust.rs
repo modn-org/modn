@@ -1,10 +1,3 @@
-//! Module releases kept across a catalog key rotation or revocation.
-//!
-//! A rotation carries the old key's trust to the new one, so a release retained
-//! under the old signer stays usable. A revocation does not: a release imported
-//! under the revoked key stays refused until a new release carries the
-//! replacement key.
-
 #[path = "support/git_command.rs"]
 mod git_command;
 #[path = "support/main_bucket.rs"]
@@ -202,7 +195,6 @@ fn next_key() -> (KeyPair, String, String) {
     (pair, public, key_id)
 }
 
-/// True when `doctor` reports the active module's bucket as untrusted.
 fn doctor_reports_untrusted() -> bool {
     let root = tempfile::tempdir().expect("root");
     let installation = root.path().join("game");

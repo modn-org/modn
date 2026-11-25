@@ -112,8 +112,6 @@ fn undo_restores_a_github_release_from_the_cache_without_network() {
             command(&root, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
             assert!(!plugin.exists());
 
-            // No fixture response matches the metadata or asset URL, so any
-            // network request fails instead of reaching GitHub.
             TEST_RESPONSES.with(|responses| responses.replace(Some(BTreeMap::new())));
             TEST_CALLS.with(|calls| calls.borrow_mut().clear());
             command(&root, &["--json", "undo", "--yes"]).expect("undo from the cache");

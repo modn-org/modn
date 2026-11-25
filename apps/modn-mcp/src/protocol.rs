@@ -12,13 +12,9 @@ pub struct Session {
     ready: bool,
 }
 
-/// What the stdio loop must do after one input line.
 pub enum Action {
-    /// Write this response.
     Reply(Value),
-    /// Write nothing.
     Silent,
-    /// Run the CLI, which may take long enough to report progress.
     Call {
         id: Value,
         args: Vec<OsString>,
@@ -30,10 +26,6 @@ pub fn error(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
 
-/// Returns the request ID that a cancellation notification targets.
-///
-/// A cancellation carries no top-level `id`; its target is
-/// `params.requestId`. Returns `None` for any other message.
 pub fn cancelled_id(bytes: &[u8]) -> Option<Value> {
     let request: Value = serde_json::from_slice(bytes).ok()?;
     if request["jsonrpc"] != "2.0"
@@ -45,7 +37,6 @@ pub fn cancelled_id(bytes: &[u8]) -> Option<Value> {
     request.get("params")?.get("requestId").cloned()
 }
 
-/// Returns the string or integer ID of a JSON-RPC request, when it has one.
 pub fn request_id(bytes: &[u8]) -> Option<Value> {
     let request: Value = serde_json::from_slice(bytes).ok()?;
     let id = request.get("id")?;

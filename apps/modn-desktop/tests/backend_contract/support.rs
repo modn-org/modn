@@ -1,5 +1,3 @@
-//! Shared disposable backend fixture for the desktop backend contract tests.
-
 #[expect(
     dead_code,
     reason = "Reuse the application backend without invoking its process-global argument parser"

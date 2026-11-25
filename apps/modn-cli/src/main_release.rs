@@ -1,25 +1,14 @@
-//! Select the newest `modn-org/main` release that this Modn build supports.
-//!
-//! Each release may carry a small asset, `main-bucket.requires.json`, with the
-//! bucket contract `schema_version` and the lowest Modn version that reads the
-//! release. GitHub returns the release list newest first. The selector takes
-//! the first release that this build reads. A release without the asset is
-//! treated as readable, because releases from before this rule carry none; the
-//! install checks still refuse a bucket this build does not support.
-
 use anyhow::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::io::Read;
 
-/// The release list that GitHub returns newest first.
 pub(super) const DEFAULT_RELEASES: &str = "https://api.github.com/repos/modn-org/main/releases";
 const RELEASE_LIST_MAX_BYTES: u64 = 1024 * 1024;
 const REQUIRES_MAX_BYTES: u64 = 8 * 1024;
 const REQUIRES_ASSET: &str = "main-bucket.requires.json";
 const ZIP_ASSET: &str = "main-bucket.zip";
 const SIGNATURE_ASSET: &str = "main-bucket.zip.minisig";
-/// The bucket contract that this build reads.
 const SUPPORTED_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Deserialize)]
@@ -52,7 +41,6 @@ struct Requirement {
     minimum_text: String,
 }
 
-/// A newer release that this build cannot read.
 pub(super) struct UnsupportedRelease {
     pub(super) tag: String,
     pub(super) min_modn_version: String,
@@ -71,7 +59,6 @@ impl UnsupportedRelease {
         }
     }
 
-    /// The text-mode notice that names the release Modn keeps.
     pub(super) fn notice(&self, selected: &str) -> String {
         format!(
             "main release {} {}; keeping {selected}. Update Modn to get it.",
@@ -81,7 +68,6 @@ impl UnsupportedRelease {
     }
 }
 
-/// The release that this build installs.
 pub(super) struct Selection {
     pub(super) tag: String,
     pub(super) zip: String,
@@ -162,7 +148,6 @@ fn selected(release: &Release, zip: &str, newer: Option<UnsupportedRelease>) -> 
     })
 }
 
-/// Read the release list and return the newest release that this build reads.
 pub(super) fn select() -> Result<Selection> {
     let location = modn_core::buckets::main_release_list_override()
         .unwrap_or_else(|| DEFAULT_RELEASES.to_owned());

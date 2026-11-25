@@ -1,9 +1,3 @@
-//! A content-root game honors `--allow-executable` in its preview and install.
-//!
-//! The fixture module maps every archive member to the same destination under
-//! its declared appdata content root. `tools/scc.exe` is therefore both the
-//! archive member and the approved operation destination.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/content_root.rs"]
@@ -18,7 +12,6 @@ const CATALOG: &str = "catalog-tool";
 const STACK_TOP: &str = "stack-top";
 const STACK_BASE: &str = "stack-base";
 
-/// API 3 policy that maps every archive file to a content-root destination.
 const IDENTITY_SCRIPT: &str = r#"
 local fs = mods_host.fs
 
@@ -46,8 +39,6 @@ return {
 }
 "#;
 
-/// API 3 policy that installs `core.lua` in the game root and every other
-/// archive member under the declared content root.
 const MIXED_SCRIPT: &str = r#"
 local fs = mods_host.fs
 

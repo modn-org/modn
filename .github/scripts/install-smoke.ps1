@@ -62,9 +62,6 @@ try {
     Assert-That (($env:Path -split ';') -contains $install) 'current process PATH includes install directory'
   } finally { $key.Dispose() }
   New-Item -ItemType Directory -Path $assets | Out-Null
-  # The installer bootstraps the main bucket. This smoke test signs the local
-  # bucket with an ephemeral key and installs a test-key build so that update
-  # verifies without the owner's main signer secret.
   cargo build --release --locked -p modn-cli --features modn-core/test-main-key --target-dir target/install-smoke
   if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
   Copy-Item (Join-Path $root 'target/install-smoke/release/modn.exe') (Join-Path $assets 'modn.exe')

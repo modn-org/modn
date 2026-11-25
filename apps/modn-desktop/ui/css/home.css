@@ -1,5 +1,3 @@
-/* Home: registered games, detected games, and the actions that change them. */
-
 @layer app {
 .modn-home__actions {
   position: relative;

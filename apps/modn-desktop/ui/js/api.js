@@ -87,7 +87,6 @@ function invoke(command, args) {
   return window.__TAURI__.core.invoke(command, args);
 }
 
-/** Creates the per-operation id used by progress events. */
 export function newRunId() {
   if (window.crypto && typeof window.crypto.randomUUID === 'function') {
     return window.crypto.randomUUID();
@@ -183,12 +182,6 @@ export async function installMod({
   });
 }
 
-/**
- * Read-only install plan for the details screen. Implemented by a later task.
- * @param {{gameId: string, path: string, modId: string}} args
- * @returns {Promise<InstallPlan|Object>} standalone plan, or catalog plan with
- *   `plan`, `approval`, `dependencies` and `blockers`.
- */
 export async function planInstall({ gameId, path, modId }) {
   return invoke('plan_install', { gameId, path, modId });
 }
@@ -217,12 +210,6 @@ export async function update({
   });
 }
 
-/**
- * Operation history, newest first. Implemented by a later task.
- * @param {{gameId: string}} args
- * @returns {Promise<Array<{id: string, kind: string, game_id: string,
- *   installation: string, recorded_at: string, packages: Object[], undoes?: string}>>}
- */
 export async function history({ gameId }) {
   return invoke('history', { gameId });
 }
@@ -249,43 +236,22 @@ export async function undo({
   });
 }
 
-/**
- * Detect installed games without writing state. Implemented by a later task.
- * @returns {Promise<{installations: Object[], refused: Object[], skipped: Object[]}>}
- */
 export async function detectGames() {
   return invoke('detect_games', {});
 }
 
-/**
- * Register a detected installation. Implemented by a later task.
- * @param {{gameId: string, path: string}} args @returns {Promise<Game>}
- */
 export async function activateGame({ gameId, path }) {
   return invoke('activate_game', { gameId, path });
 }
 
-/**
- * Pick a game folder with a native picker, then register it. Later task.
- * @param {{gameId: string}} args @returns {Promise<Game|null>}
- */
 export async function addGame({ gameId }) {
   return invoke('add_game', { gameId });
 }
 
-/**
- * Unregister an installation after a native confirmation. Later task.
- * @param {{gameId: string, path: string}} args @returns {Promise<Game>}
- */
 export async function removeGame({ gameId, path }) {
   return invoke('remove_game', { gameId, path });
 }
 
-/**
- * Launch a registered installation. Later task.
- * @param {{gameId: string, path: string}} args
- * @returns {Promise<{game_id: string, installation: string, target: Object, warnings: string[]}>}
- */
 export async function play({ gameId, path }) {
   return invoke('play', { gameId, path });
 }
@@ -365,20 +331,10 @@ export async function importTheme() {
   return invoke('import_theme', {});
 }
 
-/**
- * Request cancellation of a run. Later task.
- * @param {{runId: string}} args @returns {Promise<void>}
- */
 export async function cancelRun({ runId }) {
   return invoke('cancel_run', { runId });
 }
 
-/**
- * Subscribes to progress for one run. Later tasks emit the events.
- * @param {string} runId
- * @param {(event: ProgressEvent) => void} callback
- * @returns {Promise<() => void>} unlisten function
- */
 export async function onProgress(runId, callback) {
   return window.__TAURI__.event.listen('modn://progress', (event) => {
     const payload = event.payload;

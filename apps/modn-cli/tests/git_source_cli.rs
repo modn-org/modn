@@ -126,8 +126,6 @@ fn git_package_stack_downloads_a_missing_native_dependency_and_reuses_the_cache(
     assert!(!library.exists());
     assert_eq!(cache_archives(&fixture).len(), 2);
 
-    // Drop the Git archive so the stack install itself must acquire it and
-    // record its digest; the preview above leaves it warm in the cache.
     let dropped = fixture.run(&["cache", "rm", "steamodded"]);
     assert!(dropped.status.success(), "{}", error(&dropped));
     assert_eq!(cache_archives(&fixture).len(), 1);

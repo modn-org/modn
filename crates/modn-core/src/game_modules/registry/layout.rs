@@ -13,7 +13,6 @@ pub(in crate::game_modules) const RECEIPT: &str = "registration.json";
 pub(in crate::game_modules) const VERSIONS: &str = "versions";
 const MAX_CURRENT_BYTES: u64 = 64;
 
-/// Versioned receipt stored beside one retained release.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::game_modules) struct Receipt {
@@ -25,7 +24,6 @@ pub(in crate::game_modules) struct Receipt {
     pub(in crate::game_modules) signer_key_id: Option<String>,
 }
 
-/// One verified release under `versions/<version>/`.
 pub(in crate::game_modules) struct RetainedRelease {
     pub(in crate::game_modules) manifest: VerifiedModule,
     pub(in crate::game_modules) script: String,
@@ -45,17 +43,12 @@ impl RetainedRelease {
     }
 }
 
-/// Whether a stored module record still names the retired `sha256` digest field.
 pub(in crate::game_modules) fn names_retired_digest(bytes: &[u8]) -> bool {
     serde_json::from_slice::<serde_json::Value>(bytes)
         .ok()
         .is_some_and(|value| value.get("sha256").is_some())
 }
 
-/// Validate the versioned shape of an existing game entry and return its current version.
-///
-/// Missing storage yields `None`. An old single-snapshot entry is refused with the
-/// re-registration instruction required by the no-backward-compatibility rule.
 pub(in crate::game_modules) fn open_game(directory: &Path, game: &str) -> Result<Option<String>> {
     match fs::symlink_metadata(directory) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -220,7 +213,6 @@ pub(in crate::game_modules) fn read_release(
     })
 }
 
-/// Order semantic versions by precedence when both parse, else compare bytes.
 pub(in crate::game_modules) fn compare_versions(left: &str, right: &str) -> Ordering {
     match (semver::Version::parse(left), semver::Version::parse(right)) {
         (Ok(left), Ok(right)) => left.cmp(&right),

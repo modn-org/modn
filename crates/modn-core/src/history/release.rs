@@ -1,11 +1,8 @@
-//! Release metadata stored beside managed packages, and its additive schema.
-
 use super::{HistoryContext, ReleaseMetadata};
 use crate::transactions::{CatalogRelease, ReleaseDeclarations};
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
-/// Release metadata for one side of an operation.
 pub(crate) fn metadata_for(
     context: &HistoryContext,
     package_id: &str,
@@ -41,7 +38,6 @@ pub(crate) fn metadata_for(
     }
 }
 
-/// Persist the release metadata that a later update or uninstall records.
 pub(crate) fn record_metadata(
     tx: &Transaction<'_>,
     package_id: &str,
@@ -79,7 +75,6 @@ pub(crate) fn record_metadata(
     Ok(())
 }
 
-/// Read the release metadata of `package_id`, when recorded.
 pub(crate) fn package_metadata(
     connection: &Connection,
     package_id: &str,
@@ -134,7 +129,6 @@ pub(crate) fn package_metadata(
     .transpose()
 }
 
-/// Add the nullable catalog and declaration columns to older manager state.
 pub(crate) fn ensure_schema(connection: &Connection) -> Result<()> {
     for name in ["catalog", "declarations"] {
         if !has_column(connection, "managed_package_releases", name)? {

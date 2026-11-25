@@ -1,10 +1,3 @@
-//! A [`CssChecker`] backed by the `lightningcss` parser.
-//!
-//! The parser produces [`SheetFacts`] for the rule engine. The engine decides
-//! whether the sheet is inside theme API v1, and the same parsed sheet is
-//! printed as the canonical text so the application applies exactly what the
-//! engine checked.
-
 use super::engine::check_sheet;
 use super::facts::{
     DeclFacts, FontFaceFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts, UnsupportedFacts,
@@ -20,7 +13,6 @@ use lightningcss::rules::{CssRule, CssRuleList, Location};
 use lightningcss::stylesheet::{ParserFlags, ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::traits::ToCss;
 
-/// Longest parser message copied into a [`ThemeProblem`].
 const MAX_MESSAGE_CHARS: usize = 200;
 
 /// Checks and canonicalises theme CSS with the `lightningcss` parser.
@@ -61,7 +53,6 @@ impl CssChecker for LightningChecker {
     }
 }
 
-/// Parse one stylesheet without error recovery.
 fn parse<'i>(file: &str, css: &'i str) -> Result<StyleSheet<'i>, ThemeProblem> {
     let options = ParserOptions {
         filename: file.to_owned(),
@@ -75,12 +66,10 @@ fn parse<'i>(file: &str, css: &'i str) -> Result<StyleSheet<'i>, ThemeProblem> {
     })
 }
 
-/// Convert one rule list to parser-independent facts.
 fn convert(rules: &CssRuleList<'_>) -> Result<Vec<RuleFacts>, ThemeProblem> {
     rules.0.iter().map(convert_rule).collect()
 }
 
-/// Convert one rule to facts, never dropping it.
 fn convert_rule(rule: &CssRule<'_>) -> Result<RuleFacts, ThemeProblem> {
     match rule {
         CssRule::Style(style) => convert_style(style),
@@ -110,7 +99,6 @@ fn convert_rule(rule: &CssRule<'_>) -> Result<RuleFacts, ThemeProblem> {
     }
 }
 
-/// Convert one style rule, rejecting a rule that nests other rules.
 fn convert_style(rule: &StyleRule<'_>) -> Result<RuleFacts, ThemeProblem> {
     let line = one_based(rule.loc);
     if !rule.rules.0.is_empty() {
@@ -152,7 +140,6 @@ fn convert_declarations(
     Ok(facts)
 }
 
-/// Convert one style declaration to facts.
 fn convert_property(
     property: &Property<'_>,
     important: bool,
@@ -169,7 +156,6 @@ fn convert_property(
     ))
 }
 
-/// Convert the descriptors of one `@font-face` rule to declarations.
 fn convert_font_face(
     properties: &[FontFaceProperty<'_>],
     line: u32,
@@ -195,7 +181,6 @@ fn convert_font_face(
     Ok(facts)
 }
 
-/// Return the name and one-based line of a rule the theme API forbids.
 fn unsupported(rule: &CssRule<'_>) -> (String, u32) {
     match rule {
         CssRule::Import(rule) => ("import".to_owned(), one_based(rule.loc)),
@@ -227,7 +212,6 @@ fn unsupported(rule: &CssRule<'_>) -> (String, u32) {
     }
 }
 
-/// Return the one-based line of a parser location.
 fn one_based(loc: Location) -> u32 {
     loc.line + 1
 }
@@ -263,8 +247,6 @@ fn canonicalise_urls(text: &str) -> String {
     out
 }
 
-/// Read a quoted URL target starting at `start`, returning it and the index
-/// just past the closing `)`.
 fn quoted_target(text: &str, start: usize) -> Option<(&str, usize)> {
     let bytes = text.as_bytes();
     let mut index = start;
@@ -290,7 +272,6 @@ fn quoted_target(text: &str, start: usize) -> Option<(&str, usize)> {
     Some((&text[content_start..end], after + 1))
 }
 
-/// Return whether `target` is an asset path that needs no quoting.
 fn plain_asset_path(target: &str) -> bool {
     target
         .bytes()
@@ -298,12 +279,10 @@ fn plain_asset_path(target: &str) -> bool {
         && normalise_asset_target(target).is_some()
 }
 
-/// Cut `text` to at most `limit` characters.
 fn cut(text: &str, limit: usize) -> String {
     text.chars().take(limit).collect()
 }
 
-/// Build a `css-syntax` problem at `line`.
 fn syntax(line: u32, message: impl Into<String>) -> ThemeProblem {
     ThemeProblem::new(Rule::CssSyntax, message).with_line(line)
 }

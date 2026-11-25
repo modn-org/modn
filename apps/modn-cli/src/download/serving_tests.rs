@@ -1,9 +1,3 @@
-//! Which source a `--file` install records in history.
-//!
-//! The install verifies the supplied archive against the release pin once. The
-//! recorded source comes from that verified digest, so the archive is never
-//! read and hashed a second time.
-
 use super::tests::{archive, package_with_sources, FALLBACK_URL};
 use super::SuppliedArchive;
 use modn_core::buckets::PackageSource;
@@ -48,9 +42,6 @@ fn a_matching_supplied_digest_names_the_catalog_source_without_reading_the_file(
         json!([{"kind": "https", "url": FALLBACK_URL}]),
     );
     let reference = crate::catalog_install::reference_of(&package).to_string();
-    // The verified digest names the pin, and the path need not exist: choosing
-    // the history source uses the digest the install verification computed and
-    // never opens the archive again.
     let supplied = BTreeMap::from([(
         reference.clone(),
         SuppliedArchive {

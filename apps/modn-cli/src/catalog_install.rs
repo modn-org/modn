@@ -113,8 +113,6 @@ pub(super) fn reference_of(package: &BucketPackage) -> CatalogReference {
     package.reference()
 }
 
-/// Verified `--file` archives: the path map the install reads and the digest
-/// one inspection computed for each.
 struct SuppliedArchives {
     paths: BTreeMap<String, PathBuf>,
     verified: BTreeMap<String, download::SuppliedArchive>,

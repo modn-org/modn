@@ -1,6 +1,5 @@
 use super::is_allowed_property;
 
-/// Every concrete property named by the allowlist table in `docs/themes.md`.
 const ALLOWED: &[&str] = &[
     "display",
     "visibility",
@@ -103,7 +102,6 @@ const ALLOWED: &[&str] = &[
     "transition-delay",
 ];
 
-/// Properties that the document names as forbidden.
 const FORBIDDEN: &[&str] = &[
     "float",
     "animation",

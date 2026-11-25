@@ -264,7 +264,6 @@ impl OperationControl {
     }
 }
 
-/// The download progress step: one event per MiB received, at most.
 const DOWNLOAD_REPORT_BYTES: u64 = 1024 * 1024;
 
 /// A response body that reports [`ProgressEvent::Download`] events and stops

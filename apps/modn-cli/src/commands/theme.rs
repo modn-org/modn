@@ -1,9 +1,3 @@
-//! `modn theme` subcommands: inspect, register, list, select and resolve themes.
-//!
-//! The global `--game` flag selects one game for `list`, `remove`, `reset` and
-//! `resolve`. `select` takes the game and theme positionally, as the desktop
-//! spawns it.
-
 use clap::Subcommand;
 use std::path::PathBuf;
 

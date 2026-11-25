@@ -1,5 +1,3 @@
-//! Argument-vector tests for the fixed CLI contract.
-
 use super::*;
 use std::path::PathBuf;
 
@@ -20,7 +18,6 @@ fn archive() -> PathBuf {
     PathBuf::from(r"C:\mods\example.zip")
 }
 
-/// One `modn list --json` inventory: a catalog package and a standalone one.
 fn installed() -> serde_json::Value {
     serde_json::json!([
         {

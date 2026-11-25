@@ -1,5 +1,3 @@
-//! The theme catalog built from bucket roots and the local registry.
-
 #[cfg(test)]
 #[path = "catalog_tests.rs"]
 mod tests;
@@ -21,7 +19,6 @@ pub struct CatalogEntry {
 }
 
 impl CatalogEntry {
-    /// Combine one inspected theme with the source that supplied it.
     #[must_use]
     pub(crate) fn new(inspected: InspectedTheme, source: ThemeSource) -> Self {
         Self { inspected, source }
@@ -145,7 +142,6 @@ impl ThemeCatalog {
             .find(|entry| entry.game() == game && entry.id() == id)
     }
 
-    /// Problems whose `theme` label belongs to `game`.
     pub(crate) fn problems_for_game(&self, game: &str) -> Vec<ThemeProblem> {
         let prefix = format!("{game}/");
         self.problems
@@ -160,7 +156,6 @@ impl ThemeCatalog {
             .collect()
     }
 
-    /// Problems whose `theme` label is exactly `<game>/<id>`.
     pub(crate) fn problems_for_theme(&self, game: &str, id: &str) -> Vec<ThemeProblem> {
         let label = format!("{game}/{id}");
         self.problems
@@ -171,7 +166,6 @@ impl ThemeCatalog {
     }
 }
 
-/// Append one bucket scan to the catalog parts.
 fn append_scan(
     scan: super::scan::BucketScan,
     entries: &mut Vec<CatalogEntry>,
@@ -181,7 +175,6 @@ fn append_scan(
     problems.extend(scan.problems);
 }
 
-/// Add the local registry themes that still match their digest.
 fn load_registry(
     registry: &ThemeRegistry,
     checker: &dyn CssChecker,
@@ -207,7 +200,6 @@ fn load_registry(
     }
 }
 
-/// Turn a registry error into problems, labelling them for one theme.
 fn error_problems(
     error: super::error::ThemeError,
     theme: Option<(&str, &str)>,
@@ -228,7 +220,6 @@ fn error_problems(
     }
 }
 
-/// Attach `<game>/<id>` to problems that have no label yet.
 fn label_problems(problems: &mut [ThemeProblem], theme: Option<(&str, &str)>) {
     let Some((game, id)) = theme else {
         return;
@@ -241,7 +232,6 @@ fn label_problems(problems: &mut [ThemeProblem], theme: Option<(&str, &str)>) {
     }
 }
 
-/// Keep the first entry for each `(game, id)` and report the rest.
 fn deduplicate(entries: Vec<CatalogEntry>, problems: &mut Vec<ThemeProblem>) -> Vec<CatalogEntry> {
     let mut seen: BTreeMap<(String, String), String> = BTreeMap::new();
     let mut kept = Vec::with_capacity(entries.len());

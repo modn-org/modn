@@ -1,20 +1,13 @@
-//! Bounded, link-refusing reads of theme files.
-
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::Path;
 
-/// Why a theme file could not be read.
 #[derive(Debug)]
 pub(super) enum ReadFailure {
-    /// The path is a symbolic link or another reparse point.
     Link,
-    /// The path is not a regular file.
     NotFile,
-    /// The file is larger than the requested limit.
     TooLarge,
-    /// The operating system refused the read.
     Io(io::Error),
 }
 
@@ -29,7 +22,6 @@ impl fmt::Display for ReadFailure {
     }
 }
 
-/// Read at most `limit` bytes of a regular file without following links.
 pub(super) fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, ReadFailure> {
     let metadata = fs::symlink_metadata(path).map_err(ReadFailure::Io)?;
     if metadata.file_type().is_symlink() {
@@ -53,7 +45,6 @@ pub(super) fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, ReadFailu
     Ok(bytes)
 }
 
-/// Read at most `limit` leading bytes of a regular file without following links.
 pub(super) fn read_prefix(path: &Path, limit: usize) -> Result<Vec<u8>, ReadFailure> {
     let metadata = fs::symlink_metadata(path).map_err(ReadFailure::Io)?;
     if metadata.file_type().is_symlink() {

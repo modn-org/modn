@@ -2,14 +2,12 @@ use super::check_selector;
 use crate::themes::css::facts::DeclFacts;
 use crate::themes::Rule;
 
-/// Expected result for one selector table row.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Expect {
     Accepted,
     Rejected(Rule),
 }
 
-/// One selector table row.
 struct Case {
     selector: &'static str,
     property: &'static str,

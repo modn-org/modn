@@ -1,11 +1,3 @@
-//! Validation of `@media` queries against the theme API grammar.
-//!
-//! `docs/themes.md` names the at-rule and its allowed contents but not the
-//! media features. This module accepts the common feature names and plain
-//! `and`, `not`, `only`, `screen` and `all` structure, plus the level 4 range
-//! syntax with numbers and lengths.
-
-/// Media feature names accepted by the theme API.
 const MEDIA_FEATURES: &[&str] = &[
     "width",
     "height",
@@ -18,7 +10,6 @@ const MEDIA_FEATURES: &[&str] = &[
     "prefers-reduced-motion",
 ];
 
-/// Return whether a media query stays inside the theme API grammar.
 pub(crate) fn valid_media_query(query: &str) -> bool {
     let lower = query.to_ascii_lowercase();
     let bytes = lower.as_bytes();
@@ -83,18 +74,13 @@ pub(crate) fn valid_media_query(query: &str) -> bool {
     last == LastToken::Term
 }
 
-/// What the previous media query token was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LastToken {
-    /// No token yet.
     None,
-    /// A connector such as `and`, `not`, `only` or a comma.
     Connector,
-    /// A term such as `screen`, `all` or a feature block.
     Term,
 }
 
-/// Return the index of the `)` that closes the `(` at `open`.
 fn matching_paren(query: &str, open: usize) -> Option<usize> {
     let bytes = query.as_bytes();
     let mut index = open + 1;
@@ -108,7 +94,6 @@ fn matching_paren(query: &str, open: usize) -> Option<usize> {
     None
 }
 
-/// Return whether one parenthesised media feature stays in the allowlist.
 fn valid_media_feature(inner: &str) -> bool {
     let inner = inner.trim();
     if inner.is_empty()
@@ -149,7 +134,6 @@ fn valid_media_feature(inner: &str) -> bool {
     saw_feature && saw_value
 }
 
-/// Return whether a media value is made of words, numbers and lengths.
 fn valid_media_value(value: &str) -> bool {
     !value.is_empty()
         && value.bytes().all(|byte| {
@@ -158,7 +142,6 @@ fn valid_media_value(value: &str) -> bool {
         })
 }
 
-/// Return whether a token is a number or a number with a unit.
 fn is_number_or_length(token: &str) -> bool {
     let mut saw_digit = false;
     for byte in token.bytes() {

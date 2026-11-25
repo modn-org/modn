@@ -12,11 +12,6 @@ use std::process::Command;
 use std::sync::OnceLock;
 use tempfile::TempDir;
 
-/// The `modn` binary that tests run.
-///
-/// Windows locks a running executable, so a concurrent `cargo build` cannot
-/// replace `target/debug/modn.exe` while tests run it. On Windows, each test
-/// crate runs its own copy instead.
 pub fn modn_binary() -> PathBuf {
     let source = Path::new(env!("CARGO_BIN_EXE_modn"));
     if !cfg!(windows) {
@@ -109,11 +104,6 @@ fn copy_tree(source: &Path, target: &Path) {
     }
 }
 
-/// Copy a real game module from the checked-in `buckets/main` submodule and
-/// declare host API 3 in its manifest.
-///
-/// The pinned module already declares host API 3. The copy repeats that field
-/// so the fixture stays explicit if the pin changes.
 pub fn copy_main_module(source: &Path, target: &Path) {
     copy_tree(source, target);
     let manifest_path = target.join("module.json");

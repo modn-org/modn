@@ -1,4 +1,3 @@
-//! Install-time native injector approval checks.
 use crate::catalog_install::reference_of;
 use crate::commands::InstallArgs;
 use crate::dependency_plan;
@@ -45,9 +44,6 @@ pub(super) fn check_native_approvals(
                 .chain([selected])
                 .collect()
         }
-        // Game selection can fail for ordinary reasons, such as no registration
-        // or a missing --path. Refuse native injectors conservatively so the
-        // approval error still precedes those generic errors.
         None => order.iter().chain([selected]).collect(),
     };
     for package in installing {

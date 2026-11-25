@@ -57,7 +57,6 @@ class Session:
         self.snapshots = 0
         auto.SetGlobalSearchTimeout(2)
 
-    # -- window ---------------------------------------------------------
     def attach(self, timeout=30):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -98,7 +97,6 @@ class Session:
         require(self.window is not None, "No window to close")
         ctypes.windll.user32.PostMessageW(self.window.NativeWindowHandle, WM_CLOSE, 0, 0)
 
-    # -- tree -----------------------------------------------------------
     def walk(self, control=None):
         yield from self._walk(control or self.window)
 
@@ -162,7 +160,6 @@ class Session:
             path.write_text(text, encoding="utf-8")
         return text
 
-    # -- queries --------------------------------------------------------
     def find_all(self, name=None, prefix=None, control_type=None, window=None):
         matches = []
         for control in self._walk(window) if window is not None else self.walk():
@@ -186,7 +183,6 @@ class Session:
     def exists(self, name=None, prefix=None, control_type=None):
         return bool(self.find_all(name=name, prefix=prefix, control_type=control_type))
 
-    # -- actions --------------------------------------------------------
     def activate(self, control):
         require(control.IsEnabled, f"Control disabled: {control.Name}")
         # Invoke is synchronous and can time out while the handler it started

@@ -1,10 +1,3 @@
-//! Acceptance tests for the staged official Cyberpunk 2077 theme.
-//!
-//! The theme lives at `examples/themes/cyberpunk-2077/night-city/` and is a
-//! drop-in copy for `themes/cyberpunk-2077/night-city/` in the `main` bucket.
-//! These tests parse the real stylesheets with a strict line-oriented parser,
-//! then run the real theme API v1 rule engine through [`checker::EngineChecker`].
-
 #[path = "official_theme_layout/checker.rs"]
 mod checker;
 #[path = "official_theme_layout/parser.rs"]
@@ -18,22 +11,18 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The staged theme directory.
 fn theme_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/themes/cyberpunk-2077/night-city")
 }
 
-/// Read one file of the theme as UTF-8 text.
 fn read_theme_file(name: &str) -> String {
     fs::read_to_string(theme_root().join(name)).expect("read a staged theme file")
 }
 
-/// Parse one stylesheet of the theme.
 fn parse_theme_file(name: &str) -> SheetFacts {
     parser::parse_sheet(&read_theme_file(name)).expect("the staged theme CSS parses")
 }
 
-/// Collect every style rule, including the rules inside `@media`.
 fn style_rules<'a>(rules: &'a [RuleFacts], found: &mut Vec<&'a StyleFacts>) {
     for rule in rules {
         match rule {
@@ -44,7 +33,6 @@ fn style_rules<'a>(rules: &'a [RuleFacts], found: &mut Vec<&'a StyleFacts>) {
     }
 }
 
-/// Return the selector when it is one bare `.modn-*` class.
 fn simple_hook(selector: &str) -> Option<&str> {
     let name = selector.strip_prefix('.')?;
     if name.is_empty()
@@ -57,14 +45,12 @@ fn simple_hook(selector: &str) -> Option<&str> {
     Some(selector)
 }
 
-/// Return whether a selector names a protected region hook.
 fn is_protected_selector(selector: &str) -> bool {
     selector.contains("modn-review")
         || selector.contains("modn-approval")
         || selector.contains("data-modn-protected")
 }
 
-/// Return whether a property belongs to the documented layout group.
 fn is_layout_property(property: &str) -> bool {
     matches!(
         property,
@@ -94,7 +80,6 @@ fn is_layout_property(property: &str) -> bool {
         || property.starts_with("padding")
 }
 
-/// Return whether a declaration changes structure, not only spacing.
 fn is_structural(declaration: &DeclFacts) -> bool {
     match declaration.property.as_str() {
         "display" => matches!(
@@ -106,7 +91,6 @@ fn is_structural(declaration: &DeclFacts) -> bool {
     }
 }
 
-/// Copy a directory tree into `destination`.
 fn copy_tree(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).expect("create a copied directory");
     for entry in fs::read_dir(source).expect("list a theme entry") {

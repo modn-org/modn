@@ -1,6 +1,3 @@
-//! Value helpers for URLs and colour opacity.
-
-/// Functions that load an image without a `url()` target.
 const FORBIDDEN_FUNCTIONS: &[&str] = &[
     "image-set(",
     "-webkit-image-set(",
@@ -10,7 +7,6 @@ const FORBIDDEN_FUNCTIONS: &[&str] = &[
     "element(",
 ];
 
-/// CSS named colours, excluding `transparent` and `currentcolor`.
 const NAMED_COLOURS: &[&str] = &[
     "aliceblue",
     "antiquewhite",
@@ -162,10 +158,6 @@ const NAMED_COLOURS: &[&str] = &[
     "yellowgreen",
 ];
 
-/// Return every `url()` target in `value`, without quotes and outer space.
-///
-/// The scan is case-insensitive and accepts unquoted, single-quoted and
-/// double-quoted targets. A malformed `url()` token yields no target.
 #[must_use]
 pub(crate) fn find_url_targets(value: &str) -> Vec<&str> {
     let bytes = value.as_bytes();
@@ -184,7 +176,6 @@ pub(crate) fn find_url_targets(value: &str) -> Vec<&str> {
     targets
 }
 
-/// Return the first image-loading function that `value` contains.
 #[must_use]
 pub(crate) fn forbidden_image_function(value: &str) -> Option<&'static str> {
     let lower = value.to_ascii_lowercase();
@@ -194,7 +185,6 @@ pub(crate) fn forbidden_image_function(value: &str) -> Option<&'static str> {
         .find(|function| lower.contains(function))
 }
 
-/// Return whether a URL target points outside the theme's own files.
 #[must_use]
 pub(crate) fn is_remote_url(target: &str) -> bool {
     let lower = target.to_ascii_lowercase();
@@ -204,10 +194,6 @@ pub(crate) fn is_remote_url(target: &str) -> bool {
         || has_scheme(target)
 }
 
-/// Normalise a relative URL to a canonical `assets/<path>` value.
-///
-/// Returns `None` when the target leaves `assets/`, contains `..`, or has an
-/// extension other than png, webp or woff2.
 #[must_use]
 pub(crate) fn normalise_asset_target(target: &str) -> Option<String> {
     if target.contains('\\') {
@@ -241,7 +227,6 @@ pub(crate) fn normalise_asset_target(target: &str) -> Option<String> {
     Some(segments.join("/"))
 }
 
-/// Return whether a colour value is fully opaque.
 #[must_use]
 pub(crate) fn colour_is_opaque(value: &str) -> bool {
     let value = value.trim().to_ascii_lowercase();
@@ -254,7 +239,6 @@ pub(crate) fn colour_is_opaque(value: &str) -> bool {
     NAMED_COLOURS.contains(&value.as_str())
 }
 
-/// Parse one `url()` target starting after its opening parenthesis.
 fn parse_url_target(value: &str, start: usize) -> Option<(&str, usize)> {
     let bytes = value.as_bytes();
     let mut index = start;
@@ -291,7 +275,6 @@ fn parse_url_target(value: &str, start: usize) -> Option<(&str, usize)> {
     Some((value[target_start..index].trim(), index + 1))
 }
 
-/// Return whether `target` starts with a URL scheme such as `https:`.
 fn has_scheme(target: &str) -> bool {
     let bytes = target.as_bytes();
     let Some(first) = bytes.first() else {
@@ -311,7 +294,6 @@ fn has_scheme(target: &str) -> bool {
     false
 }
 
-/// Return whether a hexadecimal colour has a fully opaque alpha channel.
 fn hex_is_opaque(hex: &str) -> bool {
     if !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return false;
@@ -324,7 +306,6 @@ fn hex_is_opaque(hex: &str) -> bool {
     }
 }
 
-/// Split a CSS function into its lowercase name and its arguments.
 fn split_function(value: &str) -> Option<(&str, &str)> {
     let open = value.find('(')?;
     if !value.ends_with(')') {
@@ -337,7 +318,6 @@ fn split_function(value: &str) -> Option<(&str, &str)> {
     Some((name, &value[open + 1..value.len() - 1]))
 }
 
-/// Return whether colour-function arguments declare no alpha or opaque alpha.
 fn arguments_are_opaque(arguments: &str) -> bool {
     let arguments = arguments.trim();
     if arguments.is_empty() {
@@ -371,7 +351,6 @@ fn arguments_are_opaque(arguments: &str) -> bool {
     alpha.is_none_or(alpha_is_one)
 }
 
-/// Return whether an alpha component is `1` or `100%`.
 fn alpha_is_one(alpha: &str) -> bool {
     let alpha = alpha.trim();
     if let Some(percent) = alpha.strip_suffix('%') {

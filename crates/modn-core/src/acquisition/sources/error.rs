@@ -1,5 +1,3 @@
-//! One error that names every artifact source that failed.
-
 use super::SourceAttempt;
 use std::fmt;
 

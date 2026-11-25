@@ -12,10 +12,6 @@ import {
 
 const CTX = { gameId: 'demo', path: 'C:/game' };
 
-/**
- * @param {string} key
- * @param {Object} pkg
- */
 function installedModel(key, pkg) {
   return {
     key,
@@ -47,7 +43,6 @@ test('a running uninstall survives a re-render that drops its catalog entry', as
     version: '1.0.0',
     catalog: { bucket: 'main', mod_id: 'demo' },
   };
-  /** @type {Map<string, Object>} */
   const operations = new Map();
   const options = { onChanged: () => {}, operations };
   const catalogTile = createTile(
@@ -93,7 +88,6 @@ test('a running update survives a search that drops its catalog entry', async ()
     version: '1.0.0',
     catalog: { bucket: 'main', game_id: 'demo', mod_id: 'demo' },
   };
-  /** @type {Map<string, Object>} */
   const operations = new Map();
   const options = { onChanged: () => {}, operations };
   const [catalogModel] = mergeLibrary(

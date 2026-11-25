@@ -58,15 +58,11 @@ fn commit_all(directory: &Path, message: &str) {
     );
 }
 
-/// Build a repository with enough entries that packing the pinned tree does
-/// not finish before the test observes the download phase and cancels.
 fn repository(root: &Path) -> Repository {
     let work = root.join("git-source-work");
     let plugin = work.join("Demo/package/plugins/git-source.plugin");
     fs::create_dir_all(plugin.parent().expect("plugin parent")).expect("work tree");
     fs::write(&plugin, b"pinned-release").expect("pinned payload");
-    // Incompressible filler makes packing the pinned tree take long enough
-    // for the test to observe the download phase and send its cancel.
     let filler = work.join("Demo/package/plugins/filler.plugin");
     let mut data = Vec::with_capacity(8 * 1024 * 1024);
     let mut state = 0x1234_5678u32;
@@ -160,8 +156,6 @@ fn cache_archives(fixture: &Fixture) -> Vec<PathBuf> {
     }
 }
 
-/// Every cache file with its bytes, so a cancel can be checked against the
-/// exact state before the fetch.
 fn cache_snapshot(fixture: &Fixture) -> BTreeMap<String, Vec<u8>> {
     let mut snapshot = BTreeMap::new();
     let Ok(entries) = fs::read_dir(fixture.state.join("cache")) else {
@@ -179,8 +173,6 @@ fn cache_snapshot(fixture: &Fixture) -> BTreeMap<String, Vec<u8>> {
     snapshot
 }
 
-/// Seed the archive of a previous Modn build for the same release and commit,
-/// with a different digest than the fetch packs now.
 fn seed_previous_archive(fixture: &Fixture, commit: &str) -> String {
     let bytes = b"packed by an older modn".to_vec();
     let digest = blake3::hash(&bytes).to_hex().to_string();

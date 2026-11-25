@@ -5,7 +5,6 @@ use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-/// Read-only health of a module-declared content root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ContentRootStatus {
     Healthy,
@@ -16,20 +15,15 @@ pub(crate) enum ContentRootStatus {
     Unavailable,
 }
 
-/// Inspection result for a content root; reads only, never creates.
 #[derive(Debug)]
 pub(crate) struct ContentRootHealth {
-    /// Declared or recorded path, whether or not it exists.
     pub(crate) path: PathBuf,
-    /// Canonical readable root, only when the status is healthy.
     pub(crate) root: Option<PathBuf>,
     pub(crate) status: ContentRootStatus,
-    /// Moved target or base failure, when it adds detail.
     pub(crate) detail: Option<String>,
 }
 
 impl ContentRootHealth {
-    /// Diagnostic code, message and next safe action for a problem.
     pub(crate) fn diagnostic(&self) -> Option<(&'static str, String, String)> {
         let path = self.path.display();
         let (code, message, action) = match self.status {
@@ -79,11 +73,6 @@ impl ContentRootHealth {
     }
 }
 
-/// Inspect a declared content root without writing or following links.
-///
-/// A recorded root is authoritative: Modn fails closed if it is missing,
-/// is not a folder, became a link, or canonicalizes elsewhere. Without a
-/// record, the declared path below `appdata` is inspected instead.
 pub(crate) fn inspect(
     game: &Path,
     spec: &ContentRootSpec,
@@ -273,10 +262,6 @@ pub fn appdata_directory() -> Result<PathBuf> {
         .context("APPDATA is not set; cannot resolve the module content root")
 }
 
-/// Canonical base and the validated content root below it.
-///
-/// The returned root may not exist yet. Callers create it only inside a
-/// managed transaction and only below the returned base.
 pub(crate) fn resolve(
     game: &Path,
     spec: &ContentRootSpec,
@@ -347,7 +332,6 @@ pub(crate) fn resolve(
     Ok((base, root))
 }
 
-/// Revalidate a resolved content root, including link and overlap checks.
 pub(crate) fn validate(game: &Path, base: &Path, root: &Path) -> Result<PathBuf> {
     let relative = root
         .strip_prefix(base)

@@ -157,7 +157,6 @@ pub(super) fn acquisition(source: &PackageSource) -> String {
     }
 }
 
-/// One ordered source, as the plan names it.
 pub(super) fn source_label(source: &PackageSource) -> String {
     match source {
         PackageSource::Manual { filename } => format!("manual: {filename}"),
@@ -178,12 +177,10 @@ pub(super) fn source_label(source: &PackageSource) -> String {
     }
 }
 
-/// Every ordered source, in the order the acquisition loop tries them.
 pub(super) fn source_labels(sources: &[PackageSource]) -> Vec<String> {
     sources.iter().map(source_label).collect()
 }
 
-/// The first source that Modn can fetch without the user supplying an archive.
 pub(super) fn fetchable_source(sources: &[PackageSource]) -> Option<&PackageSource> {
     sources.iter().find(|source| {
         matches!(
@@ -196,7 +193,6 @@ pub(super) fn fetchable_source(sources: &[PackageSource]) -> Option<&PackageSour
     })
 }
 
-/// The source that the acquisition loop will try first, or the primary source.
 fn planned_source<'a>(
     sources: &'a [PackageSource],
     primary: &'a PackageSource,
@@ -204,9 +200,6 @@ fn planned_source<'a>(
     fetchable_source(sources).unwrap_or(primary)
 }
 
-/// The download consent line for one release that still needs its archive.
-///
-/// It names the same fetchable source that the dry-run report selects.
 pub(super) fn download_line(
     reference: &str,
     version: &str,
@@ -224,7 +217,6 @@ pub(super) struct ArchivePreview<'a> {
     pub(super) unapproved_declared_executables: &'a [String],
 }
 
-/// The release facts that a dry-run report prints.
 pub(super) struct ReportInput<'a> {
     pub(super) reference: &'a str,
     pub(super) version: &'a str,

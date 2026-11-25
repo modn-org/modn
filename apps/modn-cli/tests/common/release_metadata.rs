@@ -1,4 +1,3 @@
-//! Shared helpers for the split undo release metadata test files.
 #![allow(
     dead_code,
     reason = "each split test file uses a different subset of these helpers"
@@ -175,7 +174,6 @@ pub fn remove_declarations(fixture: &Fixture, operation: &str, side: &str) {
         .expect("rewrite release");
 }
 
-/// API 1 test-game policy that maps a declared tool executable beside plugins.
 pub fn tool_module(fixture: &Fixture) {
     fs::write(
         fixture.modules.join("test-game/main.lua"),

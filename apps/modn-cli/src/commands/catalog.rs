@@ -1,5 +1,3 @@
-//! `modn catalog` subcommands: author key generation, signing and pins.
-
 use clap::Subcommand;
 use std::path::PathBuf;
 

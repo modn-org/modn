@@ -1,5 +1,3 @@
-//! Resolution of the theme that a game uses.
-
 #[cfg(test)]
 #[path = "resolve_tests.rs"]
 mod tests;
@@ -44,7 +42,6 @@ pub struct Fallback {
 }
 
 impl Fallback {
-    /// Build a fallback explanation.
     #[must_use]
     pub(crate) fn new(reason: FallbackReason, message: impl Into<String>) -> Self {
         Self {
@@ -220,7 +217,6 @@ impl ThemeCatalog {
         }
     }
 
-    /// Resolve one stored selection, or explain why it cannot be used.
     fn selected_theme(
         &self,
         game: &str,
@@ -252,7 +248,6 @@ impl ThemeCatalog {
         ))
     }
 
-    /// Explain a selection that has no catalog entry.
     fn missing_selection(&self, game: &str, id: &str) -> (Fallback, Vec<ThemeProblem>) {
         let mut diagnostics = self.problems_for_theme(game, id);
         let reason = if diagnostics
@@ -288,7 +283,6 @@ impl ThemeCatalog {
         (fallback, diagnostics)
     }
 
-    /// The official theme with the smallest id, with no variant.
     fn official_theme(&self, game: &str) -> Option<ResolvedTheme> {
         self.entries()
             .iter()
@@ -300,7 +294,6 @@ impl ThemeCatalog {
     }
 }
 
-/// Build the resolve record for one catalog entry.
 fn resolved_theme(
     entry: &CatalogEntry,
     variant: Option<&str>,

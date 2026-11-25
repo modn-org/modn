@@ -5,10 +5,6 @@ import { element } from './dom.js';
 const BLOCKED_TEXT = 'Modn blocked this plan.';
 const EMPTY_TEXT = 'This plan writes no files.';
 
-/**
- * @param {unknown} report
- * @returns {Object|null}
- */
 function planOf(report) {
   if (!report || typeof report !== 'object') {
     return null;
@@ -17,21 +13,11 @@ function planOf(report) {
   return plan && typeof plan === 'object' ? plan : report;
 }
 
-/**
- * @param {Object|null} plan
- * @returns {Object[]}
- */
 function operationsOf(plan) {
   return plan && Array.isArray(plan.operations) ? plan.operations : [];
 }
 
-/**
- * @param {unknown} report
- * @param {Object|null} plan
- * @returns {Object[]}
- */
 function blockersOf(report, plan) {
-  /** @type {Object[]} */
   const blockers = [];
   if (plan && Array.isArray(plan.blockers)) {
     blockers.push(...plan.blockers);
@@ -42,11 +28,6 @@ function blockersOf(report, plan) {
   return blockers.filter((blocker) => blocker && typeof blocker === 'object');
 }
 
-/**
- * Reads the approval the catalog plan reports as uncovered.
- * @param {unknown} report
- * @returns {string[]}
- */
 function approvalNeeds(report) {
   if (!report || typeof report !== 'object') {
     return [];
@@ -57,7 +38,6 @@ function approvalNeeds(report) {
   }
   const uncovered =
     approval.uncovered && typeof approval.uncovered === 'object' ? approval.uncovered : {};
-  /** @type {string[]} */
   const needs = [];
   if (uncovered.native_injector === true) {
     needs.push('native code');
@@ -72,10 +52,6 @@ function approvalNeeds(report) {
   return needs;
 }
 
-/**
- * @param {Object} operation
- * @returns {HTMLLIElement}
- */
 function operationRow(operation) {
   const removing = operation.kind === 'remove' || operation.remove === true;
   const row = element('li', 'modn-review__row');
@@ -89,14 +65,6 @@ function operationRow(operation) {
   return row;
 }
 
-/**
- * @param {Object|null} plan
- * @param {Object[]} blockers
- * @param {string[]} needs
- * @param {HTMLElement} status
- * @param {HTMLElement} list
- * @param {HTMLElement} note
- */
 function renderPlan(plan, blockers, needs, status, list, note) {
   const operations = operationsOf(plan);
   list.replaceChildren();

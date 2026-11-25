@@ -1,16 +1,9 @@
-//! Discover the module directories that a catalog offers and reports.
-
 use super::super::loader;
 use super::{IgnoredModule, ModuleIgnoreReason};
 use anyhow::{bail, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Modules an untrusted catalog offers but cannot import.
-///
-/// The `games/` folder is reported, never validated, parsed or executed for an
-/// untrusted source. Only directory names and the presence of a module file
-/// are read.
 pub(crate) fn ignored_catalog_modules(catalog: &Path) -> Result<Vec<IgnoredModule>> {
     let games = catalog.join("games");
     match fs::symlink_metadata(&games) {

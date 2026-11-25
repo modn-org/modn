@@ -406,10 +406,6 @@ impl ModuleRegistry {
         Ok(registered)
     }
 
-    /// Game IDs of every registration without reading its releases.
-    ///
-    /// A caller that needs the manifests uses [`Self::read`] and can report one
-    /// unreadable registration without failing the others.
     pub(super) fn game_ids(&self) -> Result<Vec<String>> {
         match fs::symlink_metadata(self.root()) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

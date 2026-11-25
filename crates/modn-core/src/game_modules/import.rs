@@ -1,9 +1,3 @@
-//! Stage game modules from a trusted Git catalog before publishing it.
-//!
-//! Staging validates every module in a private copy and keeps the registry's
-//! active releases untouched. The caller publishes the catalog and then calls
-//! [`StagedCatalogImport::commit`] to switch the retained releases.
-
 use super::registry::layout;
 use super::registry::{ImportReport, ModuleRegistry, ReleaseOutcome};
 use crate::buckets::BucketStore;
@@ -13,12 +7,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Test seam: the next catalog module commit fails for one registry root.
 #[cfg(test)]
 pub(crate) static FAIL_NEXT_CATALOG_COMMIT: std::sync::Mutex<BTreeSet<PathBuf>> =
     std::sync::Mutex::new(BTreeSet::new());
 
-/// Consume an armed failure for `root`. Other registries keep their outcome.
 #[cfg(test)]
 fn injected_commit_failure(root: &Path) -> bool {
     let mut armed = FAIL_NEXT_CATALOG_COMMIT.lock().expect("seam lock");
@@ -89,7 +81,6 @@ struct StagedRelease {
     current: Option<String>,
 }
 
-/// One version directory moved out of staging, and how to undo the move.
 struct MovedRelease {
     staged: PathBuf,
     target: PathBuf,
@@ -276,10 +267,6 @@ fn apply(
     Ok(())
 }
 
-/// Undo one partial commit: restore active pointers first, then move version
-/// directories back to their staging area. A game entry created by this commit
-/// had no directory before it, so restoring the entry means removing it.
-/// Returns every restoration failure.
 fn restore(
     moved: &[MovedRelease],
     switched: &[(PathBuf, String)],
@@ -367,13 +354,10 @@ mod tests {
     fn an_armed_commit_failure_is_scoped_to_one_registry() {
         let here = PathBuf::from("fixture-registry-here");
         let elsewhere = PathBuf::from("fixture-registry-elsewhere");
-        // Insert, never replace: another test's armed root must survive.
         super::FAIL_NEXT_CATALOG_COMMIT
             .lock()
             .expect("seam")
             .insert(here.clone());
-        // Another test's registry commits first. A process-wide seam would spend
-        // the armed failure here and leave `here` unaffected.
         let other_failed = std::thread::scope(|scope| {
             scope
                 .spawn(|| super::injected_commit_failure(&elsewhere))

@@ -1,5 +1,3 @@
-//! HTTP fetching for artifact sources.
-
 use modn_core::acquisition::{FetchError, SourceBody, SourcePolicy, SourceTransport};
 use std::io::Read;
 
@@ -56,7 +54,6 @@ pub(super) fn fetch_measured(url: &str) -> anyhow::Result<(Box<dyn Read>, Option
     Ok((body.reader, body.total))
 }
 
-/// The production transport: HTTPS only, no redirects, pinned timeouts.
 pub(super) struct HttpTransport;
 
 impl SourceTransport for HttpTransport {

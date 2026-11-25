@@ -1,10 +1,3 @@
-//! Keeps the theme API hook tables in `docs/themes.md` and the desktop UI in
-//! step.
-//!
-//! The document is the contract a theme author reads. A hook that the doc
-//! names must exist in `ui/`, and a `.modn-*` class that the UI styles must be
-//! named by the doc.
-
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,7 +9,6 @@ fn read(relative: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("cannot read {path:?}: {error}"))
 }
 
-/// Returns the document that holds the stable hook tables.
 fn themes_doc() -> String {
     read("../../docs/themes.md")
 }
@@ -43,10 +35,6 @@ fn collect_ui_files(directory: &Path, files: &mut Vec<(PathBuf, String)>) {
     }
 }
 
-/// Returns the data rows of the first Markdown table under `heading`.
-///
-/// The header row and the `---` separator are skipped, so a caller only sees
-/// cells of real entries. A blank or prose line ends the table.
 fn table_rows(document: &str, heading: &str) -> Vec<Vec<String>> {
     let mut rows = Vec::new();
     let mut in_section = false;
@@ -87,7 +75,6 @@ fn table_rows(document: &str, heading: &str) -> Vec<Vec<String>> {
     rows
 }
 
-/// Returns the hook name in a table's first cell, without Markdown decoration.
 fn cell_name(cell: &str) -> String {
     cell.trim()
         .trim_matches('`')
@@ -122,7 +109,6 @@ fn documented_protected(document: &str) -> Vec<String> {
     first_cells(table_rows(document, "### Protected hooks"))
 }
 
-/// Collects every `.modn-*` class name that has a rule in a stylesheet.
 fn css_classes() -> BTreeSet<String> {
     let mut classes = BTreeSet::new();
     for (path, text) in ui_files() {
@@ -145,7 +131,6 @@ fn css_classes() -> BTreeSet<String> {
     classes
 }
 
-/// Turns `data-game-id` into the `gameId` property name that `dataset` uses.
 fn camel_case(kebab: &str) -> String {
     let mut camel = String::new();
     for (index, part) in kebab.split('-').enumerate() {
@@ -162,7 +147,6 @@ fn camel_case(kebab: &str) -> String {
     camel
 }
 
-/// Reports whether any UI file writes the data attribute.
 fn attribute_appears(attribute: &str, ui: &str) -> bool {
     let kebab = attribute.strip_prefix("data-").unwrap_or(attribute);
     let camel = camel_case(kebab);
@@ -279,10 +263,6 @@ fn reserved_hooks_stay_inside_their_regions() {
     }
 }
 
-/// Returns the `PROTECTED_CONTEXT_CLASSES` list from the core hook table.
-///
-/// The list is read from `crates/modn-core/src/themes/hooks.rs`, because the
-/// desktop crate does not depend on the core crate.
 fn context_classes_in_code() -> Vec<String> {
     const DECLARATION: &str = "pub const PROTECTED_CONTEXT_CLASSES: &[&str] = &[";
     let source = read("../../crates/modn-core/src/themes/hooks.rs");
@@ -300,12 +280,6 @@ fn context_classes_in_code() -> Vec<String> {
         .collect()
 }
 
-/// One element that holds or surrounds a protected region.
-///
-/// The first cell is the class string the element carries, the second is the
-/// UI file that builds it, and the third is the source text that proves it.
-/// A new class in one of these strings, or a changed string, fails the test in
-/// `every_context_element_is_a_context_hook`.
 const PROTECTED_CONTEXT_ELEMENTS: &[(&str, &str, &str)] = &[
     ("modn-app", "ui/index.html", "class=\"modn-app\""),
     ("modn-main", "ui/index.html", "class=\"modn-main\""),

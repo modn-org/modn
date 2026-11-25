@@ -1,6 +1,3 @@
-//! The theme API v1 property allowlist from `docs/themes.md`.
-
-/// Properties that the allowlist names exactly.
 const EXACT_PROPERTIES: &[&str] = &[
     "align-content",
     "align-items",
@@ -64,7 +61,6 @@ const EXACT_PROPERTIES: &[&str] = &[
     "z-index",
 ];
 
-/// Prefix families that the allowlist names with a trailing `*`.
 const PREFIX_PROPERTIES: &[&str] = &[
     "align-",
     "border-",
@@ -82,10 +78,6 @@ const PREFIX_PROPERTIES: &[&str] = &[
     "transition-",
 ];
 
-/// Return whether `property` is on the theme API v1 allowlist.
-///
-/// `property` must already be lowercase. The allowlist matches exact names and
-/// the documented prefix families; it never matches `background-*` by prefix.
 #[must_use]
 pub(crate) fn is_allowed_property(property: &str) -> bool {
     EXACT_PROPERTIES.contains(&property)

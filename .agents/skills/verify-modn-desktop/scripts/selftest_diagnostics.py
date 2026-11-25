@@ -62,7 +62,6 @@ def checks():
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
 
-        # (a) The file already holds a doctor report.
         report_file = root / "report.txt"
         report_file.write_text(json.dumps(REPORT), encoding="utf-8")
         session = FakeSession(["Diagnostics copied."])
@@ -73,7 +72,6 @@ def checks():
             installation(report) == "C:\\fixture\\game"
         )
 
-        # (b) The file appears one poll late and is still accepted.
         late_file = root / "late.txt"
         session = FakeSession(["Diagnostics copied."])
         toast, report = run(
@@ -86,7 +84,6 @@ def checks():
             and installation(report) == "C:\\fixture\\game"
         )
 
-        # (c) The success toast but no file raises without a real sleep.
         sleeps = []
         session = FakeSession(["Diagnostics copied."])
         try:
@@ -98,7 +95,6 @@ def checks():
         else:
             results["diagnostics_fails_without_a_report_file"] = False
 
-        # (c) The success toast and other text in the file raise.
         other_file = root / "other.txt"
         other_file.write_text("not a doctor report", encoding="utf-8")
         session = FakeSession(["Diagnostics copied."])
@@ -111,7 +107,6 @@ def checks():
         else:
             results["diagnostics_rejects_other_file_text"] = False
 
-        # (c) An error toast raises with the toast text and reads no file.
         session = FakeSession(["Something went wrong. Try again."])
         try:
             run(session, root / "error.txt")
@@ -122,7 +117,6 @@ def checks():
         else:
             results["diagnostics_fails_on_an_error_toast"] = False
 
-        # (c) The clipboard-failure toast raises with the toast text.
         session = FakeSession([journeys_core.DIAGNOSTICS_CLIPBOARD_FAILED])
         try:
             run(session, root / "clipboard-failure.txt")

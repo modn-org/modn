@@ -1,5 +1,3 @@
-//! `theme resolve` behavior and documented JSON field names.
-
 use crate::fixture::{Fixture, GAME};
 use serde_json::Value;
 use std::collections::BTreeSet;

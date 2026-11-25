@@ -74,7 +74,6 @@ jobs:
           Expand-Archive -LiteralPath smoke/main-bucket.zip -DestinationPath $bucket
           cargo run --quiet --locked -p modn-core --example sign_catalog -- $bucket smoke/main-bucket.zip.minisig smoke/main-bucket.pub
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # A separate test-key build for `bucket update`; never copied into dist/.
           cargo build --release --locked -p modn-cli --features modn-core/test-main-key --target-dir target/smoke
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item target/smoke/release/modn.exe smoke/modn-test.exe

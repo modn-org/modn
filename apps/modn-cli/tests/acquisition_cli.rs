@@ -58,7 +58,6 @@ fn cache_entry(fixture: &Fixture, id: &str) -> PathBuf {
     cache_dir(fixture).join(format!("test-game#{id}#1.0#{url_hash}.zip"))
 }
 
-/// Count archive entries, ignoring the digest index and its temporary files.
 fn archive_entry_count(fixture: &Fixture) -> usize {
     fs::read_dir(cache_dir(fixture))
         .expect("cache dir")

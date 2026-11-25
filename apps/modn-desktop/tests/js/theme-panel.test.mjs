@@ -9,7 +9,6 @@ import {
   installDom,
 } from './support/fake-dom.mjs';
 
-/** Two themes with different variants and sources. */
 function themes() {
   return [
     {
@@ -31,7 +30,6 @@ function themes() {
   ];
 }
 
-/** Installs a fake document and builds one control with stubs. */
 function setup({ listThemes, selectAndApply, selectNoneAndApply, importAndRefresh } = {}) {
   installDom();
   const host = document.createElement('div');
@@ -73,7 +71,6 @@ function setup({ listThemes, selectAndApply, selectNoneAndApply, importAndRefres
   return { control, trigger, panel, calls };
 }
 
-/** Opens the panel and waits for the list. */
 async function open(control, trigger) {
   trigger.click();
   await flush();

@@ -11,8 +11,6 @@ use state::AppState;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-/// Runs the Tauri application. Startup configuration errors are reported in a
-/// native dialog because the Windows subsystem has no console.
 pub(crate) fn run() {
     let default_theme = has_default_theme_flag(&std::env::args_os().collect::<Vec<_>>());
     let (backend, startup_error) = match Backend::from_args() {

@@ -1,13 +1,6 @@
-//! Guards the desktop Theme control.
-//!
-//! The webview runs under a policy with no inline styles or scripts, and theme
-//! text is untrusted. These tests keep the new UI files free of markup
-//! injection, dynamic code and inline styling. They also keep every new class
-//! inside the reserved `modn-theme-` prefix that the hook guard exempts.
 use std::fs;
 use std::path::Path;
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
-/// The UI files the Theme control adds or changes.
 const THEME_FILES: [&str; 6] = [
     "ui/js/theme/loader.js",
     "ui/js/theme/controller.js",
@@ -16,13 +9,11 @@ const THEME_FILES: [&str; 6] = [
     "ui/css/theme.css",
     "ui/index.html",
 ];
-/// Existing shared classes the control reuses instead of restyling them.
 const SHARED_CLASSES: [&str; 3] = ["modn-button", "modn-button--quiet", "modn-select"];
 fn read(relative: &str) -> String {
     let path = Path::new(ROOT).join(relative);
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("cannot read {path:?}: {error}"))
 }
-/// Every `modn-` token in `text`, without a leading dot or quote.
 fn class_tokens(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut rest = text;
@@ -39,7 +30,6 @@ fn class_tokens(text: &str) -> Vec<String> {
     }
     tokens
 }
-/// Every `.modn-*` class that `text` styles.
 fn styled_classes(text: &str) -> Vec<String> {
     let mut classes = Vec::new();
     let mut rest = text;

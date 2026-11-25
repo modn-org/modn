@@ -16,20 +16,10 @@ const SCAN_MESSAGE = 'Scanning this PC for supported games…';
  * @property {boolean} [canRemove]
  */
 
-/**
- * Builds the library route for one registered installation.
- * @param {HomeEntry} entry
- * @returns {string}
- */
 function installationRoute(entry) {
   return `#/game/${encodeURIComponent(entry.gameId)}?path=${encodeURIComponent(entry.path)}`;
 }
 
-/**
- * Explains that this PC holds no registered and no detected game. The Scan and
- * Add controls stay in the toolbar, so this card only names them.
- * @returns {HTMLElement}
- */
 function emptyState() {
   const card = element('div', 'modn-card modn-card--empty modn-home__empty');
   card.dataset.testid = 'home-empty';
@@ -83,7 +73,6 @@ export async function render(root) {
   view.append(header, status, grid);
   root.append(view);
 
-  /** @type {HomeEntry[]} */
   let entries = [];
   let generation = 0;
 
@@ -97,27 +86,18 @@ export async function render(root) {
   });
 
   const handlers = {
-    /** @param {HomeEntry} entry */
     open(entry) {
       menu.close();
       window.location.hash = installationRoute(entry);
     },
-    /** @param {HomeEntry} entry @param {HTMLElement} card */
     activate(entry, card) {
       void activateFlow(entry, card);
     },
-    /** @param {HomeEntry} entry @param {HTMLElement} card @param {HTMLButtonElement} control */
     remove(entry, card, control) {
       void removeFlow(entry, card, control);
     },
   };
 
-  /**
-   * Reloads registration and detection, then rebuilds the grid.
-   * @param {string} message shown while the reload runs
-   * @param {string} [notice] shown when the reload succeeds
-   * @returns {Promise<void>}
-   */
   async function refresh(message, notice = '') {
     menu.close();
     const current = ++generation;
@@ -148,12 +128,6 @@ export async function render(root) {
     );
   }
 
-  /**
-   * Registers one detected installation and rebuilds the grid.
-   * @param {HomeEntry} entry
-   * @param {HTMLElement} card
-   * @returns {Promise<void>}
-   */
   async function activateFlow(entry, card) {
     setCardBusy(card, true);
     clearCardError(card);
@@ -167,13 +141,6 @@ export async function render(root) {
     await refresh('', `Added ${gameLabel(entry.gameId)} to Modn.`);
   }
 
-  /**
-   * Unregisters one installation with no managed package.
-   * @param {HomeEntry} entry
-   * @param {HTMLElement} card
-   * @param {HTMLButtonElement} control
-   * @returns {Promise<void>}
-   */
   async function removeFlow(entry, card, control) {
     control.disabled = true;
     clearCardError(card);
@@ -191,11 +158,6 @@ export async function render(root) {
     await refresh('', `Removed ${gameLabel(entry.gameId)} from Modn.`);
   }
 
-  /**
-   * Opens the native folder picker for one game and registers the choice.
-   * @param {string} gameId
-   * @returns {Promise<void>}
-   */
   async function addGameFlow(gameId) {
     add.disabled = true;
     try {

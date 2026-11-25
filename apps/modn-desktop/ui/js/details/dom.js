@@ -1,8 +1,4 @@
 /**
- * DOM helpers shared by the Mod details view.
- */
-
-/**
  * @param {string} tag
  * @param {string} [className]
  * @param {string} [text]

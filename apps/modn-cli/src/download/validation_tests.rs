@@ -1,5 +1,3 @@
-//! Transport classification, link validation and consent-text tests.
-
 use modn_core::acquisition::GithubReleaseAsset;
 use std::io::{self, Cursor, Read};
 
@@ -10,7 +8,6 @@ const METADATA: &str = r#"{
     "assets": [{"name": "example.zip", "browser_download_url": "https://github.com/fixture/project/releases/download/v1/example.zip"}]
 }"#;
 
-/// A body whose first read fails with the wrapped timeout ureq produces.
 struct WrappedTimeoutBody {
     failures: usize,
     body: &'static [u8],

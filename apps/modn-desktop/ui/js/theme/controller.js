@@ -1,34 +1,11 @@
-/**
- * Loads, selects and imports the theme of the active game.
- *
- * The controller never spawns anything itself: the API, the apply function and
- * the toast are injectable. When the CLI has no theme commands the controller
- * leaves the default theme in place and reports `unavailable` without a toast,
- * so a missing CLI cannot flood the screen.
- *
- * Every load takes a ticket from one module-level generation counter. Only the
- * newest ticket may apply sheets, so an answer for a game the user left cannot
- * repaint the current screen. A load error for the current ticket removes the
- * sheets of the previous game.
- */
 import * as api from '../api.js';
 import { messageFor } from '../messages.js';
 import { showToast } from '../toast.js';
 import { applyTheme, browserEnvironment } from './loader.js';
-/** The current load ticket; a newer request makes older answers stale. */
 let generation = 0;
-/** The game whose resolve answer the screen still waits for. */
 let activeGame = null;
-/** The most notices remembered for one session. */
 const MAX_NOTICES = 50;
-/** Notice keys already shown in this session, oldest first. */
 const shownNotices = new Set();
-/**
- * Applies one resolved answer. The sheet environment is created per call
- * because the webview owns the document.
- * @param {Object} resolved
- * @returns {Object}
- */
 function applyResolved(resolved) {
   return applyTheme(resolved, browserEnvironment());
 }
@@ -43,34 +20,15 @@ export function diagnosticLine(diagnostic) {
   const path = diagnostic.path || 'the theme';
   return `Theme not applied: ${rule} in ${path}: ${diagnostic.message || ''}`.trim();
 }
-/**
- * One toast line for a fallback without a diagnostic.
- * @param {{reason: string, message: string}} fallback
- * @returns {string}
- */
 function fallbackLine(fallback) {
   return `Theme not applied: ${fallback.reason}: ${fallback.message}`;
 }
-/**
- * Reports whether one diagnostic explains the active theme rather than another
- * theme of the same game. The panel already lists catalog problems, so a
- * diagnostic about a different theme must not claim the selected theme failed.
- * @param {{theme?: string|null}} diagnostic
- * @param {string} game
- * @param {Object} resolved
- * @returns {boolean}
- */
 function concernsActiveTheme(diagnostic, game, resolved) {
   if (!resolved.theme || resolved.fallback) {
     return true;
   }
   return diagnostic.theme === `${game}/${resolved.theme.id}`;
 }
-/**
- * Remembers one notice key for the session and reports whether it is new.
- * @param {string} key
- * @returns {boolean}
- */
 function rememberNotice(key) {
   if (shownNotices.has(key)) {
     return false;
@@ -82,18 +40,10 @@ function rememberNotice(key) {
   shownNotices.add(key);
   return true;
 }
-/**
- * Builds the notice key of one resolved answer and its toast text.
- * @param {string} game
- * @param {Object} resolved
- * @param {string} text
- * @returns {string}
- */
 function noticeKey(game, resolved, text) {
   const theme = resolved.theme || {};
   return `${game}|${theme.id || ''}|${theme.variant || ''}|${text}`;
 }
-/** Forgets every notice shown so far. Tests use it between scenarios. */
 export function resetNoticeMemory() {
   shownNotices.clear();
 }
@@ -148,20 +98,8 @@ export async function loadThemeForGame(game, deps = {}) {
     diagnostics,
   };
 }
-/**
- * Selections running or queued. A new selection waits for the older ones so
- * that two quick choices store and apply in click order.
- */
 let selectionDepth = 0;
-/** Settles when the newest queued selection ends. */
 let selectionTail = Promise.resolve();
-/**
- * Runs one selection. The first one starts at once; a later one waits for the
- * older selection.
- * @template T
- * @param {() => Promise<T>} run
- * @returns {Promise<T>}
- */
 function queueSelection(run) {
   const next = selectionDepth === 0 ? run() : selectionTail.then(run, run);
   selectionDepth += 1;
@@ -175,13 +113,6 @@ function queueSelection(run) {
   );
   return next;
 }
-/**
- * Stores one selection and applies its theme unless the game already changed.
- * @param {string} game
- * @param {() => Promise<Object>} store
- * @param {{api?: Object, applyTheme?: Function, toast?: Function}} deps
- * @returns {Promise<Object>}
- */
 async function storeAndApply(game, store, deps) {
   if (activeGame !== game) {
     return { applied: false, stale: true };

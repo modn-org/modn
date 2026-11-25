@@ -1,5 +1,3 @@
-/** The small Add menu that lists the supported game ids. */
-
 import { gameLabel } from './data.js';
 import { button, element } from './dom.js';
 
@@ -36,9 +34,6 @@ export function createAddMenu({ anchor, container, listGameIds, onPick }) {
     document.removeEventListener('keydown', onEscape, true);
   };
 
-  /**
-   * @param {PointerEvent} event
-   */
   function onPointerDown(event) {
     const target = event.target;
     if (!(target instanceof Node)) {
@@ -50,9 +45,6 @@ export function createAddMenu({ anchor, container, listGameIds, onPick }) {
     close();
   }
 
-  /**
-   * @param {KeyboardEvent} event
-   */
   function onEscape(event) {
     if (event.key !== 'Escape') {
       return;
@@ -100,7 +92,7 @@ export function createAddMenu({ anchor, container, listGameIds, onPick }) {
       return;
     }
     event.preventDefault();
-    const index = items.indexOf(/** @type {HTMLButtonElement} */ (document.activeElement));
+    const index = items.indexOf(document.activeElement);
     const next =
       index < 0
         ? event.key === 'ArrowDown'

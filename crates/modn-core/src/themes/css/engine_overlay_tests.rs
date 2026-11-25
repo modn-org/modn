@@ -1,10 +1,3 @@
-//! Rule checks for values that move or stack a theme element over another
-//! element.
-//!
-//! The install review and the approval prompt are ordinary elements, so a theme
-//! that positions or offsets an element can paint a fake prompt over the real
-//! one. Cascade layers do not stop it, because the overlay is another element.
-
 use super::check_sheet;
 use crate::themes::css::facts::{DeclFacts, RuleFacts, SheetFacts, StyleFacts};
 use crate::themes::Rule;

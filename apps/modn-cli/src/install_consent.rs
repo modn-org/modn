@@ -159,8 +159,6 @@ fn read_yes(input: &mut impl BufRead, output: &mut impl Write) -> io::Result<boo
     ))
 }
 
-/// Approval state for one release: what it needs, what is stored, and what
-/// remains uncovered by the stored approval and explicit flags.
 pub(super) struct ApprovalCheck {
     pub(super) reference: CatalogReference,
     pub(super) needed: Capabilities,
@@ -204,9 +202,6 @@ impl ApprovalCheck {
         Err(ApprovalRefusal::new(self.reference.clone(), self.uncovered.clone()).into_error())
     }
 
-    /// Every executable path that the stored approval or an explicit flag
-    /// authorizes, including an undeclared path from `--allow-executable`.
-    /// The stored approval keeps only declared capabilities.
     pub(super) fn approved_executables(&self) -> Vec<String> {
         self.approved.executables.iter().cloned().collect()
     }

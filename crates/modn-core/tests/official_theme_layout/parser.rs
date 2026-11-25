@@ -1,17 +1,9 @@
-//! A strict test-only parser from theme CSS text to `SheetFacts`.
-//!
-//! The theme CSS is written in one line-oriented format: a selector list ends
-//! with `{`, each declaration is one `property: value;` line and `}` is alone
-//! on a line. The parser accepts exactly that format. Any line it cannot read
-//! becomes a `css-syntax` problem, so a construct is never silently dropped.
-
 use modn_core::themes::Rule;
 use modn_core::themes::{
     DeclFacts, FontFaceFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts, ThemeProblem,
     UnsupportedFacts,
 };
 
-/// Parse one stylesheet, or report the first line the strict format rejects.
 pub fn parse_sheet(text: &str) -> Result<SheetFacts, ThemeProblem> {
     let lines: Vec<&str> = text.lines().collect();
     let mut cursor = Cursor {
@@ -21,19 +13,16 @@ pub fn parse_sheet(text: &str) -> Result<SheetFacts, ThemeProblem> {
     Ok(SheetFacts::new(cursor.parse_rules(false)?))
 }
 
-/// A line cursor over one stylesheet.
 struct Cursor<'a> {
     lines: &'a [&'a str],
     index: usize,
 }
 
 impl<'a> Cursor<'a> {
-    /// Return the one-based line number of the next unconsumed line.
     fn line_number(&self) -> u32 {
         u32::try_from(self.index + 1).expect("a theme stylesheet has fewer than u32::MAX lines")
     }
 
-    /// Consume the next non-blank line, trimmed, with its line number.
     fn next_line(&mut self) -> Option<(&'a str, u32)> {
         while self.index < self.lines.len() {
             let number = self.line_number();
@@ -46,7 +35,6 @@ impl<'a> Cursor<'a> {
         None
     }
 
-    /// Parse rules until the end of the file or a closing brace.
     fn parse_rules(&mut self, nested: bool) -> Result<Vec<RuleFacts>, ThemeProblem> {
         let mut rules = Vec::new();
         loop {
@@ -66,7 +54,6 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    /// Parse one style rule or at-rule whose first line is `text`.
     fn parse_rule(&mut self, text: &str, line: u32) -> Result<RuleFacts, ThemeProblem> {
         reject_comments(text, line)?;
         if text.starts_with('@') {
@@ -84,7 +71,6 @@ impl<'a> Cursor<'a> {
         )))
     }
 
-    /// Parse one at-rule, rejecting any form outside the documented set.
     fn parse_at_rule(&mut self, text: &str, line: u32) -> Result<RuleFacts, ThemeProblem> {
         let header = text
             .strip_prefix('@')
@@ -130,7 +116,6 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    /// Consume the body of an at-rule that the theme API does not allow.
     fn skip_block(&mut self) -> Result<(), ThemeProblem> {
         let mut depth = 1usize;
         loop {
@@ -146,7 +131,6 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    /// Parse declarations until the closing brace of the current block.
     fn parse_declarations(&mut self) -> Result<Vec<DeclFacts>, ThemeProblem> {
         let mut declarations = Vec::new();
         loop {
@@ -161,12 +145,10 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// Return the last consumed line number, for end-of-file diagnostics.
 fn line_number_of(cursor: &Cursor<'_>) -> u32 {
     u32::try_from(cursor.index.max(1)).expect("a theme stylesheet has fewer than u32::MAX lines")
 }
 
-/// Split one declaration line into property, value and `!important`.
 fn parse_declaration(text: &str, line: u32) -> Result<DeclFacts, ThemeProblem> {
     reject_comments(text, line)?;
     let Some(statement) = text.strip_suffix(';') else {
@@ -199,14 +181,12 @@ fn parse_declaration(text: &str, line: u32) -> Result<DeclFacts, ThemeProblem> {
     ))
 }
 
-/// Remove a trailing `!important`, returning the remaining value.
 fn strip_important(value: &str) -> Option<&str> {
     let lower = value.to_ascii_lowercase();
     let rest = lower.strip_suffix("!important")?;
     Some(value[..rest.len()].trim())
 }
 
-/// Split one selector list line into its comma-separated selectors.
 fn parse_selectors(header: &str, line: u32) -> Result<Vec<String>, ThemeProblem> {
     reject_comments(header, line)?;
     let header = header.trim();
@@ -224,7 +204,6 @@ fn parse_selectors(header: &str, line: u32) -> Result<Vec<String>, ThemeProblem>
     Ok(selectors)
 }
 
-/// Reject a CSS comment, which the theme format does not allow.
 fn reject_comments(text: &str, line: u32) -> Result<(), ThemeProblem> {
     if text.contains("/*") || text.contains("*/") {
         return Err(syntax(line, "comments are not part of the theme format"));
@@ -232,7 +211,6 @@ fn reject_comments(text: &str, line: u32) -> Result<(), ThemeProblem> {
     Ok(())
 }
 
-/// Split an at-rule body into its name and the remaining text.
 fn split_name(body: &str) -> (&str, &str) {
     let end = body
         .find(|character: char| character.is_ascii_whitespace() || character == '(')
@@ -240,12 +218,10 @@ fn split_name(body: &str) -> (&str, &str) {
     (&body[..end], &body[end..])
 }
 
-/// Return the lowercase name of a statement at-rule such as `@import`.
 fn at_rule_name(statement: &str) -> String {
     split_name(statement.trim()).0.to_ascii_lowercase()
 }
 
-/// Build a `css-syntax` problem at `line`.
 fn syntax(line: u32, message: impl Into<String>) -> ThemeProblem {
     ThemeProblem::new(Rule::CssSyntax, message).with_line(line)
 }

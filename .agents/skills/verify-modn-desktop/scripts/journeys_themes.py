@@ -37,7 +37,6 @@ PROTECTED_RULE = "protected-region"
 DIGEST_RULE = "digest-mismatch"
 
 
-# -- small helpers ---------------------------------------------------------
 
 
 def _expect_ok(runner, step, result, context):
@@ -216,7 +215,6 @@ def _assert_growth(runner, step, earlier_px, later_px, earlier_key, later_key):
     )
 
 
-# -- the seven steps -------------------------------------------------------
 
 
 def _step1_cli(runner, fx, protected):

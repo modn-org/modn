@@ -1,9 +1,3 @@
-//! Static checks for the desktop router.
-//!
-//! The app ships plain ES modules and no bundler, so these tests hold the
-//! navigation promises: every route renders into its own container, and a
-//! load that settles late cannot replace the screen the reader moved to.
-
 use std::fs;
 use std::path::Path;
 
@@ -14,7 +8,6 @@ fn read(relative: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("cannot read {path:?}: {error}"))
 }
 
-/// Returns the source from `marker` through its first balanced brace block.
 fn braced<'a>(source: &'a str, marker: &str) -> &'a str {
     let start = source
         .find(marker)
@@ -45,7 +38,7 @@ fn each_navigation_renders_into_a_fresh_container() {
         "each navigation must create its own container"
     );
     assert!(
-        route.contains("module.render(container, ctx)"),
+        route.contains("module.render(routeContainer, ctx)"),
         "the view must render into the navigation container"
     );
     assert!(
@@ -53,7 +46,7 @@ fn each_navigation_renders_into_a_fresh_container() {
         "views must never render into the shared mount"
     );
     assert!(
-        route.contains("replaceChildren(container)"),
+        route.contains("replaceChildren(routeContainer)"),
         "the new container must replace the previous one"
     );
 }
@@ -75,7 +68,7 @@ fn a_stale_navigation_cannot_write_to_the_current_screen() {
         "late writes must compare the navigation token"
     );
     assert!(
-        route.contains("container.isConnected"),
+        route.contains("routeContainer.isConnected"),
         "late writes must check the container is still mounted"
     );
 }

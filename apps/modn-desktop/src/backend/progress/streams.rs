@@ -1,5 +1,3 @@
-//! The stderr progress and stdout result readers of a progress-aware call.
-
 use super::super::OUTPUT_LIMIT;
 use super::super::error::ErrorEnvelope;
 use super::ProgressEvent;
@@ -10,32 +8,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-/// One item the stderr reader sends to the caller.
 pub(super) enum StderrItem {
-    /// One progress event the CLI wrote.
     Event(ProgressEvent),
-    /// One CLI error envelope with the refusal's uncovered capabilities.
     Envelope(ErrorEnvelope),
-    /// The stream passed the output bound; the reader keeps draining it.
     Oversized,
-    /// The reader reached the end of the stream.
-    Done {
-        /// Whether reading failed before the end.
-        failed: bool,
-    },
+    Done { failed: bool },
 }
 
-/// One item the stdout reader sends to the caller.
 pub(super) enum StdoutItem {
-    /// The stream passed the output bound; the reader keeps draining it.
     Oversized,
-    /// The reader reached the end of the stream.
-    Done {
-        /// The bytes read, empty when the stream was oversized or failed.
-        bytes: Vec<u8>,
-        /// Whether reading failed before the end.
-        failed: bool,
-    },
+    Done { bytes: Vec<u8>, failed: bool },
 }
 
 const CHUNK: usize = 8 * 1024;

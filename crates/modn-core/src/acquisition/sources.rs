@@ -1,11 +1,3 @@
-//! Ordered artifact-source fallback with the documented timeout and retry policy.
-//!
-//! [`ArchiveCache::acquire_from_sources`] tries the sources of a release in
-//! list order. It moves to the next source after a timeout, a network failure,
-//! an HTTP failure or a BLAKE3 mismatch. A mismatched or partial body is never
-//! cached. When every source fails, one error names each source and why it
-//! failed.
-
 #![expect(missing_docs, reason = "Field and variant names state their meaning")]
 
 mod error;

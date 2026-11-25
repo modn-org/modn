@@ -39,16 +39,11 @@ export function createHistorySection(ctx, { reload }) {
 
   const hooks = undoHooks(ctx.gameId);
 
-  /** @param {string} message */
   function showError(message) {
     status.textContent = message;
     status.classList.add('modn-status--error');
   }
 
-  /**
-   * @param {Object} entry
-   * @returns {HTMLLIElement}
-   */
   function rowOf(entry) {
     const row = element('li', 'modn-row modn-history__entry');
     row.dataset.operationId = typeof entry.id === 'string' ? entry.id : '';
@@ -81,9 +76,6 @@ export function createHistorySection(ctx, { reload }) {
     return row;
   }
 
-  /**
-   * @param {Object[]} entries
-   */
   function renderEntries(entries) {
     list.replaceChildren();
     if (entries.length === 0) {
@@ -97,9 +89,6 @@ export function createHistorySection(ctx, { reload }) {
     }
   }
 
-  /**
-   * @param {{installed: Object|null}} model
-   */
   async function load(model) {
     status.classList.remove('modn-status--error');
     status.textContent = 'Loading history…';

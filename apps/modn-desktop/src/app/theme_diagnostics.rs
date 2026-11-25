@@ -1,42 +1,21 @@
-//! Sanitised theme diagnostics that the webview may render.
-//!
-//! A `THEME_INVALID` refusal carries a `diagnostics` array. Only the fields the
-//! Theme control needs cross the webview boundary, and every string is cleaned
-//! and bounded first. Raw envelope text never reaches the webview.
-
 use serde::Serialize;
 use serde_json::Value;
 
-/// The most diagnostics one refusal may contribute to the Theme control.
 const MAX_DIAGNOSTICS: usize = 50;
-/// The longest rule id the control accepts.
 const MAX_RULE_CHARS: usize = 64;
-/// The longest message the control shows.
 const MAX_MESSAGE_CHARS: usize = 300;
-/// The longest theme label the control shows.
 const MAX_THEME_CHARS: usize = 130;
-/// The longest relative path the control shows.
 const MAX_PATH_CHARS: usize = 200;
 
-/// One validated theme problem shown by the Theme control.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct ThemeDiagnostic {
-    /// The `<game>/<id>` theme, when the CLI named one.
     pub(crate) theme: Option<String>,
-    /// The file relative to the theme directory, when the CLI named one.
     pub(crate) path: Option<String>,
-    /// The one-based line number, when the CLI named one.
     pub(crate) line: Option<u32>,
-    /// The stable rule id.
     pub(crate) rule: String,
-    /// The problem in words.
     pub(crate) message: String,
 }
 
-/// Reads and sanitises the `diagnostics` array of one `THEME_INVALID` envelope.
-///
-/// At most [`MAX_DIAGNOSTICS`] entries are read. A non-array value yields no
-/// diagnostics.
 pub(crate) fn sanitize(items: &[Value]) -> Vec<ThemeDiagnostic> {
     items
         .iter()
@@ -45,7 +24,6 @@ pub(crate) fn sanitize(items: &[Value]) -> Vec<ThemeDiagnostic> {
         .collect()
 }
 
-/// Reads one diagnostic object, or drops it when a required field is malformed.
 fn sanitize_entry(value: &Value) -> Option<ThemeDiagnostic> {
     let object = value.as_object()?;
     let rule = clean(object.get("rule")?.as_str()?);
@@ -75,7 +53,6 @@ fn sanitize_entry(value: &Value) -> Option<ThemeDiagnostic> {
     })
 }
 
-/// A rule id is one to 64 lowercase ASCII letters, digits or hyphens.
 fn valid_rule(rule: &str) -> bool {
     !rule.is_empty()
         && rule.chars().count() <= MAX_RULE_CHARS
@@ -84,14 +61,12 @@ fn valid_rule(rule: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
-/// Removes ASCII control characters, which could break the rendered line.
 fn clean(text: &str) -> String {
     text.chars()
         .filter(|character| !character.is_ascii_control())
         .collect()
 }
 
-/// Cuts `text` to at most `limit` characters.
 fn truncate(text: String, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text;
@@ -99,12 +74,10 @@ fn truncate(text: String, limit: usize) -> String {
     text.chars().take(limit).collect()
 }
 
-/// Whether a path may be shown: relative, no parent segment and bounded.
 fn safe_path(path: &str) -> bool {
     !is_absolute(path) && !path.contains("..") && path.chars().count() <= MAX_PATH_CHARS
 }
 
-/// Whether a path is rooted: a slash, a backslash or a drive prefix.
 fn is_absolute(path: &str) -> bool {
     let bytes = path.as_bytes();
     path.starts_with('/')
@@ -117,7 +90,6 @@ mod tests {
     use super::{ThemeDiagnostic, sanitize};
     use serde_json::{Value, json};
 
-    /// Sanitises a JSON array and returns its first entry.
     fn first(value: Value) -> Option<ThemeDiagnostic> {
         sanitize(value.as_array().expect("a JSON array"))
             .into_iter()
@@ -307,7 +279,6 @@ mod tests {
         }
     }
 
-    /// A refusal envelope with one valid and one malformed diagnostic.
     const THEME_REFUSAL: &str = r#"{"error":"THEME_INVALID","message":"the theme is not valid","diagnostics":[{"theme":"cyberpunk-2077/night-city","path":"theme.css","line":12,"rule":"unknown-property","message":"property \"transform\" is not allowed"},{"rule":"Bad Rule","message":"dropped"}]}"#;
 
     #[test]

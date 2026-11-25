@@ -12,7 +12,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-/// Refuse a registry write when the state directory sits inside a game installation.
 pub(super) fn validate_registry_write(
     state_path: &Path,
     root: &Path,
@@ -45,7 +44,6 @@ pub(super) fn validate_registry_write(
     Ok(())
 }
 
-/// Fetch and verify one registered Git catalog, reporting a newly pinned signer.
 pub(super) fn sync_catalog(
     store: &BucketStore,
     name: &str,
@@ -64,7 +62,6 @@ pub(super) fn sync_catalog(
     report_trace(name, &synced.trace, json_output);
     Ok(synced)
 }
-/// Fetch, verify and publish one ZIP catalog, reporting a newly pinned signer.
 pub(super) fn sync_zip_catalog(
     store: &BucketStore,
     name: &str,
@@ -105,7 +102,6 @@ fn report_pin(name: &str, signer: &CatalogSigner, pinned: bool, json_output: boo
         emit_report(&line, json_output);
     }
 }
-/// Report an accepted rotation or revocation with both fingerprints.
 fn report_key_change(change: Option<&CatalogKeyChange>, json_output: bool) {
     if let Some(change) = change {
         emit_report(&change.line(), json_output);
@@ -118,7 +114,6 @@ fn emit_report(line: &str, json_output: bool) {
         println!("{line}");
     }
 }
-/// Report a failed source, the serving mirror and a followed relocation.
 fn report_trace(name: &str, trace: &CatalogSyncTrace, json_output: bool) {
     let mut lines = Vec::new();
     for failure in &trace.failed_sources {
@@ -145,7 +140,6 @@ fn report_trace(name: &str, trace: &CatalogSyncTrace, json_output: bool) {
         }
     }
 }
-/// Human-readable form of one tagged `CatalogHost` JSON value.
 fn host_label(host: &Value) -> String {
     match host.get("kind").and_then(Value::as_str) {
         Some("zip") => format!(
@@ -250,7 +244,6 @@ fn print_zip_sync(name: &str, synced: &ZipCatalogSync) {
     );
     print_sync_modules(&synced.modules);
 }
-/// The pinned signer key ID that a trust acknowledgement must name.
 fn module_signer(store: &BucketStore, bucket: &str) -> Result<String> {
     if bucket == "main" {
         bail!("the official main bucket is always a module source and needs no trust record");

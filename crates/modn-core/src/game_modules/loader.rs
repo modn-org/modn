@@ -19,7 +19,6 @@ pub const MIN_HOST_API_VERSION: u32 = 3;
 pub(super) const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 pub(super) const MAX_SCRIPT_BYTES: u64 = 256 * 1024;
 
-/// Whether this build accepts host API revision `version`.
 pub(crate) const fn supported_api_version(version: u32) -> bool {
     version >= MIN_HOST_API_VERSION && version <= HOST_API_VERSION
 }

@@ -9,11 +9,6 @@ import { messageFor } from '../../ui/js/messages.js';
 const UI_MESSAGES = fileURLToPath(new URL('../../ui/js/messages.js', import.meta.url));
 const BACKEND_SOURCES = fileURLToPath(new URL('../../src', import.meta.url));
 
-/**
- * Reads every Rust source under a directory.
- * @param {string} directory
- * @returns {string[]}
- */
 function rustSources(directory) {
   const found = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {

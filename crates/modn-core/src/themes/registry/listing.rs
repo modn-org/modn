@@ -1,5 +1,3 @@
-//! Listing registered themes without failing on one bad entry.
-
 use super::super::digest::theme_digest;
 use super::super::error::{Result, ThemeError};
 use super::super::limits::{is_valid_id, MAX_THEME_MANIFEST_BYTES};
@@ -12,7 +10,6 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-/// List the registrations below one theme root.
 pub(super) fn list(root: &Path) -> Result<ListedThemes> {
     let registry = layout::registry_root(root);
     let mut themes = Vec::new();
@@ -106,7 +103,6 @@ pub(super) fn list(root: &Path) -> Result<ListedThemes> {
     Ok(ListedThemes { themes, problems })
 }
 
-/// Read one registration and turn every defect into a diagnostic.
 fn read_entry(
     entry: &Path,
     game: &str,
@@ -145,7 +141,6 @@ fn read_entry(
     })
 }
 
-/// Read the copied `theme.json` for the display fields of a listing.
 fn read_copy_manifest(dir: &Path) -> std::result::Result<ThemeManifest, String> {
     let path = dir.join(MANIFEST_FILE);
     let metadata = fs::symlink_metadata(&path)
@@ -162,7 +157,6 @@ fn read_copy_manifest(dir: &Path) -> std::result::Result<ThemeManifest, String> 
     ThemeManifest::parse(&bytes).map_err(|problem| problem.to_string())
 }
 
-/// Report a registry directory that does not have a usable name.
 fn invalid_name_problem(path: &str, message: impl Into<String>) -> ThemeProblem {
     ThemeProblem::new(Rule::ManifestInvalid, message).with_path(path.to_owned())
 }

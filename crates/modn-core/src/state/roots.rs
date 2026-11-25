@@ -3,10 +3,8 @@ use anyhow::{bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
-/// The manager state schema version this build writes.
 pub(crate) const SCHEMA_VERSION: i64 = 7;
 
-/// Identity of one root within its installation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RootKind {
     Game,
@@ -30,10 +28,6 @@ impl RootKind {
     }
 }
 
-/// Record `path` as the `kind` root of `installation`.
-///
-/// Refuses a canonical root that another installation or root already
-/// claims, and a root whose recorded path differs.
 pub(crate) fn record_root(
     connection: &Connection,
     installation: &Path,
@@ -68,7 +62,6 @@ pub(crate) fn record_root(
     Ok(())
 }
 
-/// Refuse what [`record_root`] refuses, without writing manager state.
 pub(crate) fn check_root(
     connection: &Connection,
     installation: &Path,
@@ -108,7 +101,6 @@ pub(crate) fn check_root(
     Ok(())
 }
 
-/// Read the recorded path of `kind` without requiring it to exist.
 pub(crate) fn recorded_root(
     connection: &Connection,
     installation: &Path,
@@ -124,7 +116,6 @@ pub(crate) fn recorded_root(
         .map(PathBuf::from))
 }
 
-/// Whether `installation` names an installation with recorded roots.
 pub(crate) fn is_recorded(connection: &Connection, installation: &Path) -> Result<bool> {
     Ok(connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM installation_roots WHERE game_path=?1)",
@@ -133,12 +124,6 @@ pub(crate) fn is_recorded(connection: &Connection, installation: &Path) -> Resul
     )?)
 }
 
-/// Resolve the `kind` root of `installation` through its recorded identity.
-///
-/// Fails closed when the recorded root is missing, is a link or junction, or
-/// no longer canonicalizes to the recorded path. An installation without a
-/// recorded game root has committed no ownership yet, so its game root is the
-/// canonical form of `installation`.
 pub(crate) fn resolve_root(
     connection: &Connection,
     installation: &Path,

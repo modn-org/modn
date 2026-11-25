@@ -6,8 +6,6 @@ use std::sync::{Arc, Mutex};
 
 use super::error::CommandError;
 
-/// Shared application state. The managed backend is absent only when the
-/// process started with invalid arguments; a native dialog reports that case.
 pub(crate) struct AppState {
     backend: Option<Backend>,
     default_theme: bool,
@@ -35,16 +33,10 @@ impl AppState {
             .ok_or_else(CommandError::backend_failed)
     }
 
-    /// Whether the process started with `--default-theme`.
     pub(crate) fn default_theme(&self) -> bool {
         self.default_theme
     }
 
-    /// Takes the next theme request ticket. Later tickets supersede earlier ones.
-    ///
-    /// The latest ticket is recorded under the lock that publishes the root, so
-    /// a ticket and the root it authorises can never interleave with another
-    /// request. The atomic counter keeps tickets unique if the lock is poisoned.
     pub(crate) fn next_theme_ticket(&self) -> u64 {
         let Ok(mut assets) = self.themes.lock() else {
             return self.theme_ticket.fetch_add(1, Ordering::SeqCst) + 1;
@@ -54,12 +46,6 @@ impl AppState {
         ticket
     }
 
-    /// Replaces the root the `modn-theme` protocol serves when `ticket` is the
-    /// latest theme request.
-    ///
-    /// The comparison and the store happen under one lock, so a superseded
-    /// `resolve_theme` can never publish its root or clear a newer one. The
-    /// answer reports whether the caller was still the latest.
     pub(crate) fn store_theme_root_if_latest(&self, ticket: u64, root: Option<PathBuf>) -> bool {
         let Ok(mut assets) = self.themes.lock() else {
             return false;
@@ -71,8 +57,6 @@ impl AppState {
         true
     }
 
-    /// The root the protocol may read, or `None` when the default theme is
-    /// active or no theme has resolved yet.
     pub(crate) fn theme_root(&self) -> Option<PathBuf> {
         self.themes
             .lock()
@@ -81,15 +65,12 @@ impl AppState {
     }
 }
 
-/// The only directory the `modn-theme` protocol may serve from.
 #[derive(Default)]
 pub(crate) struct ThemeAssets {
     pub(crate) root: Option<PathBuf>,
     latest_ticket: u64,
 }
 
-/// Counts backend calls. The close handler reads it synchronously to veto a
-/// close while a write may still be running.
 #[derive(Default)]
 pub(crate) struct Busy {
     count: AtomicUsize,
@@ -118,21 +99,12 @@ impl Drop for BusyGuard {
     }
 }
 
-/// Maps the webview's run id to the cancel token of the running write.
-///
-/// The webview creates one id per operation and passes it to the write command
-/// and to `cancel_run`. A completed or failed run removes its own entry, so a
-/// late cancel for an old id is a no-op.
 #[derive(Default)]
 pub(crate) struct Runs {
     tokens: Mutex<HashMap<String, CancelToken>>,
 }
 
 impl Runs {
-    /// Registers one run. The returned guard removes the entry when dropped.
-    ///
-    /// A run id that another live guard holds is refused: the first guard would
-    /// otherwise drop the second entry, and neither run could be cancelled.
     pub(crate) fn start(self: &Arc<Self>, run_id: &str) -> Result<RunGuard, CommandError> {
         let token = CancelToken::new();
         let mut tokens = self
@@ -151,7 +123,6 @@ impl Runs {
         })
     }
 
-    /// Cancels a running write and reports whether the id was known.
     pub(crate) fn cancel(&self, run_id: &str) -> bool {
         let Ok(tokens) = self.tokens.lock() else {
             return false;

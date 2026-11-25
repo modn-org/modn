@@ -26,13 +26,8 @@ pub(crate) const OUTPUT_LIMIT: u64 = 1024 * 1024;
 const ARCHIVE_LIMIT: u64 = 4 * 1024 * 1024 * 1024;
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-/// The value-less start flag that selects the default theme.
 pub(crate) const DEFAULT_THEME_FLAG: &str = "--default-theme";
 
-/// Whether one launch argument list contains `--default-theme`.
-///
-/// The flag takes no value, so the parser skips it instead of reading the next
-/// argument as an absolute path.
 pub(crate) fn has_default_theme_flag(args: &[OsString]) -> bool {
     args.iter()
         .any(|arg| arg.as_os_str() == OsStr::new(DEFAULT_THEME_FLAG))
@@ -45,10 +40,6 @@ pub(crate) struct Backend {
     pub data: Option<PathBuf>,
     pub modules: Option<PathBuf>,
     pub evidence: Option<PathBuf>,
-    /// Inactivity timeout for the write and long-running call paths.
-    ///
-    /// `None` uses 120 seconds. The timeout applies only before the CLI reports
-    /// its commit phase or starts its result on stdout.
     pub inactivity_timeout: Option<Duration>,
 }
 
@@ -85,10 +76,6 @@ impl Backend {
         Self::parse_args(std::env::args_os().skip(1))
     }
 
-    /// Parses one launch argument list.
-    ///
-    /// The value-less `--default-theme` flag is skipped here; it selects the
-    /// default theme and never names a path.
     fn parse_args<I>(args: I) -> Result<Self>
     where
         I: IntoIterator<Item = OsString>,
@@ -140,11 +127,6 @@ impl Backend {
         Ok(result)
     }
 
-    /// Sets the inactivity timeout for the write and long-running call paths.
-    ///
-    /// The default is 120 seconds. The timeout applies only before the CLI
-    /// reports the commit phase or starts its result on stdout; after that the
-    /// call waits for the CLI to finish or roll back.
     #[must_use]
     #[cfg_attr(
         not(test),
@@ -158,35 +140,6 @@ impl Backend {
         self
     }
 
-    /// Runs a write command with `--progress json` and cooperative cancellation.
-    ///
-    /// Each stderr JSON object with a `phase` field is passed to `on_event` in
-    /// the order the CLI wrote it. The final JSON result on stdout is returned.
-    /// When `cancel` is cancelled, the call writes one `cancel` line on stdin
-    /// and never kills the process for that reason.
-    ///
-    /// Before the commit event, inactivity for the configured timeout sends
-    /// `cancel`, waits 15 seconds and then kills the process. The deadline
-    /// stays armed after a cancel, so a step that stalls instead of stopping
-    /// cannot block the call or window close. After the commit event there is
-    /// no inactivity kill, because a committed write must be allowed to finish
-    /// or roll back.
-    ///
-    /// Output that exceeds the bound before the commit event fails the call.
-    /// Output that exceeds it after the commit event is drained, the writer is
-    /// not killed, and the error code is
-    /// `BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT`: the files are installed, so
-    /// callers refresh instead of reporting a failed write. The same code
-    /// reports stdout after an exit status of 0 when it is missing, unreadable
-    /// or not one JSON value, because the commit still completed. A nonzero
-    /// exit after the commit stays a refusal and outranks any output problem.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`BackendError`] when the CLI refuses, the operation is
-    /// cancelled before the commit point, output is invalid or exceeds its
-    /// bound before the commit point, the process cannot start, or inactivity
-    /// expires before the commit point.
     pub fn call_with_progress(
         &self,
         args: &[OsString],
@@ -196,20 +149,6 @@ impl Backend {
         progress::call(self, args, cancel, on_event)
     }
 
-    /// Runs a command that does not report progress with the inactivity
-    /// timeout.
-    ///
-    /// `--progress json` is not appended, and any output resets the timer. The
-    /// call ends when the CLI process exits, so a started game holding the
-    /// inherited pipes cannot block it. Stdout that starts is never killed: the
-    /// write committed and its result is recoverable. A nonzero exit is a
-    /// refusal whatever the output; with exit 0, a lost, oversized or malformed
-    /// result after stdout started reports `BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`BackendError`] when the CLI refuses, output is lost before
-    /// stdout starts, the process cannot start, or inactivity expires.
     pub fn call_with_inactivity_timeout(&self, args: &[OsString]) -> Result<Value, BackendError> {
         inactivity::call(self, args)
     }

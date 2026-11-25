@@ -3,8 +3,6 @@
     reason = "shared fixture exposes helpers for different test crates"
 )]
 
-//! Local Git repository fixtures for the Git source integration tests.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -50,7 +48,6 @@ pub fn commit_all(directory: &Path, message: &str) {
     );
 }
 
-/// Create a two-commit repository, then a bare clone that serves as the remote.
 pub fn repository(root: &Path) -> Repository {
     let work = root.join("git-source-work");
     let plugin = work.join("Demo/package/plugins/git-source.plugin");

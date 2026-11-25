@@ -4,7 +4,6 @@ use std::fmt;
 
 const MAX_ID: u64 = 9_999_999_999;
 
-/// A parsed Nexus "Mod Manager Download" link.
 #[derive(Clone)]
 pub(super) struct NxmLink {
     pub(super) file: (NexusGameDomain, u64, u64),
@@ -17,7 +16,6 @@ impl fmt::Debug for NxmLink {
     }
 }
 
-/// Parse every `--nxm` value, naming the argument position on failure.
 pub(super) fn parse_all(values: &[String], now: u64) -> Result<Vec<NxmLink>> {
     values
         .iter()
@@ -28,7 +26,6 @@ pub(super) fn parse_all(values: &[String], now: u64) -> Result<Vec<NxmLink>> {
         .collect()
 }
 
-/// Parse one nxm link whose `expires` value must be later than `now`.
 pub(super) fn parse(value: &str, now: u64) -> Result<NxmLink> {
     if value
         .chars()

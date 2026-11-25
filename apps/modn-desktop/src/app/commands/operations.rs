@@ -1,6 +1,3 @@
-//! Write commands: every one streams progress and can be cancelled before the
-//! CLI's commit point.
-
 use super::args;
 use super::{ensure_not_cancelled, installation, run_blocking, run_write};
 use crate::app::error::{CommandError, plan_blocked};
@@ -71,8 +68,6 @@ pub(crate) async fn install_archive(
         &allow_executables,
     )?;
 
-    // `docs/desktop.md`: check the plan and the digest again before the write.
-    // The plan carries the archive BLAKE3 pin in `archive_blake3`.
     let fresh = run_review(&state.busy, &backend, &game, &source).await?;
     ensure_not_cancelled(&run)?;
     ensure_review_unchanged(&review.plan, &fresh.plan)?;
@@ -93,7 +88,6 @@ pub(crate) async fn install_archive(
     run_write(&app, &state, run, commit).await
 }
 
-/// Review one archive: digest, inspection and unapproved plan.
 async fn run_review(
     busy: &Arc<Busy>,
     backend: &Backend,
@@ -106,7 +100,6 @@ async fn run_review(
     run_blocking(busy, move || backend.review(&game, &archive)).await
 }
 
-/// Run one archive dry run with the approvals the webview sent.
 async fn archive_dry_run(
     busy: &Arc<Busy>,
     backend: &Backend,
@@ -120,8 +113,6 @@ async fn archive_dry_run(
     run_blocking(busy, move || backend.call(&args)).await
 }
 
-/// The plan to review: the dry run with the webview's approvals, or the
-/// unapproved review plan when it sent none.
 async fn archive_plan(
     busy: &Arc<Busy>,
     backend: &Backend,
@@ -144,13 +135,6 @@ async fn archive_plan(
     Ok(review.plan.clone())
 }
 
-/// The executable paths an archive plan still needs the user to approve.
-///
-/// Only `EXECUTABLE_PAYLOAD` blockers whose path the CLI accepts as a tool
-/// executable are approvable. `NO_INSTALLABLE_FILES` is derived from the
-/// payload blockers, so it may accompany them; approving the executables
-/// removes both. A blocker of another code, an unsafe path, or an already
-/// approved path keeps the plan blocked.
 fn executable_approval(plan: &Value, approved: &[String]) -> Option<Vec<String>> {
     let blockers = plan["blockers"].as_array()?;
     let mut candidates = BTreeSet::new();
@@ -172,8 +156,6 @@ fn executable_approval(plan: &Value, approved: &[String]) -> Option<Vec<String>>
     Some(candidates.into_iter().collect())
 }
 
-/// The game-relative path of an executable blocker message, when the CLI would
-/// accept it as one `--allow-executable` value.
 fn executable_path(message: &str) -> Option<&str> {
     let path = message
         .strip_prefix("Executable payload: ")
@@ -182,8 +164,6 @@ fn executable_path(message: &str) -> Option<&str> {
     (tool && args::game_relative(path)).then_some(path)
 }
 
-/// Refuses a write when the archive digest or its approved plan changed after
-/// the review. The CLI plan carries the archive BLAKE3 pin in `archive_blake3`.
 fn ensure_review_unchanged(reviewed: &Value, fresh: &Value) -> Result<(), CommandError> {
     match (
         reviewed["archive_blake3"].as_str(),
@@ -195,7 +175,6 @@ fn ensure_review_unchanged(reviewed: &Value, fresh: &Value) -> Result<(), Comman
     ensure_plan_unchanged(reviewed, fresh)
 }
 
-/// Refuses a write when the plan the webview approved changed after the review.
 fn ensure_plan_unchanged(plan: &Value, fresh: &Value) -> Result<(), CommandError> {
     if fresh != plan {
         return Err(CommandError::plan_changed());
@@ -271,7 +250,6 @@ pub(crate) async fn update(
     run_write(&app, &state, run, commit).await
 }
 
-/// Cancels a running write. An unknown run id is a no-op.
 #[tauri::command]
 pub(crate) fn cancel_run(
     state: tauri::State<'_, AppState>,

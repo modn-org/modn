@@ -1,5 +1,3 @@
-//! Shared fixtures for the theme catalog tests.
-
 use crate::themes::{CheckedCss, CssChecker, CssContext, Rule, ThemeProblem, ThemeRegistry};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,7 +5,6 @@ use std::path::{Path, PathBuf};
 pub(crate) const GAME: &str = "cyberpunk-2077";
 pub(crate) const OTHER_GAME: &str = "balatro";
 
-/// Accept every stylesheet.
 pub(crate) struct Accept;
 
 impl CssChecker for Accept {
@@ -21,7 +18,6 @@ impl CssChecker for Accept {
     }
 }
 
-/// Reject only stylesheets that contain `BAD`, as one broken theme does.
 pub(crate) struct RejectMarked;
 
 impl CssChecker for RejectMarked {
@@ -42,7 +38,6 @@ impl CssChecker for RejectMarked {
     }
 }
 
-/// Write one file, creating its parent directories.
 pub(crate) fn write(path: &Path, bytes: &[u8]) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create parent directory");
@@ -50,7 +45,6 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).expect("write file");
 }
 
-/// Build one `theme.json` text.
 pub(crate) fn manifest(game: &str, id: &str, name: &str, variants: &[&str]) -> String {
     let variants = variants
         .iter()
@@ -62,15 +56,12 @@ pub(crate) fn manifest(game: &str, id: &str, name: &str, variants: &[&str]) -> S
     )
 }
 
-/// The default base stylesheet.
 pub(crate) const BASE_CSS: &str = ".modn-app { color: #ffffff; }";
 
-/// Return `<root>/themes/<game>/<id>`.
 pub(crate) fn theme_dir(root: &Path, game: &str, id: &str) -> PathBuf {
     root.join("themes").join(game).join(id)
 }
 
-/// Write one valid theme under `<root>/themes/`.
 pub(crate) fn make_theme(
     root: &Path,
     game: &str,
@@ -81,7 +72,6 @@ pub(crate) fn make_theme(
     make_theme_with_css(root, game, id, name, variants, BASE_CSS)
 }
 
-/// Write one theme with the given base stylesheet.
 pub(crate) fn make_theme_with_css(
     root: &Path,
     game: &str,
@@ -105,7 +95,6 @@ pub(crate) fn make_theme_with_css(
     dir
 }
 
-/// A registrar that writes its own source directory before copying it.
 pub(crate) fn register_local(
     temp: &Path,
     game: &str,
@@ -122,19 +111,16 @@ pub(crate) fn register_local(
     registry
 }
 
-/// Create a directory link, reporting whether the platform allowed it.
 #[cfg(unix)]
 pub(crate) fn try_symlink_dir(target: &Path, link: &Path) -> bool {
     std::os::unix::fs::symlink(target, link).is_ok()
 }
 
-/// Create a directory link, reporting whether the platform allowed it.
 #[cfg(windows)]
 pub(crate) fn try_symlink_dir(target: &Path, link: &Path) -> bool {
     std::os::windows::fs::symlink_dir(target, link).is_ok()
 }
 
-/// Create a directory link, reporting whether the platform allowed it.
 #[cfg(not(any(unix, windows)))]
 pub(crate) fn try_symlink_dir(_target: &Path, _link: &Path) -> bool {
     false

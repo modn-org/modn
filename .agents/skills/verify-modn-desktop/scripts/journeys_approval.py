@@ -84,7 +84,6 @@ def journey_approval(runner):
     session = app.session
     _open_game(session, "Balatro")
 
-    # 1. The first native-code ask writes nothing, and Decline forgets it.
     _wait_enabled(session, f"Install {NATIVE_NAME}")
     session.click(name=f"Install {NATIVE_NAME}")
     _wait_ask(session, "the first native-code ask")
@@ -105,7 +104,6 @@ def journey_approval(runner):
     runner.check(not _approval_rows(fx, NATIVE_ID), "Decline stored an approval")
     _assert_clean_ui(runner, session, "approval-1-decline")
 
-    # 2. Allow installs the archive and stores its native-code approval.
     session.click(name=f"Install {NATIVE_NAME}")
     _wait_ask(session, "the native-code ask after Decline")
     session.click(name="Allow")
@@ -123,7 +121,6 @@ def journey_approval(runner):
     )
     _assert_clean_ui(runner, session, "approval-2-allow")
 
-    # 3. A stored approval survives uninstall and suppresses the next ask.
     _clear_toasts(session)
     _wait_enabled(session, f"Uninstall {NATIVE_NAME}")
     session.click(name=f"Uninstall {NATIVE_NAME}")
@@ -151,9 +148,6 @@ def journey_approval(runner):
     _check_approval(runner, fx, NATIVE_ID, True, [], "The native reinstall")
     _assert_clean_ui(runner, session, "approval-3-remembered")
 
-    # native-pack owns `winmm.dll` at the game root, the same destination the
-    # plain-pack native release needs. Remove it so the later update plan is
-    # not blocked by a destination conflict; the stored approval stays.
     _clear_toasts(session)
     _wait_enabled(session, f"Uninstall {NATIVE_NAME}")
     session.click(name=f"Uninstall {NATIVE_NAME}")
@@ -166,7 +160,6 @@ def journey_approval(runner):
     _check_approval(runner, fx, NATIVE_ID, True, [], "The native cleanup")
     _assert_clean_ui(runner, session, "approval-3-cleanup")
 
-    # 4. An executable asks with its path, then its stored approval is remembered.
     _back_home(session)
     _open_game(session, TOOLS_GAME_NAME)
     _clear_toasts(session)
@@ -227,7 +220,6 @@ def journey_approval(runner):
     )
     _assert_clean_ui(runner, session, "approval-4-remembered")
 
-    # 5. A release that adds native code asks again; the next release does not.
     _back_home(session)
     _open_game(session, "Balatro")
     _clear_toasts(session)
@@ -309,12 +301,8 @@ def journey_approval(runner):
     )
     _assert_clean_ui(runner, session, "approval-5-covered-update")
 
-    # 6. Steps 3 and 5 proved that a blocked or covered plan shows no ask. The
-    # blocked journey owns the blocked-plan evidence; this journey only keeps
-    # the invariant that no ask is left over at the end.
     runner.check(not _ask_groups(session), "An approval ask stayed open at the end")
 
-    # 7. Every snapshot above and every toast poll rejected CLI output.
     _assert_clean_ui(runner, session, "approval-7-final")
     runner.check(app.close() in (0, None), "App did not exit cleanly")
     runner.check(

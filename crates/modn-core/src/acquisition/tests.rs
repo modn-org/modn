@@ -204,7 +204,6 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
 
     assert_eq!(cache.remove(Some("alpha")).unwrap().len(), 1);
     assert_eq!(cache.remove(None).unwrap().len(), 1);
-    // Six unrelated files kept, plus the digest index.
     assert_eq!(fs::read_dir(cache.root()).unwrap().count(), 7);
 }
 
@@ -239,8 +238,6 @@ fn retired_git_entries_are_listed_and_removed_but_never_reused() {
         .iter()
         .any(|entry| !entry.retired && entry.path == current.path));
 
-    // No install lookup trusts a retired name: neither the Git lookup nor a
-    // digest scan accepts its bytes.
     let git_key = GitCacheKey::new("test-game", "fixture", "1.0", &commit);
     assert!(cache.git_cached(&git_key).unwrap().is_none());
     let retired_digest = pin(b"retired git archive");

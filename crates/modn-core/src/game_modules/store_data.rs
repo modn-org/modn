@@ -1,5 +1,3 @@
-//! Store identities that a game module declares as data in `module.json`.
-
 use crate::error::{coded, ErrorCode};
 use crate::stores::Storefront;
 use anyhow::Result;

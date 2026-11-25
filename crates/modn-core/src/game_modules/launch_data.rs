@@ -1,8 +1,3 @@
-//! Launch targets that a game module declares as data in `module.json`.
-//!
-//! Rust validates every target before it opens a store URI or starts an
-//! executable. Lua never receives launch targets or a process API.
-
 use super::store_data::StoreIdentities;
 use crate::error::{coded, ErrorCode};
 use crate::stores::Storefront;

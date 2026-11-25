@@ -1,7 +1,3 @@
-//! Resolve archives for `git` package sources without bypassing the commit pin.
-//!
-//! Lookups read the commit-keyed cache only. A fetch runs only when the caller
-//! has explicit download or installation consent, like other remote sources.
 use anyhow::Result;
 use modn_core::acquisition::{ArchiveCache, CacheUse, GitCacheKey, GitSource, Origin};
 use modn_core::buckets::BucketPackage;
@@ -34,10 +30,6 @@ pub(super) fn cached_source(
         .map(|(path, blake3)| GitArchive { path, blake3 }))
 }
 
-/// Names of the cache entries a fetch of `key` may replace.
-///
-/// A Git entry name ends with `git-<commit>-blake3-<digest>.zip`, so a probe path with
-/// a placeholder digest yields the prefix shared by entries of this release.
 fn entry_names(cache: &ArchiveCache, key: &GitCacheKey<'_>) -> Result<Vec<String>> {
     let placeholder = "0".repeat(64);
     let probe = cache.git_path(key, &placeholder);
@@ -63,18 +55,6 @@ fn entry_names(cache: &ArchiveCache, key: &GitCacheKey<'_>) -> Result<Vec<String
         .collect())
 }
 
-/// Return a verified cached archive or fetch and pack the pinned commit.
-///
-/// A fetch reports one `download` phase for the package. The phase starts at
-/// zero bytes, and ends with the packed archive size. A cancellation before
-/// the fetch starts returns [`modn_core::progress::Cancelled`] without running
-/// Git. A cancellation observed after the fetch and pack finishes removes the
-/// newly fetched cache entry, or keeps a previous entry it replaced, so a
-/// cancelled install changes no cache state for either cache use.
-/// Return a verified cached archive, or fetch `source`'s pinned commit.
-///
-/// The ordered download loop names each Git source of a release, so the
-/// attempt uses that entry and not the record's primary source.
 pub(super) fn acquire_named(
     cache: &ArchiveCache,
     release: &BucketPackage,
@@ -118,8 +98,6 @@ fn acquire_source(
                 let name = name.to_string_lossy();
                 previous.iter().any(|old| old.as_str() == name.as_ref())
             });
-            // An entry with the new name holds the digest that name records,
-            // so keeping it preserves the bytes of the entry it replaced.
             if !replaced {
                 let _ = fs::remove_file(&archive.path);
             }

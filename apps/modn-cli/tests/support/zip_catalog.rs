@@ -5,7 +5,6 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-/// Copy every file of one catalog fixture into `target`.
 pub fn copy_catalog(source: &Path, target: &Path) {
     fs::create_dir_all(target).expect("catalog directory");
     for entry in fs::read_dir(source).expect("catalog entries") {
@@ -22,7 +21,6 @@ pub fn copy_catalog(source: &Path, target: &Path) {
         }
     }
 }
-/// Pack one catalog directory into a ZIP with sorted entry names.
 pub fn pack(source: &Path, zip: &Path) {
     fn files(root: &Path, current: &Path, output: &mut Vec<(String, Vec<u8>)>) {
         for entry in fs::read_dir(current).expect("fixture directory") {
@@ -53,7 +51,6 @@ pub fn pack(source: &Path, zip: &Path) {
     }
     writer.finish().expect("fixture ZIP complete");
 }
-/// Copy one signed fixture catalog and pack it as a ZIP.
 pub fn fixture_zip(root: &Path, fixture: &str) -> PathBuf {
     let directory = root.join(format!("{fixture}-catalog"));
     copy_catalog(&catalog_fixture(fixture), &directory);
@@ -66,7 +63,6 @@ pub fn catalog_fixture(name: &str) -> PathBuf {
         .join("tests/fixtures/signed-catalog")
         .join(name)
 }
-/// Every regular file under `root` with relative path and bytes.
 pub fn snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
     fn collect(root: &Path, directory: &Path, output: &mut Vec<(String, Vec<u8>)>) {
         for entry in fs::read_dir(directory).expect("snapshot entries") {
@@ -90,7 +86,6 @@ pub fn snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
     output.sort();
     output
 }
-/// Entry names directly under `root`.
 pub fn listing(root: &Path) -> Vec<String> {
     fs::read_dir(root)
         .map(|entries| {

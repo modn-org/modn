@@ -1,5 +1,3 @@
-//! Game registration and launch commands.
-
 use super::{args, run_blocking};
 use crate::app::error::CommandError;
 use crate::app::state::AppState;
@@ -63,8 +61,6 @@ pub(crate) async fn activate_game(
     run_blocking(&busy, move || backend.call_with_inactivity_timeout(&args)).await
 }
 
-/// Shows the native folder picker from Rust, then registers the chosen folder.
-/// The webview never supplies or edits the folder path.
 #[tauri::command]
 pub(crate) async fn add_game(
     app: tauri::AppHandle,
@@ -81,7 +77,6 @@ pub(crate) async fn add_game(
     Ok(Some(game))
 }
 
-/// Asks in a native dialog before unregistering. No removes a run.
 #[tauri::command]
 pub(crate) async fn remove_game(
     app: tauri::AppHandle,

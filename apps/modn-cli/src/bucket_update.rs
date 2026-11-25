@@ -4,14 +4,11 @@ use modn_core::buckets::{BucketStore, CatalogKeyId};
 use std::fs::File;
 use std::io::Read;
 
-/// One verified replacement of the official main bucket.
 pub(super) struct MainRefresh {
     pub(super) digest: String,
     pub(super) changed: bool,
     pub(super) key_id: CatalogKeyId,
-    /// The selected release tag, or `None` for a direct source.
     pub(super) release: Option<String>,
-    /// A newer release that this build cannot read.
     pub(super) newer: Option<main_release::UnsupportedRelease>,
 }
 
@@ -47,11 +44,6 @@ fn signature_reader(source: &str, signature: &str) -> Result<Box<dyn Read>> {
     }
 }
 
-/// Download, verify and install the signed main bucket release.
-///
-/// A direct `MODN_MAIN_BUCKET_SOURCE` keeps its meaning: one ZIP URL or path
-/// with no release selection. Otherwise Modn installs the newest release that
-/// this build reads.
 pub(super) fn refresh() -> Result<MainRefresh> {
     let (source, signature, selection) = match std::env::var("MODN_MAIN_BUCKET_SOURCE") {
         Ok(source) => {

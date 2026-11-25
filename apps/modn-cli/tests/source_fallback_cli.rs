@@ -333,7 +333,6 @@ fn a_dry_run_reports_a_cached_secondary_nexus_archive() {
     assert!(value["archive_needed"].is_null(), "{value}");
 }
 
-/// Write a bucket whose first Git source fails and whose second one serves.
 fn add_git_fallback_bucket(fixture: &Fixture, root: &Path, commit: &str) {
     let bucket = root.join("git-fallback-fixture");
     let game = bucket.join("mods/test-game");
@@ -363,7 +362,6 @@ fn add_git_fallback_bucket(fixture: &Fixture, root: &Path, commit: &str) {
     assert!(result.status.success(), "{}", error(&result));
 }
 
-/// Run the CLI against the local Git fixture remotes.
 fn run_git(fixture: &Fixture, base: &Path, args: &[&str]) -> Output {
     let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     command

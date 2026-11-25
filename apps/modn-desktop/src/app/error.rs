@@ -4,22 +4,15 @@ use crate::backend::{BackendError, BackendErrorKind};
 use serde::Serialize;
 use serde_json::Value;
 
-/// The capabilities an approval refusal leaves uncovered, in the shape the
-/// webview's ask flow sends back as command arguments.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct ApprovalRequest {
     #[serde(rename = "nativeInjector")]
     pub(crate) native_injector: bool,
     pub(crate) executables: Vec<String>,
-    /// False when the refusal did not name every uncovered executable.
-    ///
-    /// The webview then reads the installation plan before retrying, because
-    /// an empty list may not be the whole approval.
     pub(crate) complete: bool,
 }
 
 impl ApprovalRequest {
-    /// An approval whose executable list is not known to be complete.
     fn incomplete(native_injector: bool) -> Self {
         Self {
             native_injector,
@@ -39,16 +32,12 @@ impl From<&UncoveredApproval> for ApprovalRequest {
     }
 }
 
-/// The only error shape the webview receives. `code` is a CLI stable code, or
-/// `BACKEND_FAILED` / `BACKEND_TIMEOUT` when the backend itself failed. Raw
-/// backend output never crosses this boundary.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct CommandError {
     pub(crate) code: String,
     pub(crate) message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) approval: Option<ApprovalRequest>,
-    /// The sanitised `THEME_INVALID` problems; absent from every other error.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) diagnostics: Vec<ThemeDiagnostic>,
 }
@@ -63,7 +52,6 @@ impl CommandError {
         }
     }
 
-    /// Refuses a write until the webview approves the named capabilities.
     pub(crate) fn approval_required(native_injector: bool, executables: Vec<String>) -> Self {
         let mut error = Self::new("APPROVAL_REQUIRED");
         error.approval = Some(ApprovalRequest {
@@ -74,7 +62,6 @@ impl CommandError {
         error
     }
 
-    /// Refuses a write whose archive changed after the review.
     pub(crate) fn digest_mismatch() -> Self {
         Self {
             code: "DIGEST_MISMATCH".to_string(),
@@ -84,7 +71,6 @@ impl CommandError {
         }
     }
 
-    /// Refuses a write whose installation plan changed after the review.
     pub(crate) fn plan_changed() -> Self {
         Self {
             code: "PLAN_BLOCKED".to_string(),
@@ -94,7 +80,6 @@ impl CommandError {
         }
     }
 
-    /// Refuses two writes that reuse one run id.
     pub(crate) fn run_in_use() -> Self {
         Self {
             code: "RUN_ID_IN_USE".to_string(),
@@ -108,27 +93,22 @@ impl CommandError {
         Self::new("BACKEND_FAILED")
     }
 
-    /// Reports a clipboard write the system refused.
     pub(crate) fn clipboard_failed() -> Self {
         Self::new("CLIPBOARD_FAILED")
     }
 
-    /// Reports a cancel that arrived before the write started.
     pub(crate) fn cancelled() -> Self {
         Self::new("CANCELLED")
     }
 
-    /// Rejects a package the inventory no longer lists.
     pub(crate) fn package_not_found() -> Self {
         Self::new("MOD_NOT_FOUND")
     }
 
-    /// Rejects an update of a package with no catalog provenance.
     pub(crate) fn update_not_in_catalog() -> Self {
         Self::new("UPDATE_FAILED")
     }
 
-    /// Rejects an executable path before any CLI process starts.
     pub(crate) fn invalid_executable() -> Self {
         Self {
             code: "INVALID_EXECUTABLE".to_string(),
@@ -140,7 +120,6 @@ impl CommandError {
         }
     }
 
-    /// Rejects a game, theme or variant id before any CLI process starts.
     pub(crate) fn invalid_id() -> Self {
         Self {
             code: "INVALID_ID".to_string(),
@@ -151,7 +130,6 @@ impl CommandError {
         }
     }
 
-    /// Rejects a resolve answer without a usable theme directory.
     pub(crate) fn theme_invalid() -> Self {
         Self {
             code: "THEME_INVALID".to_string(),
@@ -184,8 +162,6 @@ impl From<BackendError> for CommandError {
         } else if mapped.code == "NATIVE_INJECTOR_NOT_ALLOWED" {
             mapped.approval = Some(ApprovalRequest::incomplete(true));
         } else if mapped.code == "APPROVAL_REQUIRED" {
-            // The refusal needs executable approval, but its envelope did not
-            // name the paths. The webview reads the plan before retrying.
             mapped.approval = Some(ApprovalRequest::incomplete(false));
         }
         if mapped.code == "THEME_INVALID" {
@@ -199,10 +175,6 @@ pub(crate) fn plan_blocked() -> anyhow::Error {
     anyhow::anyhow!("PLAN_BLOCKED: Modn blocked this operation")
 }
 
-/// The approval a CLI refusal names, when the envelope carries one.
-///
-/// A native-injector refusal without an `uncovered` object still names the
-/// capability: the flag it asks for is the whole approval.
 fn approval_from_error(error: &anyhow::Error) -> Option<ApprovalRequest> {
     let text = format!("{error:#}");
     let object = first_error_envelope(&text)?;
@@ -237,10 +209,6 @@ fn approval_from_error(error: &anyhow::Error) -> Option<ApprovalRequest> {
     None
 }
 
-/// The sanitised theme problems a CLI refusal embeds in its message text.
-///
-/// Only a `THEME_INVALID` envelope may contribute diagnostics. Raw text stays
-/// in the error and never crosses this boundary.
 fn diagnostics_from_error(error: &anyhow::Error) -> Vec<ThemeDiagnostic> {
     let text = format!("{error:#}");
     let Some(object) = first_error_envelope(&text) else {
@@ -267,8 +235,6 @@ fn classify(error: &anyhow::Error) -> String {
     error_code_from_json(&text).unwrap_or_else(|| "BACKEND_FAILED".to_string())
 }
 
-/// Reads the CLI error envelope that `Backend::call` embeds in its refusal
-/// message. Only the stable code is kept; the message text is discarded.
 fn error_code_from_json(text: &str) -> Option<String> {
     first_error_envelope(text).and_then(|object| {
         object

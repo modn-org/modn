@@ -1,15 +1,3 @@
-/**
- * Reads the capabilities a refusal leaves uncovered. A domain error names them
- * directly in `err.approval`; a read-only install plan names them under
- * `approval.uncovered`. A refusal can be incomplete (`complete: false`, or no
- * `approval` at all), so the plan fills in every capability it adds. One Allow
- * then carries the native injector and every executable the write needs.
- */
-
-/**
- * @param {unknown} value
- * @returns {Object|null}
- */
 function uncoveredIn(value) {
   if (!value || typeof value !== 'object') {
     return null;
@@ -25,10 +13,6 @@ function uncoveredIn(value) {
   return null;
 }
 
-/**
- * @param {unknown} refusal
- * @returns {{native_injector: boolean, executables: unknown[]}|null}
- */
 function refusalIn(refusal) {
   if (!refusal || typeof refusal !== 'object') {
     return null;
@@ -39,10 +23,6 @@ function refusalIn(refusal) {
   };
 }
 
-/**
- * @param {unknown} value
- * @returns {string[]}
- */
 function executablePaths(value) {
   if (!value || !Array.isArray(value.executables)) {
     return [];

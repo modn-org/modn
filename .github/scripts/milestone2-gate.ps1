@@ -74,8 +74,6 @@ function Zip([string] $Name, [hashtable] $Files) {
   return $path
 }
 
-# Sign the extracted catalog with an ephemeral key so `bucket update` verifies it
-# without the owner's main signer secret.
 function Set-SignedBucket([string] $Zip) {
   $extracted = Join-Path $work ((Split-Path -Leaf $Zip) + '.tree')
   Expand-Archive -LiteralPath $Zip -DestinationPath $extracted -Force
@@ -142,8 +140,6 @@ try {
   $env:MODN_MAIN_BUCKET_SOURCE = $null
   $env:MODN_GAME_MODULES_DIR = $null
   $env:PYTHONDONTWRITEBYTECODE = '1'
-  # The disposable main bucket is signed with an ephemeral key and updated by a
-  # `test-main-key` build. Build both before the clean-machine PATH check.
   $tools = Join-Path $work 'tools'
   cargo build --quiet --locked -p modn-core --example sign_catalog --target-dir $tools
   Require ($LASTEXITCODE -eq 0) 'Cannot build the bucket signer (sign_catalog)'
@@ -224,8 +220,6 @@ try {
     $manifest = Get-Content (Join-Path $repo 'buckets/main/games/cyberpunk-2077/redscript.json') -Raw | ConvertFrom-Json
     $manifest.source = [pscustomobject]@{ kind = 'github-release'; repository = 'jac3km4/redscript'; tag = 'v0.5.32'; asset = 'redscript-v0.5.32-windows.zip' }
     Write-File (Join-Path $catalog 'games/cyberpunk-2077/redscript.json') ($manifest | ConvertTo-Json -Depth 10)
-    # Modn refuses unsigned Git catalogs. Sign before `git init`, because the
-    # catalog digest refuses a root `.git`.
     [void] (& $script:SignCatalog $catalog (Join-Path $catalog 'catalog.sig') (Join-Path $catalog 'catalog.pub'))
     Require ($LASTEXITCODE -eq 0) 'Cannot sign the Git catalog fixture'
     $revision = New-GateGitCommit $catalog

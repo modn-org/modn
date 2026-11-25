@@ -1,5 +1,3 @@
-//! Cancellation and text-reporting tests for ordered archive acquisition.
-
 use super::download_into;
 use crate::download::{TEST_CALLS, TEST_RESPONSES};
 use modn_core::acquisition::{CacheUse, NexusApiKey, NexusFile, SourceAttempt};
@@ -83,7 +81,6 @@ fn nexus_then_https(root: &Path, digest: &str) -> BucketPackage {
     )
 }
 
-/// Seed the cache entry an https source would supply, keyed by its URL.
 fn seed_cache(root: &Path, url: &str, bytes: &[u8]) {
     let cache = root.join("cache");
     fs::create_dir_all(&cache).expect("cache directory");

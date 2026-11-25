@@ -1,6 +1,5 @@
 use super::{valid_store_id, GogRecord, StoreInstallation, Storefront};
 
-/// Games that GOG Galaxy installation records list.
 pub(super) fn installations(records: &[GogRecord]) -> Vec<StoreInstallation> {
     records
         .iter()

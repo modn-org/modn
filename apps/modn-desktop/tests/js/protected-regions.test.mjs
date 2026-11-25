@@ -24,14 +24,12 @@ const PERMISSIONS = {
   executables: ['C:/game/bin/patch.exe'],
 };
 
-/** Fires the listeners of one event type on a fake node. */
 function fire(node, type) {
   for (const listener of [...(node.listeners.get(type) || [])]) {
     listener.call(node, { type, target: node });
   }
 }
 
-/** Returns every class token on an element and its descendants. */
 function classTokens(root) {
   const tokens = [];
   const visit = (node) => {
@@ -51,7 +49,6 @@ function classTokens(root) {
   return tokens;
 }
 
-/** Asserts that every class inside the region starts with its hook prefix. */
 function assertOnlyProtected(root, prefix) {
   for (const [node, name] of classTokens(root)) {
     assert.ok(
@@ -61,7 +58,6 @@ function assertOnlyProtected(root, prefix) {
   }
 }
 
-/** Renders the install review through the real plan section. */
 async function renderedPlan() {
   const document = installDom();
   installWindow({

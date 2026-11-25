@@ -1,9 +1,3 @@
-//! Author commands for key rotation and offline revocation statements.
-//!
-//! Both commands write the statement and its detached minisign signature into
-//! the catalog directory. The author then runs `modn catalog sign` with the new
-//! key, which publishes `catalog.pub` and `catalog.sig` for the same revision.
-
 use super::keys::{
     fingerprint, load_secret_outside, read_public_key_text, require_directory, write_signature,
 };

@@ -11,7 +11,6 @@ use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-/// A signed Git catalog fixture that generates its signing key in process.
 pub struct ModuleCatalog {
     directory: tempfile::TempDir,
     pair: KeyPair,
@@ -136,12 +135,10 @@ fn commit(root: &Path, message: &str) -> String {
     git(root, &["rev-parse", "HEAD"])
 }
 
-/// Minimal Lua policy that returns a valid module identity.
 pub fn identity_lua(game: &str) -> String {
     format!("return {{game_id='{game}', api_version=3}}")
 }
 
-/// Minimal Lua policy that validates a marker file and reports an empty scan.
 pub fn policy_lua(game: &str, marker: &str) -> String {
     format!(
         r#"local policy = {{

@@ -1,5 +1,3 @@
-//! The theme entry and list shapes printed by `modn theme list`.
-
 #[cfg(test)]
 #[path = "summary_tests.rs"]
 mod tests;

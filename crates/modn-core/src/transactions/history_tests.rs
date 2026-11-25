@@ -439,8 +439,6 @@ fn overlapping_writes_each_report_the_record_they_committed() {
     })
     .expect("first install");
 
-    // A second write commits before the first caller reads its result. An ID
-    // inferred from history would now see both records and lose the first.
     let mut second_store = Store::open(&fixture.state_path()).expect("second store");
     second_store.set_history_context(context(&fixture, "second", "second.zip"));
     let second = with_module_source(Some(&module_source()), || {

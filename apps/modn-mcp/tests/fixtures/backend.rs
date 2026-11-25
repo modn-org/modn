@@ -18,7 +18,6 @@ fn cancelled_before(flag: &AtomicBool) -> bool {
     false
 }
 
-/// Watches stdin for the companion's `cancel` line.
 fn watch_cancellation() -> Arc<AtomicBool> {
     let cancelled = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&cancelled);
@@ -70,8 +69,6 @@ fn progress(state: &Path, markers: bool) {
     println!("{}", r#"{"fixture":"progress"}"#);
 }
 
-/// Writes the commit event in two chunks so a competing select branch can
-/// cancel the line read between them.
 fn split() {
     let cancelled = watch_cancellation();
     event(r#"{"phase":"resolve"}"#);

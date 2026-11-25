@@ -1,14 +1,8 @@
-//! Starting a game returns before the game exits.
-//!
-//! The fixture game blocks until the test releases it, so the test asserts
-//! ordering, not elapsed time: a slow machine cannot make it fail.
-
 use super::support::Fixture;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-/// Waits up to ten seconds for the fixture to record `path`.
 fn wait_for_file(path: &Path) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !path.is_file() {

@@ -8,12 +8,10 @@ import {
 
 const BASE = 'http://modn-theme.localhost/';
 
-/** A document with an adopted sheet list. */
 function documentWith(sheets = []) {
   return { adoptedStyleSheets: [...sheets] };
 }
 
-/** A sheet factory that records every replacement and can fail on demand. */
 function sheetFactory({ failOn = 0 } = {}) {
   let made = 0;
   return () => {
@@ -31,7 +29,6 @@ function sheetFactory({ failOn = 0 } = {}) {
   };
 }
 
-/** One resolve answer with a theme and a variant. */
 function resolved(overrides = {}) {
   return {
     game: 'fixture',

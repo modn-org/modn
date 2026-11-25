@@ -1,5 +1,3 @@
-//! Theme commands against the disposable fixture backend.
-
 #[expect(
     dead_code,
     reason = "The theme tests reuse the application backend without invoking its process-global argument parser"
@@ -32,8 +30,6 @@ mod app {
 
 #[cfg(windows)]
 mod theme_commands {
-    //! The theme requests reach the fixture with the fixed prefix, and its
-    //! contract answers round-trip through the desktop backend.
 
     use super::backend;
     use crate::app;
@@ -81,8 +77,6 @@ mod theme_commands {
             .expect("the fixture answers")
         }
 
-        /// The exact argument vector the fixture received, including the fixed
-        /// prefix and the absolute state directory.
         fn recorded(&self) -> Vec<String> {
             serde_json::from_str(
                 &fs::read_to_string(self.state.join("last-args.json"))

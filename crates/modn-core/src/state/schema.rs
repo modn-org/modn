@@ -3,7 +3,6 @@ use anyhow::Result;
 use rusqlite::Connection;
 use std::path::Path;
 
-/// Refuse a state database this build did not write, before it is read.
 pub(super) fn validate_package_schema(connection: &Connection, path: &Path) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version != required_schema_version() {

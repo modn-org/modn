@@ -1,5 +1,3 @@
-//! Where a catalog theme came from.
-
 #[cfg(test)]
 #[path = "source_tests.rs"]
 mod tests;

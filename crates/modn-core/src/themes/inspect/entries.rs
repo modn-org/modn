@@ -1,21 +1,15 @@
-//! Top-level entry checks for one theme directory.
-
 use super::super::manifest::MANIFEST_FILE;
 use super::super::problem::{Rule, ThemeProblem};
 use super::{ASSETS_DIR, CSS_FILE};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
-/// Top-level files that a theme may contain without affecting it.
 const IGNORED_FILES: [&str; 3] = ["README.md", "LICENSE", "NOTICE.md"];
 
-/// Maximum size of one ignored top-level file in bytes.
 const MAX_IGNORED_FILE_BYTES: u64 = 1_048_576;
 
-/// Maximum size of all ignored top-level files together in bytes.
 const MAX_IGNORED_FILES_BYTES: u64 = 4_194_304;
 
-/// What the top-level directory listing contained.
 #[derive(Debug, Default)]
 pub(super) struct TopLevel {
     pub(super) seen: BTreeSet<String>,
@@ -24,7 +18,6 @@ pub(super) struct TopLevel {
     pub(super) ignored_bytes: u64,
 }
 
-/// Check one top-level entry against the allowed theme folder layout.
 pub(super) fn inspect_entry(
     entry: &fs::DirEntry,
     variants: &[String],
@@ -121,7 +114,6 @@ pub(super) fn inspect_entry(
     );
 }
 
-/// Add one ignored file to the running total and report either limit.
 pub(super) fn check_ignored_file(
     name: &str,
     size: u64,
@@ -161,7 +153,6 @@ fn allowed_file(name: &str, variants: &[String]) -> bool {
             .is_some_and(|variant| variants.iter().any(|value| value == variant))
 }
 
-/// Return the variant id in a `theme.<variant>.css` file name.
 pub(super) fn variant_of_file(name: &str) -> Option<&str> {
     let variant = name.strip_prefix("theme.")?.strip_suffix(".css")?;
     if variant.is_empty() {

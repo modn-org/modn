@@ -65,7 +65,6 @@ pub(super) struct JournalDirectory {
     pub(super) identity: Option<String>,
 }
 
-/// Resolved physical paths for one installation's roots.
 #[derive(Clone)]
 pub(super) struct Roots {
     pub(super) game: PathBuf,
@@ -158,7 +157,6 @@ impl Store {
         self.ensure_pending_only(None)
     }
 
-    /// Refuse to continue while any journal other than `allowed` is pending.
     pub(super) fn ensure_pending_only(&self, allowed: Option<&str>) -> Result<()> {
         let count: i64 = self.connection.query_row(
             "SELECT COUNT(*) FROM pending_transactions WHERE id IS NOT ?1",
@@ -427,11 +425,6 @@ impl Store {
         self.commit_uninstall_many(&[(journal_id.to_owned(), package_id.to_owned())])
     }
 
-    /// Commit the removal of one or more withdrawn packages in one transaction.
-    ///
-    /// Every journal must still be pending. The transaction deletes the
-    /// ownership records, writes one history record when a context is set and
-    /// marks each journal committed, so a failure keeps every file recoverable.
     pub(crate) fn commit_uninstall_many(&mut self, removals: &[(String, String)]) -> Result<()> {
         let context = self.history.clone();
         self.committed_operation = None;

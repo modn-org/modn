@@ -1,5 +1,3 @@
-//! Author tools: encrypted keys, archive pins and JSON verification.
-
 #[path = "support/catalog_author.rs"]
 mod catalog_author;
 #[path = "support/catalog_authoring.rs"]

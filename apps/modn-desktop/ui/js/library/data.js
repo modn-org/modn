@@ -1,9 +1,4 @@
 /**
- * Joins the bucket catalog with the manager-owned packages and filters the
- * result for the Library grid.
- */
-
-/**
  * @typedef {Object} LibraryModel
  * @property {string} key
  * @property {string} modId
@@ -15,17 +10,6 @@
  * @property {Object|null} installedPackage
  */
 
-/**
- * Picks the installed package that came from the catalog entry's bucket.
- *
- * A package from another bucket never matches, and neither does a package
- * without a bucket, such as an install from a local archive. Unmatched
- * packages keep their own row.
- *
- * @param {Object[]} candidates
- * @param {string} bucket
- * @returns {Object|null}
- */
 function pickPackage(candidates, bucket) {
   return (
     candidates.find(
@@ -34,11 +18,6 @@ function pickPackage(candidates, bucket) {
   );
 }
 
-/**
- * @param {Object} pkg
- * @param {string} modId
- * @returns {LibraryModel}
- */
 function packageModel(pkg, modId) {
   const catalog = pkg.catalog && typeof pkg.catalog === 'object' ? pkg.catalog : null;
   return {
@@ -59,9 +38,7 @@ function packageModel(pkg, modId) {
  * @returns {LibraryModel[]}
  */
 export function mergeLibrary(entries, packages) {
-  /** @type {Map<string, Object[]>} */
   const installed = new Map();
-  /** @type {Object[]} */
   const manual = [];
   for (const pkg of packages) {
     const catalogMod = pkg.catalog && typeof pkg.catalog === 'object' ? pkg.catalog.mod_id : null;
@@ -77,9 +54,7 @@ export function mergeLibrary(entries, packages) {
       installed.set(modId, [pkg]);
     }
   }
-  /** @type {Set<Object>} */
   const matched = new Set();
-  /** @type {LibraryModel[]} */
   const models = entries.map((entry) => {
     const bucket = entry.bucket || 'main';
     const candidates = (installed.get(entry.id) || []).filter((pkg) => !matched.has(pkg));

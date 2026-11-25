@@ -1,5 +1,3 @@
-//! Explicit policy for packages that inject native code into a game process.
-
 use super::CatalogReference;
 use anyhow::Result;
 use std::fmt;

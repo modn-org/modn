@@ -25,7 +25,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[4]
 
-# (number, name, "module:function") in run order.
 JOURNEYS = [
     (1, "detection", "journeys_core:journey_detection"),
     (2, "progress", "journeys_core:journey_progress"),
@@ -148,7 +147,6 @@ def selftest():
     else:
         results["raises_on_timeout"] = False
 
-    # V2: an error toast must not count as a copied diagnostics report.
     results["diagnostics_success_passes"] = journeys_core.diagnostics_copied(
         "Diagnostics copied."
     )
@@ -156,18 +154,14 @@ def selftest():
         "Something went wrong"
     )
 
-    # Copy diagnostics: fakes for the one click, the toast and the report file.
     import selftest_diagnostics  # noqa: PLC0415 - fake desktop only
 
     results.update(selftest_diagnostics.checks())
 
-    # The scripts and docs must stay free of physical input and stale names.
     import selftest_scripts  # noqa: PLC0415 - fakes and files only
 
     results.update(selftest_scripts.checks())
 
-    # V6: the content-root approval journey is registered once and its release
-    # helper names the package folder and the declared executable.
     import journeys_approval_root  # noqa: PLC0415 - pure helpers only
 
     registered = [entry for entry in JOURNEYS if entry[1] == "approval-content-root"]
@@ -190,8 +184,6 @@ def selftest():
         }
     )
 
-    # The play fixture must show no window: the watcher reports one and the real
-    # enumerator runs on this desktop.
     import windows  # noqa: PLC0415 - pure helpers only
 
     results["fixture_window_is_reported"] = windows.watch_windows(
@@ -218,7 +210,6 @@ def selftest():
             process.wait(timeout=10)
         results["image_pids_is_empty_when_stopped"] = fixtures.image_pids(probe) == []
 
-    # V1: the toast guard returns once the toast is gone and fails while it stays.
     harness.wait_toasts_gone(_FakeToastSession(0), "Undo done", "selftest", timeout=0.3)
     harness.wait_toasts_gone(_FakeToastSession(0), ("Install done", "Undo done"), "selftest", timeout=0.3)
     results["toast_guard_passes_when_gone"] = True
@@ -237,7 +228,6 @@ def selftest():
     else:
         results["toast_guard_checks_every_name"] = False
 
-    # V3: a failure with an empty message still fails the journey.
     def raise_assertion():
         raise AssertionError()
 
@@ -253,7 +243,6 @@ def selftest():
     results["empty_exception_fails"] = statuses[1].startswith("failed")
     results["normal_journey_passes"] = statuses[2] == "passed"
 
-    # V5: each journey result carries the evidence directory it created.
     holder = {}
 
     def journey_with_fixture():
@@ -272,7 +261,6 @@ def selftest():
         if fixture.evidence in fixtures.CREATED:
             fixtures.CREATED.remove(fixture.evidence)
 
-    # V4: the front matter of this skill, and of every sibling, is valid YAML.
     def front_matter(path):
         parts = Path(path).read_text(encoding="utf-8").split("---", 2)
         if len(parts) < 3:

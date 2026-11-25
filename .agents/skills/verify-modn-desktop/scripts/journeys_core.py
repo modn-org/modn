@@ -16,7 +16,6 @@ from harness import BINARIES, App, cli, test_backend_state
 from windows import watch_windows
 
 
-# ---------------------------------------------------------------- journeys
 def journey_detection(runner):
     """1. Startup detection, one-click registration, untouched game bytes."""
     fx = Fixture()

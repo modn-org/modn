@@ -1,9 +1,6 @@
-//! A test `CssChecker` that runs the real theme API v1 rule engine.
-
 use crate::parser;
 use modn_core::themes::{check_sheet, CheckedCss, CssChecker, CssContext, ThemeProblem};
 
-/// Runs [`check_sheet`] over the facts of the strict test parser.
 pub struct EngineChecker;
 
 impl CssChecker for EngineChecker {

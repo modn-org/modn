@@ -1,10 +1,3 @@
-//! `--state-dir` selects the manager profile for module trust and releases.
-//!
-//! The default profile and the selected profile keep separate module
-//! registries. Trusting a bucket in the selected profile must not move the
-//! default profile's active release, and the selected profile must resolve the
-//! imported module with its own trust record.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/module_catalog.rs"]
@@ -90,7 +83,6 @@ fn state_dir_keeps_module_trust_and_releases_in_its_profile() {
     fs::create_dir_all(&profile_b).expect("selected profile");
     main_bucket::seed(&profile_a);
 
-    // The default profile already has one trusted release for the game.
     let local = root.path().join("local-module");
     write_module(&local, "fixture-game", "1.0.0", "Game.exe");
     success(&cli(
@@ -108,7 +100,6 @@ fn state_dir_keeps_module_trust_and_releases_in_its_profile() {
     let before = tree(&default_modules);
     assert!(!before.is_empty(), "default profile has a module registry");
 
-    // A trusted catalog in the selected profile publishes newer releases.
     let catalog = ModuleCatalog::new("community");
     catalog.write_module(
         "fixture-game",

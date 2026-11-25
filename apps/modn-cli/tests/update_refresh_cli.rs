@@ -201,7 +201,6 @@ impl Fixture {
         ]);
     }
 
-    /// Install main and register one local bucket and one signed Git catalog.
     fn ready(&self) {
         self.success(&["update"]);
         self.success(&[

@@ -1,11 +1,8 @@
-//! BLAKE3 digest over one theme directory.
-
 use super::problem::{Rule, ThemeProblem};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-/// The deepest directory nest accepted while hashing a theme.
 const MAX_THEME_DEPTH: usize = 32;
 
 /// Compute the BLAKE3 digest of every regular file under `dir`.

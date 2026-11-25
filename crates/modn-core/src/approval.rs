@@ -9,7 +9,6 @@ use serde::Serialize;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// Manager state schema version that adds the approval table.
 pub(crate) const SCHEMA_VERSION: i64 = 5;
 
 /// Capabilities of one mod release that need explicit user approval.

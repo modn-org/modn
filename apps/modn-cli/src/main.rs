@@ -149,7 +149,6 @@ fn inspect_archive(archive: &Path, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// The stable code of a command that failed without a more specific one.
 fn default_code(command: &Command) -> ErrorCode {
     match command {
         Command::Install(_) => ErrorCode::InstallFailed,
@@ -177,7 +176,6 @@ fn default_code(command: &Command) -> ErrorCode {
     }
 }
 
-/// Commands that report progress and accept cancellation.
 fn reports_progress(command: &Command) -> bool {
     matches!(
         command,

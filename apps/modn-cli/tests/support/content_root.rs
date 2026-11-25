@@ -2,12 +2,6 @@
     dead_code,
     reason = "each integration-test crate uses a different subset of this fixture"
 )]
-//! Shared fixture for API 2 modules that declare a content root.
-//!
-//! Every command runs the real `modn` binary against a temporary game folder,
-//! a temporary appdata base and a temporary state directory. `MODN_APPDATA`
-//! and `APPDATA` both point at the temporary base, so no test reads or writes
-//! the user's real `%APPDATA%`.
 
 use crate::main_bucket;
 use serde_json::{json, Value};
@@ -21,7 +15,6 @@ use zip::write::SimpleFileOptions;
 pub const GAME_ID: &str = "content-game";
 pub const CONTENT_RELATIVE: &str = "Fixture/Mods";
 
-/// API 2 policy that maps every archive file to a content-root destination.
 const SCRIPT: &str = r#"
 local fs = mods_host.fs
 
@@ -197,7 +190,6 @@ impl Fixture {
         self.bucket_root = root;
     }
 
-    /// Write a package record with an explicit id and dependency references.
     pub fn package(&self, id: &str, hash: &str, dependencies: &[&str]) {
         fs::write(
             self.bucket_root
@@ -239,7 +231,6 @@ fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().expect("canonical path")
 }
 
-/// Resolve the declared root the same way the planner does, even before it exists.
 pub fn expected_content_root(fixture: &Fixture) -> PathBuf {
     canonical(&fixture.appdata).join(CONTENT_RELATIVE)
 }

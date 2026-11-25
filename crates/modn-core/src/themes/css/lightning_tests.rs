@@ -1,22 +1,17 @@
-//! Tests for the `lightningcss`-backed theme stylesheet checker.
-
 use crate::themes::ThemeProblem;
 use crate::themes::{
     inspect_theme_dir, CheckedCss, CssChecker, CssContext, LightningChecker, Rule,
 };
 use std::path::{Path, PathBuf};
 
-/// Check one stylesheet as `theme.css`.
 fn check(css: &str) -> Result<CheckedCss, Vec<ThemeProblem>> {
     LightningChecker.check("theme.css", css, &CssContext::base())
 }
 
-/// Check one stylesheet and return the problems it must produce.
 fn problems(css: &str) -> Vec<ThemeProblem> {
     check(css).expect_err("the stylesheet must be refused")
 }
 
-/// Assert that `css` reports `expected` on a known line.
 fn assert_rule(css: &str, expected: Rule) {
     let found = problems(css);
     assert!(
@@ -244,7 +239,6 @@ fn staged_theme_is_accepted() {
     }
 }
 
-/// The staged official theme directory.
 fn theme_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/themes/cyberpunk-2077/night-city")
 }

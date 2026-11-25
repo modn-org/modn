@@ -1,9 +1,3 @@
-//! The exact CLI argument vector of every command.
-//!
-//! Each builder is pure so a unit test can pin the command line. Handlers add
-//! no flags of their own: approval flags appear only when the webview asked
-//! for them, and `--force` and adoption flags never appear.
-
 use crate::app::error::CommandError;
 use crate::backend::Game;
 use serde::Deserialize;
@@ -11,7 +5,6 @@ use serde_json::Value;
 use std::ffi::OsString;
 use std::path::Path;
 
-/// The catalog fields of one `modn list --json` package.
 #[derive(Deserialize)]
 struct CatalogTarget {
     bucket: String,
@@ -19,7 +12,6 @@ struct CatalogTarget {
     mod_id: String,
 }
 
-/// The `modn list --json` fields this module needs to name an update target.
 #[derive(Deserialize)]
 struct InstalledPackage {
     id: String,
@@ -27,11 +19,6 @@ struct InstalledPackage {
     catalog: Option<CatalogTarget>,
 }
 
-/// Resolves the qualified `bucket/game/mod` catalog name of one installed
-/// package.
-///
-/// `modn update` selects a catalog release, not a managed package, so the
-/// package id from the inventory is not a valid target.
 fn catalog_target(packages: &Value, package_id: &str) -> Result<String, CommandError> {
     let packages: Vec<InstalledPackage> = serde_json::from_value(packages.clone())
         .map_err(|error| CommandError::from(anyhow::Error::from(error)))?;
@@ -82,11 +69,6 @@ fn with_executables(
     Ok(args)
 }
 
-/// Whether `executable` is a non-empty game-relative path that cannot be
-/// mistaken for a flag or escape the game folder.
-///
-/// Checks separators on every host so the same paths are rejected on CI and on
-/// Windows, where the desktop runs.
 pub(super) fn game_relative(executable: &str) -> bool {
     let bytes = executable.as_bytes();
     let drive_prefix = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
@@ -232,10 +214,6 @@ pub(super) fn diagnostics() -> Vec<OsString> {
     vec!["doctor".into()]
 }
 
-/// The documented id grammar: `[a-z0-9]+(-[a-z0-9]+)*`, at most 64 characters.
-///
-/// Game ids, theme ids and variant ids share this grammar, so the same check
-/// guards every id the webview sends.
 pub(super) fn valid_id(value: &str) -> bool {
     value.len() <= 64
         && value.split('-').all(|part| {
@@ -290,8 +268,6 @@ pub(super) fn theme_select(
     Ok(args)
 }
 
-/// The explicit no-theme selection: the game keeps the default look even when
-/// it has an official theme.
 pub(super) fn theme_select_none(game: &str) -> Result<Vec<OsString>, CommandError> {
     Ok(vec![
         "theme".into(),

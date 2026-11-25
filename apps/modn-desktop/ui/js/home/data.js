@@ -1,11 +1,5 @@
-/**
- * Loads and normalises what the Home view shows: registered installations and
- * detected candidates that are not registered yet.
- */
-
 import { detectGames, listGames, listPackages } from '../api.js';
 
-/** Game ids offered by Add when nothing is registered or detected. */
 const FALLBACK_GAME_IDS = ['balatro', 'cyberpunk-2077'];
 
 const GAME_LABELS = {
@@ -34,28 +28,14 @@ export function gameLabel(gameId) {
     .join(' ');
 }
 
-/**
- * Compares installation paths ignoring a trailing separator and letter case.
- * @param {string} path
- * @returns {string}
- */
 function pathKey(path) {
   return String(path).replace(/[\\/]+$/, '').toLowerCase();
 }
 
-/**
- * @param {{gameId: string, path: string}} left
- * @param {{gameId: string, path: string}} right
- * @returns {boolean}
- */
 function sameInstallation(left, right) {
   return left.gameId === right.gameId && pathKey(left.path) === pathKey(right.path);
 }
 
-/**
- * @param {unknown} games
- * @returns {Array<{gameId: string, path: string, state: string, store: string, canRemove: boolean}>}
- */
 function registeredEntries(games) {
   const entries = [];
   const seen = new Set();
@@ -80,12 +60,6 @@ function registeredEntries(games) {
   return entries;
 }
 
-/**
- * Keeps detected candidates that Modn does not manage yet.
- * @param {unknown} detection
- * @param {Array<{gameId: string, path: string}>} registered
- * @returns {Array<{gameId: string, path: string, state: string, store: string}>}
- */
 function detectedEntries(detection, registered) {
   const installations =
     detection && Array.isArray(detection.installations) ? detection.installations : [];
@@ -112,12 +86,6 @@ function detectedEntries(detection, registered) {
   return entries;
 }
 
-/**
- * Marks installations that own no managed package, so Remove may show.
- * A failed listing keeps Remove hidden: emptiness is unconfirmed.
- * @param {Array<{gameId: string, path: string, canRemove: boolean}>} entries
- * @returns {Promise<void>}
- */
 async function markRemovable(entries) {
   await Promise.all(
     entries.map(async (entry) => {

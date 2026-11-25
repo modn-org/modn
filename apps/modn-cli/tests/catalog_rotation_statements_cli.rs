@@ -1,5 +1,3 @@
-//! Forged statements, revocation-key pinning and author-command refusals.
-
 #[path = "support/catalog_authoring.rs"]
 mod catalog_authoring;
 #[path = "support/catalog_mirrors.rs"]

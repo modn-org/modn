@@ -1,5 +1,3 @@
-//! Removal of one registered theme.
-
 use super::super::error::{Result, ThemeError};
 use super::super::limits::is_valid_id;
 use super::super::storage;
@@ -9,7 +7,6 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-/// Remove one registration below one theme root.
 pub(super) fn remove(root: &Path, id: &str, game: Option<&str>) -> Result<RemovedTheme> {
     check_id(id)?;
     if let Some(game) = game {
@@ -70,7 +67,6 @@ pub(super) fn remove(root: &Path, id: &str, game: Option<&str>) -> Result<Remove
     }
 }
 
-/// Return the games that register `id`, sorted.
 fn games_for(id: &str, registry: &Path) -> Result<Vec<String>> {
     let entries = match fs::read_dir(registry) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),

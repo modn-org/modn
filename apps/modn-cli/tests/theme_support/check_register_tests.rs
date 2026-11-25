@@ -1,5 +1,3 @@
-//! `theme check` and `theme register` behavior.
-
 use crate::fixture::{Fixture, GAME};
 use serde_json::Value;
 use std::fs;

@@ -1,5 +1,3 @@
-//! Stage one verified catalog module inside private storage.
-
 use super::super::loader::{self, VerifiedModule};
 use super::super::registry::{layout, ImportReport, ModulePin, ModuleRegistry, ReleaseOutcome};
 use super::StagedRelease;

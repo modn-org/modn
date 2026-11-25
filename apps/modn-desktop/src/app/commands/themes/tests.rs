@@ -1,6 +1,3 @@
-//! Theme command contracts: request vectors, resolve post-processing and the
-//! import plan, without a native dialog or a Tauri window.
-
 use super::{
     ImportPlan, cancelled_answer, default_theme_answer, import_plan, resolve_failure,
     resolve_request, resolved_theme, select_request, stale_answer,

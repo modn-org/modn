@@ -1,5 +1,3 @@
-//! The error type shared by theme registration, loading and selection.
-
 #[cfg(test)]
 #[path = "error_tests.rs"]
 mod tests;
@@ -51,7 +49,6 @@ pub enum ThemeError {
 }
 
 impl ThemeError {
-    /// Build an [`Self::Io`] error with a description of the failed operation.
     pub(crate) fn io(context: impl Into<String>, source: std::io::Error) -> Self {
         Self::Io {
             context: context.into(),
@@ -59,7 +56,6 @@ impl ThemeError {
         }
     }
 
-    /// Build a [`Self::Corrupt`] error.
     pub(crate) fn corrupt(path: impl Into<PathBuf>, reason: impl Into<String>) -> Self {
         Self::Corrupt {
             path: path.into(),

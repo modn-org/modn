@@ -182,7 +182,6 @@ fn retained_versions(data: &Path, game: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
-/// Make the next `current` write for `game` fail while staging still succeeds.
 fn block_active_switch(data: &Path, game: &str) {
     let directory = data.join("game-modules").join(game);
     #[cfg(windows)]

@@ -1,5 +1,3 @@
-//! `theme select`, `theme remove` and `theme reset` behavior.
-
 use crate::fixture::{Fixture, GAME};
 
 #[test]

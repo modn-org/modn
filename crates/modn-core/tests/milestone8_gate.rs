@@ -1,7 +1,3 @@
-//! Milestone 8 exit gate, archive-origin sentence: a signed catalog record
-//! lists two archive origins, the first origin is removed, and the install
-//! still succeeds from the second origin under the BLAKE3 pin.
-
 use anyhow::Result;
 use minisign::{sign, KeyPair};
 use modn_core::acquisition::{
@@ -24,7 +20,6 @@ const FIRST: &str = "https://origin.example/fixture-1.0.zip";
 const SECOND: &str = "https://mirror.example/fixture-1.0.zip";
 const NAME: &str = "community";
 
-/// One signed catalog tree whose package record lists two archive origins.
 struct SignedCatalog {
     root: tempfile::TempDir,
     manifest: PackageManifest,
@@ -71,7 +66,6 @@ fn write_catalog_dir(root: &Path, archive_pin: &str) -> PathBuf {
     catalog
 }
 
-/// Build and sign one catalog with a fresh test key, then verify it.
 fn signed_catalog(archive_pin: &str) -> SignedCatalog {
     let holder = tempfile::tempdir().expect("fixture root");
     let catalog = write_catalog_dir(holder.path(), archive_pin);

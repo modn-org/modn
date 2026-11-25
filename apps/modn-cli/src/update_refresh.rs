@@ -1,11 +1,3 @@
-//! Refresh every catalog when `modn update` has no target.
-//!
-//! The official bucket uses the same signed-release path as `modn bucket update`.
-//! Each registered Git catalog uses the same path as `modn bucket sync <name>`.
-//! Local folder buckets have nothing to fetch and are reported as skipped.
-//! Every step is independent: one failure is reported, the rest still run, and
-//! the command exits with a nonzero status.
-
 use crate::bucket_update;
 use crate::buckets;
 use crate::commands::UpdateArgs;
@@ -165,8 +157,6 @@ fn refuse_target_options(args: &UpdateArgs, requested: Option<&str>) -> Result<(
     if requested.is_some() {
         bail!("`--game` needs an update target: run `modn --game <id> update <target>`");
     }
-    // A refresh always fetches, so a preview or install flag must not be ignored.
-    // `--download` needs `--dry-run`, which this check refuses first.
     for (given, flag) in [
         (args.dry_run, "--dry-run"),
         (args.no_cache, "--no-cache"),

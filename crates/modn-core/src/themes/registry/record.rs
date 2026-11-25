@@ -1,5 +1,3 @@
-//! The registration record stored beside one copied theme.
-
 use super::super::limits::is_valid_id;
 use super::layout;
 use serde::{Deserialize, Serialize};
@@ -7,27 +5,19 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 
-/// Largest accepted `registration.json`, which is far above its real size.
 const MAX_RECORD_BYTES: u64 = 4096;
 
-/// Contents of one `registration.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RegistrationRecord {
-    /// Shape of this record; must be [`layout::SCHEMA_VERSION`].
     pub(super) schema_version: u32,
-    /// Game the theme belongs to.
     pub(super) game: String,
-    /// Theme id.
     pub(super) id: String,
-    /// BLAKE3 digest of the copied theme directory.
     pub(super) blake3: String,
-    /// Unix seconds when the theme was registered.
     pub(super) registered_at: u64,
 }
 
 impl RegistrationRecord {
-    /// Check every field that does not depend on the directory name.
     fn validate(&self) -> Result<(), String> {
         if self.schema_version != layout::SCHEMA_VERSION {
             return Err(format!(
@@ -60,11 +50,6 @@ impl RegistrationRecord {
     }
 }
 
-/// Read `registration.json` from one registration directory.
-///
-/// Every failure, including a missing or unreadable file, returns a reason the
-/// caller can turn into a diagnostic. The caller checks that the recorded game
-/// and id match the directory names.
 pub(super) fn read(entry: &Path) -> Result<RegistrationRecord, String> {
     let path = entry.join(layout::RECORD);
     let metadata = match fs::symlink_metadata(&path) {
@@ -90,7 +75,6 @@ pub(super) fn read(entry: &Path) -> Result<RegistrationRecord, String> {
     Ok(record)
 }
 
-/// Write one `registration.json` into a staging directory.
 pub(super) fn write(
     entry: &Path,
     record: &RegistrationRecord,

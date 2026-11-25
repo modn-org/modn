@@ -104,8 +104,6 @@ fn registered_local_bucket_cannot_supply_game_module_files() {
         r#"{"schema_version":2,"name":"community","title":"Community"}"#,
     )
     .expect("fixture invariant");
-    // Invalid module bytes and a loose entry prove registration neither reads
-    // nor validates anything under `games/`.
     for name in [
         "games/test-game/module.json",
         "games/test-game/module.lua",

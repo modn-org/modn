@@ -1,6 +1,3 @@
-//! Undo enforces stored approvals and the native-injector policy, and refuses
-//! records that lack the release declarations a restore needs.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/catalog.rs"]

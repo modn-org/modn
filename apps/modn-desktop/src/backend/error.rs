@@ -1,29 +1,16 @@
-//! The error type of [`Backend::call_with_progress`](super::Backend::call_with_progress).
-
 use serde_json::Value;
 use std::io;
 use std::process::ExitStatus;
 use std::time::Duration;
 
-/// The capabilities an approval refusal leaves uncovered.
-///
-/// The CLI writes them in its stderr error envelope, for example
-/// `{"error":"NATIVE_INJECTOR_NOT_ALLOWED","uncovered":{"native_injector":true,"executables":["tools/helper.exe"]}}`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UncoveredApproval {
-    /// Whether the refusal names native-injector code.
     pub(crate) native_injector: bool,
-    /// The exact game-relative executable paths the refusal leaves uncovered.
     pub(crate) executables: Vec<String>,
-    /// Whether the envelope named every uncovered capability.
-    ///
-    /// An envelope without an `executables` list is incomplete: callers read
-    /// the installation plan instead of retrying with an empty list.
     pub(crate) complete: bool,
 }
 
 impl UncoveredApproval {
-    /// Reads the `uncovered` object of one CLI error envelope.
     fn from_envelope(value: &Value) -> Option<Self> {
         let uncovered = value.get("uncovered")?.as_object()?;
         let executables = uncovered.get("executables");
@@ -47,11 +34,6 @@ impl UncoveredApproval {
     }
 }
 
-/// One CLI error envelope from stderr.
-///
-/// The envelope carries the stable code, for an approval refusal the
-/// capabilities that remain uncovered, and for `THEME_INVALID` the raw
-/// diagnostic objects the app layer sanitises.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ErrorEnvelope {
     pub(super) code: String,
@@ -62,7 +44,6 @@ pub(super) struct ErrorEnvelope {
 impl ErrorEnvelope {
     pub(super) fn parse(value: &Value) -> Option<Self> {
         let code = value.get("error")?.as_str()?.to_owned();
-        // Any other code's diagnostics key is untrusted noise and is ignored.
         let diagnostics = if code == "THEME_INVALID" {
             value
                 .get("diagnostics")
@@ -80,10 +61,6 @@ impl ErrorEnvelope {
     }
 }
 
-/// A failed progress-aware backend call.
-///
-/// The message never contains raw CLI stderr text. Callers render
-/// [`BackendError::code`] through their own short-message map.
 #[derive(Debug)]
 pub(crate) struct BackendError {
     kind: BackendErrorKind,
@@ -146,13 +123,6 @@ impl BackendError {
         }
     }
 
-    /// The write committed, but its result could not be read or trusted.
-    ///
-    /// The call never kills a writer after the commit event, so the installed
-    /// files stay in place. A lost stdout result and a lost progress stream
-    /// both leave the view stale. Callers treat this code as
-    /// success-with-stale-view and refresh rather than reporting a failed
-    /// write.
     pub(super) fn output_after_commit() -> Self {
         Self {
             kind: BackendErrorKind::Committed,
@@ -193,28 +163,21 @@ impl BackendError {
         }
     }
 
-    /// Why the call failed.
     #[must_use]
     pub(crate) fn kind(&self) -> BackendErrorKind {
         self.kind
     }
 
-    /// The CLI's stable error code, when it reported one.
-    ///
-    /// A run cancelled before the commit point reports `CANCELLED` even when
-    /// the CLI exits without its error envelope.
     #[must_use]
     pub(crate) fn code(&self) -> Option<&str> {
         self.code.as_deref()
     }
 
-    /// The capabilities a refusal left uncovered, when its envelope named any.
     #[must_use]
     pub(crate) fn approval(&self) -> Option<&UncoveredApproval> {
         self.approval.as_ref()
     }
 
-    /// The raw `THEME_INVALID` diagnostics, which the app layer sanitises.
     #[must_use]
     pub(crate) fn diagnostics(&self) -> &[Value] {
         &self.diagnostics
@@ -223,7 +186,6 @@ impl BackendError {
 
 #[cfg(test)]
 impl BackendError {
-    /// Builds a refusal for tests that cannot spawn the CLI.
     pub(crate) fn refused_for_test(code: &str, approval: Option<UncoveredApproval>) -> Self {
         Self {
             kind: BackendErrorKind::Refused,
@@ -234,7 +196,6 @@ impl BackendError {
         }
     }
 
-    /// Builds the refusal one CLI envelope text describes, for tests.
     pub(crate) fn refused_from_envelope_for_test(text: &str) -> Self {
         let value: Value = serde_json::from_str(text).expect("a JSON envelope");
         let envelope = ErrorEnvelope::parse(&value).expect("a CLI error envelope");
@@ -256,26 +217,14 @@ impl std::fmt::Display for BackendError {
 
 impl std::error::Error for BackendError {}
 
-/// Why a progress-aware backend call failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackendErrorKind {
-    /// The CLI stopped before the commit point because the caller cancelled.
     Cancelled,
-    /// The CLI produced no output before the inactivity timeout, so it was stopped.
     Timeout,
-    /// The CLI exited with a failure.
     Refused,
-    /// A stream exceeded its bound or could not be read.
     Output,
-    /// The write committed, but its result could not be read within the bound
-    /// or a stream failed after the commit.
-    ///
-    /// The operation committed; callers refresh their view instead of
-    /// reporting a failed write.
     Committed,
-    /// The configured executable could not start.
     Spawn,
-    /// The CLI exited successfully but stdout was not one JSON value.
     InvalidJson,
 }
 

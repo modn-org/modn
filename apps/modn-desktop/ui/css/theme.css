@@ -1,7 +1,3 @@
-/*
- * Theme control: the shell header, the Theme button and its panel.
- * Every class uses the reserved `modn-theme-` prefix.
- */
 @layer app {
 .modn-theme-shell {
   grid-area: shell;

@@ -71,13 +71,10 @@ pub fn seed_dependency_cache(fixture: &Fixture, archive: &Path) {
     fs::copy(archive, entry).expect("seed dependency cache");
 }
 
-/// Write a bucket whose first Git source aborts below the Git low-speed limit
-/// and whose second one serves.
 pub fn add_low_speed_then_serving_bucket(fixture: &Fixture, root: &Path, commit: &str) {
     add_two_source_bucket(fixture, root, "git-low-speed-fixture", "low-speed", commit);
 }
 
-/// Write a bucket whose first source names `first` and whose second serves.
 pub fn add_two_source_bucket(
     fixture: &Fixture,
     root: &Path,
@@ -88,11 +85,6 @@ pub fn add_two_source_bucket(
     write_two_source_bucket(fixture, root, bucket_name, first, "1.0", commit, commit);
 }
 
-/// Write a two-Git-source release with explicit version and commits.
-///
-/// The first source names `fixture/{first}`; the second names the serving
-/// `fixture/project`. `first_commit` lets the fallback source pin a different
-/// commit than the primary, as a fallback release can.
 pub fn write_two_source_bucket(
     fixture: &Fixture,
     root: &Path,
@@ -115,7 +107,6 @@ pub fn write_two_source_bucket(
     assert!(result.status.success(), "{}", error(&result));
 }
 
-/// Rewrite a two-Git-source release in place, without registering it again.
 pub fn write_two_source_manifest(
     root: &Path,
     bucket_name: &str,
@@ -152,7 +143,6 @@ pub fn write_two_source_manifest(
     .expect("manifest");
 }
 
-/// The real Git program on PATH, called through by the stalling stub.
 pub fn real_git() -> PathBuf {
     let name = if cfg!(windows) { "git.exe" } else { "git" };
     std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
@@ -161,8 +151,6 @@ pub fn real_git() -> PathBuf {
         .expect("the fixture needs Git on PATH")
 }
 
-/// A stub Git that reports the low-speed abort for `fixture/low-speed` and
-/// calls the real Git otherwise.
 pub fn low_speed_git_program(root: &Path) -> PathBuf {
     stub_git_program(
         root,
@@ -173,9 +161,6 @@ pub fn low_speed_git_program(root: &Path) -> PathBuf {
     )
 }
 
-/// Write a stub Git that handles the matching repository and forwards the rest.
-///
-/// Every call appends its arguments to `arguments.log` in the stub directory.
 pub fn stub_git_program(
     root: &Path,
     name: &str,
@@ -213,15 +198,10 @@ pub fn stub_git_program(
     }
 }
 
-/// The argument lines the stub Git of `name` received, oldest first.
 pub fn stub_git_arguments(root: &Path, name: &str) -> String {
     fs::read_to_string(root.join(name).join("arguments.log")).unwrap_or_default()
 }
 
-/// Run the CLI with a stubbed Git fetch and a short Git low-speed time.
-///
-/// The stderr stream goes to a file and the helper reports when the process
-/// exited.
 pub fn run_with_stub_git(
     fixture: &Fixture,
     base: &Path,
@@ -255,10 +235,6 @@ pub fn run_with_stub_git(
     )
 }
 
-/// Run the CLI with a stubbed Git fetch and capture both output streams.
-///
-/// A dry-run report goes to stdout, so a test that inspects the JSON or the
-/// text report reads it from the capture files instead of a pipe.
 pub fn run_with_stub_git_captured(
     fixture: &Fixture,
     base: &Path,
@@ -294,7 +270,6 @@ pub fn run_with_stub_git_captured(
     )
 }
 
-/// Staging directories that a fetch should have removed.
 pub fn leftover_fetch_directories(fixture: &Fixture) -> Vec<String> {
     let cache = fixture.state.join("cache");
     let Ok(entries) = fs::read_dir(cache) else {

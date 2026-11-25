@@ -259,7 +259,6 @@ pub fn doctor_for(game_id: &str, installation: &Path) -> DoctorReport {
     doctor
 }
 
-/// Diagnostics for a content root that cannot be read safely.
 pub(crate) fn content_root_diagnostics(health: Option<&ContentRootHealth>) -> Vec<Diagnostic> {
     health
         .and_then(ContentRootHealth::diagnostic)

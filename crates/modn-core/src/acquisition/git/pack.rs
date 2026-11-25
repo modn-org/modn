@@ -1,5 +1,3 @@
-//! Fetch one pinned Git commit and pack its tree into a deterministic ZIP.
-
 use super::super::digest::file_blake3;
 use super::super::FetchError;
 use crate::git::{self, GitEnvironment};
@@ -16,7 +14,6 @@ mod tests;
 const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED: u64 = 64 * 1024 * 1024 * 1024;
 
-/// A packed Git tree in `staging`, with the BLAKE3 digest of the ZIP bytes.
 #[derive(Debug)]
 pub(crate) struct PackedArchive {
     pub(crate) path: PathBuf,
@@ -29,19 +26,10 @@ struct TreeEntry {
     executable: bool,
 }
 
-/// Fetch `commit` from `url`; Git bounds a stalled HTTP(S) transfer itself.
-///
-/// The shared Git command passes `http.lowSpeedLimit` and `http.lowSpeedTime`,
-/// so a transfer that stays below one byte per second for the documented
-/// inactivity limit ends with Git's own abort. That abort keeps the
-/// [`FetchError::Timeout`] class, which lets ordered acquisition try the next
-/// source. Git prints progress while it receives data, so a transfer that
-/// keeps receiving data may run longer than the limit.
 fn fetch_with(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Result<()> {
     fetch_with_command(git::command(environment), url, commit)
 }
 
-/// Run one prepared fetch command and classify its failure.
 fn fetch_with_command(mut command: Command, url: &str, commit: &str) -> Result<()> {
     command
         .args([
@@ -76,12 +64,6 @@ fn fetch_with_command(mut command: Command, url: &str, commit: &str) -> Result<(
     )
 }
 
-/// Clone one Git catalog revision under the shared low-speed limits.
-///
-/// The clone keeps every hostile-input protection of the catalog module: the
-/// empty hooks directory and the allow-listed transports of the shared Git
-/// command. Git ends a stalled HTTP(S) transfer itself; the catalog sync
-/// records that failure as `timed out` and tries the next mirror.
 pub(super) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
     let hooks = git::empty_hooks()?;
     let environment = GitEnvironment {
@@ -122,19 +104,11 @@ pub(super) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
     )
 }
 
-/// Whether Git's stderr names the transfer abort below its low-speed limit.
-///
-/// `git fetch` and `git clone` run with `http.lowSpeedLimit` and
-/// `http.lowSpeedTime`, so libcurl ends a stalled HTTP or HTTPS transfer with
-/// `Operation too slow. Less than 1 bytes/sec transferred the last N seconds`.
-/// The ordered fallback treats that abort like the deadline: both are a
-/// `timeout` attempt. File and SSH transports do not apply the limits.
 fn low_speed_abort(stderr: &str) -> bool {
     let text = stderr.to_ascii_lowercase();
     text.contains("operation too slow") || text.contains("bytes/sec transferred")
 }
 
-/// Fetch `commit` from `url` and pack its tree into `staging/archive.zip`.
 pub(super) fn pack_commit(
     url: &str,
     commit: &str,

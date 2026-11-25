@@ -27,7 +27,6 @@ use std::path::Path;
 #[path = "update_identity.rs"]
 mod identity;
 
-/// The source that `modn update` will try first, or the declared primary.
 fn planned_source(release: &BucketPackage) -> &PackageSource {
     crate::dependency_plan::fetchable_source(&release.package.sources)
         .unwrap_or(release.package.primary_source())
@@ -56,11 +55,6 @@ fn choose_release(
         })
 }
 
-/// The archive format a supplied update archive must have.
-///
-/// A `git` package record carries no archive record, because its commit is the
-/// pin. Acquisition packs that commit as a ZIP, so a supplied archive for a Git
-/// source is checked as a ZIP.
 fn supplied_format(target: &BucketPackage) -> Option<ArchiveFormat> {
     expected_format(target.package.archive_format.as_ref()).or_else(|| {
         matches!(target.package.primary_source(), PackageSource::Git { .. })

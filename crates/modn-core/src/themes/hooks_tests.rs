@@ -7,7 +7,6 @@ use super::{
 
 const DOC: &str = include_str!("../../../../docs/themes.md");
 
-/// Return one section of the stable hooks documentation.
 fn section(heading: &str) -> &'static str {
     let start = DOC
         .find(heading)
@@ -23,7 +22,6 @@ fn section(heading: &str) -> &'static str {
     &rest[..end]
 }
 
-/// Return the first-column backticked names of one section's table.
 fn table_names(heading: &str) -> Vec<String> {
     section(heading)
         .lines()
@@ -35,7 +33,6 @@ fn table_names(heading: &str) -> Vec<String> {
         .collect()
 }
 
-/// Assert equality in both directions and name the hook that differs.
 fn assert_same(doc: &[String], code: &[&str], const_name: &str) {
     for hook in doc {
         if !code.contains(&hook.as_str()) {

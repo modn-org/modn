@@ -29,7 +29,6 @@ def position(node):
 def overlapping(first, second):
     ax, ay = position(first)
     bx, by = position(second)
-    # Equal edges mean a gap of 0, and a gap is required, so the test is inclusive.
     return (
         ax <= bx + second["width"]
         and bx <= ax + first["width"]

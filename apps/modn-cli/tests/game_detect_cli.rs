@@ -1,9 +1,3 @@
-//! `modn game detect` with fixture Steam, GOG and Epic libraries.
-//!
-//! `MODN_STORE_LIBRARIES` names a JSON file of fixture library locations, so
-//! no test reads a real store library. The real main bucket supplies the
-//! Cyberpunk 2077 and Balatro store identities.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 

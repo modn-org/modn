@@ -1,5 +1,3 @@
-//! Operation history and undo.
-
 use super::args;
 use super::run_write;
 use crate::app::error::CommandError;

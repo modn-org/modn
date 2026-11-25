@@ -3,15 +3,8 @@
     reason = "shared fixture exposes helpers for different test crates"
 )]
 
-//! Build `git` commands isolated from the caller's repository.
-//!
-//! A test process can run under a Git hook or another `git` command that
-//! exports repository-location variables. Those variables override
-//! `current_dir`, so every fixture command removes them first.
-
 use std::process::Command;
 
-/// Repository-location variables Git honours before it searches for a repository.
 pub const REPOSITORY_VARIABLES: [&str; 9] = [
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -24,7 +17,6 @@ pub const REPOSITORY_VARIABLES: [&str; 9] = [
     "GIT_CEILING_DIRECTORIES",
 ];
 
-/// Build a `git` command for a disposable fixture repository.
 pub fn git_command() -> Command {
     let mut command = Command::new("git");
     for variable in REPOSITORY_VARIABLES {

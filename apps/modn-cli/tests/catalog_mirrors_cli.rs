@@ -1,4 +1,3 @@
-//! Signed catalog mirrors, relocation and the `bucket list` fields at the CLI.
 #![allow(
     clippy::too_many_lines,
     reason = "behavior tests read as one scenario each"

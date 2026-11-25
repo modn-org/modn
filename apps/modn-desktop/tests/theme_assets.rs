@@ -1,8 +1,3 @@
-//! Resolution rules of the `modn-theme` protocol, tested without Tauri.
-//!
-//! The module under test has no Tauri dependency, so these tests run on every
-//! platform. The fixture creates every file under the test target directory.
-
 #[expect(
     dead_code,
     reason = "ASSET_BASE belongs to the command layer and these tests never read it"
@@ -16,7 +11,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use theme_assets::{ASSET_LIMIT, load_asset, read_asset_body, resolve_asset};
 
-/// A disposable theme directory with an `assets` directory.
 struct Fixture {
     base: PathBuf,
     root: PathBuf,

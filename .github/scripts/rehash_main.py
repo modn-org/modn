@@ -154,7 +154,7 @@ def acquire(
         download_archive(url, destination)
     except RehashError:
         raise
-    except Exception as error:  # A replaced downloader may raise anything.
+    except Exception as error:
         raise DownloadError(f"download failed for {url}: {error}") from error
     if not destination.is_file():
         raise DownloadError(f"download failed for {url}: no file was written")
