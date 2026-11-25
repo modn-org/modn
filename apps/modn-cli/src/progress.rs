@@ -6,6 +6,7 @@ use std::io::{self, BufRead};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub(super) enum ProgressFormat {
+    /// One JSON event per line on stderr.
     Json,
 }
 
