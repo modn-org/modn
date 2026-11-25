@@ -33,6 +33,8 @@ mod integrity;
 pub mod inventory;
 /// Prepare and perform a validated game launch.
 pub mod launch;
+/// Resolve every manager-owned location once per command.
+pub mod manager_roots;
 pub mod planning;
 pub mod progress;
 /// Inventory detected game files and produce diagnostic findings.
