@@ -279,6 +279,15 @@ fn op_button_stops_a_destroyed_run_before_the_write() {
         between.contains("discardProgressListener(off)"),
         "a stale run must drop the progress listener before it starts the write"
     );
+    let helper = op
+        .split("function discardProgressListener(")
+        .nth(1)
+        .expect("listener cleanup helper");
+    let helper_body = helper.split("\n}\n").next().expect("helper body");
+    assert!(
+        helper_body.contains("typeof off !== 'function'") && helper_body.contains("off()"),
+        "listener cleanup must ignore non-functions and call the unlisten function"
+    );
     let destroy = op.find("destroy() {").expect("destroy function");
     assert!(
         op[destroy..].contains("generation += 1"),

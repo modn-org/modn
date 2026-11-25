@@ -10,6 +10,7 @@ import ast
 import json
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import fixtures
 import journeys_core
@@ -124,6 +125,31 @@ class FakeUser32:
         return ""
 
 
+class CloseProcess:
+    returncode = None
+
+    def poll(self):
+        return None
+
+    def wait(self, timeout=None):
+        self.returncode = 0
+        return 0
+
+    def kill(self):
+        self.returncode = 1
+
+
+class CloseSession:
+    def __init__(self):
+        self.closed = False
+
+    def extra_windows(self):
+        return [object()]
+
+    def request_close(self):
+        self.closed = True
+
+
 def _doc_play_sentences(text):
     flat = re.sub(r"\s+", " ", text)
     return [
@@ -192,6 +218,20 @@ def checks():
         for name, original in patched.items():
             if original is not None:
                 setattr(uia.auto, name, original)
+
+    close_app = journeys_core.App(None, "unused")
+    close_app.process = CloseProcess()
+    close_session = CloseSession()
+    close_app.session = close_session
+    with (
+        patch.object(uia, "dialog_buttons", return_value={"Yes", "No"}),
+        patch.object(uia, "answer_dialog") as answer_dialog,
+        patch.object(uia, "_walk", return_value=[]),
+    ):
+        close_result = close_app.close()
+    results["close_never_answers_yes_no"] = (
+        close_result == 0 and close_session.closed and not answer_dialog.called
+    )
 
     failing = FakeUser32(result=0, last_error=5)
     try:
