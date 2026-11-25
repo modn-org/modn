@@ -4,23 +4,25 @@ use anyhow::Result;
 use modn_core::detection::detect_installations;
 use modn_core::error::{coded, ErrorCode};
 use modn_core::launch::{execute_launch, launch_with_lock, system_launch, LaunchTarget};
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::stores::StoreLibraries;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub(super) fn run(
     game: &str,
     path: Option<PathBuf>,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
+    let state_path = roots.state_database();
     if requested.is_some_and(|id| id != game) {
         return Err(coded(
             ErrorCode::LaunchGameMismatch,
             "LAUNCH_GAME_MISMATCH: --game must match the play game ID",
         ));
     }
-    let state = ManagerState::load_deferred(state_path)?;
+    let state = ManagerState::load_deferred(&state_path)?;
     let (game_id, installation) = selected_installation(state.existing(), path, Some(game))
         .map_err(|error| {
             coded(

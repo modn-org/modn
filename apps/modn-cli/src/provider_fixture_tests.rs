@@ -66,7 +66,7 @@ fn provider_commands_fetch_only_after_consent_and_reject_changed_evidence() {
                     .unwrap();
                 crate::run_cli(
                     cli,
-                    &root.join("state.sqlite"),
+                    &modn_core::manager_roots::ManagerRoots::new(root, None),
                     &crate::progress::Progress::start(None),
                 )
             };

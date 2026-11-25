@@ -42,11 +42,20 @@ use modn_core::archive::inspect;
 use modn_core::data_dir::with_profile_directory;
 use modn_core::error::{code_of, ErrorCode};
 use modn_core::game_modules::with_module_source;
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::transactions::NativeInjectorNotAllowed;
 use progress::Progress;
-use state_access::database_path;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+fn manager_roots(cli: &Cli) -> Result<ManagerRoots> {
+    let roots = ManagerRoots::from_environment(cli.state_dir.as_deref())?
+        .with_development_modules(cli.module_source.clone());
+    if roots.profile().as_os_str().is_empty() {
+        bail!("invalid manager state directory");
+    }
+    Ok(roots)
+}
 
 fn run(mut cli: Cli, progress: &Progress) -> Result<()> {
     if let Command::Asset { command } = &cli.command {
@@ -59,22 +68,14 @@ fn run(mut cli: Cli, progress: &Progress) -> Result<()> {
         return catalog::run(command, cli.json);
     }
     if let Command::Theme { command } = &cli.command {
-        return themes::run(
-            command,
-            cli.state_dir.as_deref(),
-            cli.game_id.as_deref(),
-            cli.json,
-        );
+        let roots = manager_roots(&cli)?;
+        return themes::run(command, &roots, cli.game_id.as_deref(), cli.json);
     }
     prepare_nxm(&mut cli.command)?;
-    let state_path = database_path(cli.state_dir.as_deref())?;
-    let profile = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    let module_source = cli.module_source.clone();
-    with_profile_directory(profile, || {
-        with_module_source(module_source.as_deref(), || {
-            run_cli(cli, &state_path, progress)
+    let roots = manager_roots(&cli)?;
+    with_profile_directory(roots.profile(), || {
+        with_module_source(roots.development_modules(), || {
+            run_cli(cli, &roots, progress)
         })
     })
 }
@@ -94,7 +95,7 @@ fn prepare_nxm(command: &mut Command) -> Result<()> {
     Ok(())
 }
 
-fn run_cli(cli: Cli, state_path: &Path, progress: &Progress) -> Result<()> {
+fn run_cli(cli: Cli, roots: &ManagerRoots, progress: &Progress) -> Result<()> {
     let Cli {
         json,
         game_id,
@@ -104,28 +105,26 @@ fn run_cli(cli: Cli, state_path: &Path, progress: &Progress) -> Result<()> {
     let requested = game_id.as_deref();
     match command {
         Command::Asset { command } => assets::run(&command, json),
-        Command::Bucket { command } => buckets::run(command, state_path, json, requested),
-        Command::Cache { command } => download::run(command, state_path, json),
-        Command::Module { command } => modules::run(command, state_path, json),
+        Command::Bucket { command } => buckets::run(command, roots, json, requested),
+        Command::Cache { command } => download::run(command, roots, json),
+        Command::Module { command } => modules::run(command, roots, json),
         Command::Auth { command } => nexus_auth::run(&command, json),
-        Command::Search { query } => buckets::search(query.as_deref(), state_path, json, requested),
-        Command::Install(args) => install::run(&args, state_path, requested, json, progress),
-        Command::Adopt(args) => adoption::run(&args, state_path, requested, json),
-        Command::Update(args) => update::run(&args, state_path, requested, json, progress),
-        Command::Pin(args) => managed::pin(&args, state_path, requested, true),
-        Command::Unpin(args) => managed::pin(&args, state_path, requested, false),
+        Command::Search { query } => buckets::search(query.as_deref(), roots, json, requested),
+        Command::Install(args) => install::run(&args, roots, requested, json, progress),
+        Command::Adopt(args) => adoption::run(&args, roots, requested, json),
+        Command::Update(args) => update::run(&args, roots, requested, json, progress),
+        Command::Pin(args) => managed::pin(&args, roots, requested, true),
+        Command::Unpin(args) => managed::pin(&args, roots, requested, false),
         Command::Inspect { archive } => inspect_archive(&archive, json),
-        Command::Game { command } => games::run(command, state_path, requested, json),
-        Command::Play { game, path } => play::run(&game, path, state_path, requested, json),
-        Command::List { path } => managed::list(path, state_path, requested, json),
-        Command::History => history::run(state_path, requested, json),
-        Command::Uninstall(args) => {
-            managed::uninstall(&args, state_path, requested, json, progress)
-        }
-        Command::Undo(args) => undo::run(&args, state_path, requested, json, progress),
-        Command::Recover { yes } => managed::recover(yes, state_path, requested, json),
-        Command::Scan { path } => inventory::scan(path, state_path, requested, json),
-        Command::Doctor { path } => inventory::doctor(path, state_path, requested, json),
+        Command::Game { command } => games::run(command, roots, requested, json),
+        Command::Play { game, path } => play::run(&game, path, roots, requested, json),
+        Command::List { path } => managed::list(path, roots, requested, json),
+        Command::History => history::run(roots, requested, json),
+        Command::Uninstall(args) => managed::uninstall(&args, roots, requested, json, progress),
+        Command::Undo(args) => undo::run(&args, roots, requested, json, progress),
+        Command::Recover { yes } => managed::recover(yes, roots, requested, json),
+        Command::Scan { path } => inventory::scan(path, roots, requested, json),
+        Command::Doctor { path } => inventory::doctor(path, roots, requested, json),
         Command::Catalog { command } => catalog::run(&command, json),
         Command::Theme { .. } => bail!("theme commands run before manager state is opened"),
     }

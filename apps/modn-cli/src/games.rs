@@ -3,12 +3,13 @@ use crate::game_detect;
 use crate::selection::choose_candidate;
 use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Result};
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use std::path::{Path, PathBuf};
 
 pub(super) fn run(
     command: GameCommand,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
@@ -17,11 +18,12 @@ pub(super) fn run(
             bail!("--game must match the game ID passed to game add/remove");
         }
     }
+    let state_path = roots.state_database();
     match command {
-        GameCommand::Add { game, path } => add(&game, path, state_path, json),
-        GameCommand::Remove { game, path } => remove(&game, path.as_deref(), state_path, json),
-        GameCommand::List => list(state_path, json),
-        GameCommand::Detect { register } => game_detect::run(state_path, requested, register, json),
+        GameCommand::Add { game, path } => add(&game, path, &state_path, json),
+        GameCommand::Remove { game, path } => remove(&game, path.as_deref(), &state_path, json),
+        GameCommand::List => list(&state_path, json),
+        GameCommand::Detect { register } => game_detect::run(roots, requested, register, json),
     }
 }
 

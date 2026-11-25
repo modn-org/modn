@@ -78,6 +78,12 @@ impl ManagerRoots {
         &self.archive_cache
     }
 
+    /// The archive cache rooted at [`Self::archive_cache_root`].
+    #[must_use]
+    pub fn archive_cache(&self) -> crate::acquisition::ArchiveCache {
+        crate::acquisition::ArchiveCache::new(self.archive_cache.clone())
+    }
+
     /// The bucket store root, which holds the bucket registrations.
     #[must_use]
     pub fn bucket_registrations(&self) -> PathBuf {

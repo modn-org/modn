@@ -5,16 +5,18 @@ use crate::state_access::{InstallationAccess, ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::transactions::{CleanupApproval, UninstallScope};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub(super) fn list(
     path: Option<PathBuf>,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let selected = ManagerState::load(state_path)?
+    let state_path = roots.state_database();
+    let selected = ManagerState::load(&state_path)?
         .for_installation(path, requested)?
         .open(InstallationAccess::Write)?;
     let store = selected.store.expect("write access opens manager state");
@@ -54,13 +56,14 @@ pub(super) fn list(
 
 pub(super) fn uninstall(
     args: &UninstallArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
     progress: &Progress,
 ) -> Result<()> {
     progress.begin()?;
-    let state = ManagerState::load(state_path)?;
+    let state_path = roots.state_database();
+    let state = ManagerState::load(&state_path)?;
     let state = state.for_installation(args.path.clone(), requested)?;
     let scope = UninstallScope::default()
         .including_dependencies(args.include_deps)
@@ -155,11 +158,12 @@ pub(super) fn uninstall(
 
 pub(super) fn pin(
     args: &PinArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     pinned: bool,
 ) -> Result<()> {
-    let selected = ManagerState::load(state_path)?
+    let state_path = roots.state_database();
+    let selected = ManagerState::load(&state_path)?
         .for_installation(args.path.clone(), requested)?
         .open(InstallationAccess::Write)?;
     let mut store = selected.store.expect("write access opens manager state");
@@ -173,11 +177,12 @@ pub(super) fn pin(
 
 pub(super) fn recover(
     yes: bool,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let mut store = ManagerState::load(state_path)?
+    let state_path = roots.state_database();
+    let mut store = ManagerState::load(&state_path)?
         .require_existing("no manager state database to recover")?
         .open_writable(&ProtectedTarget {
             game: requested.map(str::to_owned),
