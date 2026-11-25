@@ -220,6 +220,7 @@ try {
     $manifest = Get-Content (Join-Path $repo 'buckets/main/games/cyberpunk-2077/redscript.json') -Raw | ConvertFrom-Json
     $manifest.source = [pscustomobject]@{ kind = 'github-release'; repository = 'jac3km4/redscript'; tag = 'v0.5.32'; asset = 'redscript-v0.5.32-windows.zip' }
     Write-File (Join-Path $catalog 'games/cyberpunk-2077/redscript.json') ($manifest | ConvertTo-Json -Depth 10)
+    Require (-not (Test-Path (Join-Path $catalog '.git'))) 'Sign the Git catalog before git init'
     [void] (& $script:SignCatalog $catalog (Join-Path $catalog 'catalog.sig') (Join-Path $catalog 'catalog.pub'))
     Require ($LASTEXITCODE -eq 0) 'Cannot sign the Git catalog fixture'
     $revision = New-GateGitCommit $catalog

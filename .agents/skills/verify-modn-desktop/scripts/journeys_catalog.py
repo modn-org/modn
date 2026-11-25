@@ -12,7 +12,6 @@ from pathlib import Path
 import uia
 from catalog_fixture import add_catalog_release
 from fixtures import Fixture, require, run
-from harness import wait_toasts_gone
 from lifecycle import (
     GAME_ID,
     _app,
@@ -28,6 +27,8 @@ from lifecycle import (
     _pick_archive,
     _toast_undo,
     _wait_toast,
+    wait_for_install_toast_to_expire,
+    wait_for_undo_toast_to_expire,
 )
 
 DEMO_ID = "demo-pack"
@@ -147,7 +148,7 @@ def journey_catalog(runner):
     v1_state = _bytes_state(fx, game)
     runner.check(v1_state != start, "The catalog install left no file on disk")
     _assert_clean_ui(runner, session, "catalog-1-install")
-    wait_toasts_gone(session, "Install done", "the catalog update")
+    wait_for_install_toast_to_expire(session, "the catalog update")
 
     add_catalog_release(fx, GAME_ID, DEMO_ID, "2.0.0", V2_FILES, name=DEMO_NAME)
     _back_home(session)
