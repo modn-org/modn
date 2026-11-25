@@ -6,6 +6,7 @@ use crate::state_access::{InstallationAccess, ManagerState};
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::PackageSource;
 use modn_core::history::{HistoryContext, StandalonePackage};
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::planning::{
     preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
 };
@@ -26,7 +27,7 @@ fn is_standalone_archive(args: &InstallArgs) -> bool {
 
 pub(super) fn run(
     args: &InstallArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
     progress: &Progress,
@@ -36,7 +37,7 @@ pub(super) fn run(
         bail!("--download only prepares a --dry-run; an install downloads what it needs");
     }
     if !is_standalone_archive(args) {
-        return catalog_install::run(args, state_path, requested, json, progress);
+        return catalog_install::run(args, roots, requested, json, progress);
     }
     if !args.file.is_empty() {
         bail!("--file applies only to cataloged mods, not standalone archives");
@@ -44,22 +45,23 @@ pub(super) fn run(
     if args.download {
         bail!("--download applies only to cataloged mods, not standalone archives");
     }
-    install_archive(args, state_path, requested, json, progress)
+    install_archive(args, roots, requested, json, progress)
 }
 
 fn install_archive(
     args: &InstallArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
     progress: &Progress,
 ) -> Result<()> {
+    let state_path = roots.state_database();
     let access = if args.dry_run {
         InstallationAccess::ArchivePreview
     } else {
         InstallationAccess::ArchiveInstall { approved: args.yes }
     };
-    let selected = ManagerState::load(state_path)?
+    let selected = ManagerState::load(&state_path)?
         .for_installation(args.path.clone(), requested)?
         .open(access)?;
     let mut store = selected.store;

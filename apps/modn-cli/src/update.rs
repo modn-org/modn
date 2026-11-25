@@ -16,6 +16,7 @@ use modn_core::archive::{inspect, ArchiveFormat};
 use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::planning::{
     preview_update_with_appdata, preview_update_with_permissions, InstallPlan, PlanStatus,
 };
@@ -183,7 +184,7 @@ fn plan_update(
 
 pub(super) fn run(
     args: &UpdateArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
     progress: &Progress,
@@ -193,7 +194,7 @@ pub(super) fn run(
         bail!("--download only prepares a --dry-run; an update downloads what it needs");
     }
     let Some(target) = args.target.as_deref() else {
-        return crate::update_refresh::run(args, state_path, requested, json);
+        return crate::update_refresh::run(args, roots, requested, json);
     };
     if progress.enabled() && !args.yes && !args.dry_run {
         return Err(coded(
@@ -201,12 +202,8 @@ pub(super) fn run(
             "an update writes game files; pass --yes with --progress json",
         ));
     }
-    let catalog = BucketStore::new(
-        state_path
-            .parent()
-            .context("invalid manager state directory")?,
-    )
-    .snapshot(requested)?;
+    let state_path = roots.state_database();
+    let catalog = BucketStore::new(roots.profile()).snapshot(requested)?;
     let current = catalog_install::resolve(target, &catalog, json)?;
     let reference = reference_of(&current);
     let label = reference.to_string();
@@ -222,7 +219,7 @@ pub(super) fn run(
     let target = choose_release(releases, args.version.as_deref(), &label)?;
     download::validate_links(&args.nxm_links, &[&target])?;
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
-    let state = ManagerState::load_deferred(state_path)?;
+    let state = ManagerState::load_deferred(&state_path)?;
     let store = state
         .existing()
         .context("no manager state database; nothing is installed")?;
@@ -274,7 +271,7 @@ pub(super) fn run(
             ApprovalRefusal::new(reference.clone(), Uncovered::native_injector()).into_error(),
         );
     }
-    let cache = download::cache_for(state_path)?;
+    let cache = roots.archive_cache();
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();

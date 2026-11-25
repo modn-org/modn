@@ -130,7 +130,7 @@ fn acquire_with_served(
     String,
     BTreeMap<String, modn_core::buckets::PackageSource>,
 ) {
-    let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
+    let cache = modn_core::acquisition::ArchiveCache::new(root.join("cache"));
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();
@@ -415,7 +415,7 @@ fn a_dry_run_cache_probe_reuses_a_secondary_nexus_archive() {
     let package = two_nexus_sources(&root, &digest);
     seed_cache(&root, &second_cache_url(), &bytes);
     TEST_CALLS.with(|calls| calls.borrow_mut().clear());
-    let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
+    let cache = modn_core::acquisition::ArchiveCache::new(root.join("cache"));
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();

@@ -2,15 +2,15 @@ use crate::commands::ModuleCommand;
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{local_bucket_module_refusal, BucketStore, ModuleTrustState};
 use modn_core::game_modules::{ModuleRegistry, ModuleSource, ReleaseOutcome};
+use modn_core::manager_roots::ManagerRoots;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) -> Result<()> {
-    let data = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    crate::modules::validate_registry_writes(state_path, data)?;
+pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: bool) -> Result<()> {
+    let state_path = roots.state_database();
+    let data = roots.profile();
+    crate::modules::validate_registry_writes(&state_path, data)?;
     let registry = ModuleRegistry::new(data);
     match command {
         ModuleCommand::Pin { game } => {
@@ -143,12 +143,10 @@ fn rollback(
     Ok(())
 }
 
-pub(super) fn list(data: &Path, state_path: &Path, json_output: bool) -> Result<()> {
+pub(super) fn list(roots: &ManagerRoots, json_output: bool) -> Result<()> {
+    let data = roots.profile();
     let registry = ModuleRegistry::new(data);
-    let store_root = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    let store = BucketStore::new(store_root);
+    let store = BucketStore::new(roots.profile());
     let mut trust = BTreeMap::new();
     let mut entries = Vec::new();
     let mut lines = Vec::new();

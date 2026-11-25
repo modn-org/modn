@@ -2,20 +2,21 @@ use crate::commands::AdoptArgs;
 use crate::modules::content_root_appdata;
 use crate::state_access::{InstallationAccess, ManagerState, ProtectedTarget};
 use anyhow::{bail, Result};
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::planning::{self, PlanStatus};
 use modn_core::transactions::AdoptionApproval;
-use std::path::Path;
 
 pub(super) fn run(
     args: &AdoptArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
     if !args.dry_run && !(args.acknowledge && args.yes) {
         bail!("adoption records ownership; use --dry-run or both --acknowledge and --yes");
     }
-    let selected = ManagerState::load(state_path)?
+    let state_path = roots.state_database();
+    let selected = ManagerState::load(&state_path)?
         .for_installation(args.path.clone(), requested)?
         .open(InstallationAccess::ArchivePreview)?;
     let appdata = content_root_appdata(&selected.game_id)?;
@@ -76,7 +77,7 @@ pub(super) fn run(
     let game_id = selected.game_id;
     let game = selected.root;
     drop(selected.store);
-    let mut store = ManagerState::load(state_path)?.open_writable(&ProtectedTarget {
+    let mut store = ManagerState::load(&state_path)?.open_writable(&ProtectedTarget {
         game: Some(game_id.clone()),
         root: Some(game.clone()),
     })?;

@@ -5,6 +5,7 @@ use modn_core::acquisition::{CacheUse, FetchError, SourceAttempt, SourceTarget};
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::data_dir;
 use modn_core::game_modules::with_module_source;
+use modn_core::manager_roots::ManagerRoots;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs;
@@ -19,7 +20,7 @@ fn command(root: &Path, args: &[&str]) -> anyhow::Result<()> {
         .expect("test command line");
     crate::run_cli(
         cli,
-        &root.join("state.sqlite"),
+        &ManagerRoots::new(root, None),
         &crate::progress::Progress::start(None),
     )
 }
@@ -239,7 +240,7 @@ fn acquire_with_sources(
     root: &Path,
     package: &BucketPackage,
 ) -> anyhow::Result<(Vec<SourceAttempt>, std::path::PathBuf)> {
-    let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
+    let cache = modn_core::acquisition::ArchiveCache::new(root.join("cache"));
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();

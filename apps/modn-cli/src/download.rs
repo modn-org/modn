@@ -10,7 +10,7 @@ use crate::catalog_install::reference_of;
 use crate::commands::CacheCommand;
 use crate::nxm::NxmLink;
 use crate::progress::Progress;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 pub(crate) use http::fetch;
 use http::{fetch_measured, fetch_metadata, HttpTransport};
 use modn_core::acquisition::SourceTransport;
@@ -19,9 +19,13 @@ use modn_core::acquisition::{
     SourceAttempt, SourcePolicy,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
+use modn_core::manager_roots::ManagerRoots;
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+#[cfg(test)]
+use anyhow::Context;
 
 #[cfg(test)]
 thread_local! {
@@ -108,17 +112,6 @@ pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {
         }
     }
 }
-pub(super) fn cache_for(state_path: &Path) -> Result<ArchiveCache> {
-    let root = match std::env::var_os("MODN_CACHE") {
-        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => state_path
-            .parent()
-            .context("invalid manager state directory")?
-            .join("cache"),
-    };
-    Ok(ArchiveCache::new(root))
-}
-
 fn source_url(source: &PackageSource) -> Option<String> {
     match source {
         PackageSource::Https { url } => Some(url.clone()),
@@ -361,8 +354,8 @@ fn refetchable_source(sources: &[PackageSource]) -> Option<&PackageSource> {
     })
 }
 
-pub(super) fn run(command: CacheCommand, state_path: &Path, json: bool) -> Result<()> {
-    let cache = cache_for(state_path)?;
+pub(super) fn run(command: CacheCommand, roots: &ManagerRoots, json: bool) -> Result<()> {
+    let cache = roots.archive_cache();
     let (entries, removed) = match command {
         CacheCommand::Show { mod_id } => (cache.entries(mod_id.as_deref())?, false),
         CacheCommand::Rm { mod_id, all } => {

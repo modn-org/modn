@@ -194,13 +194,6 @@ fn registered_roots(store: Option<&Store>) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
-pub(super) fn database_path(state_dir: Option<&Path>) -> Result<PathBuf> {
-    if let Some(dir) = state_dir {
-        return Ok(dir.join("state.sqlite"));
-    }
-    Ok(modn_core::data_dir::data_directory()?.join("state.sqlite"))
-}
-
 pub(super) fn validate_state_path(
     state_path: &Path,
     selected_game: Option<&str>,

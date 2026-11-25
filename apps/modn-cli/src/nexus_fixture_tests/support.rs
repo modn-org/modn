@@ -184,10 +184,10 @@ impl Fixture {
             Cli::try_parse_from(std::iter::once("modn").chain(args.iter().copied())).expect("CLI");
         crate::prepare_nxm(&mut cli.command)?;
         let module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
-        let state = self.root.join("state.sqlite");
+        let roots = modn_core::manager_roots::ManagerRoots::new(&self.root, None);
         data_dir::with_data_directory(&self.root, || {
             with_module_source(Some(&module), || {
-                crate::run_cli(cli, &state, &crate::progress::Progress::start(None))
+                crate::run_cli(cli, &roots, &crate::progress::Progress::start(None))
             })
         })
     }

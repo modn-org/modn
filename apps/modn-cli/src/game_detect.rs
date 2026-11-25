@@ -2,6 +2,7 @@ use crate::state_access::{validate_state_path, ManagerState, ProtectedTarget};
 use anyhow::Result;
 use modn_core::detection::{detect_installations, DetectedInstallation, Detection};
 use modn_core::game_modules::available_games;
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use modn_core::stores::StoreLibraries;
 use serde_json::{json, Value};
@@ -25,17 +26,18 @@ impl Status {
 }
 
 pub(super) fn run(
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     register: bool,
     json: bool,
 ) -> Result<()> {
+    let state_path = roots.state_database();
     let games = match requested {
         Some(game) => vec![game.to_owned()],
         None => available_games()?,
     };
     let detection = detect_installations(&StoreLibraries::system(), &games);
-    let state = ManagerState::load(state_path)?;
+    let state = ManagerState::load(&state_path)?;
     let registered: Vec<PathBuf> = state
         .existing()
         .map(Store::list)
@@ -56,7 +58,7 @@ pub(super) fn run(
         })
         .collect();
     if register {
-        register_new(state, state_path, &registered, &detection, &mut statuses)?;
+        register_new(state, &state_path, &registered, &detection, &mut statuses)?;
     }
     if json {
         println!(

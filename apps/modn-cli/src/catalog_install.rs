@@ -15,6 +15,7 @@ use modn_core::archive::{self, inspect};
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::planning::{
     preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
     InstallPlan, PlanStatus,
@@ -23,7 +24,7 @@ use modn_core::transactions::{CatalogReference, NativeInjectorPolicy};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 #[cfg(test)]
 #[path = "catalog_snapshot_tests.rs"]
 mod tests;
@@ -167,10 +168,11 @@ fn install_mod(
     selected: BucketPackage,
     catalog: &BucketSnapshot,
     args: &InstallArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     json: bool,
     progress: &Progress,
 ) -> Result<()> {
+    let state_path = roots.state_database();
     if progress.enabled() && !args.yes && !args.dry_run {
         return Err(coded(
             ErrorCode::ApprovalRequired,
@@ -182,13 +184,13 @@ fn install_mod(
     let mut order = catalog.install_order(&selected)?;
     order.pop();
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
-    catalog_approval::check_native_approvals(&selected, &order, args, state_path)?;
+    catalog_approval::check_native_approvals(&selected, &order, args, &state_path)?;
     let supplied = match_archives(&args.file, &selected, &order)?;
     let mut archives = supplied.paths.clone();
     let supplied = supplied.verified;
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();
-    let cache = download::cache_for(state_path)?;
+    let cache = roots.archive_cache();
     let cache_use = if args.no_cache {
         CacheUse::Refresh
     } else {
@@ -208,7 +210,7 @@ fn install_mod(
     if interactive && !install_consent::can_prompt(json) {
         bail!("installation writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
     }
-    let state = ManagerState::load_deferred(state_path)?;
+    let state = ManagerState::load_deferred(&state_path)?;
     let (game_id, installation) = selected_installation(
         state.existing(),
         args.path.clone(),
@@ -478,15 +480,12 @@ fn install_mod(
 
 pub(super) fn run(
     args: &InstallArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     game_filter: Option<&str>,
     json: bool,
     progress: &Progress,
 ) -> Result<()> {
-    let root = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    let catalog = BucketStore::new(root).snapshot(game_filter)?;
+    let catalog = BucketStore::new(roots.profile()).snapshot(game_filter)?;
     let package = resolve(&args.target, &catalog, json)?;
-    install_mod(package, &catalog, args, state_path, json, progress)
+    install_mod(package, &catalog, args, roots, json, progress)
 }

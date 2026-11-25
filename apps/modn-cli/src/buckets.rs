@@ -6,6 +6,7 @@ use modn_core::buckets::{
     CatalogSyncTrace, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck,
     ModuleTrustState, ZipCatalogSource, ZipCatalogSync,
 };
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use serde_json::Value;
 use std::fs::File;
@@ -336,13 +337,12 @@ fn untrust_modules(store: &BucketStore, bucket: &str, json_output: bool) -> Resu
 
 pub(super) fn run(
     command: BucketCommand,
-    state_path: &Path,
+    roots: &ManagerRoots,
     json_output: bool,
     game: Option<&str>,
 ) -> Result<()> {
-    let root = state_path
-        .parent()
-        .context("invalid manager state directory")?;
+    let state_path = roots.state_database();
+    let root = roots.profile();
     let store = BucketStore::new(root);
     if matches!(
         &command,
@@ -352,7 +352,7 @@ pub(super) fn run(
             | BucketCommand::TrustModules { .. }
             | BucketCommand::UntrustModules { .. }
     ) {
-        validate_registry_write(state_path, root, &store, game)?;
+        validate_registry_write(&state_path, root, &store, game)?;
     }
     let value: Value = match command {
         BucketCommand::Sync {
@@ -463,14 +463,11 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
 
 pub(super) fn search(
     query: Option<&str>,
-    state_path: &Path,
+    roots: &ManagerRoots,
     json_output: bool,
     game: Option<&str>,
 ) -> Result<()> {
-    let root = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    let catalog = BucketStore::new(root);
+    let catalog = BucketStore::new(roots.profile());
     let needle = query.unwrap_or("").to_lowercase();
     let matches: Vec<_> = catalog
         .packages(game)?
