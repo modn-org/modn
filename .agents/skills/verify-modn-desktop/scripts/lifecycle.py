@@ -113,6 +113,14 @@ def _wait_toast(session, message, context, timeout=90):
     )
 
 
+def wait_for_install_toast_to_expire(session, context):
+    wait_toasts_gone(session, "Install done", context)
+
+
+def wait_for_undo_toast_to_expire(session, context):
+    wait_toasts_gone(session, "Undo done", context)
+
+
 def _toast_undo(session):
     session.wait_for(
         lambda s: [c for c in s.find_all(name="Undo", control_type="ButtonControl") if c.IsEnabled],
@@ -256,7 +264,7 @@ def journey_lifecycle(runner):
         lambda s: [c for c in s.find_all(name="Install Demo Pack") if c.IsEnabled],
         "enabled Install Demo Pack",
     )
-    wait_toasts_gone(session, "Install done", "the catalog install")
+    wait_for_install_toast_to_expire(session, "the catalog install")
     session.click(name="Install Demo Pack")
     _wait_toast(session, "Install done", "catalog install")
     runner.check(_bytes_state(fx, game) == installed, "The catalog install wrote other bytes")
@@ -280,7 +288,7 @@ def journey_lifecycle(runner):
     )
     matches = session.find_all(name="Undo Uninstalled", control_type="ButtonControl")
     runner.check(bool(matches), "History has no undo for the uninstall")
-    wait_toasts_gone(session, "Undo done", "the history undo")
+    wait_for_undo_toast_to_expire(session, "the history undo")
     session.activate(matches[0])
     _wait_toast(session, "Undo done", "history undo")
     runner.check(
