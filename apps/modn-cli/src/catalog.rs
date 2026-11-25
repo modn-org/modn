@@ -1,8 +1,3 @@
-//! Author tools: create a signing key pair, sign a catalog, verify one and pin archives.
-//!
-//! `keygen` and `sign` write the minisign formats that `modn bucket sync` verifies.
-//! No command here reads or writes manager state, and none registers a catalog.
-
 use crate::commands::CatalogCommand;
 use anyhow::{anyhow, bail, Context, Result};
 use minisign::{KeyPair, PublicKey};
@@ -20,9 +15,7 @@ use self::keys::{
     read_public_key_text, require_directory, write_new_file, write_secret_key, write_signature,
 };
 
-/// Untrusted comment of the secret key file that `keygen` writes.
 const SECRET_KEY_COMMENT: &str = "modn catalog secret key";
-/// Trusted and untrusted comment of a catalog signature.
 const SIGNATURE_COMMENT: &str = "modn catalog signature";
 const SECRET_KEY_SUFFIX: &str = ".key";
 const PUBLIC_KEY_SUFFIX: &str = ".pub";
@@ -81,7 +74,6 @@ pub(super) fn run(command: &CatalogCommand, json_output: bool) -> Result<()> {
     }
 }
 
-/// Write `<name>.key` and `<name>.pub` and report the fingerprint of the new key.
 fn keygen(out: &Path, name: &str, password_env: Option<&str>, json_output: bool) -> Result<()> {
     validate_key_name(name)?;
     let secret_path = out.join(format!("{name}{SECRET_KEY_SUFFIX}"));
@@ -131,7 +123,6 @@ fn keygen(out: &Path, name: &str, password_env: Option<&str>, json_output: bool)
     Ok(())
 }
 
-/// Sign the canonical statement of a catalog directory and publish its public key.
 fn sign(
     root: &Path,
     key_path: &Path,
@@ -211,7 +202,6 @@ fn sign(
     Ok(())
 }
 
-/// Verify a catalog directory with the same minisign check that `modn bucket sync` uses.
 fn verify(root: &Path, key_path: &Path, json_output: bool) -> Result<()> {
     require_directory(root, "catalog directory")?;
     let text = fs::read_to_string(key_path)
@@ -250,7 +240,6 @@ fn verify(root: &Path, key_path: &Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-/// Print the BLAKE3 digest of an archive file, streamed, as its package `blake3` pin.
 fn hash(archive: &Path, json_output: bool) -> Result<()> {
     let metadata = fs::symlink_metadata(archive)
         .with_context(|| format!("cannot read archive: {}", archive.display()))?;
@@ -277,7 +266,6 @@ fn hash(archive: &Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-/// Refuse a key name that would escape the key directory or name another path.
 fn validate_key_name(name: &str) -> Result<()> {
     let mut components = Path::new(name).components();
     let single =
@@ -288,7 +276,6 @@ fn validate_key_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Read a catalog signature file and refuse a missing, large or non-regular file.
 fn read_signature(path: &Path) -> Result<String> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -317,10 +304,6 @@ fn read_signature(path: &Path) -> Result<String> {
     String::from_utf8(bytes).map_err(|_| anyhow!("malformed catalog signature: not UTF-8"))
 }
 
-/// A directory that holds the published content of a catalog.
-///
-/// A Git checkout has a root `.git` entry, which the catalog digest never
-/// covers. A copy without it lets an author sign and verify the work tree.
 fn published_view(
     root: &Path,
     force_staging: bool,

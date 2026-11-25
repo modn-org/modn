@@ -65,11 +65,6 @@ fn retryable(error: &FetchError) -> bool {
     }
 }
 
-/// Classify an I/O failure from a metadata body read like its transport call.
-///
-/// The HTTP layer returns body reads as plain I/O errors. A timeout, a reset,
-/// an aborted connection, a broken pipe or an unexpected end of body is the
-/// same transient transport failure as an equivalent error from the open step.
 fn transport_io(error: &std::io::Error) -> Option<FetchError> {
     if let Some(transient) = match error.kind() {
         std::io::ErrorKind::TimedOut => Some(FetchError::Timeout),
@@ -102,7 +97,6 @@ fn transport_io(error: &std::io::Error) -> Option<FetchError> {
     }
 }
 
-/// Fetch one catalog ZIP with the shared HTTPS client and source retry policy.
 pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {
     let policy = SourcePolicy::default();
     let mut attempt = 0;
@@ -170,10 +164,6 @@ pub(super) fn downloadable(release: &BucketPackage) -> bool {
     })
 }
 
-/// Refuse `--nxm` links that match no package this command installs or updates.
-///
-/// Every Nexus source of every release is eligible, not only the primary one,
-/// so a grant can name a Nexus fallback.
 pub(super) fn validate_links(links: &[NxmLink], releases: &[&BucketPackage]) -> Result<()> {
     let packages: Vec<(&str, u64, u64)> = releases
         .iter()
@@ -195,7 +185,6 @@ fn nexus_label(game_domain: &str, mod_id: u64, file_id: u64, file_name: &str) ->
     format!("Nexus Mods: {game_domain} mod {mod_id} file {file_id} ({file_name})")
 }
 
-/// A download consent label that never includes a secret-bearing URL.
 pub(super) fn source_label(source: &PackageSource) -> Option<String> {
     match source {
         PackageSource::Nexus {
@@ -208,10 +197,6 @@ pub(super) fn source_label(source: &PackageSource) -> Option<String> {
     }
 }
 
-/// Archive digest the pipeline uses for one release.
-///
-/// Git sources publish no manifest digest; their packed ZIP digest becomes
-/// known after a cache hit or fetch and is stored in `digests`.
 pub(super) fn digest<'a>(
     release: &'a BucketPackage,
     digests: &'a BTreeMap<String, String>,
@@ -222,11 +207,6 @@ pub(super) fn digest<'a>(
         .or(release.package.pin())
 }
 
-/// Acquire the archive of one recorded release source for undo.
-///
-/// A verified cache entry needs no network. A `manual` source is refused
-/// before this call. `git` and `nexus` sources are restored only from the
-/// archive cache; a miss refuses before any change.
 pub(super) fn acquire_source(
     cache: &ArchiveCache,
     game_id: &str,
@@ -304,7 +284,6 @@ fn cache_miss(detail: &str) -> anyhow::Error {
     )
 }
 
-/// JSON outcomes for a list of source attempts.
 pub(super) fn downloads_json(attempts: &[SourceAttempt]) -> Vec<serde_json::Value> {
     attempts
         .iter()
@@ -343,23 +322,11 @@ pub(super) fn add_cached<'a>(
     Ok(())
 }
 
-/// A user-supplied archive with the digest its verification computed.
-///
-/// The digest comes from the same inspection that accepted the archive, so
-/// choosing the recorded history source never opens the file again.
 pub(super) struct SuppliedArchive {
     pub(super) path: PathBuf,
     pub(super) blake3: String,
 }
 
-/// The source that supplied the archive of `reference`.
-///
-/// Acquisition records the source that served the archive. A user-supplied
-/// `--file` archive whose verified digest is the release's BLAKE3 pin names
-/// the release's first `https` or `github-release` source, because that source
-/// can fetch the same pinned archive again. A file that does not match the
-/// pin, or a release with no refetchable source, stays `manual`, and undo
-/// refuses it.
 pub(super) fn serving_source(
     reference: &str,
     supplied: &BTreeMap<String, SuppliedArchive>,
@@ -385,10 +352,6 @@ pub(super) fn serving_source(
         .unwrap_or_else(|| release.package.primary_source().clone())
 }
 
-/// The first source that undo can fetch again without a new user action.
-///
-/// A Git or Nexus restore reads only the archive cache, and a manual source
-/// has no URL, so none of them can replace a `--file` path.
 fn refetchable_source(sources: &[PackageSource]) -> Option<&PackageSource> {
     sources.iter().find(|source| {
         matches!(

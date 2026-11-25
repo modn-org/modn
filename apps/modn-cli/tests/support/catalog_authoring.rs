@@ -8,7 +8,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// Run the `modn` binary with an isolated data directory.
 pub fn run(args: &[&str]) -> Output {
     main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(args)
@@ -16,7 +15,6 @@ pub fn run(args: &[&str]) -> Output {
         .expect("test fixture invariant")
 }
 
-/// Run the `modn` binary with extra environment variables and an isolated data directory.
 pub fn run_with(args: &[&str], variables: &[(&str, &str)]) -> Output {
     let mut command = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     for (name, value) in variables {
@@ -48,7 +46,6 @@ pub fn path_text(path: &Path) -> &str {
     path.to_str().expect("test fixture invariant")
 }
 
-/// A shipped fixture catalog, used as the content of the author's catalog.
 pub fn catalog_fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/signed-catalog")
@@ -69,7 +66,6 @@ pub fn copy_tree(source: &Path, target: &Path) {
     }
 }
 
-/// Copy a fixture catalog under `root` without a signature, ready for `catalog sign`.
 pub fn prepare_catalog(root: &Path, name: &str) -> PathBuf {
     let target = root.join(name);
     copy_tree(&catalog_fixture("v1"), &target);
@@ -79,7 +75,6 @@ pub fn prepare_catalog(root: &Path, name: &str) -> PathBuf {
     target
 }
 
-/// Every regular file under `root`, with its relative path and bytes.
 pub fn snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
     fn collect(root: &Path, directory: &Path, output: &mut Vec<(String, Vec<u8>)>) {
         for entry in fs::read_dir(directory).expect("snapshot entries") {

@@ -3,9 +3,7 @@ param(
   [Parameter(Mandatory)] [string] $Binary,
   [string] $Checksum,
   [Parameter(Mandatory)] [string] $MainBucket,
-  # A build with the `test-main-key` feature used only for `bucket update`.
   [string] $BucketBinary,
-  # The ephemeral key that signed $MainBucket. Never used by the shipped binary.
   [string] $PublicKey
 )
 

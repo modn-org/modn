@@ -1,7 +1,3 @@
-//! Milestone 8 exit gate, catalog sentences at the CLI: signed relocation,
-//! a foreign signer at the old location, key rotation and its refusal before
-//! a statement. Every refusal must leave the registration and catalog bytes
-//! unchanged.
 #![allow(
     clippy::too_many_lines,
     reason = "each gate sentence reads as one scenario"
@@ -29,7 +25,6 @@ use std::path::{Path, PathBuf};
 use zip_catalog::pack;
 use zip_catalog_fixture::Fixture;
 
-/// Registration file bytes plus every published catalog file, in sorted order.
 fn stored_state(fixture: &Fixture) -> (Vec<u8>, Vec<(String, Vec<u8>)>) {
     (
         fs::read(fixture.registration()).expect("registration bytes"),

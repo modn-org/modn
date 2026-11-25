@@ -1,13 +1,3 @@
-//! Digest index for the verified archive cache.
-//!
-//! The index maps an [`ArchivePin`] to the cache entry file name that holds
-//! those bytes. It is an optimisation only: a hit is always re-verified
-//! against the file before it is returned, and a missing, unreadable or
-//! unknown-format index is replaced by a scan that is kept in memory. A lookup
-//! never writes the index; only storing a downloaded entry persists it. Modn
-//! is pre-alpha, so an index in an unrecognised format is corrupt by
-//! definition and is never migrated. That includes an index that still names
-//! `sha256` pins.
 use super::entry_name::parse_entry_name;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -16,32 +6,22 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// Index file name inside the cache root. [`parse_entry_name`] never accepts
-/// it, so it is not a cache entry.
 pub(super) const INDEX_NAME: &str = ".digest-index.json";
 
 const INDEX_VERSION: u32 = 1;
 
-/// The BLAKE3 digest that pins cached archive bytes.
-///
-/// A pin is the `blake3:` tag plus 64 lowercase hex characters. The cache
-/// index is keyed by this type. An index written for SHA-256 pins holds
-/// `sha256:` keys, which decode to nothing, so Modn ignores the index and
-/// scans the cache in memory. Every scanned entry is re-verified before use.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ArchivePin {
     hex: String,
 }
 
 impl ArchivePin {
-    /// Parse a lowercase BLAKE3 pin, or `None` when the digest is malformed.
     pub(super) fn blake3(digest: &str) -> Option<Self> {
         (digest.len() == 64 && is_lower_hex(digest)).then(|| Self {
             hex: digest.to_owned(),
         })
     }
 
-    /// The persisted `blake3:hex` form.
     fn encode(&self) -> String {
         format!("blake3:{}", self.hex)
     }
@@ -51,8 +31,6 @@ impl ArchivePin {
     }
 }
 
-/// Persisted index content. `deny_unknown_fields` and the version check make
-/// any future format fail to parse, which triggers a read-only scan.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct IndexFile {
@@ -60,14 +38,12 @@ struct IndexFile {
     entries: BTreeMap<String, String>,
 }
 
-/// Pin-to-file-name map loaded from, or written to, the cache root.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct ArchiveIndex {
     entries: BTreeMap<ArchivePin, String>,
 }
 
 impl ArchiveIndex {
-    /// Read the index. `None` means missing, corrupt or an unknown format.
     pub(super) fn read(root: &Path) -> Option<Self> {
         let bytes = fs::read(index_path(root)).ok()?;
         let file: IndexFile = serde_json::from_slice(&bytes).ok()?;
@@ -82,19 +58,14 @@ impl ArchiveIndex {
         Some(Self { entries })
     }
 
-    /// Cache entry file name recorded for `pin`, if any.
     pub(super) fn file_name(&self, pin: &ArchivePin) -> Option<&str> {
         self.entries.get(pin).map(String::as_str)
     }
 
-    /// Record `name` for `pin`, replacing any earlier name.
     pub(super) fn insert(&mut self, pin: ArchivePin, name: String) {
         self.entries.insert(pin, name);
     }
 
-    /// Write the index atomically: a temporary file in the cache root, then a
-    /// rename. A crash therefore leaves the old index or no index, both of
-    /// which a later lookup handles.
     pub(super) fn write(&self, root: &Path) -> Result<()> {
         fs::create_dir_all(root)?;
         let file = IndexFile {
@@ -116,11 +87,6 @@ impl ArchiveIndex {
         Ok(())
     }
 
-    /// Record one newly stored entry, keeping entries the current index holds.
-    ///
-    /// A missing or corrupt index becomes an index with this entry only; a
-    /// later lookup that needs another pin scans the cache for it in memory.
-    /// Index write failures are ignored because the index is never authority.
     pub(super) fn record(root: &Path, pin: ArchivePin, name: String) {
         let mut index = Self::read(root).unwrap_or_default();
         index.insert(pin, name);
@@ -128,7 +94,6 @@ impl ArchiveIndex {
     }
 }
 
-/// Path of the index file for cache `root`.
 pub(super) fn index_path(root: &Path) -> PathBuf {
     root.join(INDEX_NAME)
 }

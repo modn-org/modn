@@ -1,11 +1,6 @@
 use super::{directory_files, read_bounded, valid_store_id, StoreInstallation, Storefront};
 use std::path::{Component, Path, PathBuf};
 
-/// Games that one Steam folder and its extra libraries list.
-///
-/// `steamapps/libraryfolders.vdf` lists the libraries. Each library holds one
-/// `steamapps/appmanifest_<app id>.acf` per game, whose `installdir` names
-/// the folder below `steamapps/common`.
 pub(super) fn installations(root: &Path) -> Vec<StoreInstallation> {
     let mut installations = Vec::new();
     for library in libraries(root) {

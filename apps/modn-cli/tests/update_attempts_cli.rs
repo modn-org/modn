@@ -44,8 +44,6 @@ fn update_json_dry_run_download_reports_every_source_attempt() {
         ],
     );
     assert!(installed.status.success(), "{}", error(&installed));
-    // The 2.0 release lists the failing source first and the serving source
-    // second, so the ordered loop records one failure and one success.
     write_two_source_manifest(
         fixture.temp.path(),
         "git-fixture",

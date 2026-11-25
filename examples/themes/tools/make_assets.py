@@ -60,20 +60,16 @@ def height_of(pixels, width):
 def draw_icon():
     size = 128
     pixels = fill(size, size, BACKGROUND)
-    # Skyline blocks of rising height.
     towers = [(8, 78, 26, 128), (30, 58, 50, 128), (54, 90, 74, 128),
               (78, 44, 100, 128), (104, 70, 122, 128)]
     for index, tower in enumerate(towers):
         rectangle(pixels, size, *tower, DEEP if index % 2 else BACKGROUND)
-    # Horizontal neon scan lines across the skyline.
     for y in range(24, 128, 12):
         rectangle(pixels, size, 6, y, 122, y + 1, CYAN)
-    # Diagonal neon slash over the city.
     for step in range(90):
         x = 10 + step
         y = 118 - step
         rectangle(pixels, size, x, y, x + 3, y + 3, NEON)
-    # Magenta sun disc in the upper right.
     for y in range(size):
         for x in range(size):
             if (x - 96) ** 2 + (y - 30) ** 2 <= 144:

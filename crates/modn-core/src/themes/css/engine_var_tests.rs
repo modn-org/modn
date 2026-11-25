@@ -1,5 +1,3 @@
-//! Rule checks for `var()` in properties that must use literal values.
-
 use super::super::forbidden_var::{contains_var, forbids_var};
 use super::check_sheet;
 use crate::themes::css::facts::{DeclFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts};

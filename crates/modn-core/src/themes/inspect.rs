@@ -1,5 +1,3 @@
-//! Inspection of one theme directory.
-
 mod assets;
 mod entries;
 mod reading;
@@ -20,14 +18,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The base stylesheet name inside a theme directory.
 const CSS_FILE: &str = "theme.css";
-/// The directory that holds theme assets.
 const ASSETS_DIR: &str = "assets";
-/// The most directory entries one inspection visits in the theme directory.
 const MAX_THEME_ENTRIES: usize = 1024;
 
-/// Counts the directory entries visited while one theme is inspected.
 #[derive(Debug)]
 pub(super) struct EntryBudget {
     limit: usize,
@@ -44,7 +38,6 @@ impl EntryBudget {
         }
     }
 
-    /// Take one entry from the budget; return false when it is exhausted.
     pub(super) fn take(&mut self) -> bool {
         if self.remaining == 0 {
             false
@@ -54,7 +47,6 @@ impl EntryBudget {
         }
     }
 
-    /// Return the single refusal for an exhausted budget.
     pub(super) fn refusal(&mut self) -> Option<ThemeProblem> {
         if self.refused {
             return None;

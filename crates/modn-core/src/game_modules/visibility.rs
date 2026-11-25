@@ -1,5 +1,3 @@
-//! Report trusted catalog modules hidden by an official game module.
-
 use super::loader;
 use crate::buckets::BucketStore;
 use crate::data_dir;

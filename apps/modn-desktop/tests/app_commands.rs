@@ -1,5 +1,3 @@
-//! Desktop command contracts that span the Rust handlers and the webview API.
-
 use std::fs;
 use std::path::Path;
 
@@ -149,7 +147,6 @@ fn game_commands_keep_backend_errors_typed() {
 
 #[cfg(windows)]
 mod game_command_errors {
-    //! The typed backend error reaches the command error for a game command.
 
     use super::backend;
     use crate::app;
@@ -160,7 +157,6 @@ mod game_command_errors {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
 
-    /// A disposable backend state that only these tests may create or remove.
     struct Fixture {
         state: PathBuf,
         backend: backend::Backend,

@@ -23,7 +23,6 @@ use modn_core::undo::{conflict, inverse, UndoRestore};
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// The recorded release declarations of `package`.
 fn release_declarations(
     package: &HistoryPackage,
 ) -> Result<(&HistoryRelease, &ReleaseDeclarations)> {
@@ -48,7 +47,6 @@ fn release_declarations(
     Ok((release, declarations))
 }
 
-/// Rebuild the catalog release that `package` recorded.
 fn recorded_release(
     package: &HistoryPackage,
     release: &HistoryRelease,
@@ -72,7 +70,6 @@ fn recorded_release(
     Ok(rebuilt)
 }
 
-/// The stored approval and explicit flags for one restored release.
 fn approval(
     store: &modn_core::state::Store,
     installation: &Path,
@@ -93,7 +90,6 @@ fn approval(
     ))
 }
 
-/// The packages an undo must install again, with their recorded files.
 fn restores(
     store: &modn_core::state::Store,
     state_path: &Path,

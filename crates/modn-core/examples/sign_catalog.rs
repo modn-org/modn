@@ -1,7 +1,3 @@
-//! Sign a catalog directory with an ephemeral key for smoke tests.
-//!
-//! The key pair lives only in memory. Print the key identifier so a caller can
-//! record which key signed the catalog. Never write the secret key to disk.
 use anyhow::{bail, Context, Result};
 use std::io::Cursor;
 use std::path::PathBuf;

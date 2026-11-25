@@ -1,5 +1,3 @@
-//! Stable rule ids and diagnostic records for theme validation.
-
 use serde::ser::{Serialize, Serializer};
 use std::fmt;
 

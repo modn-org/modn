@@ -1,49 +1,3 @@
-//! Disposable stand-in for `modn.exe`, used by the desktop contract tests.
-//!
-//! The fixture keeps its `mode`-file behaviours: `overflow`, `failure`,
-//! `invalid-json`, `timeout`, `slow`, `blocked`, `registration-changed`,
-//! `source-changed` and `inventory-failure`.
-//!
-//! A dry run for a local archive returns the archive's BLAKE3 digest as
-//! `archive_blake3`, which the desktop rechecks before the write.
-//!
-//! When the arguments contain `--progress json` it also speaks the CLI's
-//! progress protocol: one JSON event per line on stderr and `cancel` lines on
-//! stdin. A scenario name in the arguments after the fixed prefix selects the
-//! behaviour:
-//!
-//! - `hang-before-commit`: emits `resolve`, `download`, `extract` and `stage`,
-//!   then waits for `cancel` and exits 1 with the CLI's `CANCELLED` envelope.
-//!   It writes nothing.
-//! - `hang-after-commit`: emits through `commit`, ignores `cancel`, waits 1.5
-//!   seconds, records the write and succeeds.
-//! - `stall-after-cancel`: emits through `stage`, then ignores `cancel` and
-//!   stalls for 30 seconds before exiting 2 without a write.
-//! - `oversized-after-commit`: commits, records the write, writes 2 MiB on
-//!   stdout, records that it survived that write, then exits 0.
-//! - `malformed-after-commit`: commits, records the write, writes non-JSON
-//!   text on stdout, then exits 0.
-//! - `overflow-failure-after-commit`: commits, records the write, writes 2 MiB
-//!   on stdout, writes an `INSTALL_FAILED` envelope and exits 1.
-//! - `approval-both`: refuses with a `NATIVE_INJECTOR_NOT_ALLOWED` envelope
-//!   whose uncovered set names both the native injector and two executables.
-//! - `slow`: emits each phase 250 ms apart, checks for `cancel` before the
-//!   commit, then records the write and succeeds.
-//! - `refuse`: emits plain stderr text and a `PLAN_BLOCKED` envelope, then
-//!   exits 1 without a write.
-//! - any other name: emits the full sequence and succeeds.
-//!
-//! Without `--progress json`, `heartbeat`, `silent`, `committed-stall`,
-//! `game-launch`, `refuse`, `overflow-failure` and `overflow-stall-failure`
-//! select registration behaviour. `refuse` writes the `PLAN_BLOCKED` envelope
-//! on stderr and exits 1 without a write. `game-launch` starts a game process
-//! that records `game-started`, runs until the test writes `game-release`
-//! (30 seconds at most) and then records `game-exited`.
-//! `overflow-failure` writes 2 MiB on
-//! stdout, then an `INSTALL_FAILED` envelope, and exits 1.
-//! `overflow-stall-failure` also waits 1.5 seconds, records
-//! `survived-after-output` after that wait, and then fails the same way.
-
 use serde_json::json;
 use std::ffi::OsString;
 use std::fs;
@@ -169,8 +123,6 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The theme contract answers the desktop tests read. `theme resolve` names an
-/// existing directory so the desktop can store it as the asset root.
 fn theme_answer(tail: &[std::borrow::Cow<'_, str>], state: &Path) -> serde_json::Value {
     let entry = json!({"id":"night-city","game":"fixture","name":"Night City","theme_api":1,
         "variants":["neon"],"icon":"assets/icon.png",
@@ -244,8 +196,6 @@ fn progress(args: &[OsString], state: &Path) -> anyhow::Result<()> {
         exit_cancelled();
     }
     if scenario == "stall-after-cancel" {
-        // A step that started before the cancel cannot act on it. The desktop
-        // must still end the call; this deadline only bounds the test.
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while std::time::Instant::now() < deadline {
             thread::sleep(Duration::from_millis(20));
@@ -306,9 +256,6 @@ fn fixture_scenario(args: &[OsString]) -> Option<&'static str> {
     }
 }
 
-/// The started game of the `game-launch` scenario. It blocks until the test
-/// releases it, so a test can prove the desktop returned while it still ran.
-/// The 30-second limit makes a regression fail instead of hang.
 fn fixture_game(state: &Path) -> anyhow::Result<()> {
     fs::write(state.join("game-started"), b"yes")?;
     for _ in 0..1500 {
@@ -368,7 +315,6 @@ fn registration_scenario(scenario: &str, state: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Starts stdout on a registration call and exceeds its output bound.
 fn overflow_stdout() -> anyhow::Result<()> {
     let filler = vec![b'x'; 2 * 1024 * 1024];
     io::stdout().write_all(&filler)?;
@@ -376,7 +322,6 @@ fn overflow_stdout() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Refuses with a stable code after the result stream started.
 fn exit_with_output_failure() -> ! {
     eprintln!(
         "{}",
@@ -385,9 +330,6 @@ fn exit_with_output_failure() -> ! {
     std::process::exit(1);
 }
 
-/// The local archive a dry-run names, when its positional is a ZIP or 7z file.
-///
-/// A catalog plan names a mod id instead, so it carries no digest.
 fn dry_run_archive(args: &[OsString]) -> Option<&Path> {
     let dry_run = args.iter().position(|arg| arg == "--dry-run")?;
     let archive = Path::new(args.get(dry_run.checked_sub(1)?)?);
@@ -399,7 +341,6 @@ fn dry_run_archive(args: &[OsString]) -> Option<&Path> {
     .then_some(archive)
 }
 
-/// The lowercase hex BLAKE3 digest the CLI writes as `archive_blake3`.
 fn blake3_hex(path: &Path) -> anyhow::Result<String> {
     let mut hasher = blake3::Hasher::new();
     hasher.update_reader(fs::File::open(path)?)?;

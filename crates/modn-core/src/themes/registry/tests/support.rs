@@ -11,7 +11,6 @@ pub(super) const ID: &str = "night-city";
 pub(super) const BASE_CSS: &str = ".modn-app { color: #ffffff; }";
 pub(super) const PNG: [u8; 9] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00];
 
-/// Accept every stylesheet, as a real parser would accept valid CSS.
 pub(super) struct Accept;
 
 impl CssChecker for Accept {
@@ -25,7 +24,6 @@ impl CssChecker for Accept {
     }
 }
 
-/// Reject every stylesheet with one stable problem.
 pub(super) struct Reject;
 
 impl CssChecker for Reject {
@@ -63,7 +61,6 @@ pub(super) fn bare_manifest(game: &str, id: &str, name: &str) -> String {
     )
 }
 
-/// Write one valid theme directory with a variant and an icon.
 pub(super) fn make_theme(root: &Path, game: &str, id: &str, name: &str, css: &str) {
     write(
         &root.join("theme.json"),
@@ -77,7 +74,6 @@ pub(super) fn make_theme(root: &Path, game: &str, id: &str, name: &str, css: &st
     write(&root.join("assets/icon.png"), &PNG);
 }
 
-/// Write one valid theme without variants and without an icon.
 pub(super) fn make_bare_theme(root: &Path, game: &str, id: &str, name: &str, css: &str) {
     write(
         &root.join("theme.json"),
@@ -86,7 +82,6 @@ pub(super) fn make_bare_theme(root: &Path, game: &str, id: &str, name: &str, css
     write(&root.join("theme.css"), css.as_bytes());
 }
 
-/// Build a temporary data directory and one valid source theme.
 pub(super) fn fixture() -> (TempDir, ThemeRegistry, PathBuf) {
     let temp = tempdir().unwrap();
     let registry = ThemeRegistry::new(&temp.path().join("data"));
@@ -94,14 +89,12 @@ pub(super) fn fixture() -> (TempDir, ThemeRegistry, PathBuf) {
     (temp, registry, source)
 }
 
-/// Build a source directory for one `(game, id)` and return it.
 pub(super) fn theme_source(temp: &TempDir, game: &str, id: &str, name: &str) -> PathBuf {
     let root = temp.path().join("sources").join(game).join(id);
     make_theme(&root, game, id, name, BASE_CSS);
     root
 }
 
-/// Register a fresh valid source and return the registration.
 pub(super) fn register(
     registry: &ThemeRegistry,
     temp: &TempDir,
@@ -113,7 +106,6 @@ pub(super) fn register(
     registry.register(&source, &Accept).unwrap()
 }
 
-/// Path of the registration record of one theme.
 pub(super) fn registration_path(theme: &RegisteredTheme) -> PathBuf {
     theme
         .dir()
@@ -122,7 +114,6 @@ pub(super) fn registration_path(theme: &RegisteredTheme) -> PathBuf {
         .join("registration.json")
 }
 
-/// Digest of a source or copied theme.
 pub(super) fn digest(dir: &Path) -> String {
     theme_digest(dir).unwrap()
 }

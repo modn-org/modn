@@ -6,7 +6,6 @@ use modn_core::game_modules::{check_module_with_roots, ModuleRegistry, ModuleTru
 use modn_core::state::Store;
 use std::path::{Path, PathBuf};
 
-/// Appdata base needed by the selected module, if it declares a content root.
 pub(super) fn content_root_appdata(game_id: &str) -> Result<Option<PathBuf>> {
     if modn_core::game_modules::content_root_spec(game_id)?.is_some() {
         Ok(Some(modn_core::content_root::appdata_directory()?))
@@ -76,7 +75,6 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
     Ok(())
 }
 
-/// Refuse a trusted-module registry write inside a game installation.
 pub(super) fn validate_registry_writes(state_path: &Path, data: &Path) -> Result<()> {
     let state = ManagerState::load_deferred(state_path)?;
     let roots = state

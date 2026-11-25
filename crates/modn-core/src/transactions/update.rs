@@ -24,7 +24,6 @@ pub(super) struct Replacement<'a> {
     pub(super) journal_id: &'a str,
 }
 
-/// Test-only stop that drives the same rollback path as a real failure.
 #[cfg(feature = "test-instruction-budget")]
 fn test_fault() -> Option<Fault> {
     std::env::var("MODN_TEST_UPDATE_FAULT_AFTER")

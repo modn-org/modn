@@ -1,7 +1,3 @@
-//! `modn undo` runs the same preflight checks in `--dry-run` as in the real
-//! run, checks restored bytes before an uninstall undo changes a game file,
-//! and honors cancellation while it reads archives for those checks.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/catalog.rs"]

@@ -120,8 +120,6 @@ fn register_removes_stale_staging_and_restores_backups() {
         &registry_root(&temp).join(".staging-crashed/theme/theme.css"),
         b"stale",
     );
-    // A backup that recovery keeps because its live copy is broken must
-    // survive both the next register and the staging cleanup.
     let kept = theme_source(&temp, GAME, "kept-theme", "Kept");
     let kept_registered = registry.register(&kept, &Accept).unwrap();
     write(

@@ -1,10 +1,3 @@
-//! The webview's only entry points into the backend.
-//!
-//! Every command validates the webview's selection, builds one fixed argument
-//! vector with [`args`] and runs the configured CLI off the UI thread. Write
-//! commands stream CLI progress events to the main window and hold a cancel
-//! token until they finish.
-
 pub(crate) mod games;
 pub(crate) mod history;
 pub(crate) mod library;
@@ -25,10 +18,6 @@ use tauri::Emitter;
 
 pub(super) use crate::app::blocking::run_blocking;
 
-/// The name of every command registered in `generate_handler!`.
-///
-/// The capability file, the build manifest and `ui/js/api.js` must list the
-/// same names; the unit tests in this module check all four lists.
 #[cfg(test)]
 pub(crate) const COMMANDS: &[&str] = &[
     "list_games",
@@ -58,7 +47,6 @@ pub(crate) const COMMANDS: &[&str] = &[
     "import_theme",
 ];
 
-/// The progress event name the webview subscribes to.
 const PROGRESS_EVENT: &str = "modn://progress";
 
 pub(super) fn installation(game_id: String, path: String) -> Game {
@@ -68,7 +56,6 @@ pub(super) fn installation(game_id: String, path: String) -> Game {
     }
 }
 
-/// Refuses a write whose cancel arrived while its checks ran.
 pub(super) fn ensure_not_cancelled(run: &RunGuard) -> Result<(), CommandError> {
     if run.token().is_cancelled() {
         return Err(CommandError::cancelled());
@@ -76,11 +63,6 @@ pub(super) fn ensure_not_cancelled(run: &RunGuard) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Runs one write command with `--progress json`, forwards every event to the
-/// main window and removes the cancel token when the run ends.
-///
-/// The caller registers the run before any pre-write check, so a cancel that
-/// arrives during those checks reaches this token and stops the write here.
 pub(super) async fn run_write(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -108,11 +90,6 @@ pub(super) async fn run_write(
     }
 }
 
-/// Adds the committed history operation ID to a write result for the webview.
-///
-/// The CLI names the operation its write committed. The desktop must not look
-/// the operation up in history afterwards: a later operation on the same
-/// package would then receive this toast's Undo.
 fn with_operation_id(value: Value) -> Value {
     let mut object = match value {
         Value::Object(object) => object,
@@ -128,7 +105,6 @@ fn with_operation_id(value: Value) -> Value {
     Value::Object(object)
 }
 
-/// Sends one CLI progress event to the webview unchanged.
 fn emit_progress(app: &tauri::AppHandle, run_id: &str, event: &ProgressEvent) {
     if let Err(error) = app.emit(PROGRESS_EVENT, progress_payload(run_id, event)) {
         eprintln!("Modn could not deliver a progress event: {error}");

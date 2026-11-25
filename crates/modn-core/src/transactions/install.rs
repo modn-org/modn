@@ -18,12 +18,9 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use tempfile::Builder;
 
-/// A test-injected stop after the given number of linked files.
 #[derive(Clone, Copy)]
 pub(super) enum Fault {
-    /// Fail, then roll back automatically.
     FailAfter(usize),
-    /// Stop as if the process died: no automatic rollback.
     #[cfg_attr(not(test), expect(dead_code, reason = "only tests simulate a crash"))]
     CrashAfter(usize),
 }

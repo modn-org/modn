@@ -1,9 +1,3 @@
-//! Stable theme hooks generated from `docs/themes.md`.
-//!
-//! The tables in the "Stable hooks" section are the source of truth. The
-//! tests in `hooks_tests.rs` compare these lists with the document, so a hook
-//! change must update both.
-
 /// Stable `.modn-*` class names, without the leading `.`.
 pub const STABLE_CLASSES: &[&str] = &[
     "modn-actions",

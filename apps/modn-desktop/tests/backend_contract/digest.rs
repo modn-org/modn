@@ -1,5 +1,3 @@
-//! The fixture dry-run plan carries the archive digest the desktop rechecks.
-
 use super::support::Fixture;
 use std::fs;
 

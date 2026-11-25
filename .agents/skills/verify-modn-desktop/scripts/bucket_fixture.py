@@ -21,8 +21,6 @@ MODULES = {
     "balatro": FIXTURES / "balatro",
     "tools-game": FIXTURES / "tools-game",
 }
-# One catalog entry keeps the library tile and its Details route present. The
-# journeys never install it, so the archive pin only needs a valid shape.
 PACKAGES = (
     (
         "balatro",

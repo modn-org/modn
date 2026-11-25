@@ -200,7 +200,6 @@ def journey_lifecycle(runner):
     session = app.session
     _open_game(session, "Balatro")
 
-    # 1. Cancel the native picker: one titled window, no toast, no change.
     session.click(name=f"Install a local archive in {GAME_ID}")
     dialog = uia.dialog_for(session)
     windows = uia.titled_windows(session)
@@ -221,7 +220,6 @@ def journey_lifecycle(runner):
     runner.check(_bytes_state(fx, game) == before, "Picker Cancel changed the game or content bytes")
     _assert_clean_ui(runner, session, "lifecycle-1-cancel")
 
-    # 2. Install the archive in one click, with no confirmation window.
     session.click(name=f"Install a local archive in {GAME_ID}")
     _pick_archive(session, archive)
     _wait_toast(session, "Install done", "archive install")
@@ -242,14 +240,12 @@ def journey_lifecycle(runner):
     runner.check(installed != before, "The archive install left no file on disk")
     _assert_clean_ui(runner, session, "lifecycle-2-install")
 
-    # 3. Undo from the toast restores the pre-install bytes.
     _toast_undo(session)
     _wait_toast(session, "Undo done", "toast undo")
     runner.check(not _packages(fx, game), "Toast undo left a CLI package")
     runner.check(_bytes_state(fx, game) == before, "Toast undo did not restore the original bytes")
     _assert_clean_ui(runner, session, "lifecycle-3-undo")
 
-    # 4. Install the same archive from the catalog, then uninstall it in one click.
     release = add_catalog_release(
         fx, GAME_ID, "demo-pack", "1.0.0", ARCHIVE_FILES, name="Demo Pack"
     )
@@ -260,9 +256,6 @@ def journey_lifecycle(runner):
         lambda s: [c for c in s.find_all(name="Install Demo Pack") if c.IsEnabled],
         "enabled Install Demo Pack",
     )
-    # The `Undo` click of step 3 removed the archive install toast (toast.js
-    # removes a toast before it runs its action). Prove that no `Install done`
-    # toast remains, so the next wait can only match the catalog install.
     wait_toasts_gone(session, "Install done", "the catalog install")
     session.click(name="Install Demo Pack")
     _wait_toast(session, "Install done", "catalog install")
@@ -277,7 +270,6 @@ def journey_lifecycle(runner):
     runner.check(_bytes_state(fx, game) == before, "Uninstall did not restore the original bytes")
     _assert_clean_ui(runner, session, "lifecycle-4-uninstall")
 
-    # 5. Undo the uninstall from the history row: the same files come back.
     session.activate(
         session.wait_control(prefix="Open details for Demo Pack", control_type="HyperlinkControl")
     )
@@ -288,8 +280,6 @@ def journey_lifecycle(runner):
     )
     matches = session.find_all(name="Undo Uninstalled", control_type="ButtonControl")
     runner.check(bool(matches), "History has no undo for the uninstall")
-    # The toast undo of step 3 can still show "Undo done". Wait it out so the
-    # history undo cannot return on the earlier toast.
     wait_toasts_gone(session, "Undo done", "the history undo")
     session.activate(matches[0])
     _wait_toast(session, "Undo done", "history undo")
@@ -303,7 +293,6 @@ def journey_lifecycle(runner):
     )
     _assert_clean_ui(runner, session, "lifecycle-5-history-undo")
 
-    # 6. The CLI history and the Mod details rows agree on every operation.
     operations = _history(fx, game)
     runner.check(len(operations) == 5, f"CLI history has {len(operations)} operations, not 5")
     runner.check(
@@ -341,7 +330,6 @@ def journey_lifecycle(runner):
     )
     _assert_clean_ui(runner, session, "lifecycle-6-history")
 
-    # 7. Details still reports a reviewable plan without CLI output.
     _expand_details(session)
     session.wait_text("No approval needed.", timeout=60)
     runner.check(

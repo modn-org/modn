@@ -1,5 +1,3 @@
-//! Paths and the recoverable replacement used by the theme registry.
-
 use super::super::error::{Result, ThemeError};
 use super::super::problem::{Rule, ThemeProblem};
 use super::super::storage;
@@ -8,68 +6,46 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Directory under the theme root that holds registered themes.
 pub(super) const REGISTRY: &str = "registry";
-/// File beside one copied theme that records its identity and digest.
 pub(super) const RECORD: &str = "registration.json";
-/// Directory inside one registration that holds the copied theme.
 pub(super) const THEME: &str = "theme";
-/// Prefix of a temporary directory inside the registry.
 pub(super) const STAGING_PREFIX: &str = ".staging-";
-/// Directory inside the registry that holds a previous registration.
 pub(super) const BACKUP: &str = ".backup";
-/// Current shape of `registration.json`.
 pub(super) const SCHEMA_VERSION: u32 = 1;
-/// Largest number of bytes copied into staging before inspection.
 pub(super) const MAX_COPY_BYTES: u64 = 16 * 1024 * 1024;
-/// Largest number of directory entries copied into staging before inspection.
 pub(super) const MAX_COPY_ENTRIES: usize = 2048;
 
-/// Return `<theme root>/registry`.
 pub(super) fn registry_root(root: &Path) -> PathBuf {
     root.join(REGISTRY)
 }
 
-/// Return `<registry>/<game>/<id>`.
 pub(super) fn entry_root(registry: &Path, game: &str, id: &str) -> PathBuf {
     registry.join(game).join(id)
 }
 
-/// Return `<registry>/.backup/<game>/<id>`.
 pub(super) fn backup_root(registry: &Path, game: &str, id: &str) -> PathBuf {
     registry.join(BACKUP).join(game).join(id)
 }
 
-/// Return the copied theme directory inside one registration.
 pub(super) fn theme_dir(entry: &Path) -> PathBuf {
     entry.join(THEME)
 }
 
-/// One named step that a test can make fail.
-///
-/// Production code always passes `None`; the variants exist so tests can stop
-/// a replacement at a precise point without a test-only Cargo feature.
 #[cfg_attr(
     not(test),
     allow(dead_code, reason = "failpoints are constructed only by tests")
 )]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Failpoint {
-    /// Stop after the previous registration moved to its backup.
     AfterBackup,
-    /// Stop after the new copy and its record are in place.
     BeforeBackupDelete,
-    /// Fail when the new copy moves into place, restoring the backup.
     InstallFails,
-    /// Fail when the new copy moves into place and when the restore runs.
     InstallAndRestoreFail,
-    /// Leave the backup behind after a complete replacement.
     BackupDeleteFails,
 }
 
 #[cfg(test)]
 impl Failpoint {
-    /// Return the stored code of this failpoint.
     pub(super) const fn code(self) -> u8 {
         match self {
             Self::AfterBackup => 1,
@@ -80,7 +56,6 @@ impl Failpoint {
         }
     }
 
-    /// Return the failpoint stored as `code`, if any.
     pub(super) const fn from_code(code: u8) -> Option<Self> {
         match code {
             1 => Some(Self::AfterBackup),
@@ -93,10 +68,6 @@ impl Failpoint {
     }
 }
 
-/// Remove temporary staging directories that an earlier crash left behind.
-///
-/// Only `.staging-*` entries are removed; a `.backup` entry is never touched.
-/// A failed removal of one entry becomes a diagnostic instead of an error.
 pub(super) fn remove_stale_staging(registry: &Path) -> Result<Vec<ThemeProblem>> {
     let mut problems = Vec::new();
     let entries = match fs::read_dir(registry) {
@@ -136,13 +107,6 @@ pub(super) fn remove_stale_staging(registry: &Path) -> Result<Vec<ThemeProblem>>
     Ok(problems)
 }
 
-/// Move a staged registration into place, replacing any earlier copy.
-///
-/// The previous registration is moved to `backup` before the new copy moves
-/// in. The record is written after the copy is in place, then the backup is
-/// deleted. A failed deletion is left to recovery on the next operation. When
-/// step 4 or 5 fails, the backup is restored. When that restore fails too, the
-/// backup is kept and the returned error names its path.
 pub(super) fn install(
     staging: &Path,
     registry: &Path,
@@ -200,9 +164,6 @@ pub(super) fn install(
             .map_err(|error| ThemeError::io("cannot create the theme backup directory", error))?;
         storage::ensure_real_directory(backup_parent, "theme backup directory")?;
         if backup_exists {
-            // Recovery kept a verified backup because the live copy failed
-            // verification. Keep that backup as the restore point and move
-            // the unusable live copy into disposable holding space.
             let temp = tempfile::Builder::new()
                 .prefix(STAGING_PREFIX)
                 .tempdir_in(registry)
@@ -247,15 +208,12 @@ pub(super) fn install(
         ));
     }
     if failpoint != Some(Failpoint::BackupDeleteFails) {
-        // The new registration is complete. A failed deletion is retried by
-        // recovery on the next operation.
         let _ = remove_path(backup);
     }
     drop(holding);
     Ok(())
 }
 
-/// Restore the backup or keep it when the restore cannot run.
 fn rollback(had_previous: bool, backup: &Path, target: &Path, original: ThemeError) -> ThemeError {
     if !had_previous {
         let _ = remove_path(target);
@@ -267,7 +225,6 @@ fn rollback(had_previous: bool, backup: &Path, target: &Path, original: ThemeErr
     }
 }
 
-/// Put the previous registration back after a failed replacement.
 fn restore(backup: &Path, target: &Path) -> Result<()> {
     if let Err(error) = remove_path(target) {
         return Err(kept_backup(backup, &error));
@@ -280,7 +237,6 @@ fn restore(backup: &Path, target: &Path) -> Result<()> {
     })
 }
 
-/// Remove one path if it exists.
 fn remove_path(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -295,7 +251,6 @@ fn remove_path(path: &Path) -> Result<()> {
     }
 }
 
-/// Build an error that names the backup that was kept.
 fn kept_backup(backup: &Path, original: &ThemeError) -> ThemeError {
     ThemeError::corrupt(
         backup,
@@ -306,7 +261,6 @@ fn kept_backup(backup: &Path, original: &ThemeError) -> ThemeError {
     )
 }
 
-/// Build the error a test failpoint returns.
 fn injected(context: &str) -> ThemeError {
     ThemeError::io(context, io::Error::other("injected test failure"))
 }

@@ -273,8 +273,6 @@ fn undo_refuses_a_policy_that_moves_a_recorded_file_to_another_root() {
         ("APPDATA", appdata.as_os_str()),
         ("MODN_APPDATA", appdata.as_os_str()),
     ];
-    // The dry run uses the same plan-and-record comparison as the real undo,
-    // so it proves the refusal happens before any transaction starts.
     let preview = run_env(
         &fixture,
         &["--json", "undo", &target, "--dry-run"],

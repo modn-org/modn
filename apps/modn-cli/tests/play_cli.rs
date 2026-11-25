@@ -1,8 +1,3 @@
-//! `modn play` refusals and launch-target validation.
-//!
-//! No test starts a process or opens a store URI: every success path would
-//! launch, so these tests stop at a refusal or validate a module directly.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 

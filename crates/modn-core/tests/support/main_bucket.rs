@@ -19,11 +19,6 @@ pub fn copy_tree(source: &std::path::Path, target: &std::path::Path) {
     }
 }
 
-/// Copy a real game module from the checked-in `buckets/main` submodule and
-/// declare host API 3 in its manifest.
-///
-/// The pinned module already declares host API 3. The copy repeats that field
-/// so the fixture stays explicit if the pin changes.
 pub fn copy_main_module(source: &std::path::Path, target: &std::path::Path) {
     copy_tree(source, target);
     let manifest_path = target.join("module.json");
@@ -46,10 +41,6 @@ pub fn seeded<T>(action: impl FnOnce() -> T) -> T {
     modn_core::data_dir::with_data_directory(temp.path(), action)
 }
 
-/// Run an action with an isolated manager profile directory.
-///
-/// `trust_modules` stages game modules under the profile directory, so a test
-/// must select a temporary profile or it writes into the real Modn profile.
 pub fn isolated_profile<T>(action: impl FnOnce(&std::path::Path) -> T) -> T {
     let profile = tempfile::tempdir().expect("fixture invariant");
     modn_core::data_dir::with_profile_directory(profile.path(), || action(profile.path()))

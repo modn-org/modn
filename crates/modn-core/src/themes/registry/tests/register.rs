@@ -185,7 +185,6 @@ fn a_failed_backup_delete_does_not_fail_the_registration() {
         backup.is_dir(),
         "the simulated failure must leave the backup"
     );
-    // Recovery deletes a leftover backup once the new copy verifies.
     let listed = registry.list().unwrap();
     assert!(listed.problems.is_empty(), "{:#?}", listed.problems);
     assert!(!backup.exists());

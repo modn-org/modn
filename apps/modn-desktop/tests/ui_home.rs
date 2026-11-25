@@ -1,9 +1,3 @@
-//! Static checks for the Home view of the desktop UI.
-//!
-//! The app ships plain ES modules and no bundler, so these tests hold the
-//! promises the browser and the verifier rely on: close imports, the stable
-//! test ids, and a stylesheet built from design tokens only.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -30,7 +24,6 @@ fn collect_files(directory: &Path, files: &mut Vec<(PathBuf, String)>) {
     }
 }
 
-/// `ui/js/home.js` plus every module under `ui/js/home/`.
 fn home_sources() -> Vec<(PathBuf, String)> {
     let mut files = vec![(Path::new(ROOT).join("ui/js/home.js"), read("ui/js/home.js"))];
     let mut modules = Vec::new();
@@ -95,7 +88,6 @@ fn home_css() -> String {
     read("ui/css/home.css")
 }
 
-/// Returns the source from `marker` through its first balanced brace block.
 fn braced<'a>(source: &'a str, marker: &str) -> &'a str {
     let start = source
         .find(marker)

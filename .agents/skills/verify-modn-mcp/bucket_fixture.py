@@ -18,8 +18,6 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 MODULES = {"cyberpunk-2077": FIXTURES / "cyberpunk-2077"}
-# The journeys preview this record but never install it, so the archive pin
-# only needs a valid shape.
 PACKAGES = (
     (
         "cyberpunk-2077",

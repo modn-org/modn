@@ -132,7 +132,6 @@ def journey_catalog(runner):
     session = app.session
     _open_game(session, "Balatro")
 
-    # 1. One click installs the 1.0.0 catalog release with no extra window.
     _wait_enabled(session, f"Install {DEMO_NAME}")
     runner.check("1.0.0" in session.text(), "The catalog tile shows no version 1.0.0")
     runner.check(session.exists(name="Not installed"), "The tile is not marked Not installed")
@@ -148,11 +147,8 @@ def journey_catalog(runner):
     v1_state = _bytes_state(fx, game)
     runner.check(v1_state != start, "The catalog install left no file on disk")
     _assert_clean_ui(runner, session, "catalog-1-install")
-    # A toast action lives for eight seconds. Let the install toast expire so
-    # the update toast is the only Undo on screen, and the click is unambiguous.
     wait_toasts_gone(session, "Install done", "the catalog update")
 
-    # 2. A newer release advertises an update after the Library reloads.
     add_catalog_release(fx, GAME_ID, DEMO_ID, "2.0.0", V2_FILES, name=DEMO_NAME)
     _back_home(session)
     _open_game(session, "Balatro")
@@ -182,7 +178,6 @@ def journey_catalog(runner):
     )
     _assert_clean_ui(runner, session, "catalog-2-update")
 
-    # 3. The toast Undo replaces 2.0.0 with the exact 1.0.0 bytes again.
     _toast_undo(session)
     _wait_toast(session, "Undo done", "toast undo of the update")
     packages = _packages(fx, game)
@@ -196,7 +191,6 @@ def journey_catalog(runner):
     )
     _assert_clean_ui(runner, session, "catalog-3-undo")
 
-    # 4. A genuine .7z installs and uninstalls through one click each.
     before = _bytes_state(fx, game)
     archive = fx.archives / SEVEN_ARCHIVE
     make_7z(seven, fx.root / "seven-stage", archive, SEVEN_FILES)

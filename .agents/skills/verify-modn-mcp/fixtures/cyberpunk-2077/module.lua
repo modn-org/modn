@@ -1,9 +1,3 @@
--- Minimal fixture policy for the MCP verifier.
---
--- It recognizes the Cyberpunk 2077 marker and plans every `.archive` file
--- below `archive/pc/mod/` to the same game-relative destination. It is not a
--- compatibility claim for the real game.
-
 local policy = {
     game_id = "cyberpunk-2077",
     api_version = mods_host.api_version,

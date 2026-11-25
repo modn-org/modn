@@ -1,16 +1,9 @@
-/**
- * Data shaping for the Mod details view. It joins one catalog entry with the
- * manager-owned package of the same mod and filters the operation history.
- */
-
-/** @type {Record<string, string>} */
 const SOURCE_LABELS = {
   'github-release': 'GitHub release',
   manual: 'local archive',
   url: 'direct download',
 };
 
-/** @type {Record<string, string>} */
 const KIND_LABELS = {
   install: 'Installed',
   update: 'Updated',
@@ -18,18 +11,10 @@ const KIND_LABELS = {
   undo: 'Undid',
 };
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
 function text(value) {
   return typeof value === 'string' ? value : '';
 }
 
-/**
- * @param {Object|null} source
- * @returns {string}
- */
 function sourceLabel(source) {
   if (!source || typeof source !== 'object' || typeof source.kind !== 'string') {
     return '';

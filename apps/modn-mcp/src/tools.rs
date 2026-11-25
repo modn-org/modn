@@ -183,14 +183,11 @@ pub fn arguments(config: &Config, name: &str, input: Value) -> Result<Vec<OsStri
     Ok(args)
 }
 
-/// What the stdio loop should do after one tool call.
 pub enum Reply {
     Response(Value),
-    /// The client cancelled before the commit point, so MCP sends no response.
     Cancelled,
 }
 
-/// Maps one backend completion to the client response.
 pub fn reply(completion: backend::Completion) -> Reply {
     if completion.cancelled && !completion.committed {
         return Reply::Cancelled;

@@ -1,5 +1,3 @@
-//! The theme API v1 rule engine over parser-independent stylesheet facts.
-
 use super::facts::{DeclFacts, FontFaceFacts, MediaFacts, RuleFacts, SheetFacts, StyleFacts};
 use super::forbidden_var::{contains_var, forbids_var};
 use super::media::valid_media_query;
@@ -14,7 +12,6 @@ use super::value::{
 use crate::themes::problem::{Rule, ThemeProblem};
 use std::collections::BTreeSet;
 
-/// Properties accepted inside `@font-face`.
 const FONT_FACE_PROPERTIES: &[&str] = &[
     "src",
     "font-family",
@@ -23,7 +20,6 @@ const FONT_FACE_PROPERTIES: &[&str] = &[
     "font-display",
 ];
 
-/// Properties accepted on a protected hook.
 const PROTECTED_PROPERTIES: &[&str] = &[
     "color",
     "background-color",
@@ -33,7 +29,6 @@ const PROTECTED_PROPERTIES: &[&str] = &[
     "font-style",
 ];
 
-/// Properties accepted on a hook that holds or surrounds a protected region.
 const CONTEXT_PROPERTIES: &[&str] = &[
     "color",
     "background-color",
@@ -44,7 +39,6 @@ const CONTEXT_PROPERTIES: &[&str] = &[
     "font-style",
 ];
 
-/// Protected properties whose value must be an opaque colour.
 const PROTECTED_COLOUR_PROPERTIES: &[&str] =
     &["color", "background-color", "border-color", "outline-color"];
 
@@ -89,7 +83,6 @@ pub fn check_sheet(file: &str, sheet: &SheetFacts) -> Result<RuleOutcome, Vec<Th
     }
 }
 
-/// Accumulated state for one stylesheet check.
 struct Checker<'a> {
     file: &'a str,
     problems: Vec<ThemeProblem>,
@@ -97,7 +90,6 @@ struct Checker<'a> {
 }
 
 impl Checker<'_> {
-    /// Check one top-level rule.
     fn check_rule(&mut self, rule: &RuleFacts) {
         match rule {
             RuleFacts::Style(style) => self.check_style(style),
@@ -120,7 +112,6 @@ impl Checker<'_> {
         }
     }
 
-    /// Check a style rule and all of its declarations.
     fn check_style(&mut self, style: &StyleFacts) {
         let mut info = SelectorInfo {
             root_only: false,
@@ -142,7 +133,6 @@ impl Checker<'_> {
         }
     }
 
-    /// Check one declaration of a style rule.
     fn check_declaration(&mut self, declaration: &DeclFacts, scope: SelectorInfo) {
         if declaration.important {
             self.push(
@@ -220,7 +210,6 @@ impl Checker<'_> {
                 }
             }
         } else if declaration.property == "content" {
-            // The dedicated forbidden-content rule already names it.
         } else if !is_allowed_property(&declaration.property) {
             self.push(
                 declaration.line,
@@ -257,7 +246,6 @@ impl Checker<'_> {
         }
     }
 
-    /// Check one `@media` rule and its nested rules.
     fn check_media(&mut self, media: &MediaFacts) {
         if !valid_media_query(&media.query) {
             self.push(
@@ -278,7 +266,6 @@ impl Checker<'_> {
         }
     }
 
-    /// Check one `@font-face` rule.
     fn check_font_face(&mut self, face: &FontFaceFacts) {
         for declaration in &face.declarations {
             if !FONT_FACE_PROPERTIES.contains(&declaration.property.as_str()) {
@@ -296,7 +283,6 @@ impl Checker<'_> {
         }
     }
 
-    /// Check every `url()` and image-loading function in one value.
     fn check_urls(&mut self, line: u32, value: &str, required_extension: Option<&str>) {
         for target in find_url_targets(value) {
             if is_remote_url(target) {
@@ -341,7 +327,6 @@ impl Checker<'_> {
         }
     }
 
-    /// Check a declaration of a rule that names a protected hook.
     fn check_protected(&mut self, declaration: &DeclFacts) {
         if !PROTECTED_PROPERTIES.contains(&declaration.property.as_str()) {
             if globally_allowed(declaration) {
@@ -370,7 +355,6 @@ impl Checker<'_> {
         }
     }
 
-    /// Record one problem with the stylesheet path and line.
     fn push(&mut self, line: u32, rule: Rule, message: impl Into<String>) {
         self.problems.push(
             ThemeProblem::new(rule, message)
@@ -380,25 +364,16 @@ impl Checker<'_> {
     }
 }
 
-/// Return whether a declaration feeds a colour that protected regions read.
-///
-/// Protected regions read the `--modn-color-*` tokens from `:root` and inherit
-/// `color`, so a translucent value there reaches protected text or surfaces.
 fn protected_regions_read(declaration: &DeclFacts, scope: SelectorInfo) -> bool {
     declaration.property.starts_with("--modn-color-")
         || (scope.root_only && declaration.property == "color")
 }
 
-/// Return whether a declaration is allowed on a context hook.
-///
-/// A context hook holds or surrounds a protected region, so it may change only
-/// colours and fonts. Custom properties stay allowed for token definitions.
 fn context_allowed(declaration: &DeclFacts) -> bool {
     declaration.property.starts_with("--modn-")
         || CONTEXT_PROPERTIES.contains(&declaration.property.as_str())
 }
 
-/// Return whether a declaration is allowed outside protected regions.
 fn globally_allowed(declaration: &DeclFacts) -> bool {
     if declaration.property.starts_with("--") {
         declaration.property.starts_with("--modn-")
@@ -407,7 +382,6 @@ fn globally_allowed(declaration: &DeclFacts) -> bool {
     }
 }
 
-/// Return the source line of any rule.
 fn line_of(rule: &RuleFacts) -> u32 {
     match rule {
         RuleFacts::Style(style) => style.line,

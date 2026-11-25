@@ -14,9 +14,6 @@ import {
   toastHost,
 } from './support/fake-dom.mjs';
 
-/**
- * @param {Object} [overrides]
- */
 function makeButton(overrides = {}) {
   const document = installDom();
   const askHost = document.createElement('div');

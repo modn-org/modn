@@ -1,9 +1,3 @@
-//! Ordered acquisition of release archives with text reporting and cancellation.
-//!
-//! Every source kind is one attempt in the release's list order. Git and
-//! Nexus attempts classify their failure like a fetch attempt, a later source
-//! still runs, and a cancellation stops the whole acquisition.
-
 use super::fallback::{self, Planned};
 use super::key;
 use super::nexus_label;
@@ -23,7 +17,6 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
-/// Acquire the archive of every release the cache does not already hold.
 #[expect(
     clippy::too_many_arguments,
     reason = "the step keeps the cache, package set, report sink and cancellation explicit"
@@ -73,8 +66,6 @@ pub(super) fn download_into(
 ) -> anyhow::Result<Vec<SourceAttempt>> {
     let mut attempts = Vec::new();
     for release in releases {
-        // A cancellation stops the whole acquisition: no later source, no
-        // retry and no cache reuse may continue after it.
         control.checkpoint()?;
         let reference = reference_of(release).to_string();
         if archives.contains_key(&reference) {
@@ -251,8 +242,6 @@ pub(super) fn download_into(
             }
         }
         if !served_now && attempts.len() > first {
-            // A lone Git or Nexus source keeps its own error and code; with
-            // other attempts, one error names every source that failed.
             if attempts.len() == first + 1 {
                 if let Some(error) = specific {
                     return Err(error);
@@ -267,16 +256,10 @@ pub(super) fn download_into(
     Ok(attempts)
 }
 
-/// Return a verified cache entry for `release`, in source list order.
-///
-/// Every source is probed with its own cache key before any network or
-/// credential step runs. A Git entry also reports the packed digest that its
-/// name records. The returned source supplied the cached archive.
 pub(super) fn cached_archive(
     cache: &ArchiveCache,
     release: &BucketPackage,
 ) -> anyhow::Result<Option<(PathBuf, Option<String>, PackageSource)>> {
-    // A source-specific entry proves which source stored those bytes.
     for source in &release.package.sources {
         match source {
             PackageSource::Git { repository, commit } => {
@@ -302,8 +285,6 @@ pub(super) fn cached_archive(
             }
         }
     }
-    // No source-specific entry: a verified entry with the same pin may hold
-    // the bytes under another source's name. Name the source that owns it.
     for source in &release.package.sources {
         let Some(url) = fallback::cache_url(source)? else {
             continue;
@@ -361,12 +342,10 @@ fn nexus_archive(
     Ok(acquired.path)
 }
 
-/// Whether one cancelled error ends the whole acquisition.
 fn cancelled(error: &anyhow::Error) -> bool {
     code_of(error) == Some(ErrorCode::Cancelled)
 }
 
-/// Classify a Git or Nexus failure like any other source attempt.
 fn classify(error: &anyhow::Error) -> SourceFailure {
     if let Some(fetch) = error
         .chain()
@@ -377,7 +356,6 @@ fn classify(error: &anyhow::Error) -> SourceFailure {
     SourceFailure::Refused(format!("{error:#}"))
 }
 
-/// The attempts of a failed ordered fetch, when the cache reported them.
 fn attempts_of(error: &anyhow::Error) -> Option<Vec<SourceAttempt>> {
     error
         .chain()
@@ -385,7 +363,6 @@ fn attempts_of(error: &anyhow::Error) -> Option<Vec<SourceAttempt>> {
         .map(|sources| sources.attempts().to_vec())
 }
 
-/// Whether the ordered loop announces this candidate before it tries it.
 fn text_announces(target: &modn_core::acquisition::SourceTarget) -> bool {
     matches!(target, modn_core::acquisition::SourceTarget::Fetch(_))
 }

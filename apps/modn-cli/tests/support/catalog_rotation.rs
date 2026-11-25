@@ -9,12 +9,10 @@ use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
-/// Sign a catalog with one secret key and no revocation key change.
 pub fn sign(catalog: &Path, key: &Path) {
     sign_with_revocation(catalog, key, None);
 }
 
-/// Sign a catalog and publish the optional offline revocation public key.
 pub fn sign_with_revocation(catalog: &Path, key: &Path, revocation_public_key: Option<&Path>) {
     let mut arguments = vec![
         "--json".to_owned(),
@@ -37,7 +35,6 @@ pub fn sign_with_revocation(catalog: &Path, key: &Path, revocation_public_key: O
     );
 }
 
-/// Write a rotation statement signed by the given secret key.
 pub fn rotate(catalog: &Path, key: &Path, new_public_key: &Path) {
     let output = run(&[
         "--json",
@@ -56,7 +53,6 @@ pub fn rotate(catalog: &Path, key: &Path, new_public_key: &Path) {
     );
 }
 
-/// Write a revocation statement signed by the offline revocation key.
 pub fn revoke(catalog: &Path, revocation_key: &Path, revoked: &str, replacement_public_key: &Path) {
     let output = run(&[
         "--json",
@@ -77,12 +73,10 @@ pub fn revoke(catalog: &Path, revocation_key: &Path, revoked: &str, replacement_
     );
 }
 
-/// Write `rotation.json` and `rotation.sig` for an arbitrary body and signing key.
 pub fn forge_rotation(catalog: &Path, body: &[u8], key: &Path) {
     forge(catalog, KeyChangeKind::Rotated, "rotation", body, key);
 }
 
-/// Write `revocation.json` and `revocation.sig` for an arbitrary body and signing key.
 pub fn forge_revocation(catalog: &Path, body: &[u8], key: &Path) {
     forge(catalog, KeyChangeKind::Revoked, "revocation", body, key);
 }
@@ -113,7 +107,6 @@ fn forge(catalog: &Path, kind: KeyChangeKind, prefix: &str, body: &[u8], key: &P
     fs::write(catalog.join(format!("{prefix}.sig")), signature).expect("statement signature");
 }
 
-/// Read a public key file as the text that a statement names.
 pub fn public_text(path: &Path) -> String {
     fs::read_to_string(path)
         .expect("public key")

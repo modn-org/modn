@@ -224,8 +224,6 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
     });
 }
 
-/// Leaves a pending install journal with a linked witness, written by a Modn
-/// that predates link records, and reopens the state with the current Modn.
 fn older_linked_install(
     root: &Path,
     mut store: Store,

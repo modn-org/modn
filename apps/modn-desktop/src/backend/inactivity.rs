@@ -1,18 +1,3 @@
-//! Backend calls that use the inactivity timeout without `--progress json`.
-//!
-//! Game registration and launch do not report progress phases, so they cannot
-//! use [`Backend::call_with_progress`](super::Backend::call_with_progress).
-//! They still must not die at the fixed read-only deadline. Any output resets
-//! the inactivity timer.
-//!
-//! The call ends when the CLI process exits, not when its output pipes reach
-//! EOF. A started game can inherit those pipe handles on Windows and hold them
-//! for hours; the CLI has already printed its result by then.
-//!
-//! The exit status decides first: a nonzero exit is a refusal whatever the
-//! output. With exit status 0 and stdout started, a lost, oversized or
-//! malformed result is the committed outcome that callers refresh.
-
 use super::error::{BackendError, ErrorEnvelope};
 use super::progress::{self, CommittedOutcome};
 use super::{Backend, OUTPUT_LIMIT};
@@ -26,10 +11,8 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Default inactivity timeout when the backend has no override.
 const DEFAULT_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Time the output readers get to deliver the result after the CLI exits.
 const EOF_GRACE: Duration = Duration::from_millis(250);
 
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -42,7 +25,6 @@ enum StreamItem {
     Done { stdout: bool, failed: bool },
 }
 
-/// Runs one command with the inactivity timeout and no progress protocol.
 pub(super) fn call(backend: &Backend, args: &[OsString]) -> Result<Value, BackendError> {
     let timeout = backend
         .inactivity_timeout

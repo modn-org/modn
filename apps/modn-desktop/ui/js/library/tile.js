@@ -20,16 +20,6 @@ export function undoHooks(gameId) {
   };
 }
 
-/**
- * Returns the operation entry for one action of one tile. An entry whose run
- * is still going is moved into the new tile instead of replaced, so its
- * progress and Cancel survive a grid refresh. Idle entries are replaced,
- * because the tile's available actions may have changed.
- * @param {Map<string, {button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} operations
- * @param {string} key
- * @param {(askHost: HTMLElement) => ReturnType<typeof createOperationButton>} build
- * @returns {{button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}}
- */
 function operationEntry(operations, key, build) {
   const current = operations.get(key);
   if (current) {
@@ -46,27 +36,11 @@ function operationEntry(operations, key, build) {
   return entry;
 }
 
-/**
- * Returns the identity of one action on one mod. The installed package owns the
- * mod once Modn installs it, so a running button is found under either the
- * catalog entry or the package row that replaces it.
- * @param {import('./data.js').LibraryModel} model
- * @returns {string}
- */
 function operationSubject(model) {
   const installed = model.installedPackage;
   return installed ? `package-${installed.id}` : `${model.bucket}:${model.modId}`;
 }
 
-/**
- * Returns the running entries of one subject that the tile does not offer
- * itself, so a package-only row keeps a control whose catalog entry a search
- * dropped.
- * @param {Map<string, {button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} operations
- * @param {string} subject
- * @param {Array<{button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} offered
- * @returns {Array<{button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>}
- */
 function runningEntries(operations, subject, offered) {
   const entries = [];
   for (const [key, entry] of operations) {
@@ -140,7 +114,6 @@ export function createTile(model, ctx, { onChanged, operations, undoHost = null 
     runUndo: hooks.runUndo,
     launchUndo: undoToast,
   };
-  /** @type {Array<{button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} */
   const buttons = [];
   const subject = operationSubject(model);
 

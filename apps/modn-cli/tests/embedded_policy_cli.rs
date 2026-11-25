@@ -47,9 +47,6 @@ fn policy_beside_the_executable_is_ignored() {
     assert!(stderr.contains("does not contain"), "{stderr}");
     assert!(!root.path().join("state/state.sqlite").exists());
 
-    // The same marker is observable when the planted directory is the module
-    // source, so a regression that loads it from beside the executable would
-    // surface the marker in the output above.
     let checked = main_bucket::command(&copied)
         .env_remove("MODN_GAME_MODULES_DIR")
         .current_dir(root.path())

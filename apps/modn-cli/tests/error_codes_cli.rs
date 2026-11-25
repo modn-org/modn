@@ -1,5 +1,3 @@
-//! Documented refusals report their specific error codes.
-
 #[path = "support/catalog.rs"]
 mod support;
 

@@ -6,9 +6,8 @@
 //! stable rule id and, when the directory is valid, returns its parsed
 //! manifest, canonical stylesheets, assets and BLAKE3 digest.
 //!
-//! CSS parsing lives behind the [`CssChecker`] seam. A later rule engine
-//! implements that trait; this module only calls it and checks the assets it
-//! reports.
+//! CSS parsing lives behind the [`CssChecker`] seam. This module calls the
+//! checker and validates the assets it reports.
 
 mod catalog;
 mod css;

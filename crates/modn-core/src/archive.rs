@@ -204,7 +204,6 @@ pub(crate) fn hashed_file_count() -> usize {
     HASHED_FILES.with(std::cell::Cell::get)
 }
 
-/// Stream one file through BLAKE3 and return the lowercase hex digest.
 pub(crate) fn hash_file(path: &Path) -> Result<String> {
     let mut hasher = blake3::Hasher::new();
     std::io::copy(&mut File::open(path)?, &mut hasher)?;

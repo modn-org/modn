@@ -1,5 +1,3 @@
-//! The seam between theme loading and the CSS rule engine.
-
 mod engine;
 mod facts;
 mod forbidden_var;

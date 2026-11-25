@@ -10,7 +10,6 @@ import {
 
 const BASE = 'http://modn-theme.localhost/';
 
-/** A resolve answer that applies cleanly. */
 function answer(overrides = {}) {
   return {
     game: 'fixture',
@@ -29,7 +28,6 @@ function answer(overrides = {}) {
   };
 }
 
-/** An apply stub that records the answer and returns a fixed result. */
 function applyStub(result = { applied: true, name: 'Night City', source: { label: 'main bucket' }, variant: 'neon' }) {
   const calls = [];
   const apply = (resolved) => {

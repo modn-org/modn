@@ -1,10 +1,3 @@
-//! Guards the cascade-layer split that keeps the protected regions above
-//! theme CSS.
-//!
-//! The desktop stylesheets live in one lower `app` layer, theme stylesheets are
-//! wrapped in a `theme` layer at apply time, and the install review and the
-//! approval prompt put their safety-critical properties in a `protected`
-//! layer that comes last.
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -43,7 +36,6 @@ fn stylesheet(name: &str) -> String {
         .unwrap_or_else(|| panic!("missing ui/css/{name}"))
 }
 
-/// Removes CSS comments so that statements and rules compare by content.
 fn strip_comments(css: &str) -> String {
     let mut output = String::new();
     let mut rest = css;
@@ -58,8 +50,6 @@ fn strip_comments(css: &str) -> String {
     output
 }
 
-/// Returns the body of `@layer <name> { ... }` and asserts that nothing
-/// follows the closing brace.
 fn layer_body<'a>(css: &'a str, name: &str) -> &'a str {
     let trimmed = css.trim();
     let header = format!("@layer {name} {{");
@@ -86,14 +76,11 @@ fn layer_body<'a>(css: &'a str, name: &str) -> &'a str {
     panic!("unterminated `@layer {name}` block");
 }
 
-/// One selector and its declaration block from a stylesheet body.
 struct Rule {
     selector: String,
     declarations: Vec<(String, String)>,
 }
 
-/// Reads the simple rules of a stylesheet body. The UI stylesheets have no
-/// nested at-rules, so one selector before a brace is enough.
 fn rules(body: &str) -> Vec<Rule> {
     let mut rules = Vec::new();
     let mut rest = body;
@@ -154,8 +141,6 @@ fn protected_hook(selector: &str) -> bool {
         || selector.contains("[data-modn-protected")
 }
 
-/// The properties whose value a theme must not be able to change inside a
-/// protected region.
 fn safety_critical(property: &str) -> bool {
     const NAMES: [&str; 25] = [
         "display",

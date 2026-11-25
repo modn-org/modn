@@ -17,8 +17,6 @@ enum Prune {
 }
 
 impl Store {
-    /// Create a missing content root below `base`, recording every directory
-    /// this transaction creates so rollback removes only Modn's own folders.
     pub(super) fn ensure_content_root(
         &mut self,
         transaction_id: &str,

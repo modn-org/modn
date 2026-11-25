@@ -1,5 +1,3 @@
-//! Rule checks for selectors that can reach a protected region indirectly.
-
 use super::check_sheet;
 use crate::themes::css::facts::{DeclFacts, RuleFacts, SheetFacts, StyleFacts};
 use crate::themes::Rule;

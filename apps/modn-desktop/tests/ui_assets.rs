@@ -58,7 +58,6 @@ fn tauri_config_matches_the_security_decisions() {
     assert_eq!(config["app"]["windows"][0]["title"].as_str(), Some("Modn"));
 }
 
-/// One CSP directive name and its source list.
 fn csp_directives(csp: &str) -> Vec<(String, Vec<String>)> {
     csp.split(';')
         .map(str::trim)

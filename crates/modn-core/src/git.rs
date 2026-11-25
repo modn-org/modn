@@ -1,8 +1,3 @@
-//! Hardened Git invocation shared by catalog sync and package sources.
-//!
-//! Git runs as an argv-only child process with a fixed configuration. No
-//! system or user configuration, credential prompt, or repository hook can
-//! change the transport or run commands.
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::{Command, Output};
@@ -13,17 +8,10 @@ use crate::acquisition::{CONNECT_TIMEOUT, READ_INACTIVITY_TIMEOUT};
 /// aborts an HTTP or HTTPS transfer after the low-speed time.
 const LOW_SPEED_LIMIT: u64 = 1;
 
-/// The shared low-speed time of every Git transfer: the documented inactivity
-/// limit of every source.
 pub(crate) fn default_low_speed_time_seconds() -> u64 {
     (CONNECT_TIMEOUT + READ_INACTIVITY_TIMEOUT).as_secs()
 }
 
-/// Seconds that a Git HTTP or HTTPS transfer may stay below [`LOW_SPEED_LIMIT`].
-///
-/// A test build may shorten the time through `MODN_TEST_GIT_FETCH_IDLE_MS`, in
-/// milliseconds, because Git accepts whole seconds or zero to disable the
-/// limit. Release builds always use the documented inactivity limit.
 pub(crate) fn low_speed_time_seconds() -> u64 {
     #[cfg(any(test, feature = "test-instruction-budget"))]
     if let Some(millis) = std::env::var("MODN_TEST_GIT_FETCH_IDLE_MS")
@@ -35,26 +23,18 @@ pub(crate) fn low_speed_time_seconds() -> u64 {
     default_low_speed_time_seconds()
 }
 
-/// Fixed environment for one Git invocation.
 pub(crate) struct GitEnvironment<'a> {
-    /// Working directory; Git finds the repository from here.
     pub(crate) directory: &'a Path,
-    /// Empty directory used as the hooks path.
     pub(crate) hooks: &'a Path,
-    /// Permit the `file` transport. Only catalog sync and test builds do so.
     pub(crate) allow_file: bool,
 }
 
-// The executable that test code substitutes for Git on this thread. Tests
-// share one process across parallel threads, so an in-process override stays
-// thread-local and cannot leak into a command that another test runs.
 #[cfg(test)]
 thread_local! {
     pub(crate) static TEST_PROGRAM: std::cell::RefCell<Option<std::ffi::OsString>> =
         const { std::cell::RefCell::new(None) };
 }
 
-/// The Git program; a test build may replace it with a stub.
 fn program() -> std::ffi::OsString {
     #[cfg(test)]
     if let Some(program) = TEST_PROGRAM.with(|slot| slot.borrow().clone()) {
@@ -69,16 +49,10 @@ fn program() -> std::ffi::OsString {
     "git".into()
 }
 
-/// Build a Git command with system and user configuration disabled.
-///
-/// Every command, including fetch and clone, carries the shared HTTP low-speed
-/// limits. Git and libcurl therefore end a stalled HTTP or HTTPS transfer
-/// without Modn tracking or stopping the child process.
 pub(crate) fn command(environment: &GitEnvironment<'_>) -> Command {
     command_with_low_speed_time(environment, low_speed_time_seconds())
 }
 
-/// Build a Git command with an explicit low-speed time, for tests.
 pub(crate) fn command_with_low_speed_time(
     environment: &GitEnvironment<'_>,
     low_speed_seconds: u64,
@@ -138,7 +112,6 @@ fn run_output(command: &mut Command) -> Result<Output> {
     Ok(output)
 }
 
-/// Run one Git command and return trimmed standard output.
 pub(crate) fn run(environment: &GitEnvironment<'_>, arguments: &[&str]) -> Result<String> {
     let mut command = command(environment);
     command.args(arguments);
@@ -146,7 +119,6 @@ pub(crate) fn run(environment: &GitEnvironment<'_>, arguments: &[&str]) -> Resul
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
-/// Run one Git command and return raw standard output.
 pub(crate) fn run_bytes(environment: &GitEnvironment<'_>, arguments: &[&str]) -> Result<Vec<u8>> {
     let mut command = command(environment);
     command.args(arguments);
@@ -154,7 +126,6 @@ pub(crate) fn run_bytes(environment: &GitEnvironment<'_>, arguments: &[&str]) ->
     Ok(output.stdout)
 }
 
-/// Create a private empty hooks directory for one Git invocation.
 pub(crate) fn empty_hooks() -> Result<tempfile::TempDir> {
     tempfile::Builder::new()
         .prefix("modn-git-hooks-")

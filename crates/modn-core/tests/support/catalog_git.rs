@@ -2,7 +2,6 @@
     dead_code,
     reason = "shared fixture exposes helpers for different test crates"
 )]
-//! Signed Git catalog fixtures shared by the bucket module trust tests.
 
 #[path = "git_command.rs"]
 mod git_command;

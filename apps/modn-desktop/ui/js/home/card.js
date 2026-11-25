@@ -1,8 +1,3 @@
-/**
- * One Home card: a game installation that Modn manages, or a detected game
- * installation that Modn does not manage yet.
- */
-
 import { gameLabel } from './data.js';
 import { element } from './dom.js';
 
@@ -15,11 +10,6 @@ import { element } from './dom.js';
  * @property {boolean} [canRemove]
  */
 
-/**
- * Builds the one or two letters shown on the cover panel.
- * @param {string} gameId
- * @returns {string}
- */
 function initials(gameId) {
   const words = gameLabel(gameId).split(' ').filter(Boolean);
   return words
@@ -28,11 +18,6 @@ function initials(gameId) {
     .join('');
 }
 
-/**
- * Describes the card for assistive technology.
- * @param {CardEntry} entry
- * @returns {string}
- */
 function cardLabel(entry) {
   const name = gameLabel(entry.gameId);
   if (entry.state === 'detected') {

@@ -1,5 +1,3 @@
-//! Theme limits and identifier grammars from `docs/themes.md`.
-
 /// Maximum size of `theme.css` in bytes.
 pub const MAX_THEME_CSS_BYTES: u64 = 262_144;
 
@@ -21,10 +19,8 @@ pub const MAX_THEME_VARIANTS: usize = 16;
 /// Maximum size of `theme.json` in bytes.
 pub const MAX_THEME_MANIFEST_BYTES: u64 = 16 * 1024;
 
-/// Maximum number of characters in a theme, game or variant id.
 pub(crate) const MAX_THEME_ID_CHARS: usize = 64;
 
-/// Maximum number of characters in a theme display name.
 pub(crate) const MAX_THEME_NAME_CHARS: usize = 64;
 
 /// Report whether `value` is a valid theme, game or variant id.

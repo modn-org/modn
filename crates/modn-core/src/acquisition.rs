@@ -167,12 +167,6 @@ impl ArchiveCache {
         self.cached_alias(key)
     }
 
-    /// Find an entry with the requested digest through the on-disk index.
-    ///
-    /// A recorded entry is used only after its bytes match the pin again. A
-    /// missing, stale or corrupt index falls back to a scan whose result stays
-    /// in memory. A lookup never writes, so a preflight, a cancelled operation
-    /// or a refused one leaves every cache file unchanged.
     fn cached_alias(&self, key: &CacheKey<'_>) -> Result<Option<PathBuf>> {
         let Some(pin) = ArchivePin::blake3(key.blake3) else {
             return Ok(None);
@@ -190,10 +184,6 @@ impl ArchiveCache {
         self.scan_for(key.blake3)
     }
 
-    /// Hash each listed entry once and return the first whose bytes match.
-    ///
-    /// Retired names are skipped: their digest is SHA-256, so their name never
-    /// proves the BLAKE3 pin.
     fn scan_for(&self, blake3: &str) -> Result<Option<PathBuf>> {
         for entry in self.entries(None)? {
             if entry.retired {

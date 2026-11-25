@@ -1,13 +1,6 @@
-//! Translation of CLI progress events into MCP progress notifications.
-//!
-//! The companion always starts the CLI with `--progress json`, so it can also
-//! observe the commit point when the client sends no progress token. A token
-//! controls only whether a notification is emitted.
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-/// One JSON line that the CLI writes to stderr under `--progress json`.
 #[derive(Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 enum Event {
@@ -43,7 +36,6 @@ enum Outcome {
     Cancelled,
 }
 
-/// Tracks phases and builds one notification per observable phase.
 pub struct Reporter {
     token: Option<Value>,
     base: u64,
@@ -63,24 +55,18 @@ impl Reporter {
         }
     }
 
-    /// Whether the CLI reported the commit point.
     pub fn is_committed(&self) -> bool {
         self.committed
     }
 
-    /// Whether the CLI reported a cancelled result.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled
     }
 
-    /// Whether `line` is a CLI progress event rather than a diagnostic line.
-    /// Used to keep progress output outside the diagnostic byte limit.
     pub fn is_event(line: &str) -> bool {
         serde_json::from_str::<Event>(line).is_ok()
     }
 
-    /// Parses one stderr line and returns its notification, when a token was
-    /// requested. Phase and commit state advance with or without a token.
     pub fn event(&mut self, line: &str) -> Option<Value> {
         let event: Event = serde_json::from_str(line).ok()?;
         if matches!(event, Event::Commit { .. }) {
@@ -109,9 +95,6 @@ impl Reporter {
         }))
     }
 
-    /// Returns the next strictly increasing progress value and an optional
-    /// total. Download bytes share one scale with the phases around them, so
-    /// a later phase never reports a smaller value than the download.
     fn advance(&mut self, event: &Event) -> (u64, Option<u64>) {
         match event {
             Event::Download { bytes, total, .. } => {

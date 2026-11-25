@@ -19,7 +19,6 @@ fn zip_with_entries(path: &Path, entries: &[(&str, &[u8])]) {
     }
     writer.finish().expect("hostile ZIP complete");
 }
-/// Write a stored ZIP with raw entry names, including exact duplicates.
 fn raw_zip(path: &Path, entries: &[(&str, &[u8])]) {
     fn put(bytes: &mut Vec<u8>, value: &[u8]) {
         bytes.extend_from_slice(value);

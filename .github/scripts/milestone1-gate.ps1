@@ -3,13 +3,11 @@ param(
   [Parameter(ParameterSetName = 'Release')] [string] $Tag = 'v0.2.0',
   [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $Binary,
   [Parameter(Mandatory, ParameterSetName = 'Local')] [string] $Checksum,
-  # A `test-main-key` build used only for `bucket update` from a signed local bucket.
   [string] $BucketBinary,
   [string] $PreviousTag = 'v0.1.0',
   [string] $Repository = 'modn-org/modn'
 )
 
-# Runs published assets by default. Binary and Checksum select a local build.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -207,8 +205,6 @@ try {
     'the refused update changed nothing: 2.0.0 is intact and the unmanaged file is untouched'
   Remove-Item -LiteralPath $collision
 
-  # A game file that another process holds open makes the update fail on the
-  # file system, not in planning. The game must end up as it was.
   $held = Join-Path $game 'archive\pc\mod\gate-extra.archive'
   $before = Get-TreeSnapshot $game
   $lock = [IO.File]::Open($held, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)

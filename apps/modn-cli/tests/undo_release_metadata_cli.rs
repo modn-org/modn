@@ -1,6 +1,3 @@
-//! Undo restores the catalog identity, dependency links, declared conflicts
-//! and native-injector status that the history record holds.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/catalog.rs"]
@@ -280,8 +277,6 @@ fn undo_of_an_uninstall_restores_an_approved_tool_executable() {
     assert!(undone.status.success(), "{}", error(&undone));
     assert!(executable.is_file());
 
-    // The install stored the approval, and uninstall keeps it, so a second
-    // restore needs no flag.
     assert!(fixture
         .run(&["uninstall", "tool", "--yes"])
         .status

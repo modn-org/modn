@@ -1,12 +1,3 @@
-/**
- * The Theme control: one button in the app shell and a panel that lists the
- * themes of the active game, selects a theme and a variant, resets to the
- * default theme and imports a local theme.
- *
- * The panel is a plain section, not a modal dialog. It builds every node with
- * `element` and `textContent`, so theme text never becomes markup. Every class
- * starts with `modn-theme-`, the prefix reserved for this control.
- */
 import * as api from '../api.js';
 import { messageFor } from '../messages.js';
 import { element } from '../details/dom.js';
@@ -16,7 +7,6 @@ import {
   selectAndApply,
   selectNoneAndApply,
 } from './controller.js';
-/** The panel id that the trigger names with `aria-controls`. */
 const PANEL_ID = 'modn-theme-panel';
 /**
  * Creates the control and appends it to `host`.
@@ -60,18 +50,15 @@ export function createThemePanel(host, deps = {}) {
   let disabled = null;
   let message = null;
   let pending = false;
-  /** Adds one text line to `parent`. */
   function line(parent, className, text) {
     const node = element('p', className, text);
     parent.append(node);
     return node;
   }
-  /** One diagnostic as `<rule>: <message>`; a rule id is optional. */
   function diagnosticItem(diagnostic) {
     const rule = diagnostic.rule ? `${diagnostic.rule}: ` : '';
     return element('li', 'modn-theme-diagnostic', `${rule}${diagnostic.message || ''}`);
   }
-  /** Applies a load result to the visible state. */
   function setTheme(result) {
     if (!result || result.stale) {
       return;
@@ -93,7 +80,6 @@ export function createThemePanel(host, deps = {}) {
     }
     render();
   }
-  /** Fetches the list for the active game, ignoring an answer for an old one. */
   async function refresh() {
     if (!game || disabled) {
       render();
@@ -121,7 +107,6 @@ export function createThemePanel(host, deps = {}) {
     }
     render();
   }
-  /** Builds the list of themes with a mark on the selected one. */
   function renderList() {
     const list = element('ul', 'modn-theme-list');
     list.dataset.testid = 'theme-list';
@@ -155,7 +140,6 @@ export function createThemePanel(host, deps = {}) {
     }
     panel.append(list);
   }
-  /** Builds the variant selector of the chosen theme. */
   function renderVariants() {
     const theme = themes.find((entry) => entry.id === chosen);
     if (!theme) {
@@ -186,10 +170,6 @@ export function createThemePanel(host, deps = {}) {
     field.append(selectElement);
     panel.append(field);
   }
-  /**
-   * Runs one selection with every choice disabled until it ends.
-   * @param {() => Promise<void>} action
-   */
   async function runSelection(action) {
     if (pending) {
       return;
@@ -206,7 +186,6 @@ export function createThemePanel(host, deps = {}) {
       render();
     }
   }
-  /** Adds the three explicit actions. */
   function renderActions() {
     const actions = element('div', 'modn-theme-actions');
     const use = element('button', 'modn-button modn-theme-action', 'Use theme');
@@ -300,7 +279,6 @@ export function createThemePanel(host, deps = {}) {
     actions.append(use, defaultButton, importButton);
     panel.append(actions);
   }
-  /** Rebuilds the panel from the state. */
   function render() {
     trigger.setAttribute('aria-expanded', String(open));
     panel.replaceChildren();
@@ -342,7 +320,6 @@ export function createThemePanel(host, deps = {}) {
       panel.append(list);
     }
   }
-  /** Opens or closes the panel. */
   function setOpen(next) {
     open = next;
     panel.hidden = !open;
@@ -365,9 +342,7 @@ export function createThemePanel(host, deps = {}) {
   });
   render();
   return {
-    /** The control root, for tests and for the shell. */
     element: root,
-    /** Points the control at the active game; `null` clears it. */
     setGame(next) {
       if (next === game) {
         return;
@@ -389,9 +364,7 @@ export function createThemePanel(host, deps = {}) {
         void refresh();
       }
     },
-    /** Shows the result of a load for the active game. */
     setTheme,
-    /** Reports whether the panel is open. */
     isOpen() {
       return open;
     },

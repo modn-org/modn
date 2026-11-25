@@ -161,8 +161,6 @@ class App:
     def close(self, timeout=45):
         if self.process is None or self.process.poll() is not None:
             return self.process.returncode if self.process else None
-        # Closing must never answer a destructive confirmation: only OK and
-        # Cancel are answers here, and a Yes/No dialog is left for the journey.
         for dialog in self.session.extra_windows():
             answered = False
             for answer in ("OK", "Cancel"):
@@ -220,7 +218,6 @@ class Runner:
         try:
             function()
         except Exception as error:  # noqa: BLE001 - every failure is recorded
-            # The message can be empty, so the type name keeps the failure visible.
             error_message = f"{type(error).__name__}: {error}" if str(error) else type(error).__name__
         actions = self.cleanup[mark:]
         del self.cleanup[mark:]

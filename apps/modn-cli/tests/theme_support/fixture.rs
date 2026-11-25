@@ -2,7 +2,6 @@
     dead_code,
     reason = "each theme test module uses a different subset of this fixture"
 )]
-//! Temporary data, state and theme fixtures for the theme CLI tests.
 
 use crate::main_bucket;
 use serde_json::{json, Value};
@@ -13,7 +12,6 @@ use tempfile::TempDir;
 
 pub const GAME: &str = "cyberpunk-2077";
 
-/// One test run with its own appdata base, state directory and theme sources.
 pub struct Fixture {
     pub temp: TempDir,
     pub data: PathBuf,
@@ -37,7 +35,6 @@ impl Fixture {
         }
     }
 
-    /// The shared data directory that holds the official `main` bucket copy.
     pub fn data_dir(&self) -> PathBuf {
         self.data.join("modn")
     }
@@ -46,7 +43,6 @@ impl Fixture {
         self.data_dir().join("buckets").join("main").join("themes")
     }
 
-    /// A command with the documented desktop prefix and temporary state.
     pub fn command(&self) -> Command {
         let mut command = Command::new(main_bucket::modn_binary());
         command
@@ -63,7 +59,6 @@ impl Fixture {
         self.command().args(args).output().expect("run modn")
     }
 
-    /// Run without `--json` for the human-readable paths.
     pub fn run_human(&self, args: &[&str]) -> Output {
         let mut command = Command::new(main_bucket::modn_binary());
         command
@@ -106,21 +101,18 @@ impl Fixture {
         self.json(&["theme", "register", path(source)])
     }
 
-    /// A valid theme in a source tree shaped as `<game>/<id>`.
     pub fn source_theme(&self, game: &str, id: &str, variants: &[&str]) -> PathBuf {
         let directory = self.sources.join(game).join(id);
         write_theme(&directory, game, id, "Night City", variants, VALID_CSS);
         directory
     }
 
-    /// A valid theme below the official `main` bucket copy.
     pub fn official_theme(&self, game: &str, id: &str, variants: &[&str]) -> PathBuf {
         let directory = self.main_themes().join(game).join(id);
         write_theme(&directory, game, id, "Official City", variants, VALID_CSS);
         directory
     }
 
-    /// A broken theme below the official `main` bucket copy.
     pub fn broken_official_theme(&self, game: &str, id: &str) -> PathBuf {
         let directory = self.main_themes().join(game).join(id);
         write_theme(
@@ -134,7 +126,6 @@ impl Fixture {
         directory
     }
 
-    /// A valid theme in one registered bucket, with its registration file.
     pub fn bucket_theme(&self, bucket: &str, game: &str, id: &str, variants: &[&str]) -> PathBuf {
         let root = self.temp.path().join("bucket").join(bucket);
         fs::create_dir_all(root.join("mods")).expect("bucket mods");
@@ -154,7 +145,6 @@ impl Fixture {
         directory
     }
 
-    /// Write the registration that `modn bucket add` stores for a local bucket.
     pub fn add_bucket(&self, bucket: &str, root: &Path) {
         let registrations = self.state.join("buckets").join("registrations");
         fs::create_dir_all(&registrations).expect("registrations");
@@ -174,7 +164,6 @@ impl Fixture {
     }
 }
 
-/// The simple stylesheet that the CSS checker accepts.
 pub const VALID_CSS: &str = ".modn-app { color: #ffffff; }";
 
 fn path(value: &Path) -> &str {

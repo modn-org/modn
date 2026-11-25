@@ -1,12 +1,3 @@
-//! Runs the desktop UI behaviour tests with the Node test runner.
-//!
-//! The UI ships as plain ES modules, so the behaviour tests under `tests/js`
-//! import the real modules and stub `window`, `document` and timers. Node is a
-//! developer tool, not a build requirement. When `node` is not on PATH a local
-//! run prints a skip message and passes. When `CI` holds a non-empty value the
-//! same situation fails the test, so continuous integration cannot hide UI
-//! behaviour failures.
-
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,30 +5,19 @@ use std::process::Command;
 
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
-/// What asking `node --version` produced.
 #[derive(Debug, PartialEq, Eq)]
 enum NodeProbe {
-    /// Node ran and reported this version, for example `v22.1.0`.
     Version(String),
-    /// Starting `node` failed because no executable is on PATH.
     NotFound,
 }
 
-/// What the test does with a [`NodeProbe`] result.
 #[derive(Debug, PartialEq, Eq)]
 enum Decision {
-    /// Run `node --test` with the reported version.
     Run { version: String },
-    /// Report that the tests were skipped and pass.
     Skip { message: String },
-    /// Fail the test because a CI run must exercise the UI behaviour tests.
     Fail { message: String },
 }
 
-/// Decides how to treat a Node probe result.
-///
-/// CI must not skip the UI behaviour tests, so a missing `node` fails there.
-/// A local run keeps the skip so that Node stays optional for developers.
 fn node_policy(ci: bool, probe: NodeProbe) -> Decision {
     match probe {
         NodeProbe::Version(version) => Decision::Run { version },
@@ -52,15 +32,10 @@ fn node_policy(ci: bool, probe: NodeProbe) -> Decision {
     }
 }
 
-/// Reports whether `CI` holds a non-empty value.
 fn ci_environment() -> bool {
     env::var_os("CI").is_some_and(|value| !value.is_empty())
 }
 
-/// Lists every `*.test.mjs` file under `directory`, sorted.
-///
-/// Some Node releases treat a directory argument to `node --test` as a module
-/// path, so the test passes the explicit file list instead.
 fn test_files(directory: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut pending = vec![directory.to_path_buf()];

@@ -1,9 +1,3 @@
-//! The local theme registry: validated copies, digests and removal.
-//!
-//! Each registration is a byte-for-byte copy of an inspected theme directory
-//! plus one `registration.json`. The registry lives under the Modn data
-//! directory, never in the inspected source directory.
-
 mod layout;
 mod listing;
 mod record;
@@ -141,14 +135,12 @@ impl ThemeRegistry {
         }
     }
 
-    /// Make the next replacement stop at `point`.
     #[cfg(test)]
     pub(in crate::themes::registry) fn fail_at(&self, point: layout::Failpoint) {
         self.failpoint
             .store(point.code(), std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// Take the failpoint set for the next replacement, if any.
     fn next_failpoint(&self) -> Option<layout::Failpoint> {
         #[cfg(test)]
         {
@@ -329,13 +321,11 @@ impl ThemeRegistry {
     }
 }
 
-/// Bytes and entries copied so far, bounded before inspection runs.
 struct CopyBudget {
     bytes: u64,
     entries: usize,
 }
 
-/// Copy every regular file below `source` into `destination`.
 fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
     fs::create_dir_all(destination)
         .map_err(|error| ThemeError::io("cannot create the copied theme directory", error))?;
@@ -349,11 +339,6 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
     )
 }
 
-/// Copy one directory level and recurse into real subdirectories.
-///
-/// The copy stops as soon as it would exceed [`layout::MAX_COPY_ENTRIES`]
-/// entries or [`layout::MAX_COPY_BYTES`] bytes, before an untrusted source can
-/// fill the disk.
 fn copy_entries(source: &Path, destination: &Path, budget: &mut CopyBudget) -> Result<()> {
     let entries = fs::read_dir(source)
         .map_err(|error| ThemeError::io("cannot read the theme source directory", error))?;
@@ -407,14 +392,12 @@ fn copy_entries(source: &Path, destination: &Path, budget: &mut CopyBudget) -> R
     Ok(())
 }
 
-/// Report a source that exceeds the private copy limits.
 fn too_large(message: String) -> ThemeError {
     ThemeError::Invalid(vec![
         ThemeProblem::new(Rule::ThemeTooLarge, message).with_path(".")
     ])
 }
 
-/// Report a digest that does not match the recorded one.
 fn digest_mismatch(game: &str, id: &str, expected: &str, actual: &str) -> ThemeProblem {
     ThemeProblem::new(
         Rule::DigestMismatch,
@@ -428,7 +411,6 @@ fn digest_mismatch(game: &str, id: &str, expected: &str, actual: &str) -> ThemeP
     .with_theme(format!("{game}/{id}"))
 }
 
-/// Report a registration record that cannot be used.
 fn manifest_problem(game: &str, id: &str, message: impl Into<String>) -> ThemeProblem {
     ThemeProblem::new(Rule::ManifestInvalid, message)
         .with_path(format!(
@@ -439,7 +421,6 @@ fn manifest_problem(game: &str, id: &str, message: impl Into<String>) -> ThemePr
         .with_theme(format!("{game}/{id}"))
 }
 
-/// Attach the `<game>/<id>` label when the source problem has none.
 fn with_label(mut problem: ThemeProblem, game: &str, id: &str) -> ThemeProblem {
     if problem.theme.is_none() {
         problem.theme = Some(format!("{game}/{id}"));
@@ -447,7 +428,6 @@ fn with_label(mut problem: ThemeProblem, game: &str, id: &str) -> ThemeProblem {
     problem
 }
 
-/// Reject an id before it reaches a path.
 fn check_id(value: &str) -> Result<()> {
     if is_valid_id(value) {
         Ok(())
@@ -456,7 +436,6 @@ fn check_id(value: &str) -> Result<()> {
     }
 }
 
-/// Current Unix time in whole seconds.
 fn unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

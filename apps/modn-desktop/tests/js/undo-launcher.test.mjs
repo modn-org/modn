@@ -11,11 +11,6 @@ import {
   toastHost,
 } from './support/fake-dom.mjs';
 
-/**
- * Installs a toast Undo host and returns its launcher.
- * @param {(args: Object) => Promise<unknown>} runUndo
- * @param {() => void} [onSettled]
- */
 function makeLauncher(runUndo, onSettled = () => {}) {
   const document = installDom();
   const host = document.createElement('div');

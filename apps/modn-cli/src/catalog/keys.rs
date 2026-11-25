@@ -1,5 +1,3 @@
-//! Shared key, password and atomic-file helpers for the catalog author tools.
-
 use anyhow::{anyhow, bail, Context, Result};
 use minisign::{KeyPair, PublicKey, SecretKey, SecretKeyBox};
 use std::fs;
@@ -7,7 +5,6 @@ use std::path::Path;
 
 const MAX_PUBLIC_KEY_BYTES: u64 = 4 * 1024;
 
-/// Report the minisign key identifier as 16 uppercase hexadecimal digits.
 pub(super) fn fingerprint(public: &PublicKey) -> Result<String> {
     let bytes: [u8; 8] = public
         .keynum()
@@ -32,7 +29,6 @@ pub(super) fn encoded_public(public: &PublicKey) -> Result<String> {
         .into_string())
 }
 
-/// Load a secret key that must live outside the catalog directory.
 pub(super) fn load_secret_outside(
     root: &Path,
     key_path: &Path,
@@ -55,7 +51,6 @@ pub(super) fn load_secret_outside(
     decrypt_secret(&text, password_env)
 }
 
-/// Read one public key file and refuse a missing, large or non-regular file.
 pub(super) fn read_public_key_text(path: &Path) -> Result<String> {
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("cannot read public key: {}", path.display()))?;
@@ -68,7 +63,6 @@ pub(super) fn read_public_key_text(path: &Path) -> Result<String> {
     fs::read_to_string(path).with_context(|| format!("cannot read public key: {}", path.display()))
 }
 
-/// Read the password that encrypts or decrypts a secret key from an environment variable.
 pub(super) fn read_password(variable: &str) -> Result<String> {
     match std::env::var(variable) {
         Ok(password) if !password.is_empty() => Ok(password),
@@ -77,7 +71,6 @@ pub(super) fn read_password(variable: &str) -> Result<String> {
     }
 }
 
-/// Decode a secret key file and decrypt it when it needs a password.
 pub(super) fn decrypt_secret(text: &str, password_env: Option<&str>) -> Result<SecretKey> {
     let box_text = secret_key_body(text)?;
     let boxed = SecretKeyBox::from_string(text)
@@ -97,7 +90,6 @@ pub(super) fn decrypt_secret(text: &str, password_env: Option<&str>) -> Result<S
     })
 }
 
-/// The base64 line of a minisign secret key box, without its comment.
 fn secret_key_body(text: &str) -> Result<&str> {
     let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
     let first = lines
@@ -138,7 +130,6 @@ fn require_regular_file(path: &Path, role: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a new owner-only file; an existing file is refused, never truncated.
 pub(super) fn write_secret_key(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write as _;
     let mut options = fs::OpenOptions::new();
@@ -185,7 +176,6 @@ pub(super) fn write_new_file(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Replace a catalog file atomically so a failure keeps the previous bytes.
 pub(super) fn write_signature(path: &Path, bytes: &[u8]) -> Result<()> {
     let directory = path
         .parent()

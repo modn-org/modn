@@ -276,7 +276,7 @@ fn op_button_stops_a_destroyed_run_before_the_write() {
         "a destroyed button must stop the run before the write"
     );
     assert!(
-        between.contains("off()"),
+        between.contains("discardProgressListener(off)"),
         "a stale run must drop the progress listener before it starts the write"
     );
     let destroy = op.find("destroy() {").expect("destroy function");

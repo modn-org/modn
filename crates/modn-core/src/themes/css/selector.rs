@@ -1,5 +1,3 @@
-//! A strict parser for the theme API v1 selector grammar.
-
 use super::facts::DeclFacts;
 use crate::themes::hooks::{
     is_protected_class, is_protected_context_class, is_protected_reachable_attribute,
@@ -7,7 +5,6 @@ use crate::themes::hooks::{
 };
 use crate::themes::problem::Rule;
 
-/// Selector facts the rule engine needs after a successful parse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SelectorInfo {
     /// The selector contains a bare `:root` or `html` compound.
@@ -18,7 +15,6 @@ pub(crate) struct SelectorInfo {
     pub context: bool,
 }
 
-/// One selector that violates the grammar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SelectorViolation {
     /// Stable diagnostic id.
@@ -27,7 +23,6 @@ pub(crate) struct SelectorViolation {
     pub message: String,
 }
 
-/// Check one comma-separated selector entry.
 pub(crate) fn check_selector(
     selector: &str,
     declarations: &[DeclFacts],
@@ -42,7 +37,6 @@ pub(crate) fn check_selector(
     Ok(info)
 }
 
-/// Return whether `declarations` are allowed beside `:root` or `html`.
 fn root_declarations_allowed(declarations: &[DeclFacts]) -> bool {
     declarations.iter().all(|declaration| {
         declaration.property.starts_with("--modn-")
@@ -52,7 +46,6 @@ fn root_declarations_allowed(declarations: &[DeclFacts]) -> bool {
     })
 }
 
-/// Build a `forbidden-selector` violation.
 fn forbidden(message: String) -> SelectorViolation {
     SelectorViolation {
         rule: Rule::ForbiddenSelector,
@@ -60,7 +53,6 @@ fn forbidden(message: String) -> SelectorViolation {
     }
 }
 
-/// Build an `unknown-hook` violation.
 fn unknown_hook(selector: &str, hook: &str) -> SelectorViolation {
     SelectorViolation {
         rule: Rule::UnknownHook,
@@ -68,7 +60,6 @@ fn unknown_hook(selector: &str, hook: &str) -> SelectorViolation {
     }
 }
 
-/// One compound selector being parsed.
 #[derive(Debug, Clone, Copy, Default)]
 struct Compound {
     simples: usize,
@@ -76,7 +67,6 @@ struct Compound {
     root: bool,
 }
 
-/// The parser state for one selector.
 struct Parser<'a> {
     input: &'a str,
     bytes: &'a [u8],
@@ -87,7 +77,6 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    /// Create a parser for `input`.
     fn new(input: &'a str) -> Self {
         Self {
             input,
@@ -99,7 +88,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse the whole selector.
     fn parse(&mut self) -> Result<SelectorInfo, SelectorViolation> {
         self.skip_space();
         if self.at_end() || !self.input.is_ascii() {
@@ -134,7 +122,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parse one compound selector and enforce its hook requirement.
     fn parse_compound(&mut self) -> Result<(), SelectorViolation> {
         let start = self.position;
         self.context = false;
@@ -177,7 +164,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Parse a class selector.
     fn parse_class(&mut self, compound: &mut Compound) -> Result<(), SelectorViolation> {
         self.position += 1;
         let Some(name) = self.read_ident() else {
@@ -200,7 +186,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Parse an attribute selector with an exact `=` match.
     fn parse_attribute(&mut self, compound: &mut Compound) -> Result<(), SelectorViolation> {
         self.position += 1;
         self.skip_space();
@@ -269,7 +254,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Parse a pseudo-class.
     fn parse_pseudo(&mut self, compound: &mut Compound) -> Result<(), SelectorViolation> {
         self.position += 1;
         if self.peek() == Some(b':') {
@@ -312,7 +296,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Parse the one compound allowed inside `:not()`.
     fn parse_inner_compound(&mut self, compound: &mut Compound) -> Result<(), SelectorViolation> {
         let context = self.context;
         while let Some(byte) = self.peek() {
@@ -339,7 +322,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Read an identifier made of ASCII letters, digits, `-` and `_`.
     fn read_ident(&mut self) -> Option<&'a str> {
         let start = self.position;
         if !self
@@ -357,14 +339,12 @@ impl<'a> Parser<'a> {
         Some(&self.input[start..self.position])
     }
 
-    /// Return whether an identifier continues at `offset`.
     fn ident_continues(&self, offset: usize) -> bool {
         self.bytes
             .get(offset)
             .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'_'))
     }
 
-    /// Consume ASCII whitespace and report whether any was present.
     fn skip_space(&mut self) -> bool {
         let start = self.position;
         while self.peek().is_some_and(|byte| byte.is_ascii_whitespace()) {
@@ -373,22 +353,18 @@ impl<'a> Parser<'a> {
         self.position > start
     }
 
-    /// Return whether `self.input` at the cursor starts with `text`.
     fn starts_with(&self, text: &str) -> bool {
         self.input[self.position..].starts_with(text)
     }
 
-    /// Return the byte at the cursor.
     fn peek(&self) -> Option<u8> {
         self.bytes.get(self.position).copied()
     }
 
-    /// Return whether the cursor reached the end.
     fn at_end(&self) -> bool {
         self.position >= self.bytes.len()
     }
 
-    /// Build a violation that names the whole selector.
     fn forbidden_here(&self) -> SelectorViolation {
         forbidden(format!(
             "selector \"{}\" is outside the selector grammar",

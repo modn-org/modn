@@ -4,18 +4,12 @@ use modn_core::error::ErrorCode;
 use modn_core::progress::{CancellationToken, OperationControl, Outcome};
 use std::io::{self, BufRead};
 
-/// Output format of `--progress`.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub(super) enum ProgressFormat {
     /// One JSON event per line on stderr.
     Json,
 }
 
-/// Progress and cancellation for one managed operation.
-///
-/// Disabled, it reports nothing and never cancels. Enabled with
-/// `--progress json`, it writes one JSON event per line to stderr and a
-/// background reader cancels the operation on a `cancel` line on stdin.
 pub(super) struct Progress {
     control: OperationControl,
     enabled: bool,

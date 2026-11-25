@@ -11,9 +11,6 @@ use tokio::sync::mpsc;
 
 pub const OUTPUT_LIMIT: usize = 256 * 1024;
 
-/// Reads newline-delimited backend output without losing a partially read line
-/// when another `select!` branch wins. Consumed bytes stay in `buffer` until a
-/// newline or EOF completes the line.
 struct LineReader<R> {
     reader: R,
     buffer: Vec<u8>,
@@ -29,7 +26,6 @@ impl<R: AsyncBufRead + Unpin> LineReader<R> {
         }
     }
 
-    /// Returns the next line without its trailing newline, or `None` at EOF.
     async fn next_line(&mut self) -> Result<Option<String>> {
         if self.eof {
             return Ok(None);
@@ -78,24 +74,17 @@ async fn bounded_read(reader: impl AsyncRead + Unpin) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// The end of one backend call and what it reported about its commit point.
 pub struct Completion {
     pub result: Result<Value>,
     pub committed: bool,
     pub cancelled: bool,
 }
 
-/// Channels between the running call and the stdio loop.
 pub struct Channels {
     pub notifications: mpsc::UnboundedSender<Value>,
     pub cancellation: mpsc::UnboundedReceiver<()>,
 }
 
-/// Runs the CLI and forwards its progress events while it runs.
-///
-/// The CLI always receives `--progress json`. A cancellation signal writes one
-/// `cancel` line to its stdin; the CLI ignores that line after its commit
-/// point, which this function tracks.
 pub async fn run(
     config: &Config,
     arguments: &[OsString],

@@ -95,7 +95,6 @@ fn managed(fixture: &Fixture) -> usize {
     list.as_array().expect("array").len()
 }
 
-/// Write a bucket whose selected release falls back from a missing Git source.
 fn git_fallback_bucket(fixture: &Fixture, root: &Path, commit: &str, base_hash: &str) {
     let bucket = root.join("git-fallback");
     let game = bucket.join("mods/test-game");
@@ -141,7 +140,6 @@ fn git_fallback_bucket(fixture: &Fixture, root: &Path, commit: &str, base_hash: 
     assert!(result.status.success(), "{}", error(&result));
 }
 
-/// Run the CLI against the local Git fixture remotes.
 fn run_git(fixture: &Fixture, base: &Path, args: &[&str]) -> std::process::Output {
     main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .arg("--state-dir")

@@ -5,12 +5,9 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-/// Readable roots used to verify recorded ownership.
 pub(crate) struct FileRoots<'a> {
     pub(crate) game: &'a Path,
-    /// Canonical content root when it is safe to read.
     pub(crate) content: Option<&'a Path>,
-    /// Status for content files when no readable content root exists.
     pub(crate) content_unavailable: IntegrityStatus,
 }
 

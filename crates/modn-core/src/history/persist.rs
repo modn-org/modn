@@ -7,7 +7,6 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection, Transaction};
 use std::collections::BTreeMap;
 
-/// Snapshot an installed package before its ownership rows are removed.
 pub(crate) fn package_snapshot(
     connection: &Connection,
     package_id: &str,
@@ -60,7 +59,6 @@ pub(crate) fn package_snapshot(
     })
 }
 
-/// Build the record of a committed install or update.
 pub(crate) fn install_operation(
     context: &HistoryContext,
     operation_id: &str,
@@ -118,7 +116,6 @@ pub(crate) fn install_operation(
     }
 }
 
-/// Build the record of a committed uninstall.
 pub(crate) fn uninstall_operation(
     context: &HistoryContext,
     operation_id: &str,
@@ -127,7 +124,6 @@ pub(crate) fn uninstall_operation(
     uninstall_operation_many(context, operation_id, vec![package])
 }
 
-/// Build the record of a committed uninstall that removed several packages.
 pub(crate) fn uninstall_operation_many(
     context: &HistoryContext,
     operation_id: &str,
@@ -144,7 +140,6 @@ pub(crate) fn uninstall_operation_many(
     }
 }
 
-/// Build the record of a committed installation stack.
 pub(crate) fn stack_operation(
     context: &HistoryContext,
     operation_id: &str,
@@ -191,7 +186,6 @@ pub(crate) fn stack_operation(
     }
 }
 
-/// Write `operation` inside the caller's ownership transaction.
 pub(crate) fn insert(tx: &Transaction<'_>, operation: &HistoryOperation) -> Result<()> {
     let recorded_at = (!operation.recorded_at.is_empty()).then_some(operation.recorded_at.as_str());
     tx.execute(
@@ -253,7 +247,6 @@ pub(crate) fn insert(tx: &Transaction<'_>, operation: &HistoryOperation) -> Resu
     Ok(())
 }
 
-/// Read committed operations, newest first, optionally for one game ID.
 pub(crate) fn read(
     connection: &Connection,
     game_id: Option<&str>,

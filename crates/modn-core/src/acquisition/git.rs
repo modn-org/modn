@@ -1,8 +1,3 @@
-//! Fetch one pinned Git commit without checkout and pack its tree.
-//!
-//! The commit hash is the integrity pin. Integration tests use a local bare
-//! repository through a test-only transport override; release builds accept
-//! only GitHub HTTPS remotes.
 use super::digest::file_blake3;
 use super::{ArchiveCache, CacheUse, Origin};
 use anyhow::{bail, Context, Result};
@@ -65,7 +60,6 @@ fn valid_commit(commit: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// Test-only repository base override. Release builds always use GitHub.
 #[cfg(any(test, feature = "test-instruction-budget"))]
 fn remote_base() -> Option<String> {
     std::env::var("MODN_TEST_GIT_REMOTE_BASE")
@@ -124,17 +118,10 @@ impl GitSource {
         }
     }
 
-    /// Fetch, verify and pack the pinned commit into a deterministic ZIP in
-    /// `staging`. The caller owns `staging` and removes it afterwards.
     pub(crate) fn pack_url(&self, url: &str, staging: &Path) -> Result<pack::PackedArchive> {
         pack_commit(url, &self.commit, staging, self.test_transport(url))
     }
 
-    /// Clone one catalog revision under the shared Git low-speed limits.
-    ///
-    /// This associated function is the catalog module's only path to a Git
-    /// clone, so a stalled mirror is bounded and its timeout lets sync try the
-    /// next mirror.
     pub(crate) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
         pack::clone_catalog(destination, remote)
     }

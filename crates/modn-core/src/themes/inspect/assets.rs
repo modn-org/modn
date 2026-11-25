@@ -1,5 +1,3 @@
-//! Asset scanning for one theme directory.
-
 use super::super::limits::{is_valid_asset_path, MAX_THEME_ASSETS, MAX_THEME_ASSET_BYTES};
 use super::super::problem::{Rule, ThemeProblem};
 use super::reading::read_prefix;
@@ -8,7 +6,6 @@ use std::collections::BTreeSet;
 use std::fs::{self, DirEntry};
 use std::path::Path;
 
-/// The deepest asset directory nest accepted inside one theme.
 const MAX_ASSET_DEPTH: usize = 32;
 
 /// File type of one theme asset, decided by its extension.
@@ -70,7 +67,6 @@ impl AssetInfo {
     }
 }
 
-/// The result of one recursive scan of `assets/`.
 #[derive(Debug, Default)]
 pub(super) struct AssetScan {
     pub(super) files: Vec<AssetInfo>,
@@ -80,7 +76,6 @@ pub(super) struct AssetScan {
     pub(super) problems: Vec<ThemeProblem>,
 }
 
-/// Walk `dir`, which is the theme's `assets/` directory.
 pub(super) fn scan_assets(dir: &Path, budget: &mut EntryBudget) -> AssetScan {
     let mut scan = AssetScan::default();
     let mut stack = vec![(dir.to_path_buf(), String::from("assets"), 0usize)];

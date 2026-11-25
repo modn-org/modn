@@ -10,15 +10,12 @@ pub(super) const ENV_VAR: &str = "MODN_NEXUS_API_KEY";
 const SERVICE: &str = "modn";
 const USER: &str = "nexus-api-key";
 
-/// The platform credential store operations Modn needs.
 pub(super) trait SecretStore {
     fn get(&self) -> Result<Option<String>>;
     fn set(&self, secret: &str) -> Result<()>;
     fn delete(&self) -> Result<()>;
 }
 
-/// The operating system credential store, backed by Windows Credential
-/// Manager, macOS Keychain Services or Secret Service.
 pub(super) struct KeyringStore {
     service: String,
     user: String,
@@ -67,7 +64,6 @@ impl SecretStore for KeyringStore {
     }
 }
 
-/// An in-memory store for unit tests only.
 #[cfg(test)]
 #[derive(Default)]
 pub(super) struct MemoryStore {
@@ -238,8 +234,6 @@ fn store_key(store: &dyn SecretStore) -> Result<Option<NexusApiKey>> {
     }
 }
 
-/// Resolve the key for downloads: a non-empty environment value wins over the
-/// credential store.
 pub(super) fn resolve_key(
     store: &dyn SecretStore,
     env: impl Fn(&str) -> Option<String>,
@@ -253,7 +247,6 @@ pub(super) fn resolve_key(
 pub(super) const MISSING_KEY: &str =
     "Nexus Mods needs an API key; run `modn auth nexus set` or set MODN_NEXUS_API_KEY.";
 
-/// Load the key only when a Nexus package actually needs a download.
 pub(super) fn load_key() -> Result<NexusApiKey> {
     #[cfg(test)]
     if let Some(key) = TEST_KEY.with(|cell| cell.borrow().clone()) {

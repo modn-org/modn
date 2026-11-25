@@ -1,9 +1,3 @@
-//! Recovery of interrupted theme registrations.
-//!
-//! A replacement moves the previous registration to `.backup/<game>/<id>`
-//! before the new copy moves in. If the process stops, the next operation
-//! restores that backup or, when the live copy verifies, deletes it.
-
 use super::super::digest::theme_digest;
 use super::super::error::{Result, ThemeError};
 use super::super::limits::is_valid_id;
@@ -13,11 +7,6 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-/// Restore or clean interrupted replacements below one theme root.
-///
-/// Backups are handled before staging directories are removed. A per-entry
-/// problem becomes a diagnostic; only a failure to list the registry is an
-/// error.
 pub(super) fn recover(root: &Path) -> Result<Vec<ThemeProblem>> {
     let registry = layout::registry_root(root);
     let mut problems = Vec::new();
@@ -26,8 +15,6 @@ pub(super) fn recover(root: &Path) -> Result<Vec<ThemeProblem>> {
     Ok(problems)
 }
 
-/// Restore every backup whose live registration is missing and delete every
-/// backup whose live registration still verifies.
 fn recover_backups(registry: &Path, problems: &mut Vec<ThemeProblem>) -> Result<()> {
     let backups = registry.join(layout::BACKUP);
     let games = match fs::read_dir(&backups) {
@@ -112,7 +99,6 @@ fn recover_backups(registry: &Path, problems: &mut Vec<ThemeProblem>) -> Result<
     Ok(())
 }
 
-/// Restore or clean one backup.
 fn recover_one(
     registry: &Path,
     game: &str,
@@ -172,7 +158,6 @@ fn recover_one(
     }
 }
 
-/// Check the record and digest of one live registration.
 fn verify(live: &Path, game: &str, id: &str) -> std::result::Result<(), String> {
     let record = record::read(live)?;
     if record.game != game || record.id != id {
@@ -185,7 +170,6 @@ fn verify(live: &Path, game: &str, id: &str) -> std::result::Result<(), String> 
     Ok(())
 }
 
-/// Report one recovery problem without failing the operation.
 fn backup_problem(path: &str, message: impl Into<String>) -> ThemeProblem {
     ThemeProblem::new(Rule::ManifestInvalid, message).with_path(path.to_owned())
 }

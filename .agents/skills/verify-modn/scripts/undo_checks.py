@@ -41,7 +41,6 @@ def verify_undo_history(driver, game, test_zip):
     unmanaged = game / "addons/manual.plugin"
     results = {}
 
-    # U1: one standalone install writes one install record with its owned file.
     history_before = _history(driver, "undo-u1-history-before")
     game_before_install = snapshot(game)
     unmanaged_bytes = unmanaged.read_bytes()
@@ -76,8 +75,6 @@ def verify_undo_history(driver, game, test_zip):
     install_id = record["id"]
     results["U1"] = "PASS"
 
-    # U4 runs before U2. After U2 writes an undo record, the CLI refuses the
-    # install ID with UNDO_CONFLICT, so the no-write guards need a clean target.
     game_guard = snapshot(game)
     history_guard = _history(driver, "undo-u4-history-before")
     code = _refusal(driver, "undo-u4-without-yes",
@@ -106,7 +103,6 @@ def verify_undo_history(driver, game, test_zip):
             "U4: unknown ID changed history")
     results["U4"] = "PASS"
 
-    # U2: undo without an ID removes the newest install and records that undo.
     undone = driver.json("undo-u2-newest", ["undo", "--yes", "--path", game])
     require(undone.get("undo") == install_id and undone.get("kind") == "uninstall",
             "U2: undo did not reverse the install")
@@ -133,7 +129,6 @@ def verify_undo_history(driver, game, test_zip):
     undo_id = history[0]["id"]
     results["U2"] = "PASS"
 
-    # U3: a second undo of the same install is refused without changes.
     game_conflict = snapshot(game)
     history_conflict = _history(driver, "undo-u3-history-before")
     code = _refusal(driver, "undo-u3-second-undo",
@@ -146,7 +141,6 @@ def verify_undo_history(driver, game, test_zip):
             "U3: refused second undo changed history")
     results["U3"] = "PASS"
 
-    # U5: a manual-source uninstall cannot be restored, so undo refuses.
     reinstalled = driver.json("undo-u5-reinstall",
                               ["install", test_zip, "--yes", "--path", game])
     require(owned.read_bytes() == b"fixture-plugin",

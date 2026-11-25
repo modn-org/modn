@@ -1,10 +1,3 @@
-//! Value ranges for the size and opacity tokens that protected regions read.
-//!
-//! A theme may still tune these tokens, but only inside a range that keeps
-//! protected text readable and interactive. Variables, keywords and values
-//! the parser cannot read are refused.
-
-/// One class of restricted token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TokenKind {
     FontSize,
@@ -13,7 +6,6 @@ enum TokenKind {
     Opacity,
 }
 
-/// Return the accepted range of one restricted custom property.
 #[must_use]
 pub(crate) fn accepted_range(property: &str) -> Option<&'static str> {
     match kind(property) {
@@ -29,9 +21,6 @@ pub(crate) fn accepted_range(property: &str) -> Option<&'static str> {
     }
 }
 
-/// Return whether `value` is a literal inside the range for `property`.
-///
-/// Properties outside every restricted group accept any value here.
 #[must_use]
 pub(crate) fn accepts(property: &str, value: &str) -> bool {
     let Some(kind) = kind(property) else {
@@ -53,7 +42,6 @@ pub(crate) fn accepts(property: &str, value: &str) -> bool {
     }
 }
 
-/// Return the restricted group that `property` belongs to.
 fn kind(property: &str) -> Option<TokenKind> {
     if prefix_ignore_case(property, "--modn-font-size-") {
         Some(TokenKind::FontSize)
@@ -68,23 +56,17 @@ fn kind(property: &str) -> Option<TokenKind> {
     }
 }
 
-/// Return whether `property` starts with `prefix`, ignoring ASCII case.
 fn prefix_ignore_case(property: &str, prefix: &str) -> bool {
     property
         .get(..prefix.len())
         .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
-/// One CSS number and its optional lowercase unit.
 struct Dimension {
     number: f64,
     unit: Option<&'static str>,
 }
 
-/// Parse `value` as one number with an optional `px`, `rem` or `em` unit.
-///
-/// Whitespace, signs, decimals, exponents and leading zeros are accepted.
-/// Every other unit, a function, a keyword or an empty value returns `None`.
 fn parse_dimension(value: &str) -> Option<Dimension> {
     let value = value.trim();
     for (index, _) in value

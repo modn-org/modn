@@ -1,9 +1,3 @@
-//! Parser-independent facts about one stylesheet.
-//!
-//! A CSS parser produces these facts, and [`super::engine::check_sheet`]
-//! checks them against theme API v1. The facts hold serialised text only, so
-//! the rule engine needs no CSS parser of its own.
-
 /// Every rule of one stylesheet, in source order.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]

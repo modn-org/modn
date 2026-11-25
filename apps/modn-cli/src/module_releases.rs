@@ -6,7 +6,6 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Keep one release, fetch a newer one, or move the active release pointer.
 pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) -> Result<()> {
     let data = state_path
         .parent()
@@ -144,7 +143,6 @@ fn rollback(
     Ok(())
 }
 
-/// List every retained release and mark its active, pin and trust state.
 pub(super) fn list(data: &Path, state_path: &Path, json_output: bool) -> Result<()> {
     let registry = ModuleRegistry::new(data);
     let store_root = state_path

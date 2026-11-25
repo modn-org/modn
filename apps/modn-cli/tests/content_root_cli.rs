@@ -1,10 +1,3 @@
-//! End-to-end coverage for API 2 modules that declare a content root.
-//!
-//! Every command runs the real `modn` binary against a temporary game folder,
-//! a temporary appdata base and a temporary state directory. `MODN_APPDATA`
-//! and `APPDATA` both point at the temporary base, so no test reads or writes
-//! the user's real `%APPDATA%`.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/content_root.rs"]

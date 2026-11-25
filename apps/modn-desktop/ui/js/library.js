@@ -27,7 +27,6 @@ export async function render(root, ctx) {
     query: '',
     loadToken: 0,
   };
-  /** @type {Map<string, {button: ReturnType<typeof createOperationButton>, askHost: HTMLElement}>} */
   const operations = new Map();
   const view = element('div', 'modn-view modn-library');
   const header = element('header', 'modn-view__header modn-library__hero');
@@ -269,12 +268,6 @@ export async function render(root, ctx) {
   await refresh();
 }
 
-/**
- * Lists the installations of a game that has no selected path.
- * @param {Array<{path: string}>} installations
- * @param {{gameId: string}} ctx
- * @returns {HTMLUListElement}
- */
 function installationList(installations, ctx) {
   const list = element('ul', 'modn-list');
   list.dataset.testid = 'installation-list';

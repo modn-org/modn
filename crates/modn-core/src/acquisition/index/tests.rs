@@ -16,8 +16,6 @@ fn alias_key(digest: &str) -> CacheKey<'_> {
     CacheKey::new("alias-game", "alias", "9", ALIAS_URL, digest)
 }
 
-/// Store `body` under a fresh package release, downloading it every time so
-/// two keys can hold the same digest without one reusing the other's path.
 fn store(cache: &ArchiveCache, key: &CacheKey<'_>, body: &[u8]) -> PathBuf {
     cache
         .acquire(key, CacheUse::Refresh, |_| Ok(Cursor::new(body.to_vec())))
@@ -35,7 +33,6 @@ fn record(root: &Path, pin: &ArchivePin, name: &str) {
     index.write(root).unwrap();
 }
 
-/// Every file name in `root`, so a lookup that writes any file is visible.
 fn file_names(root: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(root)
         .unwrap()
@@ -45,7 +42,6 @@ fn file_names(root: &Path) -> Vec<String> {
     names
 }
 
-/// An entry whose name sorts before `zzz-game`, so a scan finds it first.
 fn first_entry(cache: &ArchiveCache, digest: &str) -> PathBuf {
     store(
         cache,
@@ -54,7 +50,6 @@ fn first_entry(cache: &ArchiveCache, digest: &str) -> PathBuf {
     )
 }
 
-/// A second, later-sorting entry for the same digest.
 fn second_entry(cache: &ArchiveCache, digest: &str) -> PathBuf {
     store(
         cache,

@@ -15,10 +15,6 @@ use std::collections::VecDeque;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-/// Requests buffered while one call runs. The input loop keeps reading when
-/// this queue is full so a cancellation always reaches the active call;
-/// ordinary requests above the limit are refused, while malformed and
-/// oversized lines still receive their protocol error.
 const PENDING_LIMIT: usize = 4;
 
 enum Input {
@@ -42,8 +38,6 @@ impl Input {
     }
 }
 
-/// Removes the queued request `id` so it never starts. A cancelled request
-/// gets no response.
 fn remove_pending(pending: &mut VecDeque<Input>, id: &Value) -> bool {
     let Some(index) = pending
         .iter()

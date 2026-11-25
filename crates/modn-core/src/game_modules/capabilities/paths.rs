@@ -6,12 +6,9 @@ use std::path::{Component, Path, PathBuf};
 const MAX_RELATIVE_BYTES: usize = 256;
 const MAX_DEPTH: usize = 16;
 
-/// Whether the empty relative path may name an authorized root itself.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum EmptyPath {
-    /// The empty string names the root, for read-only top-level listing only.
     Root,
-    /// The empty string is not a file or entry path and is rejected.
     Rejected,
 }
 

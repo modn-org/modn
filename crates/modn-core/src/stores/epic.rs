@@ -13,10 +13,6 @@ struct LauncherManifest {
     incomplete_install: bool,
 }
 
-/// Games that the Epic Games Launcher manifests in `directory` list.
-///
-/// Each `.item` file is JSON. Add-on content (whose `MainGameAppName`
-/// differs from its `AppName`) and incomplete installations are skipped.
 pub(super) fn installations(directory: &Path) -> Vec<StoreInstallation> {
     directory_files(directory)
         .into_iter()

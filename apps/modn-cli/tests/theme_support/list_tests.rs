@@ -1,5 +1,3 @@
-//! `theme list` behavior.
-
 use crate::fixture::{Fixture, GAME};
 
 #[test]

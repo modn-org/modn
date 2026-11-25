@@ -1,9 +1,3 @@
-//! Scanning the `themes/` directory of one bucket root.
-//!
-//! A bucket path holds `themes/<game-id>/<theme-id>/`. One broken theme, link
-//! or stray file is a diagnostic, never a failure: `bucket update` and every
-//! other caller must keep working with the remaining themes.
-
 #[cfg(test)]
 #[path = "scan_tests.rs"]
 mod tests;
@@ -17,13 +11,10 @@ use super::source::{ThemeSource, ThemeSourceKind};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Directory under a bucket root that holds themes.
 pub(crate) const THEMES_DIR: &str = "themes";
 
-/// Most game theme directories read from one bucket.
 const MAX_GAMES: usize = 64;
 
-/// Most theme directories read from one bucket.
 const MAX_THEMES: usize = 256;
 
 /// One bucket root that may hold themes.
@@ -123,7 +114,6 @@ pub fn scan_bucket(root: &BucketThemeRoot, checker: &dyn CssChecker) -> BucketSc
     scanner.scan
 }
 
-/// State of one bucket scan.
 struct Scanner<'a> {
     source: &'a ThemeSource,
     checker: &'a dyn CssChecker,
@@ -133,7 +123,6 @@ struct Scanner<'a> {
 }
 
 impl Scanner<'_> {
-    /// Read the `themes/` directory itself.
     fn scan_root(&mut self, themes_root: &Path) {
         match fs::symlink_metadata(themes_root) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
@@ -221,7 +210,6 @@ impl Scanner<'_> {
         }
     }
 
-    /// Read one `themes/<game>/` directory. Return false to stop the scan.
     fn scan_game(&mut self, game: &str, dir: &Path) -> bool {
         let entries = match read_sorted(dir) {
             Ok(entries) => entries,
@@ -274,7 +262,6 @@ impl Scanner<'_> {
         true
     }
 
-    /// Inspect one theme directory and keep it or its problems.
     fn scan_theme(&mut self, game: &str, id: &str, dir: &Path) {
         let label = format!("{game}/{id}");
         match inspect_theme_dir(dir, self.checker) {
@@ -308,14 +295,12 @@ impl Scanner<'_> {
         }
     }
 
-    /// Record one bucket-structure problem.
     fn problem(&mut self, path: &str, message: impl Into<String>) {
         self.scan
             .problems
             .push(ThemeProblem::new(Rule::UnexpectedFile, message).with_path(path));
     }
 
-    /// Report a bucket limit once.
     fn report_limit(&mut self, message: String) {
         if self.limit_reported {
             return;
@@ -327,19 +312,16 @@ impl Scanner<'_> {
     }
 }
 
-/// Read every entry of one directory, sorted by file name.
 fn read_sorted(dir: &Path) -> std::io::Result<Vec<fs::DirEntry>> {
     let mut entries = fs::read_dir(dir)?.collect::<std::io::Result<Vec<_>>>()?;
     entries.sort_by_key(|left| left.file_name());
     Ok(entries)
 }
 
-/// Return an entry name for messages and paths, even when it is not UTF-8.
 fn display_name(entry: &fs::DirEntry) -> String {
     entry.file_name().to_string_lossy().into_owned()
 }
 
-/// Return the name when it is a valid id.
 fn valid_id(name: &str) -> Option<String> {
     is_valid_id(name).then(|| name.to_owned())
 }

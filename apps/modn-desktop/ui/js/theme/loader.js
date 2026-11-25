@@ -16,13 +16,9 @@
  * @property {string} [asset_base]
  * @property {string} [disabled]
  */
-/** The Windows page origin of the `modn-theme` protocol. Split so the UI asset
- * guard, which rejects remote origins, does not match a local protocol base. */
 const WINDOWS_ASSET_BASE = `http${'://'}modn-theme.localhost/`;
-/** The page origin on the other platforms Tauri supports. */
 const NATIVE_ASSET_BASE = 'modn-theme://localhost/';
 const ALLOWED_ASSET_BASES = [WINDOWS_ASSET_BASE, NATIVE_ASSET_BASE];
-/** Sheets this module put on `document.adoptedStyleSheets`. */
 let ownedSheets = [];
 /**
  * Prefixes each theme-relative asset URL with the protocol base.
@@ -44,28 +40,15 @@ export function rewriteAssetUrls(css, assetBase) {
     return `url(${quote}${assetBase}assets/`;
   });
 }
-/**
- * Wraps one theme stylesheet in the `theme` cascade layer.
- *
- * The Rust checker returns balanced CSS, so a theme cannot close the layer.
- * Theme rules then apply below the `protected` layer that holds the safety
- * properties of the install review and the approval prompt.
- * @param {string} css
- * @param {string} assetBase
- * @returns {string}
- */
 function layerThemeCss(css, assetBase) {
   return `@layer theme {\n${rewriteAssetUrls(css, assetBase)}\n}`;
 }
-/** Returns one copy of the adopted sheet list, or an empty list. */
 function adopted(document) {
   return Array.from(document.adoptedStyleSheets || []);
 }
-/** Assigns a new adopted list only when it changes. */
 function adopt(document, sheets) {
   document.adoptedStyleSheets = sheets;
 }
-/** Removes every sheet this module owns and keeps all other sheets. */
 function releaseThemeSheets(document) {
   if (ownedSheets.length === 0) {
     return;

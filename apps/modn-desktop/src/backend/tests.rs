@@ -1,5 +1,3 @@
-//! Unit tests for backend launch parsing and the review guards.
-
 use super::*;
 
 fn test_backend() -> Backend {
@@ -48,7 +46,6 @@ fn args(list: &[&str]) -> Vec<OsString> {
     list.iter().map(|value| OsString::from(*value)).collect()
 }
 
-/// A launch list that only the flag may vary.
 fn launch_args() -> Vec<OsString> {
     let state = std::env::temp_dir().join(format!(
         "modn-desktop-args-{}-{}",

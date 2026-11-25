@@ -1,10 +1,3 @@
-//! Network-free Nexus Mods download provider.
-//!
-//! The provider builds the credential-free cache URL, the download-link API
-//! request for a pinned Nexus file and validates the CDN URL in the API
-//! response. Callers supply HTTP transport, so this module needs no network
-//! client, and secrets appear only in redacting types.
-
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::fmt::{self, Write as _};

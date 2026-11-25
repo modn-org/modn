@@ -11,10 +11,6 @@ const KINDS = {
   undo: 'Undid',
 };
 
-/**
- * @param {Object} entry
- * @returns {string}
- */
 function entryLabel(entry) {
   const kind = KINDS[entry.kind] || 'Changed';
   const names = Array.isArray(entry.packages)
@@ -53,11 +49,8 @@ export function createRecentMenu({ gameId, onChanged, undoHost = null }) {
   menu.hidden = true;
   wrapper.append(button, menu);
 
-  /** One ask host per operation, so a reload reattaches a pending prompt. */
-  /** @type {Map<string, HTMLElement>} */
   const askHosts = new Map();
 
-  /** @param {string} operationId @returns {HTMLElement} */
   function askHostFor(operationId) {
     let host = askHosts.get(operationId);
     if (!host) {

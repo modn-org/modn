@@ -1,5 +1,3 @@
-//! Catalog key rotation and offline revocation at the CLI.
-
 #[path = "support/catalog_authoring.rs"]
 mod catalog_authoring;
 #[path = "support/catalog_mirrors.rs"]

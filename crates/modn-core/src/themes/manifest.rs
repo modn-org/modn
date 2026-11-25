@@ -1,5 +1,3 @@
-//! Parsing and validation of `theme.json`.
-
 use super::limits::{
     is_valid_asset_path, is_valid_id, MAX_THEME_MANIFEST_BYTES, MAX_THEME_NAME_CHARS,
     MAX_THEME_VARIANTS,
@@ -8,7 +6,6 @@ use super::problem::{Rule, ThemeProblem};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-/// Name of the manifest file inside a theme directory.
 pub(super) const MANIFEST_FILE: &str = "theme.json";
 
 /// The validated contents of one `theme.json`.

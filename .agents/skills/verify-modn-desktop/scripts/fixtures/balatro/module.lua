@@ -1,11 +1,3 @@
--- Fixture Balatro policy for the Modn Desktop verifier.
---
--- This module ports the layout rules that the desktop journeys need from the
--- v1 Balatro module: the `Balatro.exe` marker, the `Balatro/Mods` content
--- root, the Steam app identity and the executable launch target. It is small
--- on purpose. Journeys use it only for detection, remove, play and a local ZIP
--- install; it is not a compatibility claim for the real game.
-
 local fs = mods_host.fs
 local dir = mods_host.directory
 
@@ -72,9 +64,6 @@ local function is_executable_payload(relative)
         or ext == "msi" or ext == "lnk" or ext == "url"
 end
 
--- A tool executable is the one payload kind the core may approve through
--- `--allow-executable`: a game-relative `.exe` below a `tools` folder. The
--- module still proposes it, and the core keeps it blocked until approved.
 local function is_tool_executable(relative)
     if string.sub(relative, -4) ~= ".exe" then return false end
     for _, part in ipairs(split_path(relative)) do

@@ -1,10 +1,3 @@
-//! Progress, cancellation and the single process-spawn helper of the desktop backend.
-//!
-//! The CLI writes one JSON progress event per line on stderr while it runs a
-//! managed write. This module reads those lines, forwards the events to the
-//! caller in order, and writes `cancel` on stdin when the caller asks it to.
-//! Stdout keeps its normal single JSON result.
-
 use super::Backend;
 use super::error::BackendError;
 use serde::Serialize;
@@ -30,64 +23,42 @@ pub(super) use spawn::spawn;
 
 use streams::{StderrItem, StdoutItem, read_stderr, read_stdout};
 
-/// Default inactivity timeout for [`Backend::call_with_progress`].
 const DEFAULT_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Time the CLI gets to stop after a timeout sent `cancel` before it is killed.
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
 
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
-/// A shared flag that asks a running operation to stop before its commit point.
-///
-/// Clones share one flag, so another thread can cancel the operation while
-/// [`Backend::call_with_progress`] waits for the CLI. Cancelling never kills the
-/// process: the desktop writes one `cancel` line on stdin and the CLI stops at
-/// its next safe point.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CancelToken(Arc<AtomicBool>);
 
 impl CancelToken {
-    /// Creates a token that is not cancelled.
     #[must_use]
     pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    /// Asks the operation to stop. Has no effect after the CLI's commit point.
     pub(crate) fn cancel(&self) {
         self.0.store(true, Ordering::SeqCst);
     }
 
-    /// Whether [`CancelToken::cancel`] was called.
     #[must_use]
     pub(crate) fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
 }
 
-/// One progress event that the CLI wrote on stderr.
-///
-/// The CLI serializes each event as one JSON object with a `phase` field.
-/// Fields that the phase does not use stay `None`, so unknown future phases
-/// still reach the caller.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct ProgressEvent {
-    /// Phase name, for example `resolve`, `download`, `commit` or `result`.
     pub phase: String,
-    /// Package reference or managed-package ID, when the phase names one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
-    /// Bytes received so far, for a `download` event.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
-    /// Expected size, when the source states one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
-    /// Terminal outcome, for a `result` event.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
-    /// Stable error code, for a failed `result` event.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -115,16 +86,10 @@ impl ProgressEvent {
     }
 }
 
-/// Whether the backend process may be killed on this path.
-///
-/// A kill is only allowed before the commit event. After it, the files are
-/// installed and the CLI may still be finishing its own result or rollback, so
-/// every path waits or polls instead.
 fn may_kill(committed: bool) -> bool {
     !committed
 }
 
-/// Runs one write command with `--progress json` and cooperative cancellation.
 pub(super) fn call(
     backend: &Backend,
     args: &[OsString],
@@ -222,7 +187,6 @@ pub(super) fn call(
                 }
             }
         }
-        // A user cancel wins even when the inactivity path sent `cancel` first.
         if cancel.is_cancelled() {
             user_cancelled = true;
             if !cancel_sent {

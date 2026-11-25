@@ -1,9 +1,3 @@
-//! Ordered source plan for one release's archive.
-//!
-//! The plan is built without network access. A GitHub release asset resolves
-//! its provider metadata only when the ordered loop reaches it, so an unused
-//! fallback costs no request.
-
 use super::http::fetch_metadata;
 use modn_core::acquisition::{
     FetchError, GithubReleaseAsset, NexusFile, SourceCandidate, SourcePolicy, SourceTarget,
@@ -11,15 +5,10 @@ use modn_core::acquisition::{
 use modn_core::buckets::{BucketPackage, PackageSource};
 use std::io::Read;
 
-/// Canonical GitHub release asset URL derived from the pin record.
 pub(super) fn github_url(repository: &str, tag: &str, asset: &str) -> String {
     format!("https://github.com/{repository}/releases/download/{tag}/{asset}")
 }
 
-/// The credential-free cache URL of a source, when it has one.
-///
-/// A Git source is keyed by its commit and is probed separately. A manual
-/// source has no cache entry until the user supplies the archive.
 pub(super) fn cache_url(source: &PackageSource) -> anyhow::Result<Option<String>> {
     Ok(match source {
         PackageSource::Https { url } => Some(url.clone()),
@@ -38,12 +27,6 @@ pub(super) fn cache_url(source: &PackageSource) -> anyhow::Result<Option<String>
     })
 }
 
-/// Resolve GitHub metadata, retrying one transient transport failure.
-///
-/// The source retry policy covers the whole metadata request: a timeout, a
-/// network failure or an HTTP 5xx is retried once, also when it appears while
-/// reading the metadata body. A 404 or a metadata mismatch is final for the
-/// source.
 pub(super) fn resolve_metadata(
     selector: &GithubReleaseAsset,
     fetch: impl Fn(&str) -> anyhow::Result<Box<dyn Read>>,
@@ -65,7 +48,6 @@ pub(super) fn resolve_metadata(
     }
 }
 
-/// Whether `error` is a transport failure the source retry policy covers.
 fn transient(error: &anyhow::Error) -> bool {
     if let Some(error) = error.downcast_ref::<FetchError>() {
         return super::retryable(error);
@@ -76,26 +58,22 @@ fn transient(error: &anyhow::Error) -> bool {
         .is_some_and(|error| super::retryable(&error))
 }
 
-/// One entry of a release's ordered source list.
 pub(super) enum Planned {
-    /// A pinned Git commit, acquired through the Git path.
-    Git { repository: String, commit: String },
-    /// A Nexus Mods file, acquired through the Nexus path.
+    Git {
+        repository: String,
+        commit: String,
+    },
     Nexus {
         game_domain: String,
         mod_id: u64,
         file_id: u64,
         file_name: String,
     },
-    /// A fetchable, manual or refused source, in list order.
     Fetch(FetchPlan),
 }
 
-/// A source that needs no ordered-attempt path of its own.
 pub(super) enum FetchPlan {
-    /// A candidate the loop can pass to the archive cache.
     Ready(SourceCandidate),
-    /// A GitHub release asset whose metadata stays unresolved until reached.
     Github {
         repository: String,
         tag: String,
@@ -105,7 +83,6 @@ pub(super) enum FetchPlan {
 }
 
 impl FetchPlan {
-    /// Resolve this entry into the candidate the loop tries.
     pub(super) fn resolve(self) -> SourceCandidate {
         match self {
             Self::Ready(candidate) => candidate,
@@ -132,10 +109,6 @@ impl FetchPlan {
     }
 }
 
-/// Build the ordered plan for `release` without a network request.
-///
-/// Each entry carries the source it came from, so a successful attempt can
-/// record the source that served the archive.
 pub(super) fn plan(release: &BucketPackage) -> Vec<(Planned, PackageSource)> {
     release
         .package
@@ -184,7 +157,6 @@ pub(super) fn plan(release: &BucketPackage) -> Vec<(Planned, PackageSource)> {
         .collect()
 }
 
-/// The URL a fetch candidate names, used for the cache entry.
 pub(super) fn fetch_url(candidate: &SourceCandidate) -> &str {
     match &candidate.target {
         SourceTarget::Fetch(url) => url.as_str(),

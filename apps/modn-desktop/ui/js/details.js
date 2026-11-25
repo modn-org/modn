@@ -13,28 +13,15 @@ import {
 } from './details/model.js';
 import { createPlanSection } from './details/plan.js';
 
-/**
- * @param {{gameId: string, path: string}} ctx
- * @returns {string}
- */
 function libraryHref(ctx) {
   const path = ctx.path ? `?path=${encodeURIComponent(ctx.path)}` : '';
   return `#/game/${encodeURIComponent(ctx.gameId)}${path}`;
 }
 
-/**
- * @returns {Promise<void>}
- */
 function noRun() {
   return Promise.resolve();
 }
 
-/**
- * The one-click operation that fits the current state of the mod.
- * @param {{entry: Object|null, installed: Object|null, hasUpdate: boolean}} model
- * @param {{gameId: string, modId: string, path: string}} ctx
- * @returns {Object}
- */
 function actionFor(model, ctx) {
   const name = model.entry && typeof model.entry.name === 'string' ? model.entry.name : ctx.modId;
   if (!ctx.path) {
@@ -152,12 +139,8 @@ export async function render(root, ctx) {
   view.append(back, header, status, askHost, plan, historySection.element, footer);
   root.append(view);
 
-  /** @type {ReturnType<typeof createOperationButton>|null} */
   let operation = null;
 
-  /**
-   * @param {HTMLButtonElement} button
-   */
   async function copyReport(button) {
     button.disabled = true;
     try {
@@ -170,7 +153,6 @@ export async function render(root, ctx) {
     }
   }
 
-  /** @param {string} message */
   function showError(message) {
     status.textContent = message;
     status.classList.add('modn-status--error');
@@ -181,9 +163,6 @@ export async function render(root, ctx) {
     await render(root, ctx);
   }
 
-  /**
-   * @param {{entry: Object|null, installed: Object|null, hasUpdate: boolean}} model
-   */
   function renderAction(model) {
     if (operation) {
       operation.destroy();

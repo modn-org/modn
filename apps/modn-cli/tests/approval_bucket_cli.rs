@@ -1,6 +1,3 @@
-//! A stored approval is keyed by game path, bucket and mod ID, so approving a
-//! mod of one bucket never approves a same-named mod of another bucket.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/catalog.rs"]
@@ -161,8 +158,6 @@ fn executable_approval_of_one_bucket_does_not_cover_another_bucket() {
     );
 }
 
-/// Install and uninstall one bucket's native mod from its cached https release
-/// and return the ID of the recorded uninstall operation.
 fn uninstall_native(fixture: &Fixture, bucket: &str) -> String {
     let installed = run(
         fixture,

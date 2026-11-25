@@ -1,10 +1,3 @@
-//! `modn theme` commands.
-//!
-//! Theme commands run before manager state is opened: they read and write only
-//! the theme registry and selection files under the data directory. Bucket
-//! roots are read directly, so a broken theme becomes a diagnostic instead of
-//! a command failure.
-
 use crate::commands::ThemeCommand;
 use anyhow::{bail, Context, Result};
 use modn_core::data_dir::data_directory;
@@ -18,14 +11,8 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The only special error envelope in the theme CLI contract.
 const THEME_INVALID: &str = "THEME_INVALID";
 
-/// Run one `modn theme` subcommand.
-///
-/// `state_dir` selects the profile that holds the theme registry, the
-/// selections and the bucket registrations. The official `main` bucket copy
-/// stays in the shared data directory.
 pub(super) fn run(
     command: &ThemeCommand,
     state_dir: Option<&Path>,
@@ -65,7 +52,6 @@ pub(super) fn run(
     }
 }
 
-/// Validate one theme directory without touching stored state.
 fn check(directory: &Path, checker: &dyn CssChecker, json: bool) -> Result<()> {
     match inspect_theme_dir(directory, checker) {
         Ok(theme) => {
@@ -103,7 +89,6 @@ fn check(directory: &Path, checker: &dyn CssChecker, json: bool) -> Result<()> {
     }
 }
 
-/// Validate and copy one theme, or refuse it with the documented envelope.
 fn register(directory: &Path, data: &Path, checker: &dyn CssChecker, json: bool) -> Result<()> {
     match ThemeRegistry::new(data).register(directory, checker) {
         Ok(theme) => {
@@ -128,7 +113,6 @@ fn register(directory: &Path, data: &Path, checker: &dyn CssChecker, json: bool)
     }
 }
 
-/// List official, bucket and locally registered themes for one game or all.
 fn list(
     data: &Path,
     profile: &Path,
@@ -158,7 +142,6 @@ fn list(
     Ok(())
 }
 
-/// Remove one local registration only.
 fn remove(theme_id: &str, data: &Path, game: Option<&str>, json: bool) -> Result<()> {
     let removed = ThemeRegistry::new(data).remove(theme_id, game)?;
     let value = json!({
@@ -172,8 +155,6 @@ fn remove(theme_id: &str, data: &Path, game: Option<&str>, json: bool) -> Result
     Ok(())
 }
 
-/// Store one selection after checking that the theme and variant exist, or
-/// store the explicit default-theme choice.
 fn select(
     data: &Path,
     profile: &Path,
@@ -232,7 +213,6 @@ fn select(
     Ok(())
 }
 
-/// Clear one game's selection, or every selection.
 fn reset(data: &Path, game: Option<&str>, json: bool) -> Result<()> {
     let store = SelectionStore::new(data);
     let games = match game {
@@ -255,7 +235,6 @@ fn reset(data: &Path, game: Option<&str>, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Return the theme that the desktop must apply for one game.
 fn resolve(
     data: &Path,
     profile: &Path,
@@ -276,12 +255,10 @@ fn resolve(
     Ok(())
 }
 
-/// Build the catalog from the official copy, the registry and every bucket.
 fn catalog(data: &Path, profile: &Path, checker: &dyn CssChecker) -> ThemeCatalog {
     ThemeCatalog::build(&bucket_roots(profile), &ThemeRegistry::new(data), checker)
 }
 
-/// The official `main` copy and every other registered bucket, in bucket id order.
 fn bucket_roots(profile: &Path) -> Vec<BucketThemeRoot> {
     let mut roots = Vec::new();
     if let Ok(data) = data_directory() {
@@ -291,11 +268,6 @@ fn bucket_roots(profile: &Path) -> Vec<BucketThemeRoot> {
     roots
 }
 
-/// Read bucket registration files directly.
-///
-/// `BucketStore::list` validates every package and fails as a whole when one
-/// bucket is broken. Themes only need the stored roots, so a broken bucket
-/// metadata file must not hide the remaining theme sources.
 fn registered_roots(profile: &Path) -> Vec<BucketThemeRoot> {
     let directory = profile.join("buckets").join("registrations");
     let Ok(entries) = fs::read_dir(directory) else {
@@ -330,7 +302,6 @@ fn registered_roots(profile: &Path) -> Vec<BucketThemeRoot> {
         .collect()
 }
 
-/// The theme entry of a directory that is not stored in the registry.
 fn entry(manifest: &ThemeManifest, selected: bool) -> Value {
     json!({
         "id": manifest.id,
@@ -344,7 +315,6 @@ fn entry(manifest: &ThemeManifest, selected: bool) -> Value {
     })
 }
 
-/// The theme entry of one registration.
 fn registered_entry(theme: &RegisteredTheme) -> Value {
     json!({
         "id": theme.id(),
@@ -358,12 +328,10 @@ fn registered_entry(theme: &RegisteredTheme) -> Value {
     })
 }
 
-/// The documented source object for the local registry.
 fn local_source() -> Value {
     json!({"kind": "local", "bucket": null, "label": "local registry"})
 }
 
-/// Print the refusal that the desktop sanitises, then exit with status 1.
 fn refuse(problems: &[ThemeProblem], json: bool) -> Result<()> {
     let message = match problems.first() {
         Some(first) => format!("the theme failed validation: {first}"),
@@ -384,19 +352,16 @@ fn refuse(problems: &[ThemeProblem], json: bool) -> Result<()> {
     std::process::exit(1);
 }
 
-/// Print one JSON value on standard output.
 fn print_value(value: &Value) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
 }
 
-/// Print one JSON value on standard error.
 fn print_error(value: &Value) -> Result<()> {
     eprintln!("{}", serde_json::to_string(value)?);
     Ok(())
 }
 
-/// Human-readable resolve answer.
 fn print_resolved(resolved: &Resolved) {
     match resolved.theme() {
         Some(theme) => {

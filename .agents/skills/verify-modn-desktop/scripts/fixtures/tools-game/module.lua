@@ -1,10 +1,3 @@
--- Fixture policy for the executable-approval journey.
---
--- This game declares no content root, so the install plan writes below the
--- game folder. It recognizes a marker, a Lua file and a game-relative
--- `tools/*.exe`; the core still blocks the executable until the user approves
--- it.
-
 local policy = {
     game_id = "tools-game",
     api_version = mods_host.api_version,

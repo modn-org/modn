@@ -26,8 +26,6 @@ fn report(output: &std::process::Output) -> Value {
 fn a_fallback_install_from_the_second_git_source_is_current() {
     let fixture = Fixture::new();
     let repository = repository(fixture.temp.path());
-    // The primary source pins a later commit; the fallback source serves the
-    // pinned one. The install therefore records the fallback source.
     write_two_source_bucket(
         &fixture,
         fixture.temp.path(),
@@ -96,8 +94,6 @@ fn a_fallback_install_from_the_second_git_source_is_current() {
         "a real update follows its dry-run"
     );
 
-    // The recorded fallback source now pins another commit: the release needs
-    // an update even though the primary source did not change.
     write_two_source_manifest(
         fixture.temp.path(),
         "git-fallback-fixture",

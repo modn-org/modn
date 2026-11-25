@@ -1,9 +1,3 @@
-//! Theme listing, resolution, selection and import commands.
-//!
-//! Every action runs the configured CLI off the UI thread. A theme is
-//! untrusted content, so `resolve_theme` also decides which directory the
-//! `modn-theme` protocol may read; the protocol module enforces the file rules.
-
 use super::{args, run_blocking};
 use crate::app::error::CommandError;
 use crate::app::state::AppState;
@@ -25,13 +19,6 @@ pub(crate) async fn list_themes(
     run_blocking(&busy, move || backend.call(&args)).await
 }
 
-/// Resolves the theme the desktop must apply.
-///
-/// The CLI answer names the theme directory. Its `assets_dir` never reaches
-/// the webview: the handler replaces it with the stored protocol root and adds
-/// `asset_base`. An invalid directory clears any earlier one. A newer request
-/// supersedes this one: a stale answer never changes the root and reports
-/// `{"stale": true, "game": "<game>"}` so the controller can discard it.
 #[tauri::command]
 pub(crate) async fn resolve_theme(
     state: tauri::State<'_, AppState>,
@@ -66,11 +53,6 @@ pub(crate) async fn resolve_theme(
     })
 }
 
-/// Reports a resolve failure that happened after its ticket was taken.
-///
-/// The stored root belongs to the request that took the ticket, so this clears
-/// it before the error reaches the webview. A newer request keeps its own root
-/// and receives the stale answer instead.
 fn resolve_failure(
     state: &AppState,
     ticket: u64,
@@ -97,10 +79,6 @@ pub(crate) async fn select_theme(
     run_blocking(&busy, move || backend.call_with_inactivity_timeout(&args)).await
 }
 
-/// The exact select request: a named theme, or the explicit `--none` default.
-///
-/// A variant belongs to a named theme, so a variant without a theme is
-/// refused before any CLI process starts.
 pub(super) fn select_request(
     game: &str,
     theme: Option<&str>,
@@ -128,10 +106,6 @@ pub(crate) async fn reset_theme(
     run_blocking(&busy, move || backend.call_with_inactivity_timeout(&args)).await
 }
 
-/// Shows the native folder picker from Rust, then registers the chosen theme.
-///
-/// The webview never supplies or edits the folder path. A cancelled picker
-/// answers `{"cancelled": true}` and spawns nothing.
 #[tauri::command]
 pub(crate) async fn import_theme(
     app: tauri::AppHandle,
@@ -148,15 +122,12 @@ pub(crate) async fn import_theme(
     }
 }
 
-/// A resolve answer ready for the webview plus the root the protocol serves.
 #[derive(Debug)]
 pub(super) struct ResolvedTheme {
     pub answer: Value,
     pub root: Option<PathBuf>,
 }
 
-/// The exact resolve request, or `None` when `--default-theme` answers without
-/// a CLI process. Receiving `None` must never spawn the backend.
 pub(super) fn resolve_request(
     default_theme: bool,
     game: &str,
@@ -165,7 +136,6 @@ pub(super) fn resolve_request(
     Ok(if default_theme { None } else { Some(args) })
 }
 
-/// The synthetic answer of a `--default-theme` start.
 pub(super) fn default_theme_answer(game: &str) -> Value {
     json!({
         "game": game,
@@ -177,19 +147,10 @@ pub(super) fn default_theme_answer(game: &str) -> Value {
     })
 }
 
-/// The answer of a resolve that a newer request superseded.
-///
-/// The root stays as the newer call set it. The controller discards this
-/// answer, so it carries no theme data or `asset_base`.
 pub(super) fn stale_answer(game: &str) -> Value {
     json!({"stale": true, "game": game})
 }
 
-/// Prepares one resolve answer for the webview.
-///
-/// `assets_dir` is removed at every depth. A theme needs an absolute path to
-/// an existing directory; a null theme stores no root. A malformed answer is
-/// refused so the webview falls back to the default theme.
 pub(super) fn resolved_theme(mut value: Value) -> Result<ResolvedTheme, CommandError> {
     let Some(object) = value.as_object_mut() else {
         return Err(CommandError::theme_invalid());
@@ -217,14 +178,12 @@ pub(super) fn resolved_theme(mut value: Value) -> Result<ResolvedTheme, CommandE
     })
 }
 
-/// What `import_theme` does after the native picker returns.
 #[derive(Debug)]
 pub(super) enum ImportPlan {
     Cancelled,
     Register(Vec<OsString>),
 }
 
-/// Turns the picker result into the cancelled answer or the register request.
 pub(super) fn import_plan(folder: Option<&Path>) -> ImportPlan {
     match folder {
         None => ImportPlan::Cancelled,
@@ -232,7 +191,6 @@ pub(super) fn import_plan(folder: Option<&Path>) -> ImportPlan {
     }
 }
 
-/// The answer of a cancelled import.
 pub(super) fn cancelled_answer() -> Value {
     json!({"cancelled": true})
 }

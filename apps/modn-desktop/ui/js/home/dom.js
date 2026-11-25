@@ -1,5 +1,3 @@
-/** Small DOM helpers shared by the Home view modules. */
-
 /**
  * Builds an element with an optional class name and text.
  * @param {string} tag
@@ -27,7 +25,7 @@ export function element(tag, className, text) {
  * @returns {HTMLButtonElement}
  */
 export function button(label, testId, accessibleName, className = 'modn-button') {
-  const node = /** @type {HTMLButtonElement} */ (element('button', className, label));
+  const node = element('button', className, label);
   node.type = 'button';
   node.dataset.testid = testId;
   node.setAttribute('aria-label', accessibleName);
@@ -40,9 +38,7 @@ export function button(label, testId, accessibleName, className = 'modn-button')
  * @returns {HTMLParagraphElement}
  */
 export function statusLine(message = '') {
-  const status = /** @type {HTMLParagraphElement} */ (
-    element('p', 'modn-status', message)
-  );
+  const status = element('p', 'modn-status', message);
   status.setAttribute('role', 'status');
   return status;
 }

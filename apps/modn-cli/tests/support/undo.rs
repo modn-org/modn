@@ -73,7 +73,6 @@ pub fn nexus_url() -> &'static str {
     "nexus://testgame/mods/12/files/34/example.zip"
 }
 
-/// Put `archive` where the undo cache lookup expects it, without a download.
 pub fn cache(fixture: &Fixture, id: &str, version: &str, url: &str, archive: &Path) {
     let root = fixture.state.join("cache");
     fs::create_dir_all(&root).expect("cache");

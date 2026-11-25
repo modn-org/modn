@@ -179,10 +179,6 @@ fn directory_files(directory: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Whether `value` has the shape of a `store` identity.
-///
-/// Steam app IDs and GOG product IDs are decimal. Epic app names are short
-/// ASCII names.
 pub(crate) fn valid_store_id(store: Storefront, value: &str) -> bool {
     let digits = |max_len: usize| {
         !value.is_empty() && value.len() <= max_len && value.bytes().all(|b| b.is_ascii_digit())

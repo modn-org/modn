@@ -1,5 +1,3 @@
-//! Read-only catalog, inventory, plan and diagnostics commands.
-
 use super::args;
 use super::{installation, run_blocking};
 use crate::app::error::CommandError;
@@ -37,7 +35,6 @@ pub(crate) async fn catalog(
     run_blocking(&busy, move || backend.call(&args)).await
 }
 
-/// Read-only install plan for the details screen. Writes nothing.
 #[tauri::command]
 pub(crate) async fn plan_install(
     state: tauri::State<'_, AppState>,
@@ -51,17 +48,11 @@ pub(crate) async fn plan_install(
     run_blocking(&busy, move || backend.call(&args)).await
 }
 
-/// Returns the doctor report as pretty JSON text.
 #[tauri::command]
 pub(crate) async fn diagnostics(state: tauri::State<'_, AppState>) -> Result<String, CommandError> {
     doctor_report(&state).await
 }
 
-/// Copies the doctor report to the system clipboard, or to the verifier's file
-/// when this build has the `verification` feature.
-///
-/// The write runs in the process, not in the webview, so it needs no focused
-/// document and keeps working while another window holds the foreground.
 #[tauri::command]
 pub(crate) async fn copy_diagnostics(
     state: tauri::State<'_, AppState>,
@@ -70,9 +61,6 @@ pub(crate) async fn copy_diagnostics(
     write_clipboard(&report, destination)
 }
 
-/// Gives `text` to `write` and maps a refusal to the stable clipboard code.
-///
-/// Tests pass a fake writer, so they never touch the machine's clipboard.
 fn write_clipboard(
     text: &str,
     write: impl FnOnce(&str) -> Result<(), ()>,
@@ -80,35 +68,27 @@ fn write_clipboard(
     write(text).map_err(|()| CommandError::clipboard_failed())
 }
 
-/// Writes the verifier's report file, named by `MODN_VERIFY_CLIPBOARD_FILE`.
-///
-/// An unset, empty or unwritable path is an error. The verifier must never fall
-/// back to the system clipboard.
 #[cfg(feature = "verification")]
 fn destination(text: &str) -> Result<(), ()> {
     file_sink(std::env::var_os("MODN_VERIFY_CLIPBOARD_FILE"), text)
 }
 
-/// Writes the whole `text` to `path`, or fails without touching anything else.
 #[cfg(feature = "verification")]
 fn file_sink(path: Option<std::ffi::OsString>, text: &str) -> Result<(), ()> {
     let path = path.filter(|value| !value.is_empty()).ok_or(())?;
     std::fs::write(path, text).map_err(|_| ())
 }
 
-/// Writes the report to the system clipboard in a release build.
 #[cfg(not(feature = "verification"))]
 fn destination(text: &str) -> Result<(), ()> {
     system_clipboard(text)
 }
 
-/// Writes one Unicode text block through the Windows clipboard API.
 #[cfg(not(feature = "verification"))]
 fn system_clipboard(text: &str) -> Result<(), ()> {
     clipboard_win::set_clipboard_string(text).map_err(|_| ())
 }
 
-/// Builds the doctor report text that support asks for.
 async fn doctor_report(state: &AppState) -> Result<String, CommandError> {
     let backend = state.backend()?;
     let busy = Arc::clone(&state.busy);
@@ -117,8 +97,6 @@ async fn doctor_report(state: &AppState) -> Result<String, CommandError> {
         .map_err(|error| CommandError::from(anyhow::Error::from(error)))
 }
 
-/// Shows the native archive picker. The dialog callback fires on the main
-/// thread; this command waits on a worker so the webview stays responsive.
 #[tauri::command]
 pub(crate) async fn pick_archive(app: tauri::AppHandle) -> Result<Option<String>, CommandError> {
     let (sender, receiver) = std::sync::mpsc::channel();

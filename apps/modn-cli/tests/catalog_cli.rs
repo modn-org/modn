@@ -1,5 +1,3 @@
-//! Author tools: key generation, signing and verification at the CLI.
-
 #[path = "support/catalog_author.rs"]
 mod catalog_author;
 #[path = "support/catalog_authoring.rs"]

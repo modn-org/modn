@@ -1,7 +1,3 @@
-//! Milestone 5 exit gate: a trusted signed Git catalog supplies a module that
-//! can be pinned, updated and rolled back; untrusted sources are ignored and
-//! refused at use; the official module keeps priority.
-
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/module_catalog.rs"]
@@ -14,7 +10,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// Disposable manager data, appdata and game directories.
 struct Fixture {
     _root: tempfile::TempDir,
     data: PathBuf,
@@ -102,7 +97,6 @@ fn active_version<'a>(listed: &'a Value, game: &str) -> Option<&'a str> {
     })
 }
 
-/// Every path and file byte below `root`, so a rollback can be proven inert.
 fn tree(root: &Path) -> BTreeMap<String, Vec<u8>> {
     fn walk(root: &Path, directory: &Path, entries: &mut BTreeMap<String, Vec<u8>>) {
         for entry in fs::read_dir(directory).expect("tree entries") {
@@ -132,8 +126,6 @@ fn milestone_five_gate_trusts_pins_updates_rolls_back_and_keeps_official_priorit
     let third = ModuleCatalog::new("third");
     let third_repo = third.repo().to_str().expect("repository path").to_owned();
 
-    // Step 1: a signed Git catalog is registered by sync, but its module is
-    // ignored until the user trusts the bucket for modules.
     third.write_module("fixture-game", "1.0.0", &identity_lua("fixture-game"));
     third.sign_and_commit("third fixture module v1");
     let synced = fixture.sync("third", &third);
@@ -160,8 +152,6 @@ fn milestone_five_gate_trusts_pins_updates_rolls_back_and_keeps_official_priorit
         "no release exists before trust: {listed}"
     );
 
-    // Step 2: trust needs acknowledgement and a matching fingerprint, then
-    // imports version 1.0.0 as the active release.
     let registration = fixture.data.join("modn/buckets/registrations/third.json");
     let before = fs::read(&registration).expect("registration bytes");
     let denied = fixture.failure(&["bucket", "trust-modules", "third"]);
@@ -192,7 +182,6 @@ fn milestone_five_gate_trusts_pins_updates_rolls_back_and_keeps_official_priorit
     assert_eq!(first["source"]["bucket"], "third");
     assert_eq!(first["source_trusted"], true);
 
-    // Step 3: pinning keeps 1.0.0 active while a newer release is published.
     let pinned = fixture.success(&["--json", "module", "pin", "fixture-game"]);
     assert_eq!(pinned["game_id"], "fixture-game");
     assert_eq!(pinned["pinned"]["bucket"], "third");
@@ -207,7 +196,6 @@ fn milestone_five_gate_trusts_pins_updates_rolls_back_and_keeps_official_priorit
     let listed = fixture.success(&["--json", "module", "list"]);
     assert_eq!(active_version(&listed, "fixture-game"), Some("1.0.0"));
 
-    // Step 4: unpinning lets the update switch to 2.0.0 and retains 1.0.0.
     let unpinned = fixture.success(&["--json", "module", "unpin", "fixture-game"]);
     assert_eq!(unpinned["pinned"], Value::Null);
     let updated = fixture.success(&["--json", "module", "update", "fixture-game"]);
@@ -221,7 +209,6 @@ fn milestone_five_gate_trusts_pins_updates_rolls_back_and_keeps_official_priorit
         false
     );
 
-    // Step 5: rollback moves only the active pointer; game files stay intact.
     let fixture_game = fixture.data.join("game-fixture");
     fs::create_dir_all(&fixture_game).expect("fixture game directory");
     fs::write(fixture_game.join("untouched.bin"), b"do not touch").expect("game marker");
@@ -238,7 +225,6 @@ fn milestone_five_gate_trusts_pins_updates_rolls_back_and_keeps_official_priorit
     let listed = fixture.success(&["--json", "module", "list"]);
     assert_eq!(active_version(&listed, "fixture-game"), Some("1.0.0"));
 
-    // Step 6: an untrusted catalog imports nothing and its Lua never runs.
     let other = ModuleCatalog::new("other");
     other.write_module("other-game", "1.0.0", "error('OTHER-GAME MODULE EXECUTED')");
     other.sign_and_commit("other module v1");
@@ -272,7 +258,6 @@ fn milestone_five_gate_trusts_pins_updates_rolls_back_and_keeps_official_priorit
         "untrusted Lua must not run: {refused}"
     );
 
-    // Untrusting a bucket keeps retained releases but refuses them at use.
     let untrusted = fixture.success(&["--json", "bucket", "untrust-modules", "third"]);
     assert_eq!(untrusted["bucket"], "third");
     assert_eq!(untrusted["module_trust"], "removed");
@@ -293,8 +278,6 @@ fn milestone_five_gate_trusts_pins_updates_rolls_back_and_keeps_official_priorit
         "use must name the trust command: {refused}"
     );
 
-    // Step 7: a trusted catalog module for an official game stays hidden; the
-    // official module is used and doctor reports the priority override.
     let re_trusted = fixture.success(&[
         "--json",
         "bucket",

@@ -1,15 +1,7 @@
-//! The `modn-theme` URI scheme.
-//!
-//! It serves only files the asset rules accept from the root `resolve_theme`
-//! stored. Every refusal is an empty 404, so the webview never learns why a
-//! request failed. Fonts are fetched in CORS mode, so every answer allows any
-//! origin.
-
 use super::state::AppState;
 use super::theme_assets::{AssetResponse, load_asset};
 use tauri::Manager;
 
-/// Registers the scheme on the application builder.
 pub(super) fn register<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder.register_uri_scheme_protocol("modn-theme", |context, request| {
         let state = context.app_handle().state::<AppState>();
@@ -23,7 +15,6 @@ pub(super) fn register<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::
     })
 }
 
-/// Adds the headers the webview needs to every answer.
 fn response(asset: AssetResponse) -> tauri::http::Response<Vec<u8>> {
     let mut builder = tauri::http::Response::builder()
         .status(asset.status)

@@ -1,5 +1,3 @@
-//! Argument-vector tests for the theme commands and their id grammar.
-
 use super::tests::{ok, strings};
 use super::*;
 use std::path::Path;

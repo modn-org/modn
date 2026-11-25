@@ -1,6 +1,3 @@
-//! Contract tests: the registered handlers, the capability, the build manifest
-//! and the webview API must name the same commands.
-
 use super::{COMMANDS, ensure_not_cancelled, progress_payload, with_operation_id};
 use crate::app::state::Runs;
 use crate::backend::ProgressEvent;
@@ -142,8 +139,6 @@ fn a_write_result_carries_the_operation_id_it_committed() {
         "installed": {"id": "txn-first"},
         "operation_id": "txn-first",
     }));
-    // A later write on the same package commits its own record. It must not
-    // change the toast that the first write already bound.
     let later = with_operation_id(json!({"operation_id": "txn-later"}));
     assert_eq!(first["operationId"], "txn-first");
     assert_eq!(later["operationId"], "txn-later");
@@ -167,7 +162,6 @@ fn a_cancel_that_arrives_during_the_checks_refuses_the_write() {
     let run = runs.start("run-1").expect("first start");
     ensure_not_cancelled(&run).expect("a fresh run may write");
 
-    // The archive review or catalog lookup runs while the guard is held.
     assert!(runs.cancel("run-1"));
 
     let error = ensure_not_cancelled(&run).expect_err("a cancelled run must not write");

@@ -1,13 +1,3 @@
-/**
- * Builds the one-time approval ask. Every permission and every executable path
- * is its own text node: refusal data is untrusted and never becomes markup.
- */
-
-/**
- * @param {string} className
- * @param {string} text
- * @returns {HTMLElement}
- */
 function line(className, text) {
   const node = document.createElement('p');
   node.className = className;

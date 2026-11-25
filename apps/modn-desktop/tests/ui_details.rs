@@ -71,7 +71,6 @@ fn has_length_unit(text: &str, unit: &str) -> bool {
     })
 }
 
-/// Returns the source from `marker` through its first balanced brace block.
 fn braced<'a>(source: &'a str, marker: &str) -> &'a str {
     let start = source
         .find(marker)

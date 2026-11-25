@@ -1,36 +1,22 @@
-//! Resolution rules for the selected theme's assets.
-//!
-//! The webview fetches theme images and fonts through the `modn-theme` scheme.
-//! A theme is untrusted content, so every request must reduce to one regular
-//! file under `<theme root>/assets` with a type the theme API allows. This
-//! module depends on no Tauri type, so the rules compile and test on every
-//! platform.
-
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-/// The origin the Windows webview loads theme assets from.
 pub(crate) const ASSET_BASE: &str = "http://modn-theme.localhost/";
 
-/// The only request prefix the protocol serves.
 const ASSETS_PREFIX: &str = "/assets/";
 
-/// The largest asset the protocol serves, in bytes.
 pub(crate) const ASSET_LIMIT: u64 = 2 * 1024 * 1024;
 
-/// One resolved theme asset.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ThemeAsset {
     pub path: PathBuf,
     pub content_type: &'static str,
 }
 
-/// Every refusal. The protocol answers 404 for each one and never says why.
 #[derive(Debug)]
 pub(crate) struct AssetError;
 
-/// The parts of one protocol response before Tauri adds its headers.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AssetResponse {
     pub status: u16,
@@ -48,13 +34,6 @@ impl AssetResponse {
     }
 }
 
-/// Resolves one request path to one file of the selected theme.
-///
-/// The path must start with `/assets/`. Percent escapes are decoded first and
-/// an invalid escape is refused. NUL, backslashes, empty and dot segments,
-/// and any segment outside `[a-z0-9._-]+` are refused. The joined file must
-/// remain under the canonicalised `assets` directory, must not be reached
-/// through a symlink and must be a regular file of at most 2 MiB.
 pub(crate) fn resolve_asset(root: &Path, request_path: &str) -> Result<ThemeAsset, AssetError> {
     let decoded = decode_assets_path(request_path)?;
     let relative = &decoded[ASSETS_PREFIX.len()..];
@@ -88,11 +67,6 @@ pub(crate) fn resolve_asset(root: &Path, request_path: &str) -> Result<ThemeAsse
     })
 }
 
-/// Builds the protocol response for one request.
-///
-/// A missing theme root, a refused path, an unreadable file and a file that
-/// grew past the limit all answer 404 with an empty body. Only `GET` is
-/// served; every other method answers 405.
 pub(crate) fn load_asset(root: Option<&Path>, method: &str, request_path: &str) -> AssetResponse {
     if method != "GET" {
         return AssetResponse::status(405);
@@ -119,11 +93,6 @@ pub(crate) fn load_asset(root: Option<&Path>, method: &str, request_path: &str) 
     }
 }
 
-/// Reads one asset body without trusting its declared length.
-///
-/// The metadata check can go stale when a file grows between checking and
-/// reading. `Read::take(limit + 1)` bounds the buffer, and a body larger than
-/// the limit is refused instead of being read whole.
 pub(crate) fn read_asset_body(
     reader: impl Read,
     declared: u64,
@@ -143,7 +112,6 @@ pub(crate) fn read_asset_body(
     Ok(body)
 }
 
-/// Checks the request prefix, decodes escapes and rechecks the decoded shape.
 fn decode_assets_path(request_path: &str) -> Result<String, AssetError> {
     if !request_path.starts_with(ASSETS_PREFIX) {
         return Err(AssetError);
@@ -158,7 +126,6 @@ fn decode_assets_path(request_path: &str) -> Result<String, AssetError> {
     Ok(decoded)
 }
 
-/// Decodes every `%XX` escape. A stray or malformed escape is refused.
 fn percent_decode(input: &str) -> Result<String, AssetError> {
     let bytes = input.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
@@ -186,7 +153,6 @@ fn hex_value(byte: u8) -> Result<u8, AssetError> {
     }
 }
 
-/// The documented asset segment grammar, without `.` and `..`.
 fn valid_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment != "."
@@ -196,7 +162,6 @@ fn valid_segment(segment: &str) -> bool {
         })
 }
 
-/// Maps one file name to the only content types a theme may serve.
 fn content_type(file_name: &str) -> Result<&'static str, AssetError> {
     let (_, extension) = file_name.rsplit_once('.').ok_or(AssetError)?;
     match extension {
@@ -207,8 +172,6 @@ fn content_type(file_name: &str) -> Result<&'static str, AssetError> {
     }
 }
 
-/// Refuses the assets directory and every component below it when any is a
-/// symlink, so a junction or link cannot redirect a read outside the theme.
 fn refuse_symlinks(assets: &Path, segments: &[&str]) -> Result<(), AssetError> {
     let mut current = assets.to_path_buf();
     if is_symlink(&current)? {
@@ -223,7 +186,6 @@ fn refuse_symlinks(assets: &Path, segments: &[&str]) -> Result<(), AssetError> {
     Ok(())
 }
 
-/// Reports whether one path is a symlink. A missing path is a refusal too.
 fn is_symlink(path: &Path) -> Result<bool, AssetError> {
     fs::symlink_metadata(path)
         .map(|metadata| metadata.file_type().is_symlink())

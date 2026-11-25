@@ -10,12 +10,9 @@ use std::fs;
 use std::path::Path;
 use tempfile::Builder;
 
-/// Whether a withdrawal must start from an idle manager.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PendingPolicy {
-    /// Refuse when any transaction is unfinished.
     RequireIdle,
-    /// Trust the caller's earlier idle check, as in one multi-package undo.
     Allowed,
 }
 
@@ -28,10 +25,6 @@ impl Store {
         self.uninstall_locked(game, package_id)
     }
 
-    /// Pass the commit point of removing `package_id`.
-    ///
-    /// The event names the package's catalog reference, or its ID when it
-    /// has none.
     pub(crate) fn begin_removal(&self, game: &Path, package_id: &str) -> Result<()> {
         let catalog = self
             .installed(game)
@@ -121,10 +114,6 @@ impl Store {
         )
     }
 
-    /// Withdraw one member of a multi-package undo.
-    ///
-    /// Dependents inside `allowed` do not block the removal; a dependent
-    /// outside it still does.
     pub(crate) fn withdraw_member_locked(
         &mut self,
         game: &Path,

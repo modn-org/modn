@@ -82,7 +82,6 @@ def journey_approval_content_root(runner):
     session = app.session
     _open_game(session, "Balatro")
 
-    # 1. The first executable ask writes nothing, and Decline forgets it.
     _wait_enabled(session, f"Install {ROOT_EXE_NAME}")
     session.click(name=f"Install {ROOT_EXE_NAME}")
     _wait_ask(session, "the content-root executable ask")
@@ -105,7 +104,6 @@ def journey_approval_content_root(runner):
     runner.check(not _approval_rows(fx, ROOT_EXE_ID), "Decline stored an approval")
     _assert_clean_ui(runner, session, "approval-root-1-decline")
 
-    # 2. Allow installs into the content root and stores the approval.
     session.click(name=f"Install {ROOT_EXE_NAME}")
     _wait_ask(session, "the content-root executable ask after Decline")
     session.click(name="Allow")
@@ -127,7 +125,6 @@ def journey_approval_content_root(runner):
     )
     _assert_clean_ui(runner, session, "approval-root-2-allow")
 
-    # 3. Uninstall restores the earlier bytes and keeps the approval.
     _clear_toasts(session)
     _wait_enabled(session, f"Uninstall {ROOT_EXE_NAME}")
     session.click(name=f"Uninstall {ROOT_EXE_NAME}")
@@ -144,7 +141,6 @@ def journey_approval_content_root(runner):
     )
     _assert_clean_ui(runner, session, "approval-root-3-uninstall")
 
-    # 4. The stored approval suppresses the next ask for the same mod.
     _clear_toasts(session)
     _wait_enabled(session, f"Install {ROOT_EXE_NAME}")
     session.click(name=f"Install {ROOT_EXE_NAME}")
@@ -174,7 +170,6 @@ def journey_approval_content_root(runner):
     )
     _assert_clean_ui(runner, session, "approval-root-4-remembered")
 
-    # 5. No ask is left over, and the window stayed free of CLI output.
     runner.check(not _ask_groups(session), "An approval ask stayed open at the end")
     _assert_clean_ui(runner, session, "approval-root-5-final")
     runner.check(app.close() in (0, None), "App did not exit cleanly")

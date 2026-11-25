@@ -5,7 +5,6 @@ import { operationIdOf } from './library/undo-target.js';
 import { messageFor } from './messages.js';
 import { showToast } from './toast.js';
 
-/** Codes that describe a blocked plan: the button shows the reason instead. */
 const BLOCKED_CODES = new Set([
   'PLAN_BLOCKED',
   'CONFLICT',
@@ -23,13 +22,17 @@ const BLOCKED_CODES = new Set([
 
 const NO_APPROVAL = { native: false, executables: [] };
 
-/**
- * Unions the grants collected for one operation. A retry carries every
- * executable an earlier refusal named, and the native injector stays granted.
- * @param {{native: boolean, executables: string[]}} previous
- * @param {{native: boolean, executables: string[]}} next
- * @returns {{native: boolean, executables: string[]}}
- */
+function discardProgressListener(off) {
+  if (typeof off !== 'function') {
+    return;
+  }
+  try {
+    off();
+  } catch {
+    return;
+  }
+}
+
 function mergeApprovals(previous, next) {
   return {
     native: previous.native === true || next.native === true,
@@ -37,7 +40,6 @@ function mergeApprovals(previous, next) {
   };
 }
 
-/** @param {unknown} error @returns {string} */
 function codeOf(error) {
   if (error && typeof error === 'object') {
     const value = error.code ?? error.error;
@@ -46,7 +48,6 @@ function codeOf(error) {
   return typeof error === 'string' ? error : '';
 }
 
-/** Shows a toast whose action is labelled Undo and carries the verifier hook. */
 function showUndoToast(message, onUndo) {
   showToast(message, { actionLabel: 'Undo', onAction: onUndo });
   const host = document.getElementById('modn-toasts');
@@ -138,12 +139,10 @@ export function createOperationButton(options) {
   let writeStarted = false;
   let settled = false;
 
-  /** @param {number} percent */
   function setProgress(percent) {
     bar.style.setProperty('--op-progress', `${Math.min(100, Math.max(0, percent))}%`);
   }
 
-  /** @param {string} text */
   function setIdle(text = label) {
     button.dataset.state = 'idle';
     button.disabled = disabled;
@@ -154,7 +153,6 @@ export function createOperationButton(options) {
     setProgress(0);
   }
 
-  /** @param {number} id @param {Object} event */
   function handleEvent(id, event) {
     if (destroyed || id !== runId) {
       return;
@@ -180,10 +178,6 @@ export function createOperationButton(options) {
     }
   }
 
-  /**
-   * Records the click at once. Before the write starts, start() skips it and
-   * reports Cancelled. Once the write is running, the backend is told.
-   */
   async function requestCancel() {
     if (!runId || settled) {
       return;
@@ -205,10 +199,6 @@ export function createOperationButton(options) {
     }
   }
 
-  /**
-   * Reverses one committed operation by the ID its toast bound.
-   * @param {string} operationId
-   */
   async function undoLatest(operationId) {
     if (!runUndo || runId || !operationId) {
       return;
@@ -223,9 +213,6 @@ export function createOperationButton(options) {
     });
   }
 
-  /**
-   * @param {Object} [overrides]
-   */
   async function start(overrides = {}) {
     if (runId || destroyed) {
       return;
@@ -271,13 +258,7 @@ export function createOperationButton(options) {
       button.setAttribute('aria-label', `Cancel ${active.idleLabel}`);
       const off = await onProgress(id, (event) => handleEvent(id, event));
       if (generationAtStart !== generation || destroyed) {
-        if (typeof off === 'function') {
-          try {
-            off();
-          } catch {
-            // The event listener is already gone.
-          }
-        }
+        discardProgressListener(off);
         return;
       }
       unlisten = off;
@@ -410,11 +391,7 @@ export function createOperationButton(options) {
       if (unlisten) {
         const off = unlisten;
         unlisten = null;
-        try {
-          off();
-        } catch {
-          // The event listener is already gone.
-        }
+        discardProgressListener(off);
       }
     }
   }
@@ -431,7 +408,6 @@ export function createOperationButton(options) {
     element: wrapper,
     button,
     start,
-    /** @param {string} reason */
     setBlocked(reason) {
       button.dataset.state = 'blocked';
       button.disabled = true;
@@ -448,11 +424,7 @@ export function createOperationButton(options) {
       generation += 1;
       runId = null;
       if (unlisten) {
-        try {
-          unlisten();
-        } catch {
-          // The event listener is already gone.
-        }
+        discardProgressListener(unlisten);
         unlisten = null;
       }
       if (askHost) {

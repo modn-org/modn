@@ -1,10 +1,3 @@
-//! End-to-end tests for the `modn theme` command group.
-//!
-//! Every command runs the real `modn` binary against a temporary appdata base
-//! and a temporary state directory. `LOCALAPPDATA`, `APPDATA` and
-//! `MODN_APPDATA` all point at the temporary base, so no test reads or writes
-//! the user's real Modn state.
-
 #[path = "theme_support/check_register_tests.rs"]
 mod check_register;
 #[path = "theme_support/fixture.rs"]

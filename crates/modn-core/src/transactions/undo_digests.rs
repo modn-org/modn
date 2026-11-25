@@ -1,4 +1,3 @@
-//! Digest checks for the bytes that an undo would restore.
 use crate::archive::{ArchiveFormat, Inspection};
 use crate::planning::InstallPlan;
 use crate::progress::OperationControl;
@@ -8,15 +7,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-/// Bytes read between cancellation checks while a ZIP member is hashed.
 const DIGEST_CHUNK_BYTES: usize = 64 * 1024;
 
-/// BLAKE3 digest of every archive member that `plan` selects, keyed by root and
-/// destination.
-///
-/// `control` is checked before the archive is inspected and while its members
-/// are read, so a cancellation before the caller's commit point stops the
-/// check with [`crate::progress::Cancelled`].
 pub(super) fn selected_digests(
     archive: &Path,
     plan: &InstallPlan,

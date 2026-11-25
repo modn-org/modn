@@ -215,9 +215,6 @@ fn catalog_compiler_requires_exact_operator_approval() {
     assert!(!fixture.game.join(EXTRA_TOOL).exists());
 }
 
-/// Copy the real Cyberpunk module and teach its redscript-runtime plan to map
-/// one undeclared tool executable, so the test exercises explicit flags
-/// instead of the module's unrecognized-layout refusal.
 fn module_with_undeclared_tool(fixture: &mut Fixture) {
     let source =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main/games/cyberpunk-2077");
