@@ -24,12 +24,10 @@ pub(super) fn run(
         return check(directory, &checker, json);
     }
     let data = roots.profile();
-    let profile = roots.profile();
-    let official_main = roots.official_main();
     match command {
         ThemeCommand::Check { .. } => Ok(()),
         ThemeCommand::Register { directory } => register(directory, data, &checker, json),
-        ThemeCommand::List => list(data, profile, &official_main, game, &checker, json),
+        ThemeCommand::List => list(roots, game, &checker, json),
         ThemeCommand::Remove { theme_id } => remove(theme_id, data, game, json),
         ThemeCommand::Select {
             game,
@@ -37,9 +35,7 @@ pub(super) fn run(
             variant,
             ..
         } => select(
-            data,
-            profile,
-            &official_main,
+            roots,
             game,
             theme.as_deref(),
             variant.as_deref(),
@@ -47,7 +43,7 @@ pub(super) fn run(
             json,
         ),
         ThemeCommand::Reset => reset(data, game, json),
-        ThemeCommand::Resolve => resolve(data, profile, &official_main, game, &checker, json),
+        ThemeCommand::Resolve => resolve(roots, game, &checker, json),
     }
 }
 
@@ -113,15 +109,14 @@ fn register(directory: &Path, data: &Path, checker: &dyn CssChecker, json: bool)
 }
 
 fn list(
-    data: &Path,
-    profile: &Path,
-    official_main: &Path,
+    roots: &ManagerRoots,
     game: Option<&str>,
     checker: &dyn CssChecker,
     json: bool,
 ) -> Result<()> {
+    let data = roots.profile();
     let selections = SelectionStore::new(data).list()?;
-    let output = catalog(data, profile, official_main, checker).list_output(game, &selections);
+    let output = catalog(roots, checker).list_output(game, &selections);
     if json {
         print_value(&serde_json::to_value(&output)?)?;
     } else {
@@ -156,15 +151,14 @@ fn remove(theme_id: &str, data: &Path, game: Option<&str>, json: bool) -> Result
 }
 
 fn select(
-    data: &Path,
-    profile: &Path,
-    official_main: &Path,
+    roots: &ManagerRoots,
     game: &str,
     theme: Option<&str>,
     variant: Option<&str>,
     checker: &dyn CssChecker,
     json: bool,
 ) -> Result<()> {
+    let data = roots.profile();
     let Some(theme) = theme else {
         let selection = SelectionStore::new(data).select_none(game)?;
         let value = json!({
@@ -181,7 +175,7 @@ fn select(
         }
         return Ok(());
     };
-    let catalog = catalog(data, profile, official_main, checker);
+    let catalog = catalog(roots, checker);
     let entry = catalog
         .entries()
         .iter()
@@ -237,9 +231,7 @@ fn reset(data: &Path, game: Option<&str>, json: bool) -> Result<()> {
 }
 
 fn resolve(
-    data: &Path,
-    profile: &Path,
-    official_main: &Path,
+    roots: &ManagerRoots,
     game: Option<&str>,
     checker: &dyn CssChecker,
     json: bool,
@@ -247,8 +239,8 @@ fn resolve(
     let Some(game) = game else {
         bail!("theme resolve requires --game <game-id>");
     };
-    let selection = SelectionStore::new(data).get(game)?;
-    let resolved = catalog(data, profile, official_main, checker).resolve(game, selection.as_ref());
+    let selection = SelectionStore::new(roots.profile()).get(game)?;
+    let resolved = catalog(roots, checker).resolve(game, selection.as_ref());
     if json {
         print_value(&serde_json::to_value(&resolved)?)?;
     } else {
@@ -257,15 +249,10 @@ fn resolve(
     Ok(())
 }
 
-fn catalog(
-    data: &Path,
-    profile: &Path,
-    official_main: &Path,
-    checker: &dyn CssChecker,
-) -> ThemeCatalog {
+fn catalog(roots: &ManagerRoots, checker: &dyn CssChecker) -> ThemeCatalog {
     ThemeCatalog::build(
-        &bucket_roots(profile, official_main),
-        &ThemeRegistry::new(data),
+        &bucket_roots(roots.profile(), &roots.official_main()),
+        &ThemeRegistry::new(roots.profile()),
         checker,
     )
 }
