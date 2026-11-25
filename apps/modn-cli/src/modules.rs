@@ -1,11 +1,9 @@
 use crate::commands::ModuleCommand;
-use crate::state_access::{validate_state_path, ManagerState};
+use crate::state_access::validate_write_targets;
 use anyhow::Result;
-use modn_core::buckets::BucketStore;
 use modn_core::game_modules::{check_module_with_roots, ModuleRegistry, ModuleTrust};
 use modn_core::manager_roots::ManagerRoots;
-use modn_core::state::Store;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub(super) fn content_root_appdata(game_id: &str) -> Result<Option<PathBuf>> {
     if modn_core::game_modules::content_root_spec(game_id)?.is_some() {
@@ -16,7 +14,6 @@ pub(super) fn content_root_appdata(game_id: &str) -> Result<Option<PathBuf>> {
 }
 
 pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: bool) -> Result<()> {
-    let state_path = roots.state_database();
     let data = roots.profile();
     let registry = ModuleRegistry::new(data);
     if matches!(
@@ -32,7 +29,7 @@ pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: boo
         command,
         ModuleCommand::Register { trust: true, .. } | ModuleCommand::Remove { .. }
     ) {
-        validate_registry_writes(&state_path, data)?;
+        validate_write_targets(roots, None)?;
     }
     let value = match command {
         ModuleCommand::Check {
@@ -71,28 +68,6 @@ pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: boo
         }
     } else {
         print_module(&value);
-    }
-    Ok(())
-}
-
-pub(super) fn validate_registry_writes(state_path: &Path, data: &Path) -> Result<()> {
-    let state = ManagerState::load_deferred(state_path)?;
-    let roots = state
-        .existing()
-        .map(Store::list)
-        .transpose()?
-        .unwrap_or_default()
-        .into_iter()
-        .map(|entry| entry.path)
-        .collect::<Vec<_>>();
-    validate_state_path(&data.join("game-modules/registry.lock"), None, None, &roots)?;
-    for game in BucketStore::new(data).official_games()? {
-        validate_state_path(
-            &data.join("game-modules/registry.lock"),
-            Some(&game),
-            None,
-            &roots,
-        )?;
     }
     Ok(())
 }

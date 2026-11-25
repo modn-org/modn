@@ -96,6 +96,18 @@ impl ManagerRoots {
         self.profile.join("game-modules")
     }
 
+    /// The leaf paths that Modn writes under this profile.
+    #[must_use]
+    pub fn write_targets(&self) -> Vec<PathBuf> {
+        vec![
+            self.state_database(),
+            self.bucket_registrations()
+                .join("registrations")
+                .join(".bucket-entry.json"),
+            self.module_registry().join("registry.lock"),
+        ]
+    }
+
     /// The shared official `main` bucket copy, which every profile uses.
     #[must_use]
     pub fn official_main(&self) -> PathBuf {
@@ -144,6 +156,33 @@ mod tests {
             assert_eq!(roots.bucket_registrations(), case.profile.join("buckets"));
             assert_eq!(roots.module_registry(), case.profile.join("game-modules"));
             assert_eq!(roots.official_main(), case.official_main);
+        }
+    }
+
+    #[test]
+    fn write_targets_enumerate_the_profile_leaves() {
+        let data = Path::new("/manager-roots/data");
+        let cases = [
+            (None, PathBuf::from("/manager-roots/data")),
+            (
+                Some(Path::new("/manager-roots/profile")),
+                PathBuf::from("/manager-roots/profile"),
+            ),
+        ];
+
+        for (state_dir, profile) in cases {
+            let roots = ManagerRoots::new(data, state_dir);
+            assert_eq!(
+                roots.write_targets(),
+                vec![
+                    profile.join("state.sqlite"),
+                    profile
+                        .join("buckets")
+                        .join("registrations")
+                        .join(".bucket-entry.json"),
+                    profile.join("game-modules").join("registry.lock"),
+                ]
+            );
         }
     }
 
