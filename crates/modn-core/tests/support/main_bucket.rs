@@ -33,6 +33,13 @@ pub fn copy_main_module(source: &std::path::Path, target: &std::path::Path) {
     .expect("fixture invariant");
 }
 
+pub fn roots(profile: &std::path::Path) -> modn_core::manager_roots::ManagerRoots {
+    modn_core::manager_roots::ManagerRoots::new(
+        &modn_core::data_dir::data_directory().expect("fixture data directory"),
+        Some(profile),
+    )
+}
+
 pub fn seeded<T>(action: impl FnOnce() -> T) -> T {
     let temp = tempfile::tempdir().expect("fixture invariant");
     let target = temp.path().join("buckets/main");

@@ -203,7 +203,7 @@ pub(super) fn run(
         ));
     }
     let state_path = roots.state_database();
-    let catalog = BucketStore::new(roots.profile()).snapshot(requested)?;
+    let catalog = BucketStore::new(roots).snapshot(requested)?;
     let current = catalog_install::resolve(target, &catalog, json)?;
     let reference = reference_of(&current);
     let label = reference.to_string();

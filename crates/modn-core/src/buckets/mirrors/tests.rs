@@ -2,6 +2,7 @@ use super::*;
 use crate::buckets::{catalog_statement, BucketStore, ZipCatalogSource};
 use anyhow::{bail, Result};
 use minisign::KeyPair;
+use modn_core::manager_roots::ManagerRoots;
 use std::cell::RefCell;
 use std::fs;
 use std::io::{Cursor, Read, Write};
@@ -232,7 +233,7 @@ fn mirror_serves_the_revision_and_the_primary_stays_registered() {
         &[("mirrors.json", &mirrors_json(&[MIRROR, SECOND_MIRROR]))],
     );
     let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
     let opener = Opener::new(vec![(PRIMARY, Some(first))]);
     store
         .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {
@@ -286,7 +287,7 @@ fn revision_signed_by_another_key_stops_before_any_mirror() {
         &[("mirrors.json", &mirrors_json(&[MIRROR]))],
     );
     let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
     let opener = Opener::new(vec![(PRIMARY, Some(first))]);
     store
         .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {
@@ -328,7 +329,7 @@ fn tampered_and_unsigned_revisions_are_refused_without_trying_mirrors() {
         &[("mirrors.json", &mirrors_json(&[MIRROR]))],
     );
     let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
     let opener = Opener::new(vec![(PRIMARY, Some(first))]);
     store
         .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {
@@ -379,7 +380,7 @@ fn every_failed_source_is_listed_and_state_is_unchanged() {
         &[("mirrors.json", &mirrors_json(&[MIRROR, SECOND_MIRROR]))],
     );
     let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
     let opener = Opener::new(vec![(PRIMARY, Some(first))]);
     store
         .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {

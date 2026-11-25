@@ -183,7 +183,7 @@ impl ModuleRegistry {
     pub fn import_release(&self, source: &Path, origin: ModuleSource) -> Result<ImportReport> {
         validate_source(&origin)?;
         let (manifest, script) = loader::read_verified_module(source)?;
-        if BucketStore::new(&self.data)
+        if BucketStore::new(&crate::manager_roots::ManagerRoots::from_ambient()?)
             .official_games()?
             .contains(&manifest.game_id)
         {

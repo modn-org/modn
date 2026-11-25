@@ -2,6 +2,7 @@
 
 use super::tests::{registration, remote, source, test_key};
 use crate::buckets::BucketStore;
+use crate::manager_roots::ManagerRoots;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -31,7 +32,7 @@ fn snapshots(state: &Path) -> usize {
 fn an_unchanged_commit_reuses_the_published_tree() {
     let remote = remote("1", test_key());
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");

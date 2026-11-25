@@ -63,7 +63,10 @@ fn fixture() -> (
 ) {
     let remote = TestRemote::new();
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
+        state.path(),
+        None,
+    ));
     let revision = remote.sync(&store);
     (state, store, remote, revision)
 }
@@ -156,7 +159,10 @@ fn local_folder_buckets_cannot_be_module_sources() {
     let state = tempfile::tempdir().expect("state");
     let source = tempfile::tempdir().expect("source");
     let bucket = local_bucket(source.path());
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
+        state.path(),
+        None,
+    ));
     store.add("local", &bucket).expect("add");
     let path = state.path().join("buckets/registrations/local.json");
     let before = fs::read(&path).expect("registration");
@@ -191,7 +197,10 @@ fn local_folder_buckets_cannot_be_module_sources() {
 #[test]
 fn unknown_bucket_trust_writes_nothing() {
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
+        state.path(),
+        None,
+    ));
     let error = store
         .trust_modules(
             "missing",
@@ -212,7 +221,10 @@ fn unknown_bucket_trust_writes_nothing() {
 #[test]
 fn main_is_always_trusted_and_rejects_trust_records() {
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
+        state.path(),
+        None,
+    ));
     assert_eq!(
         store.module_trust("main").expect("main state"),
         ModuleTrustState::Main
@@ -325,7 +337,10 @@ fn untrusted_registrations_omit_the_trust_field_and_old_files_read_untrusted() {
     let state = tempfile::tempdir().expect("state");
     let source = tempfile::tempdir().expect("source");
     let bucket = local_bucket(source.path());
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
+        state.path(),
+        None,
+    ));
     store.add("local", &bucket).expect("add");
     let local: Value = serde_json::from_slice(
         &fs::read(state.path().join("buckets/registrations/local.json")).expect("registration"),
@@ -377,7 +392,7 @@ fn a_mod_named_module_is_a_package_not_a_game_module() {
         )
         .expect("package named module");
         fs::write(bucket.join("games/test-game/module.lua"), "return {}").expect("ignored script");
-        let store = BucketStore::new(state.path());
+        let store = BucketStore::new(&main_bucket::roots(state.path()));
         store.add("local", &bucket).expect("register");
         let packages = store.packages(Some("test-game")).expect("packages");
         assert!(packages
@@ -397,7 +412,10 @@ fn bucket_listing_reports_module_trust() {
     .expect("metadata");
     let remote = TestRemote::new();
     modn_core::data_dir::with_data_directory(temp.path(), || {
-        let store = BucketStore::new(temp.path());
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
+            temp.path(),
+            None,
+        ));
         let _revision = remote.sync(&store);
         let listed = store.list().expect("list");
         assert!(

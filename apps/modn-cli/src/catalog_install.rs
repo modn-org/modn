@@ -485,7 +485,7 @@ pub(super) fn run(
     json: bool,
     progress: &Progress,
 ) -> Result<()> {
-    let catalog = BucketStore::new(roots.profile()).snapshot(game_filter)?;
+    let catalog = BucketStore::new(roots).snapshot(game_filter)?;
     let package = resolve(&args.target, &catalog, json)?;
     install_mod(package, &catalog, args, roots, json, progress)
 }

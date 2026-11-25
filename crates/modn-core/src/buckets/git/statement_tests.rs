@@ -7,6 +7,7 @@ use super::BucketStore;
 use crate::buckets::{
     key_statement_bytes, revocation_statement, rotation_statement, GitCatalogSync, KeyChangeKind,
 };
+use modn_core::manager_roots::ManagerRoots;
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
@@ -94,7 +95,7 @@ fn first_sync_pins_catalog_pub_and_ignores_a_published_rotation() {
     write_signature(remote.directory.path(), &remote.key);
     commit(remote.directory.path(), "rotated before first sync");
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
 
     let synced = store
         .sync_git_with_signer("community", Some(source(&remote)))
@@ -135,7 +136,7 @@ fn first_sync_refuses_a_malformed_published_statement() {
     write_signature(remote.directory.path(), &current);
     commit(remote.directory.path(), "unknown version");
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
 
     let error = store
         .sync_git_with_signer("community", Some(source(&remote)))
@@ -171,7 +172,7 @@ fn promised_rotation_is_history_when_the_pinned_key_is_its_successor() {
     write_signature(remote.directory.path(), &pinned);
     commit(remote.directory.path(), "historical rotation");
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");
@@ -193,7 +194,7 @@ fn a_revocation_applies_after_an_accepted_rotation_is_kept_published() {
     let remote = seed_remote("1", pinned.clone());
     pin_revocation_key(&remote, &revocation);
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");
@@ -226,7 +227,7 @@ fn a_rotation_applies_after_an_accepted_revocation_is_kept_published() {
     let remote = seed_remote("1", pinned.clone());
     pin_revocation_key(&remote, &revocation);
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");
@@ -260,7 +261,7 @@ fn a_rotation_back_to_a_previous_key_keeps_the_pinned_key_current() {
     let middle = test_key();
     let remote = seed_remote("1", original.clone());
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");
@@ -305,7 +306,7 @@ fn a_rotation_naming_a_revoked_key_is_refused() {
     let remote = seed_remote("1", pinned.clone());
     pin_revocation_key(&remote, &revocation);
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");
@@ -339,7 +340,7 @@ fn a_revocation_can_reauthorize_a_previous_key() {
     let remote = seed_remote("1", original.clone());
     pin_revocation_key(&remote, &revocation);
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");
@@ -378,7 +379,7 @@ fn a_rotated_away_key_refuses_an_unaccompanied_revision() {
     let current = test_key();
     let remote = seed_remote("1", original.clone());
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");
@@ -406,7 +407,7 @@ fn two_statements_that_apply_to_the_pinned_key_are_refused() {
     let remote = seed_remote("1", pinned.clone());
     pin_revocation_key(&remote, &revocation);
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");
@@ -440,7 +441,7 @@ fn a_two_hop_change_from_the_pinned_key_is_refused() {
     let remote = seed_remote("1", pinned.clone());
     pin_revocation_key(&remote, &revocation);
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");

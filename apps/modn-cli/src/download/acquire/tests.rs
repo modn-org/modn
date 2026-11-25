@@ -4,6 +4,7 @@ use modn_core::acquisition::{CacheUse, NexusApiKey, NexusFile, SourceAttempt};
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::data_dir;
 use modn_core::error::{code_of, ErrorCode};
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::progress::{CancellationToken, OperationControl};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -57,11 +58,13 @@ fn package(root: &Path, digest: &str, sources: serde_json::Value) -> BucketPacka
         .expect("manifest JSON"),
     )
     .expect("manifest");
-    data_dir::with_data_directory(root, || BucketStore::new(root).packages(Some("test-game")))
-        .expect("packages")
-        .into_iter()
-        .next()
-        .expect("example package")
+    data_dir::with_data_directory(root, || {
+        BucketStore::new(&ManagerRoots::new(root, None)).packages(Some("test-game"))
+    })
+    .expect("packages")
+    .into_iter()
+    .next()
+    .expect("example package")
 }
 
 fn nexus_then_https(root: &Path, digest: &str) -> BucketPackage {

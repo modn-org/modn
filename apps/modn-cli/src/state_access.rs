@@ -206,7 +206,7 @@ pub(super) fn validate_write_targets(roots: &ManagerRoots, extra_game: Option<&s
         .into_iter()
         .map(|entry| entry.path)
         .collect::<Vec<_>>();
-    let mut games = BucketStore::new(roots.profile()).official_games()?;
+    let mut games = BucketStore::new(roots).official_games()?;
     if let Some(game) = extra_game {
         games.push(game.to_owned());
     }

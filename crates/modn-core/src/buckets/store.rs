@@ -1,5 +1,7 @@
 mod packages;
 mod registration;
+#[cfg(test)]
+mod roots_tests;
 
 pub(crate) use self::packages::validate_module_source_games;
 pub(super) use self::registration::{bounded_json, Registration};
@@ -8,6 +10,7 @@ use self::packages::{read_packages, Releases};
 use super::manifest::{valid_id, PackageManifest};
 use super::trust::ModuleTrustState;
 use super::BucketSnapshot;
+use crate::manager_roots::ManagerRoots;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -81,6 +84,7 @@ struct Metadata {
 /// Catalog registry, separate from game registrations and ownership state.
 pub struct BucketStore {
     pub(super) root: PathBuf,
+    pub(super) roots: ManagerRoots,
     /// Test seam: the next registration write fails before any file changes.
     #[cfg(test)]
     pub(super) fail_next_registration_write: std::sync::atomic::AtomicBool,
@@ -98,9 +102,10 @@ pub struct BucketStore {
 impl BucketStore {
     /// Construct a handle without creating files or opening game state.
     #[must_use]
-    pub fn new(state_root: &Path) -> Self {
+    pub fn new(roots: &ManagerRoots) -> Self {
         Self {
-            root: state_root.join("buckets"),
+            root: roots.bucket_registrations(),
+            roots: roots.clone(),
             #[cfg(test)]
             fail_next_registration_write: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -231,9 +236,7 @@ impl BucketStore {
     }
 
     fn official(&self) -> Result<(BucketInfo, Releases)> {
-        let path = crate::data_dir::data_directory()?
-            .join("buckets")
-            .join("main");
+        let path = self.roots.official_main();
         self.check_registry_root()?;
         self.load("main", &path, ModuleTrustState::Main)
             .with_context(|| {

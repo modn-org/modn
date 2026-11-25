@@ -5,7 +5,6 @@ use modn_core::game_modules::{ModuleRegistry, ModuleSource, ReleaseOutcome};
 use modn_core::manager_roots::ManagerRoots;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::path::Path;
 
 pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: bool) -> Result<()> {
     let data = roots.profile();
@@ -38,7 +37,7 @@ pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: boo
                 println!("Unpinned game module {game}; updates and rollback may move it again.");
             }
         }
-        ModuleCommand::Update { game } => update(&registry, data, &game, json_output)?,
+        ModuleCommand::Update { game } => update(&registry, roots, &game, json_output)?,
         ModuleCommand::Rollback { game, to } => {
             rollback(&registry, &game, to.as_deref(), json_output)?;
         }
@@ -54,7 +53,7 @@ pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: boo
 
 fn update(
     registry: &ModuleRegistry,
-    store_root: &Path,
+    roots: &ManagerRoots,
     game: &str,
     json_output: bool,
 ) -> Result<()> {
@@ -67,7 +66,7 @@ fn update(
             "game module {game} was registered from a local source; register the new version with `modn module register <directory> --trust`"
         );
     };
-    let store = BucketStore::new(store_root);
+    let store = BucketStore::new(roots);
     match store.module_trust(&bucket)? {
         ModuleTrustState::Trusted | ModuleTrustState::Main => {}
         ModuleTrustState::Untrusted => bail!(
@@ -145,7 +144,7 @@ fn rollback(
 pub(super) fn list(roots: &ManagerRoots, json_output: bool) -> Result<()> {
     let data = roots.profile();
     let registry = ModuleRegistry::new(data);
-    let store = BucketStore::new(roots.profile());
+    let store = BucketStore::new(roots);
     let mut trust = BTreeMap::new();
     let mut entries = Vec::new();
     let mut lines = Vec::new();

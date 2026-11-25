@@ -264,11 +264,11 @@ pub fn doctor_with_ownership_appdata(
 }
 
 fn module_source_diagnostics(game_id: &str) -> Result<Vec<Diagnostic>> {
-    let data = crate::data_dir::profile_directory()?;
-    let buckets = BucketStore::new(&data);
+    let roots = crate::manager_roots::ManagerRoots::from_ambient()?;
+    let buckets = BucketStore::new(&roots);
     let trusted = buckets.trusted_module_sources()?;
     let mut diagnostics = Vec::new();
-    if let Some(release) = ModuleRegistry::new(&data).active(game_id)? {
+    if let Some(release) = ModuleRegistry::new(roots.profile()).active(game_id)? {
         if let Some(bucket) = release.source.bucket.as_deref() {
             let trusted = bucket == "main"
                 || trusted.iter().any(|source| {

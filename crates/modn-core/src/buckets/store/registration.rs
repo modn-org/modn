@@ -157,6 +157,7 @@ pub(in crate::buckets) fn bounded_json<T: serde::de::DeserializeOwned>(path: &Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manager_roots::ManagerRoots;
 
     fn registration(path: &str) -> Registration {
         Registration {
@@ -171,7 +172,7 @@ mod tests {
     #[test]
     fn an_oversized_registration_leaves_the_stored_file_unchanged() {
         let directory = tempfile::tempdir().expect("fixture");
-        let store = BucketStore::new(directory.path());
+        let store = BucketStore::new(&ManagerRoots::new(directory.path(), None));
         store
             .write_registration("community", &registration("first"))
             .expect("initial registration");

@@ -2,7 +2,7 @@ use super::loader::{self, VerifiedModule};
 use super::official::read_official;
 use super::registry::{ModuleRegistry, ModuleSource};
 use crate::buckets::BucketStore;
-use crate::data_dir;
+use crate::manager_roots::ManagerRoots;
 use anyhow::{bail, Result};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -37,9 +37,9 @@ pub fn with_module_source<T>(source: Option<&Path>, action: impl FnOnce() -> T) 
 /// Development overrides are not listed, because they name no game until a
 /// command selects one.
 pub fn available_games() -> Result<Vec<String>> {
-    let data = data_dir::profile_directory()?;
-    let mut games = BucketStore::new(&data).official_games()?;
-    games.extend(ModuleRegistry::new(&data).game_ids()?);
+    let roots = ManagerRoots::from_ambient()?;
+    let mut games = BucketStore::new(&roots).official_games()?;
+    games.extend(ModuleRegistry::new(roots.profile()).game_ids()?);
     games.sort();
     games.dedup();
     Ok(games)
@@ -56,12 +56,12 @@ pub(crate) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
     let (manifest, source) = match directory {
         Some(directory) => loader::read_verified_module(&directory)?,
         None => {
-            let data = data_dir::profile_directory()?;
-            let store = BucketStore::new(&data);
+            let roots = ManagerRoots::from_ambient()?;
+            let store = BucketStore::new(&roots);
             if store.official_games()?.iter().any(|id| id == game) {
                 read_official(game)?
             } else if let Some((manifest, script, registered)) =
-                ModuleRegistry::new(&data).read(game)?
+                ModuleRegistry::new(roots.profile()).read(game)?
             {
                 ensure_source_trusted(&store, game, &registered.source)?;
                 (manifest, script)

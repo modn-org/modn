@@ -2,6 +2,7 @@
 use super::snapshot_tests::{fetch, first_sync, packed_revision, snapshot_of};
 use super::tests::{pack_catalog, published_snapshot, signing_key, write_catalog, RECORD};
 use crate::buckets::{BucketStore, ZipCatalogSource};
+use modn_core::manager_roots::ManagerRoots;
 use std::fs;
 use std::sync::atomic::Ordering;
 
@@ -20,7 +21,7 @@ fn cleanup_keeps_a_tree_that_the_registration_names() {
     let marker = state.path().join("buckets/.retired-catalogs");
     fs::write(&marker, serde_json::json!([name]).to_string()).expect("marker");
 
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store.purge_retired_catalog_snapshots();
 
     assert!(active.is_dir(), "the registered tree is never removed");
@@ -33,7 +34,7 @@ fn removing_a_bucket_removes_only_its_own_snapshot() {
     let first = tempfile::tempdir().expect("first catalog");
     let key = signing_key();
     write_catalog(first.path(), "https://mirror.example/one.zip", &key);
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_zip_with_signer(
             "community",
@@ -102,7 +103,7 @@ fn a_failed_registration_removal_keeps_the_snapshot() {
     let catalog = tempfile::tempdir().expect("catalog");
     let key = signing_key();
     write_catalog(catalog.path(), "https://mirror.example/one.zip", &key);
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_zip_with_signer(
             "community",
@@ -142,7 +143,7 @@ fn removing_a_bucket_removes_its_live_and_retired_snapshots() {
     let key = signing_key();
     let _bytes = first_sync(state.path(), catalog.path(), &key);
     let retired = snapshot_of(state.path(), &published_snapshot(state.path()).0);
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let changed = packed_revision(catalog.path(), &key, "second revision");
     store
         .sync_zip_with_signer("community", None, fetch(changed))
@@ -166,7 +167,7 @@ fn removing_a_bucket_keeps_a_retired_tree_another_registration_names() {
     let key = signing_key();
     let _bytes = first_sync(state.path(), catalog.path(), &key);
     let retired = snapshot_of(state.path(), &published_snapshot(state.path()).0);
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let changed = packed_revision(catalog.path(), &key, "second revision");
     store
         .sync_zip_with_signer("community", None, fetch(changed))
@@ -203,7 +204,7 @@ fn removing_a_local_bucket_named_like_a_snapshot_keeps_every_file() {
         let payload = folder.join("user.txt");
         fs::write(&payload, b"user data").expect("user file");
 
-        let store = BucketStore::new(&state_root);
+        let store = BucketStore::new(&ManagerRoots::new(&state_root, None));
         store.add(name, &folder).expect("local bucket");
         store.remove(name).expect("remove the local bucket");
 
