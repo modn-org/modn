@@ -1,6 +1,8 @@
 use crate::selection::selected_installation;
 use anyhow::{bail, Context, Result};
+use modn_core::buckets::BucketStore;
 use modn_core::discovery::recognizes_installation_for;
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use std::path::{Component, Path, PathBuf};
 
@@ -192,6 +194,34 @@ fn registered_roots(store: Option<&Store>) -> Result<Vec<PathBuf>> {
         .into_iter()
         .filter_map(|entry| entry.path.canonicalize().ok())
         .collect())
+}
+
+pub(super) fn validate_write_targets(roots: &ManagerRoots, extra_game: Option<&str>) -> Result<()> {
+    let state = ManagerState::load_deferred(&roots.state_database())?;
+    let registered = state
+        .existing()
+        .map(Store::list)
+        .transpose()?
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect::<Vec<_>>();
+    let mut games = BucketStore::new(roots.profile()).official_games()?;
+    if let Some(game) = extra_game {
+        games.push(game.to_owned());
+    }
+    games.sort();
+    games.dedup();
+    let targets = roots.write_targets();
+    for target in &targets {
+        validate_state_path(target, None, None, &registered)?;
+    }
+    for game in games {
+        for target in &targets {
+            validate_state_path(target, Some(&game), None, &registered)?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn validate_state_path(

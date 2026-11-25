@@ -8,9 +8,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: bool) -> Result<()> {
-    let state_path = roots.state_database();
     let data = roots.profile();
-    crate::modules::validate_registry_writes(&state_path, data)?;
+    crate::state_access::validate_write_targets(roots, None)?;
     let registry = ModuleRegistry::new(data);
     match command {
         ModuleCommand::Pin { game } => {

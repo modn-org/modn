@@ -2,6 +2,7 @@ use crate::bucket_update;
 use crate::buckets;
 use crate::commands::UpdateArgs;
 use crate::main_release::UnsupportedRelease;
+use crate::state_access::validate_write_targets;
 use anyhow::{bail, Result};
 use modn_core::buckets::{BucketStore, CatalogKeyChange, GitCatalogSync, ZipCatalogSync};
 use modn_core::manager_roots::ManagerRoots;
@@ -236,10 +237,9 @@ fn key_change_suffix(change: Option<&CatalogKeyChange>) -> String {
 }
 fn catalog_refreshes(roots: &ManagerRoots, json: bool) -> Vec<Refresh> {
     let mut refreshes = vec![main_refresh()];
-    let state_path = roots.state_database();
     let root = roots.profile();
     let store = BucketStore::new(root);
-    if let Err(error) = buckets::validate_registry_write(&state_path, root, &store, None) {
+    if let Err(error) = validate_write_targets(roots, None) {
         refreshes.push(Refresh {
             name: "registrations".into(),
             kind: "registry",
