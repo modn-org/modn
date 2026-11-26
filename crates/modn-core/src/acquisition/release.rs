@@ -11,10 +11,11 @@ use super::{
     SourceBody, SourceCandidate, SourceFailure, SourcePolicy, SourceTarget, SourceTransport,
     SourcesError,
 };
-use crate::buckets::{BucketPackage, PackageSource};
+use crate::buckets::{ArchiveFormat, BucketPackage, PackageManifest, PackageSource};
 use crate::error::{code_of, ErrorCode};
 use crate::progress::OperationControl;
 use anyhow::{Context, Result};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// A verified archive for one release and every attempt the acquisition made.
@@ -57,6 +58,13 @@ pub trait ReleaseResolver {
 
     /// Resolve a planned fetch or GitHub source into one candidate.
     fn candidate(&self, release: &BucketPackage, action: PlannedAction) -> SourceCandidate;
+
+    /// Observe one attempt after core records it.
+    ///
+    /// Core calls this in the order it makes the attempts, before the next
+    /// source starts. A front end prints its text note here, so the note keeps
+    /// the attempt order. The default does nothing.
+    fn attempt(&self, _release: &BucketPackage, _attempt: &SourceAttempt) {}
 }
 
 impl ArchiveCache {
@@ -177,7 +185,12 @@ impl ArchiveCache {
                     let key = git_key(release, &commit);
                     match resolver.git(release, self, source, &key, cache_use, control) {
                         Ok(acquired) => {
-                            attempts.push(SourceAttempt::ok(label, 1));
+                            observed(
+                                resolver,
+                                release,
+                                &mut attempts,
+                                SourceAttempt::ok(label, 1),
+                            );
                             return Ok(ReleaseAcquired {
                                 path: acquired.path,
                                 digest: ReleaseDigest::computed(&acquired.blake3)?,
@@ -187,7 +200,12 @@ impl ArchiveCache {
                         }
                         Err(error) if is_cancelled(&error) => return Err(error),
                         Err(error) => {
-                            attempts.push(SourceAttempt::failed(label, 1, classify(&error)));
+                            observed(
+                                resolver,
+                                release,
+                                &mut attempts,
+                                SourceAttempt::failed(label, 1, classify(&error)),
+                            );
                             specific = Some(error);
                         }
                     }
@@ -204,7 +222,12 @@ impl ArchiveCache {
                             if is_cancelled(&error) {
                                 return Err(error);
                             }
-                            attempts.push(SourceAttempt::failed(label, 1, classify(&error)));
+                            observed(
+                                resolver,
+                                release,
+                                &mut attempts,
+                                SourceAttempt::failed(label, 1, classify(&error)),
+                            );
                             specific = Some(error);
                         }
                         Ok(link) => {
@@ -226,7 +249,12 @@ impl ArchiveCache {
                             );
                             match outcome {
                                 Ok(acquired) => {
-                                    attempts.push(SourceAttempt::ok(label, 1));
+                                    observed(
+                                        resolver,
+                                        release,
+                                        &mut attempts,
+                                        SourceAttempt::ok(label, 1),
+                                    );
                                     return Ok(ReleaseAcquired {
                                         path: acquired.path,
                                         digest: ReleaseDigest::from_pin(release.package.pin())?,
@@ -236,11 +264,12 @@ impl ArchiveCache {
                                 }
                                 Err(error) if is_cancelled(&error) => return Err(error),
                                 Err(error) => {
-                                    attempts.push(SourceAttempt::failed(
-                                        label,
-                                        1,
-                                        classify(&error),
-                                    ));
+                                    observed(
+                                        resolver,
+                                        release,
+                                        &mut attempts,
+                                        SourceAttempt::failed(label, 1, classify(&error)),
+                                    );
                                     specific = Some(error);
                                 }
                             }
@@ -261,7 +290,9 @@ impl ArchiveCache {
                     );
                     match outcome {
                         Ok(acquired) => {
-                            attempts.extend(acquired.attempts);
+                            for attempt in acquired.attempts {
+                                observed(resolver, release, &mut attempts, attempt);
+                            }
                             return Ok(ReleaseAcquired {
                                 path: acquired.acquired.path,
                                 digest: ReleaseDigest::from_pin(release.package.pin())?,
@@ -271,7 +302,11 @@ impl ArchiveCache {
                         }
                         Err(error) if is_cancelled(&error) => return Err(error),
                         Err(error) => match attempts_of(&error) {
-                            Some(failed) => attempts.extend(failed),
+                            Some(failed) => {
+                                for attempt in failed {
+                                    observed(resolver, release, &mut attempts, attempt);
+                                }
+                            }
                             None => {
                                 return Err(
                                     error.context(format!("source {reference} was not tried"))
@@ -287,6 +322,64 @@ impl ArchiveCache {
             _ => Err(SourcesError::new(reference, attempts).into()),
         }
     }
+}
+
+/// Build the one-source release record that a history entry describes.
+///
+/// Undo knows the release's identity, serving source and recorded archive
+/// digest, but not the rest of its manifest. This record lets
+/// [`ArchiveCache::acquire_release`] apply the same cache lookup and source
+/// plan as an install. A Git record carries no archive pin, because its commit
+/// is the integrity pin.
+///
+/// # Errors
+///
+/// Returns an error when a non-Git digest is not a BLAKE3 digest.
+pub fn recorded_release(
+    bucket: &str,
+    game: &str,
+    id: &str,
+    version: &str,
+    source: PackageSource,
+    digest: &str,
+) -> Result<BucketPackage> {
+    let git = matches!(source, PackageSource::Git { .. });
+    let blake3 = if git {
+        None
+    } else {
+        Some(ArchiveDigest::new(digest)?.as_str().to_owned())
+    };
+    Ok(BucketPackage {
+        bucket: bucket.to_owned(),
+        package: PackageManifest {
+            schema_version: 2,
+            id: id.to_owned(),
+            game: game.to_owned(),
+            name: id.to_owned(),
+            version: version.to_owned(),
+            archive_format: if git { None } else { Some(ArchiveFormat::Zip) },
+            blake3,
+            sources: vec![source],
+            redistributable: false,
+            upstream_sha256: None,
+            dependencies: Vec::new(),
+            homepage: None,
+            executables: Vec::new(),
+            dependency_versions: BTreeMap::new(),
+            conflicts: Vec::new(),
+            native_injector: false,
+        },
+    })
+}
+
+fn observed(
+    resolver: &dyn ReleaseResolver,
+    release: &BucketPackage,
+    attempts: &mut Vec<SourceAttempt>,
+    attempt: SourceAttempt,
+) {
+    resolver.attempt(release, &attempt);
+    attempts.push(attempt);
 }
 
 fn release_key<'a>(release: &'a BucketPackage, url: &'a str) -> Result<CacheKey<'a>> {
