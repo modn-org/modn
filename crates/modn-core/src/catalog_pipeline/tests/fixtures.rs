@@ -174,16 +174,19 @@ pub(super) fn plan_for(
 ) -> CatalogPlan {
     let selected = package(snapshot, id);
     let cache = fixture.cache();
-    let input = InstallInput::new(
-        &selected,
-        snapshot,
+    let input = InstallInput {
+        selected: &selected,
+        catalog: snapshot,
         store,
-        InstallTarget::new(GAME, game),
+        target: InstallTarget {
+            game_id: GAME,
+            installation: game,
+        },
         supplied,
-        &cache,
-        crate::acquisition::CacheUse::Reuse,
-        ConsentInputs::new(flags),
-    );
+        cache: &cache,
+        cache_use: crate::acquisition::CacheUse::Reuse,
+        consent: ConsentInputs { flags },
+    };
     plan_install(&input).expect("plan")
 }
 
