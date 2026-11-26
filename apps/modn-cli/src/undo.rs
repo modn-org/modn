@@ -142,8 +142,13 @@ fn restores(
             .as_deref()
             .with_context(|| format!("{} has no recorded archive digest", package.mod_id))?;
         let version = release.version.as_deref().unwrap_or("0");
-        let archive = download::acquire_source(
+        let bucket = release
+            .catalog
+            .as_ref()
+            .map_or("main", |catalog| catalog.bucket.as_str());
+        let archive = download::acquire_recorded(
             &cache,
+            bucket,
             &target.game_id,
             &package.mod_id,
             version,

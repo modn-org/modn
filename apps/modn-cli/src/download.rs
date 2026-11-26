@@ -12,14 +12,16 @@ use crate::nxm::NxmLink;
 use crate::progress::Progress;
 use anyhow::{bail, Result};
 pub(crate) use http::fetch;
-use http::{fetch_measured, fetch_metadata, HttpTransport};
+use http::HttpTransport;
 use modn_core::acquisition::SourceTransport;
 use modn_core::acquisition::{
-    source_cache_url, ArchiveCache, CacheKey, CacheUse, FetchError, GitCacheKey,
-    GithubReleaseAsset, ReleaseDigest, SourceAttempt, SourcePolicy,
+    recorded_release, source_cache_url, ArchiveCache, CacheUse, FetchError, GitAcquired,
+    GitCacheKey, NexusDownloadUrl, PlannedAction, ReleaseDigest, ReleaseResolver, SourceAttempt,
+    SourceBody, SourceCandidate, SourcePolicy,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::manager_roots::ManagerRoots;
+use modn_core::progress::OperationControl;
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
@@ -112,20 +114,6 @@ pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {
         }
     }
 }
-fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
-    let pin = release
-        .package
-        .pin()
-        .expect("an archive source has a validated BLAKE3 pin");
-    CacheKey::new(
-        &release.package.game,
-        &release.package.id,
-        &release.package.version,
-        url,
-        pin,
-    )
-}
-
 pub(super) fn downloadable(release: &BucketPackage) -> bool {
     release.package.sources.iter().any(|source| {
         matches!(
@@ -181,8 +169,13 @@ pub(super) fn digest(
     }
 }
 
-pub(super) fn acquire_source(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "undo supplies the recorded release identity, source, digest and progress"
+)]
+pub(super) fn acquire_recorded(
     cache: &ArchiveCache,
+    bucket: &str,
     game_id: &str,
     mod_id: &str,
     version: &str,
@@ -190,57 +183,56 @@ pub(super) fn acquire_source(
     blake3: &str,
     progress: &Progress,
 ) -> Result<PathBuf> {
-    match source {
-        PackageSource::Git { commit, .. } => {
-            let key = GitCacheKey::new(game_id, mod_id, version, commit);
-            match cache.git_cached(&key)? {
-                Some((path, cached)) if cached == blake3 => Ok(path),
-                _ => Err(cache_miss(
-                    "this git release cannot be fetched again; reinstall it from the catalog",
-                )),
-            }
-        }
-        PackageSource::Manual { .. } => Err(modn_core::error::coded(
-            modn_core::error::ErrorCode::UndoSourceManual,
-            "a manual source cannot be fetched again",
-        )),
-        _ => {
-            let Some(url) = source_cache_url(source)? else {
-                bail!("unknown release source");
-            };
-            let key = CacheKey::new(game_id, mod_id, version, &url, blake3);
-            if matches!(source, PackageSource::Nexus { .. }) {
-                return match cache.cached(&key)? {
-                    Some(path) => Ok(path),
-                    None => Err(cache_miss(
-                        "a Nexus download needs a new nxm link; reinstall it from the catalog",
-                    )),
-                };
-            }
-            if let PackageSource::GithubRelease {
-                repository,
-                tag,
-                asset,
-            } = source
-            {
-                if let Some(path) = cache.cached(&key)? {
-                    return Ok(path);
-                }
-                let provider =
-                    GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
-                if provider.resolve(fetch_metadata)? != url {
-                    bail!("provider source changed during resolution");
-                }
-            }
-            let acquired = cache.acquire_with_control(
-                &key,
-                CacheUse::Reuse,
-                Some(format!("{game_id}/{mod_id}")),
-                progress.control(),
-                fetch_measured,
-            )?;
-            Ok(acquired.path)
-        }
+    let release = recorded_release(bucket, game_id, mod_id, version, source.clone(), blake3)?;
+    let acquired = cache.acquire_release(
+        &release,
+        CacheUse::Reuse,
+        &HttpTransport,
+        SourcePolicy::default(),
+        &RecordedResolver,
+        progress.control(),
+    )?;
+    if matches!(source, PackageSource::Git { .. }) && acquired.digest.as_str() != Some(blake3) {
+        return Err(cache_miss(
+            "this git release cannot be fetched again; reinstall it from the catalog",
+        ));
+    }
+    Ok(acquired.path)
+}
+
+/// The undo resolver: a recorded release may reuse its cache, but it cannot
+/// fetch a Git commit or a Nexus file again.
+struct RecordedResolver;
+
+impl ReleaseResolver for RecordedResolver {
+    fn git(
+        &self,
+        _release: &BucketPackage,
+        _cache: &ArchiveCache,
+        _source: &PackageSource,
+        _key: &GitCacheKey<'_>,
+        _cache_use: CacheUse,
+        _control: &OperationControl,
+    ) -> Result<GitAcquired> {
+        Err(cache_miss(
+            "this git release cannot be fetched again; reinstall it from the catalog",
+        ))
+    }
+
+    fn nexus(&self, _release: &BucketPackage, _source: &PackageSource) -> Result<NexusDownloadUrl> {
+        Err(cache_miss(
+            "a Nexus download needs a new nxm link; reinstall it from the catalog",
+        ))
+    }
+
+    fn open_nexus(&self, _link: &NexusDownloadUrl) -> Result<SourceBody> {
+        Err(cache_miss(
+            "a Nexus download needs a new nxm link; reinstall it from the catalog",
+        ))
+    }
+
+    fn candidate(&self, _release: &BucketPackage, action: PlannedAction) -> SourceCandidate {
+        fallback::resolve_candidate(action)
     }
 }
 
@@ -277,14 +269,14 @@ pub(super) fn add_cached<'a>(
         if archives.contains_key(&reference) {
             continue;
         }
-        let Some((archive, digest, source)) = acquire::cached_archive(cache, release)? else {
+        let Some(acquired) = cache.cached_release(release)? else {
             continue;
         };
-        if let Some(digest) = digest {
-            digests.insert(reference.clone(), digest);
+        if let Some(digest) = acquired.digest.as_str() {
+            digests.insert(reference.clone(), digest.to_owned());
         }
-        served.insert(reference.clone(), source);
-        archives.insert(reference, archive);
+        served.insert(reference.clone(), acquired.source);
+        archives.insert(reference, acquired.path);
     }
     Ok(())
 }

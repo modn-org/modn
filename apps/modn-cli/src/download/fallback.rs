@@ -1,6 +1,6 @@
 use super::http::fetch_metadata;
 use modn_core::acquisition::{
-    FetchError, GithubReleaseAsset, PlannedAction, SourceCandidate, SourcePolicy, SourceTarget,
+    FetchError, GithubReleaseAsset, PlannedAction, SourceCandidate, SourcePolicy,
 };
 use std::io::Read;
 
@@ -56,13 +56,6 @@ fn transient(error: &anyhow::Error) -> bool {
         .downcast_ref::<std::io::Error>()
         .and_then(super::transport_io)
         .is_some_and(|error| super::retryable(&error))
-}
-
-pub(super) fn fetch_url(candidate: &SourceCandidate) -> &str {
-    match &candidate.target {
-        SourceTarget::Fetch(url) => url.as_str(),
-        _ => candidate.label.as_str(),
-    }
 }
 
 #[cfg(test)]
