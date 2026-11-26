@@ -12,6 +12,10 @@ Each committed install records the installation's game root in manager state. In
 
 Transactions are **recoverable** rather than one single filesystem-wide atomic visibility event; during a multi-file operation, some files may briefly appear before all are committed. Hard links must be supported by the game volume. This implementation does not perform REDmod deployment, runtime/compatibility verification (only framework marker presence checks), automatic adoption, migration, or automatic recovery. Package updates use the same journals; see [Pinning and updating mods](updating.md). Always try it on a disposable game fixture before testing against a real game.
 
+## Catalog install entry points
+
+`Store` installs catalog releases through two entry points. `Store::install_catalog_release_with_permissions` installs the plan that the caller reviewed. `Store::install_catalog_release_planned` takes a re-planning closure instead. Under the transaction lock, after the idle check and after the archive inspection, it passes the archive path to the closure and installs the `InstallPlan` that the closure returns. A closure error propagates unchanged and writes no game file, ownership row or journal entry. Both entry points share the same install path (`install_locked`), so the archive, ownership, conflict and dependency checks and the journal treatment are identical. The closure runs while the lock is held, so a caller can compare a fresh plan with the plan the user saw before any write.
+
 ## The commit point and cancellation
 
 An install, update, uninstall or download may report progress and accept a
