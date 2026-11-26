@@ -124,7 +124,7 @@ registered again.
 | `version` | Exact mod release version. |
 | `name` | User-facing name. |
 | `archive_format` | ZIP or 7z, where supported. |
-| `blake3` | BLAKE3 pin of the original distribution archive. |
+| `blake3` | BLAKE3 pin of the original distribution archive. A release digest is typed: a catalog pin, a digest Modn computed after a fetch, or unknown (a Git release before Modn fetches it). |
 | `sources` | Ordered artifact sources: HTTPS URLs, pinned GitHub release assets, pinned Nexus Mods files, Git commits or manual archives. Modn tries them in order and uses the first whose bytes match the archive pin; a `manual` source is never started automatically. See [sources.md](sources.md#artifact-source-fallback). |
 | `redistributable` | True when the author allows redistribution of the archive; defaults to false. |
 | `upstream_sha256` | Original upstream SHA-256, when known. Provenance only; Modn never verifies it. |
@@ -144,7 +144,9 @@ silently. The current resolver checks cycles, missing references, ambiguous name
 ### Artifact source and verified artifact
 
 An **ArtifactSource** describes an HTTPS URL, a pinned GitHub release asset, a
-pinned Nexus Mods file, a Git commit or a manual archive source. GitHub
+pinned Nexus Mods file, a Git commit or a manual archive source. A Git release
+has no archive digest until Modn fetches and hashes it; until then its release
+digest is the unknown case, not a digest value. GitHub
 selectors contain repository, tag and asset names. A Nexus selector contains
 the game domain, mod ID, file ID and file name. Approved acquisition validates
 bounded provider metadata before verified retrieval. A Nexus download sends the

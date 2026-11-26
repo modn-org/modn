@@ -355,7 +355,7 @@ impl ArchiveCache {
                                     key.mod_id,
                                     key.version,
                                     url,
-                                    key.blake3,
+                                    key.blake3(),
                                 );
                                 return Ok(SourcesAcquired {
                                     acquired: Acquired {
@@ -400,7 +400,7 @@ impl ArchiveCache {
         package: Option<String>,
         control: &OperationControl,
     ) -> std::result::Result<(), SourceFailure> {
-        let url_key = CacheKey::new(key.game_id, key.mod_id, key.version, url, key.blake3);
+        let url_key = CacheKey::new(key.game_id, key.mod_id, key.version, url, key.blake3());
         let path = self.path(&url_key);
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         let mut partial = tempfile::Builder::new()
@@ -418,9 +418,9 @@ impl ArchiveCache {
                 "download exceeds {MAX_DOWNLOAD_BYTES} bytes"
             )));
         }
-        if actual != key.blake3 {
+        if actual != key.blake3() {
             return Err(SourceFailure::DigestMismatch {
-                expected: key.blake3.to_owned(),
+                expected: key.blake3().to_owned(),
                 actual,
             });
         }
@@ -435,7 +435,7 @@ impl ArchiveCache {
                 err.error
             ))
         })?;
-        if let (Some(pin), Some(name)) = (ArchivePin::blake3(key.blake3), path.file_name()) {
+        if let (Some(pin), Some(name)) = (ArchivePin::blake3(key.blake3()), path.file_name()) {
             ArchiveIndex::record(&self.root, pin, name.to_string_lossy().into_owned());
         }
         Ok(())
