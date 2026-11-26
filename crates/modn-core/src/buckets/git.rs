@@ -355,7 +355,6 @@ impl BucketStore {
             (Some(registration), false) => Some(registration.path.clone()),
             _ => None,
         };
-        let registration_before = self.stored_registration_bytes(name)?;
         let staged = if trust == ModuleTrustState::Trusted {
             Some(stage_catalog_modules_at(
                 &self.roots,
@@ -370,6 +369,18 @@ impl BucketStore {
             Some(staged) => staged.ignored().to_vec(),
             None => ignored_catalog_modules(&catalog)?,
         };
+        // Validate the whole catalog before any module commit. A commit must not
+        // publish releases from a revision that could never be registered.
+        self.validate_catalog(name, &published_path, trust)?;
+        // Commit the modules first: they were verified against the signed catalog
+        // snapshot, so this adds no trust. A failed commit then leaves the previous
+        // registration and the previous active releases in place. A failed publish
+        // keeps the new releases retained; the next sync publishes the revision and
+        // reports those releases as unchanged.
+        let imported = match staged {
+            Some(staged) => staged.commit()?,
+            None => Vec::new(),
+        };
         self.publish_git(
             name,
             published_path,
@@ -377,35 +388,11 @@ impl BucketStore {
             mirrors.clone(),
             trust == ModuleTrustState::Trusted,
         )?;
-        let retained = if unchanged && previous_registration.is_some() {
-            None
-        } else {
-            Some(stage.keep())
-        };
-        let imported = match staged {
-            Some(staged) => match staged.commit() {
-                Ok(imported) => imported,
-                Err(error) => {
-                    let restored = self.restore_registration(name, registration_before.as_deref());
-                    return match restored {
-                        // Only the restored registration justifies removing the
-                        // new tree: a failed restore may leave it referenced.
-                        Ok(()) => {
-                            if let Some(retained) = &retained {
-                                let _ = fs::remove_dir_all(retained);
-                            }
-                            Err(error)
-                        }
-                        Err(restore_error) => Err(error.context(format!(
-                            "the previous registration could not be restored; the new catalog tree is kept: {restore_error:#}"
-                        ))),
-                    };
-                }
-            },
-            None => Vec::new(),
-        };
-        // Publish first: a failed sync must leave the previous state in place,
-        // so only a committed registration purges an earlier sync's retired trees.
+        if !(unchanged && previous_registration.is_some()) {
+            let _ = stage.keep();
+        }
+        // Publish before purging: a failed publish leaves the previous registration
+        // and tree in place, so only a committed registration purges retired trees.
         self.purge_retired_catalog_snapshots();
         if let Some(superseded) = superseded {
             self.retire_catalog_snapshot(name, &superseded);
@@ -441,6 +428,8 @@ pub(super) fn same_signing_files(published: &Path, staged: &Path) -> bool {
     })
 }
 
+#[cfg(test)]
+mod publish_order_tests;
 #[cfg(test)]
 mod replay_tests;
 #[cfg(test)]
