@@ -19,7 +19,7 @@ fn resolve(
     let selected = fixtures::package(&snapshot, &manifest.id);
     let order = order::resolve(&snapshot, &selected).expect("order");
     let cache = fixture.cache();
-    archives::resolve(&order, &selected, supplied, &cache, cache_use)
+    archives::resolve(&order, supplied, &cache, cache_use)
 }
 
 fn resolved_order(fixture: &Fixture, selected_id: &str) -> (Vec<OrderedRelease>, ResolvedArchives) {
@@ -27,8 +27,7 @@ fn resolved_order(fixture: &Fixture, selected_id: &str) -> (Vec<OrderedRelease>,
     let selected = fixtures::package(&snapshot, selected_id);
     let order = order::resolve(&snapshot, &selected).expect("order");
     let cache = fixture.cache();
-    let resolved =
-        archives::resolve(&order, &selected, &[], &cache, CacheUse::Reuse).expect("archives");
+    let resolved = archives::resolve(&order, &[], &cache, CacheUse::Reuse).expect("archives");
     (order, resolved)
 }
 
@@ -66,25 +65,21 @@ fn a_supplied_archive_with_the_pinned_digest_serves_its_release() {
 }
 
 #[test]
-fn a_supplied_archive_that_matches_no_release_is_refused() {
+fn a_supplied_archive_that_matches_no_release_is_reported() {
     let fixture = Fixture::new();
     let archive = fixture.zip("top");
 
-    let error = resolve(
+    let resolved = resolve(
         &fixture,
         fixtures::manifest("top", Some(&"c".repeat(64))),
         std::slice::from_ref(&archive),
         CacheUse::Reuse,
     )
-    .expect_err("unmatched archive");
+    .expect("archives");
 
-    assert_eq!(
-        error.to_string(),
-        format!(
-            "{}: archive BLAKE3 does not match catalog manifest of main/{GAME}/top or its dependencies",
-            archive.display()
-        )
-    );
+    assert_eq!(resolved.unmatched, [archive]);
+    assert!(resolved.releases[0].served.is_none());
+    assert_eq!(resolved.pending.len(), 1);
 }
 
 #[test]
@@ -141,8 +136,7 @@ fn a_verified_cache_entry_serves_the_release() {
     std::fs::create_dir_all(cache.root()).expect("cache root");
     std::fs::copy(&archive, &cached_path).expect("cache entry");
 
-    let resolved =
-        archives::resolve(&order, &selected, &[], &cache, CacheUse::Reuse).expect("archives");
+    let resolved = archives::resolve(&order, &[], &cache, CacheUse::Reuse).expect("archives");
 
     assert!(resolved.pending.is_empty());
     assert_eq!(
@@ -174,8 +168,7 @@ fn a_cache_entry_with_the_wrong_digest_does_not_serve_the_release() {
     std::fs::create_dir_all(cache.root()).expect("cache root");
     std::fs::write(&cached_path, b"not the pinned archive").expect("tampered entry");
 
-    let resolved =
-        archives::resolve(&order, &selected, &[], &cache, CacheUse::Reuse).expect("archives");
+    let resolved = archives::resolve(&order, &[], &cache, CacheUse::Reuse).expect("archives");
 
     assert!(resolved.releases[0].served.is_none());
     assert_eq!(resolved.pending.len(), 1);

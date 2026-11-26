@@ -29,23 +29,25 @@ pub(super) struct ResolvedArchives {
     pub(super) releases: Vec<ResolvedArchive>,
     /// Releases with no supplied or verified cached archive, in order order.
     pub(super) pending: Vec<PendingDownload>,
+    /// Supplied paths whose BLAKE3 matches no release, in `--file` order.
+    pub(super) unmatched: Vec<PathBuf>,
 }
 
 /// Resolve the archive of every release in `order`.
 ///
-/// A supplied file must be a regular archive whose BLAKE3 and format match the
-/// release it names; a file that matches no release or the wrong format is an
-/// error. With [`CacheUse::Reuse`], a release that has no supplied archive may
+/// A supplied file must be a regular archive whose format matches the release
+/// it names; the wrong format is an error. A file whose BLAKE3 matches no
+/// release is returned in [`ResolvedArchives::unmatched`] for the caller to
+/// refuse. With [`CacheUse::Reuse`], a release that has no supplied archive may
 /// be served by a verified cache entry. Every other release is listed as a
 /// pending download.
 pub(super) fn resolve(
     order: &[OrderedRelease],
-    selected: &BucketPackage,
     supplied: &[PathBuf],
     cache: &ArchiveCache,
     cache_use: CacheUse,
 ) -> Result<ResolvedArchives> {
-    let mut served = match_supplied(supplied, order, selected)?;
+    let (mut served, unmatched) = match_supplied(supplied, order)?;
     if cache_use == CacheUse::Reuse {
         for (index, ordered) in order.iter().enumerate() {
             if served[index].is_some() {
@@ -74,7 +76,11 @@ pub(super) fn resolve(
         }
         releases.push(ResolvedArchive { digest, served });
     }
-    Ok(ResolvedArchives { releases, pending })
+    Ok(ResolvedArchives {
+        releases,
+        pending,
+        unmatched,
+    })
 }
 
 /// Return the indexes of `installing` that one stack installation may place,
@@ -132,10 +138,9 @@ pub(super) fn one_archive_per_digest(
 fn match_supplied(
     files: &[PathBuf],
     order: &[OrderedRelease],
-    selected: &BucketPackage,
-) -> Result<Vec<Option<ServedArchive>>> {
-    let selected_reference = selected.reference();
+) -> Result<(Vec<Option<ServedArchive>>, Vec<PathBuf>)> {
     let mut served = vec![None; order.len()];
+    let mut unmatched = Vec::new();
     for file in files {
         if !std::fs::symlink_metadata(file)?.file_type().is_file() {
             bail!("archive must be a regular file: {}", file.display());
@@ -148,10 +153,8 @@ fn match_supplied(
             .map(|(index, _)| index)
             .collect();
         if matches.is_empty() {
-            bail!(
-                "{}: archive BLAKE3 does not match catalog manifest of {selected_reference} or its dependencies",
-                file.display()
-            );
+            unmatched.push(file.clone());
+            continue;
         }
         for index in matches {
             let package = &order[index].package;
@@ -169,7 +172,7 @@ fn match_supplied(
             });
         }
     }
-    Ok(served)
+    Ok((served, unmatched))
 }
 
 fn pending_download(package: &BucketPackage, digest: ReleaseDigest) -> PendingDownload {
