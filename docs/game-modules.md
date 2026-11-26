@@ -90,7 +90,9 @@ The `--src` alias for `--module-src` is global but never persisted.
 `MODN_GAME_MODULES_DIR/<game-id>/` remains an alternative developer override.
 An explicit missing, invalid or mismatched source fails without fallback.
 Ordinary commands return to the local `main` policy; edits to a selected local
-source are observed without rebuilding Modn. A persistent
+source are observed without rebuilding Modn. The CLI reads
+`MODN_GAME_MODULES_DIR` once per command and passes it as a development base
+directory; the selection joins it with the game ID. A persistent
 `MODN_GAME_MODULES_DIR` applies to every command in that environment, so
 unset it outside development. Neither override grants write
 access to the game or changes Rust installation transactions.
@@ -113,8 +115,12 @@ origin. A development override that fails verification, a retained release from
 an untrusted bucket, and a release whose recorded signer differs from the
 trusted signer are refusals, even when another origin could supply the game. A
 verified manifest whose `game_id` differs from the requested game is also
-refused. The selection is built for each command and re-reads the module bytes;
-it is not a cache.
+refused. The selection is built for each command and is not a cache. Every
+execution boundary re-reads the module from the selected origin and refuses with
+`game module <game> changed after selection` when the identity, digest or script
+differs; an unchanged module runs normally. The policy evaluation, content-root,
+store-identity and launch-target lookups all take this selection instead of
+resolving the module again.
 
 The shared read-only host adds `mods_host.directory.list(root_id,relative[,max_entries])`
 (default and maximum 2,048 entries; an optional per-call bound reports

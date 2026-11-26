@@ -4,7 +4,7 @@
 //! `validate` policy confirms it, with that folder as its only readable root.
 //! Detection reads libraries and game folders; it writes nothing.
 
-use crate::game_modules::{policy, store_identities, StoreIdentities};
+use crate::game_modules::{policy, store_identities, ModuleSelection, StoreIdentities};
 use crate::manager_roots::ManagerRoots;
 use crate::stores::{StoreInstallation, StoreLibraries, Storefront};
 use serde::Serialize;
@@ -79,9 +79,25 @@ pub fn detect_installations(
     let installations = libraries.installations();
     let mut detection = Detection::default();
     for game in games {
-        match store_identities(roots, game) {
+        let selection = match ModuleSelection::resolve(roots, game) {
+            Ok(selection) => selection,
+            Err(error) => {
+                detection.skipped.push(SkippedGame {
+                    game_id: game.clone(),
+                    reason: format!("DETECT_MODULE_UNREADABLE: {error:#}"),
+                });
+                continue;
+            }
+        };
+        match store_identities(&selection) {
             Ok(identities) => {
-                confirm_matches(roots, game, &identities, &installations, &mut detection);
+                confirm_matches(
+                    &selection,
+                    game,
+                    &identities,
+                    &installations,
+                    &mut detection,
+                );
             }
             Err(error) => detection.skipped.push(SkippedGame {
                 game_id: game.clone(),
@@ -99,7 +115,7 @@ pub fn detect_installations(
 }
 
 fn confirm_matches(
-    roots: &ManagerRoots,
+    selection: &ModuleSelection,
     game: &str,
     identities: &StoreIdentities,
     installations: &[StoreInstallation],
@@ -109,7 +125,7 @@ fn confirm_matches(
         if identities.get(installation.store) != Some(installation.store_id.as_str()) {
             continue;
         }
-        match confirm(roots, game, installation) {
+        match confirm(selection, installation) {
             Ok(path) => detection.confirmed.push(DetectedInstallation {
                 game_id: game.to_owned(),
                 store: installation.store,
@@ -128,15 +144,14 @@ fn confirm_matches(
 }
 
 fn confirm(
-    roots: &ManagerRoots,
-    game: &str,
+    selection: &ModuleSelection,
     installation: &StoreInstallation,
 ) -> Result<PathBuf, String> {
     let path = installation
         .path
         .canonicalize()
         .map_err(|error| format!("DETECT_FOLDER_UNREADABLE: cannot access the folder: {error}"))?;
-    match policy::validate(roots, game, &path) {
+    match policy::validate(selection, &path) {
         Ok((true, _)) => Ok(path),
         Ok((false, marker)) => Err(format!(
             "DETECT_FOLDER_UNCONFIRMED: the folder does not contain {marker}"

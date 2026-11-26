@@ -2,6 +2,7 @@ use crate::selection::selected_installation;
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::BucketStore;
 use modn_core::discovery::recognizes_installation_for;
+use modn_core::game_modules::ModuleSelection;
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use std::path::{Component, Path, PathBuf};
@@ -275,6 +276,9 @@ pub(super) fn validate_outside_games(
         bail!("{label} must not contain parent-directory components");
     }
     let selected_root = selected_path.map(Path::canonicalize).transpose()?;
+    let selection = selected_game
+        .map(|game| ModuleSelection::resolve(roots, game))
+        .transpose()?;
     let mut directory = if parent.is_absolute() {
         parent.to_path_buf()
     } else {
@@ -291,9 +295,9 @@ pub(super) fn validate_outside_games(
             {
                 bail!("{label} must be outside a game installation");
             }
-            if let Some(game) = selected_game {
+            if let Some(selection) = &selection {
                 for ancestor in existing.ancestors() {
-                    if recognizes_installation_for(roots, game, ancestor)? {
+                    if recognizes_installation_for(selection, ancestor)? {
                         bail!("{label} must be outside a game installation");
                     }
                 }
