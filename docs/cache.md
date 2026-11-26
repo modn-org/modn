@@ -5,7 +5,10 @@ cache is `<state-dir>/cache` unless `MODN_CACHE` names another directory.
 Each entry is named `<game>#<mod>#<version>#<url hash><extension>`. Modn
 downloads only over HTTPS, and redirects must stay on HTTPS. A download
 attempt fails if the server sends nothing for 60 seconds, and Modn then tries
-the next source in the record; see [sources.md](sources.md#artifact-source-fallback). Each attempt writes its own
+the next source in the record; see
+[sources.md](sources.md#artifact-source-fallback). The core chooses that
+source order and each cache key; a front end supplies only the transport,
+Nexus credentials and links, and the Git process. Each attempt writes its own
 `<entry>.<random>.download` file, so concurrent downloads never share bytes.
 Modn checks the manifest's BLAKE3 pin and a 4 GiB size limit, then atomically
 renames the file into place. A failed check removes that attempt's partial
