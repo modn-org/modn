@@ -19,6 +19,7 @@ mod entry_name;
 mod git;
 mod index;
 mod nexus;
+mod plan;
 mod provider;
 mod sources;
 use digest::{copy_blake3, file_blake3, file_has_blake3};
@@ -28,6 +29,7 @@ use index::{ArchiveIndex, ArchivePin};
 pub use nexus::{
     NexusApiKey, NexusDownloadGrant, NexusDownloadUrl, NexusFile, NexusGameDomain, NexusRequest,
 };
+pub use plan::{plan_sources, source_cache_url, PlannedAction, PlannedSource};
 pub use provider::GithubReleaseAsset;
 pub use sources::{
     FetchError, SourceAttempt, SourceBody, SourceCandidate, SourceFailure, SourcePolicy,

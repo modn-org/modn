@@ -49,6 +49,15 @@ impl GithubReleaseAsset {
         }
     }
 
+    /// The canonical HTTPS download URL of the selected release asset.
+    #[must_use]
+    pub fn download_url(&self) -> String {
+        format!(
+            "https://github.com/{}/releases/download/{}/{}",
+            self.repository, self.tag, self.asset
+        )
+    }
+
     /// Validate the selector and return its unauthenticated GitHub API endpoint.
     pub fn metadata_url(&self) -> Result<String> {
         let parts: Vec<_> = self.repository.split('/').collect();
@@ -93,10 +102,7 @@ impl GithubReleaseAsset {
         if matches.next().is_some() {
             bail!("duplicate GitHub release asset");
         }
-        let expected = format!(
-            "https://github.com/{}/releases/download/{}/{}",
-            self.repository, self.tag, self.asset
-        );
+        let expected = self.download_url();
         if asset.browser_download_url != expected {
             bail!("unsafe or mismatched GitHub asset URL");
         }

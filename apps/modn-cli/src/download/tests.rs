@@ -1,7 +1,7 @@
 use crate::commands::Cli;
 use crate::download::{TEST_CALLS, TEST_METADATA_FAILURES, TEST_RESPONSES};
 use clap::Parser;
-use modn_core::acquisition::{CacheUse, FetchError, SourceAttempt, SourceTarget};
+use modn_core::acquisition::{plan_sources, CacheUse, FetchError, SourceAttempt, SourceTarget};
 use modn_core::buckets::{BucketPackage, BucketStore};
 use modn_core::manager_roots::ManagerRoots;
 use serde_json::json;
@@ -289,11 +289,13 @@ fn a_transient_metadata_failure_is_retried_before_the_source_is_refused() {
             vec![FetchError::Timeout],
         )])))
     });
-    let candidates = super::fallback::plan(&package);
-    let candidate = match candidates.into_iter().next().expect("one source") {
-        (super::fallback::Planned::Fetch(fetch), _) => fetch.resolve(),
-        _ => panic!("the GitHub source is not a fetch entry"),
-    };
+    let candidate = super::fallback::resolve_candidate(
+        plan_sources(&package)
+            .into_iter()
+            .next()
+            .expect("one source")
+            .action,
+    );
     TEST_RESPONSES.with(|responses| responses.replace(None));
     TEST_METADATA_FAILURES.with(|failures| failures.replace(None));
 
@@ -329,11 +331,13 @@ fn a_404_metadata_failure_is_refused_without_a_retry() {
             vec![FetchError::Http(404)],
         )])))
     });
-    let candidates = super::fallback::plan(&package);
-    let candidate = match candidates.into_iter().next().expect("one source") {
-        (super::fallback::Planned::Fetch(fetch), _) => fetch.resolve(),
-        _ => panic!("the GitHub source is not a fetch entry"),
-    };
+    let candidate = super::fallback::resolve_candidate(
+        plan_sources(&package)
+            .into_iter()
+            .next()
+            .expect("one source")
+            .action,
+    );
     TEST_RESPONSES.with(|responses| responses.replace(None));
     TEST_METADATA_FAILURES.with(|failures| failures.replace(None));
 

@@ -15,8 +15,8 @@ pub(crate) use http::fetch;
 use http::{fetch_measured, fetch_metadata, HttpTransport};
 use modn_core::acquisition::SourceTransport;
 use modn_core::acquisition::{
-    ArchiveCache, CacheKey, CacheUse, FetchError, GitCacheKey, GithubReleaseAsset, NexusFile,
-    SourceAttempt, SourcePolicy,
+    source_cache_url, ArchiveCache, CacheKey, CacheUse, FetchError, GitCacheKey,
+    GithubReleaseAsset, SourceAttempt, SourcePolicy,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::manager_roots::ManagerRoots;
@@ -112,29 +112,6 @@ pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {
         }
     }
 }
-fn source_url(source: &PackageSource) -> Option<String> {
-    match source {
-        PackageSource::Https { url } => Some(url.clone()),
-        PackageSource::GithubRelease {
-            repository,
-            tag,
-            asset,
-        } => Some(format!(
-            "https://github.com/{repository}/releases/download/{tag}/{asset}"
-        )),
-        PackageSource::Nexus {
-            game_domain,
-            mod_id,
-            file_id,
-            file_name,
-        } => NexusFile::new(game_domain, *mod_id, *file_id, file_name)
-            .ok()
-            .map(|file| file.cache_url()),
-        PackageSource::Manual { .. } => None,
-        _ => None,
-    }
-}
-
 fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
     CacheKey::new(
         &release.package.game,
@@ -186,7 +163,7 @@ pub(super) fn source_label(source: &PackageSource) -> Option<String> {
             file_id,
             file_name,
         } => Some(nexus_label(game_domain, *mod_id, *file_id, file_name)),
-        _ => source_url(source),
+        _ => source_cache_url(source).ok().flatten(),
     }
 }
 
@@ -209,65 +186,58 @@ pub(super) fn acquire_source(
     blake3: &str,
     progress: &Progress,
 ) -> Result<PathBuf> {
-    let url = match source {
-        PackageSource::Https { url } => url.clone(),
-        PackageSource::GithubRelease {
-            repository,
-            tag,
-            asset,
-        } => {
-            let url = format!("https://github.com/{repository}/releases/download/{tag}/{asset}");
-            let key = CacheKey::new(game_id, mod_id, version, &url, blake3);
-            if let Some(path) = cache.cached(&key)? {
-                return Ok(path);
-            }
-            let provider = GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
-            if provider.resolve(fetch_metadata)? != url {
-                bail!("provider source changed during resolution");
-            }
-            url
-        }
+    match source {
         PackageSource::Git { commit, .. } => {
             let key = GitCacheKey::new(game_id, mod_id, version, commit);
-            return match cache.git_cached(&key)? {
+            match cache.git_cached(&key)? {
                 Some((path, cached)) if cached == blake3 => Ok(path),
                 _ => Err(cache_miss(
                     "this git release cannot be fetched again; reinstall it from the catalog",
                 )),
-            };
+            }
         }
-        PackageSource::Nexus {
-            game_domain,
-            mod_id: nexus_mod_id,
-            file_id,
-            file_name,
-        } => {
-            let url = NexusFile::new(game_domain, *nexus_mod_id, *file_id, file_name)?.cache_url();
+        PackageSource::Manual { .. } => Err(modn_core::error::coded(
+            modn_core::error::ErrorCode::UndoSourceManual,
+            "a manual source cannot be fetched again",
+        )),
+        _ => {
+            let Some(url) = source_cache_url(source)? else {
+                bail!("unknown release source");
+            };
             let key = CacheKey::new(game_id, mod_id, version, &url, blake3);
-            return match cache.cached(&key)? {
-                Some(path) => Ok(path),
-                None => Err(cache_miss(
-                    "a Nexus download needs a new nxm link; reinstall it from the catalog",
-                )),
-            };
+            if matches!(source, PackageSource::Nexus { .. }) {
+                return match cache.cached(&key)? {
+                    Some(path) => Ok(path),
+                    None => Err(cache_miss(
+                        "a Nexus download needs a new nxm link; reinstall it from the catalog",
+                    )),
+                };
+            }
+            if let PackageSource::GithubRelease {
+                repository,
+                tag,
+                asset,
+            } = source
+            {
+                if let Some(path) = cache.cached(&key)? {
+                    return Ok(path);
+                }
+                let provider =
+                    GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone());
+                if provider.resolve(fetch_metadata)? != url {
+                    bail!("provider source changed during resolution");
+                }
+            }
+            let acquired = cache.acquire_with_control(
+                &key,
+                CacheUse::Reuse,
+                Some(format!("{game_id}/{mod_id}")),
+                progress.control(),
+                fetch_measured,
+            )?;
+            Ok(acquired.path)
         }
-        PackageSource::Manual { .. } => {
-            return Err(modn_core::error::coded(
-                modn_core::error::ErrorCode::UndoSourceManual,
-                "a manual source cannot be fetched again",
-            ));
-        }
-        _ => bail!("unknown release source"),
-    };
-    let key = CacheKey::new(game_id, mod_id, version, &url, blake3);
-    let acquired = cache.acquire_with_control(
-        &key,
-        CacheUse::Reuse,
-        Some(format!("{game_id}/{mod_id}")),
-        progress.control(),
-        fetch_measured,
-    )?;
-    Ok(acquired.path)
+    }
 }
 
 fn cache_miss(detail: &str) -> anyhow::Error {
