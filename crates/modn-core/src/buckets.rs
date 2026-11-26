@@ -10,6 +10,7 @@ mod snapshot;
 mod store;
 mod test_hooks;
 mod trust;
+mod trust_decision;
 mod update;
 mod version;
 mod zip_source;
@@ -33,6 +34,10 @@ pub use test_hooks::main_release_list_override;
 pub use trust::{
     local_bucket_module_refusal, ModuleSourceTrust, ModuleTrustAck, ModuleTrustState,
     TrustModulesOutcome, TrustedModuleSource,
+};
+pub use trust_decision::{
+    decide_module_source_trust, ModuleSourceBucketKind, ModuleSourceRegistrationFacts,
+    ModuleSourceTrustDecision, ModuleSourceTrustReason, ModuleSourceTrustRemedy,
 };
 pub use version::VersionReq;
 pub use zip_source::{ZipCatalogRevision, ZipCatalogSource, ZipCatalogSync};
