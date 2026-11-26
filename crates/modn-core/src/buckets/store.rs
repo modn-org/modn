@@ -9,6 +9,7 @@ pub(super) use self::registration::{bounded_json, Registration};
 use self::packages::{read_packages, Releases};
 use super::manifest::{valid_id, PackageManifest};
 use super::trust::ModuleTrustState;
+use super::trust_decision::ModuleSourceRegistrationFacts;
 use super::BucketSnapshot;
 use crate::manager_roots::ManagerRoots;
 use anyhow::{bail, Context, Result};
@@ -114,25 +115,6 @@ impl BucketStore {
             fail_next_registration_remove: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             clock: None,
-        }
-    }
-
-    /// Trust state stored in one registration.
-    pub(super) fn stored_module_trust(registration: &Registration) -> ModuleTrustState {
-        if registration.git.is_none() && registration.zip.is_none() {
-            return ModuleTrustState::Local;
-        }
-        let Some(signer) = registration.catalog_signer() else {
-            return ModuleTrustState::Untrusted;
-        };
-        let trusted = registration
-            .module_trust
-            .as_ref()
-            .is_some_and(|trust| trust.signer_key_id == signer.key_id);
-        if trusted {
-            ModuleTrustState::Trusted
-        } else {
-            ModuleTrustState::Untrusted
         }
     }
 
@@ -360,7 +342,8 @@ impl BucketStore {
         let mut all = vec![self.official()?.0];
         for (id, registration) in self.registrations()? {
             let revision = registration.revision(&id)?;
-            let trust = Self::stored_module_trust(&registration);
+            let trust = ModuleSourceRegistrationFacts::from_registration(&registration)
+                .bucket_trust_state();
             let signer_key_id = match registration.zip.as_ref() {
                 Some(zip) => Some(zip.signer.key_id.clone()),
                 None => revision.map(|revision| revision.signer.key_id),
@@ -425,7 +408,8 @@ impl BucketStore {
         let mut sources = vec![("main".to_owned(), self.official()?.1)];
         for (id, registration) in self.registrations()? {
             registration.revision(&id)?;
-            let trust = Self::stored_module_trust(&registration);
+            let trust = ModuleSourceRegistrationFacts::from_registration(&registration)
+                .bucket_trust_state();
             sources.push((id.clone(), self.load(&id, &registration.path, trust)?.1));
         }
         let mut current = Vec::new();

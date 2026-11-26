@@ -260,10 +260,22 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
             !doctor_reports_untrusted(roots),
             "doctor accepts a release kept under a previous signer"
         );
-        let trusted = store.trusted_module_sources().expect("trusted sources");
-        assert_eq!(trusted.len(), 1);
-        assert_eq!(trusted[0].signer_key_id, next_key_id);
-        assert!(trusted[0].authorizes(&catalog.key_id));
+        let retained = modn_core::game_modules::ModuleSource {
+            bucket: Some("community".to_owned()),
+            signer_key_id: Some(catalog.key_id.clone()),
+        };
+        let decision = store
+            .module_source_trust(&retained)
+            .expect("trusted source decision");
+        assert!(decision.is_trusted());
+        assert_eq!(
+            store
+                .catalog_signer("community")
+                .expect("signer")
+                .expect("pinned signer")
+                .key_id,
+            next_key_id
+        );
     });
 }
 
