@@ -15,6 +15,7 @@ pub mod archive;
 pub mod bucket_digest;
 /// Versioned bucket metadata, validation and local registration.
 pub mod buckets;
+pub mod catalog_pipeline;
 /// Resolve module-declared content roots below a known folder.
 pub mod content_root;
 /// Find installed games by matching store libraries with module store identities.
