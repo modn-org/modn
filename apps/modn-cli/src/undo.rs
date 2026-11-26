@@ -175,9 +175,10 @@ fn restores(
                     .map(|file| file.destination.clone())
                     .collect();
                 replaced.extend(current.directories.iter().cloned());
-                let appdata = content_root_appdata(&target.game_id)?;
+                let appdata = content_root_appdata(roots, &target.game_id)?;
                 match &appdata {
                     Some(appdata) => preview_update_with_appdata(
+                        roots,
                         &target.game_id,
                         &target.installation,
                         &archive,
@@ -186,6 +187,7 @@ fn restores(
                         appdata,
                     )?,
                     None => preview_update_with_permissions(
+                        roots,
                         &target.game_id,
                         &target.installation,
                         &archive,
@@ -194,8 +196,9 @@ fn restores(
                     )?,
                 }
             }
-            HistoryKind::Uninstall => match content_root_appdata(&target.game_id)? {
+            HistoryKind::Uninstall => match content_root_appdata(roots, &target.game_id)? {
                 Some(appdata) => preview_update_with_appdata(
+                    roots,
                     &target.game_id,
                     &target.installation,
                     &archive,
@@ -204,6 +207,7 @@ fn restores(
                     &appdata,
                 )?,
                 None => preview_install_zip_with_permissions(
+                    roots,
                     &target.game_id,
                     &target.installation,
                     &archive,
@@ -295,13 +299,13 @@ pub(super) fn run(
     progress: &Progress,
 ) -> Result<()> {
     progress.begin()?;
-    let state_path = roots.state_database();
-    let state = ManagerState::load(&state_path)?
+    let state = ManagerState::load(roots)?
         .require_existing("no manager state database; there is no operation to undo")?;
     let read = state
         .existing()
         .context("existing manager state is readable")?;
-    let (game_id, installation) = selected_installation(Some(read), args.path.clone(), requested)?;
+    let (game_id, installation) =
+        selected_installation(roots, Some(read), args.path.clone(), requested)?;
     let operations = read.history(None)?;
     let belongs = |operation: &HistoryOperation| {
         operation.game_id == game_id && operation.installation == installation

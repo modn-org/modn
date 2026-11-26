@@ -4,8 +4,8 @@ use super::*;
 #[cfg(windows)]
 #[test]
 fn final_sigma_directory_rename_retains_managed_scan_attribution() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, _archive, roots) = fixture();
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, _archive, roots) = fixture(roots.data());
         fs::create_dir_all(game.join("red4ext/plugins")).unwrap();
         let zip_path = root.path().join("sigma-folder.zip");
         let source = "red4ext/plugins/\u{039F}\u{03A3}/plugin.dll";
@@ -15,7 +15,7 @@ fn final_sigma_directory_rename_retains_managed_scan_attribution() {
             .unwrap();
         writer.write_all(b"plugin").unwrap();
         writer.finish().unwrap();
-        let installed = install_zip(&mut store, &game, &zip_path);
+        let installed = install_zip(&roots, &mut store, &game, &zip_path);
         assert_eq!(installed.directories, ["red4ext/plugins/\u{039F}\u{03A3}"]);
 
         let original = game.join("red4ext/plugins/\u{039F}\u{03A3}");

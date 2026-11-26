@@ -18,23 +18,22 @@ pub(super) fn run(
             bail!("--game must match the game ID passed to game add/remove");
         }
     }
-    let state_path = roots.state_database();
     match command {
-        GameCommand::Add { game, path } => add(&game, path, &state_path, json),
-        GameCommand::Remove { game, path } => remove(&game, path.as_deref(), &state_path, json),
-        GameCommand::List => list(&state_path, json),
+        GameCommand::Add { game, path } => add(roots, &game, path, json),
+        GameCommand::Remove { game, path } => remove(roots, &game, path.as_deref(), json),
+        GameCommand::List => list(roots, json),
         GameCommand::Detect { register } => game_detect::run(roots, requested, register, json),
     }
 }
 
-fn add(game: &str, path: Option<PathBuf>, state_path: &Path, json: bool) -> Result<()> {
-    let state = ManagerState::load(state_path)?;
-    let candidate = choose_candidate(game, path.clone())?;
+fn add(roots: &ManagerRoots, game: &str, path: Option<PathBuf>, json: bool) -> Result<()> {
+    let state = ManagerState::load(roots)?;
+    let candidate = choose_candidate(roots, game, path.clone())?;
     let store = state.open_writable(&ProtectedTarget {
         game: Some(game.to_owned()),
         root: Some(path.unwrap_or_else(|| candidate.path.clone())),
     })?;
-    let entry = store.add_game(game, &candidate.path, &candidate.source)?;
+    let entry = store.add_game(roots, game, &candidate.path, &candidate.source)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&entry)?);
     } else {
@@ -43,8 +42,8 @@ fn add(game: &str, path: Option<PathBuf>, state_path: &Path, json: bool) -> Resu
     Ok(())
 }
 
-fn remove(game: &str, path: Option<&Path>, state_path: &Path, json: bool) -> Result<()> {
-    let mut store = ManagerState::load(state_path)?
+fn remove(roots: &ManagerRoots, game: &str, path: Option<&Path>, json: bool) -> Result<()> {
+    let mut store = ManagerState::load(roots)?
         .require_existing("no game registrations to remove")?
         .open_writable(&ProtectedTarget {
             game: Some(game.to_owned()),
@@ -63,8 +62,8 @@ fn remove(game: &str, path: Option<&Path>, state_path: &Path, json: bool) -> Res
     Ok(())
 }
 
-fn list(state_path: &Path, json: bool) -> Result<()> {
-    let entries = ManagerState::load(state_path)?
+fn list(roots: &ManagerRoots, json: bool) -> Result<()> {
+    let entries = ManagerState::load(roots)?
         .into_existing()
         .as_ref()
         .map(Store::list)

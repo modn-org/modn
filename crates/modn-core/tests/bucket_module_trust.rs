@@ -381,7 +381,7 @@ fn later_sync_keeps_trust_for_the_same_pinned_signer() {
 
 #[test]
 fn a_mod_named_module_is_a_package_not_a_game_module() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let state = tempfile::tempdir().expect("state");
         let source = tempfile::tempdir().expect("source");
         let bucket = local_bucket(source.path());
@@ -392,7 +392,7 @@ fn a_mod_named_module_is_a_package_not_a_game_module() {
         )
         .expect("package named module");
         fs::write(bucket.join("games/test-game/module.lua"), "return {}").expect("ignored script");
-        let store = BucketStore::new(&main_bucket::roots(state.path()));
+        let store = BucketStore::new(&main_bucket::roots_with_profile(roots.data(), state.path()));
         store.add("local", &bucket).expect("register");
         let packages = store.packages(Some("test-game")).expect("packages");
         assert!(packages
@@ -411,7 +411,7 @@ fn bucket_listing_reports_module_trust() {
     )
     .expect("metadata");
     let remote = TestRemote::new();
-    modn_core::data_dir::with_data_directory(temp.path(), || {
+    {
         let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
             temp.path(),
             None,
@@ -448,5 +448,5 @@ fn bucket_listing_reports_module_trust() {
                 .expect("community")
                 .module_trusted
         );
-    });
+    }
 }

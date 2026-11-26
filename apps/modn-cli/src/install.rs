@@ -55,14 +55,13 @@ fn install_archive(
     json: bool,
     progress: &Progress,
 ) -> Result<()> {
-    let state_path = roots.state_database();
     let access = if args.dry_run {
         InstallationAccess::ArchivePreview
     } else {
         InstallationAccess::ArchiveInstall { approved: args.yes }
     };
-    let selected = ManagerState::load(&state_path)?
-        .for_installation(args.path.clone(), requested)?
+    let selected = ManagerState::load(roots)?
+        .for_installation(roots, args.path.clone(), requested)?
         .open(access)?;
     let mut store = selected.store;
     if let Some(store) = store.as_mut() {
@@ -71,17 +70,22 @@ fn install_archive(
     let game_id = selected.game_id;
     let game = selected.root;
     let archive = PathBuf::from(&args.target);
-    let report = match content_root_appdata(&game_id)? {
+    let report = match content_root_appdata(roots, &game_id)? {
         Some(appdata) => preview_install_zip_with_appdata_permissions(
+            roots,
             &game_id,
             &game,
             &archive,
             &args.allow_executable,
             &appdata,
         )?,
-        None => {
-            preview_install_zip_with_permissions(&game_id, &game, &archive, &args.allow_executable)?
-        }
+        None => preview_install_zip_with_permissions(
+            roots,
+            &game_id,
+            &game,
+            &archive,
+            &args.allow_executable,
+        )?,
     };
     if args.dry_run {
         if json {

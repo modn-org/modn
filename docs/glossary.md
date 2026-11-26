@@ -35,6 +35,13 @@ _Avoid_: Untrusted bucket (after trust is granted), unofficial plugin
 The local record that makes a named bucket available for resolution.
 _Avoid_: Bucket installation, mod installation
 
+**Manager roots**:
+The one value that holds the shared data directory, the manager profile selected
+by `--state-dir`, the archive cache and the development module source. A command
+resolves it once. The official `main` copy follows the data directory; every other
+manager-owned location follows the profile.
+_Avoid_: Ambient root, per-call directory, thread-local state
+
 **Bucket snapshot**:
 A specific set of bucket definitions and manifests at a known revision.
 _Avoid_: Live catalog (when referring to a pinned version)

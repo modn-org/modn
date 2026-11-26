@@ -7,20 +7,21 @@ use crate::state_access::ManagerState;
 use anyhow::Result;
 use modn_core::approval::{ApprovalRefusal, Uncovered};
 use modn_core::buckets::BucketPackage;
+use modn_core::manager_roots::ManagerRoots;
 use std::collections::BTreeMap;
-use std::path::Path;
 
 pub(super) fn check_native_approvals(
     selected: &BucketPackage,
     order: &[BucketPackage],
     args: &InstallArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
 ) -> Result<()> {
     if args.allow_native_injector || args.dry_run {
         return Ok(());
     }
-    let state = ManagerState::load_deferred(state_path)?;
+    let state = ManagerState::load_deferred(roots)?;
     let game = selected_installation(
+        roots,
         state.existing(),
         args.path.clone(),
         Some(&selected.package.game),

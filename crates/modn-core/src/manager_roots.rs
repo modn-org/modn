@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 /// Every manager-owned location, resolved once from the data directory and
@@ -46,18 +46,12 @@ impl ManagerRoots {
     /// Reads the data directory and `MODN_CACHE` once. An empty `MODN_CACHE`
     /// keeps the profile cache.
     pub fn from_environment(state_dir: Option<&Path>) -> Result<Self> {
-        let data = crate::data_dir::data_directory()?;
+        let data = default_data_directory()?;
         let mut roots = Self::new(&data, state_dir);
         if let Some(directory) = std::env::var_os("MODN_CACHE").filter(|value| !value.is_empty()) {
             roots.archive_cache = PathBuf::from(directory);
         }
         Ok(roots)
-    }
-
-    pub(crate) fn from_ambient() -> Result<Self> {
-        let data = crate::data_dir::data_directory()?;
-        let profile = crate::data_dir::profile_directory()?;
-        Ok(Self::new(&data, Some(&profile)))
     }
 
     /// The shared data directory.
@@ -125,6 +119,18 @@ impl ManagerRoots {
     pub fn development_modules(&self) -> Option<&Path> {
         self.development_modules.as_deref()
     }
+}
+
+/// Resolve the shared data directory from the state-directory environment overrides.
+fn default_data_directory() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os("LOCALAPPDATA") {
+        return Ok(PathBuf::from(path).join("modn"));
+    }
+    if let Some(path) = std::env::var_os("XDG_STATE_HOME") {
+        return Ok(PathBuf::from(path).join("modn"));
+    }
+    let home = std::env::var_os("HOME").context("no HOME or app state directory available")?;
+    Ok(PathBuf::from(home).join(".local/state/modn"))
 }
 
 #[cfg(test)]
@@ -222,18 +228,25 @@ mod tests {
     fn from_environment_reads_data_and_profile_only() {
         let temp = tempfile::tempdir().expect("temporary directory");
         let state = temp.path().join("profile");
-        let roots = crate::data_dir::with_data_directory(temp.path(), || {
-            ManagerRoots::from_environment(Some(&state)).expect("resolve manager roots")
-        });
-        assert_eq!(roots.data(), temp.path());
+        let previous = std::env::var_os("LOCALAPPDATA");
+        std::env::set_var("LOCALAPPDATA", temp.path());
+        let roots = ManagerRoots::from_environment(Some(&state));
+        let default = ManagerRoots::from_environment(None);
+        match previous {
+            Some(value) => std::env::set_var("LOCALAPPDATA", value),
+            None => std::env::remove_var("LOCALAPPDATA"),
+        }
+        let roots = roots.expect("resolve manager roots");
+        let default = default.expect("resolve manager roots");
+        assert_eq!(roots.data(), temp.path().join("modn").as_path());
         assert_eq!(roots.profile(), state.as_path());
         assert_eq!(roots.state_database(), state.join("state.sqlite"));
 
-        let default = crate::data_dir::with_data_directory(temp.path(), || {
-            ManagerRoots::from_environment(None).expect("resolve manager roots")
-        });
-        assert_eq!(default.data(), temp.path());
-        assert_eq!(default.profile(), temp.path());
-        assert_eq!(default.state_database(), temp.path().join("state.sqlite"));
+        assert_eq!(default.data(), temp.path().join("modn").as_path());
+        assert_eq!(default.profile(), temp.path().join("modn").as_path());
+        assert_eq!(
+            default.state_database(),
+            temp.path().join("modn").join("state.sqlite")
+        );
     }
 }

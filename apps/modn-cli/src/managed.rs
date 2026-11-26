@@ -15,9 +15,8 @@ pub(super) fn list(
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let state_path = roots.state_database();
-    let selected = ManagerState::load(&state_path)?
-        .for_installation(path, requested)?
+    let selected = ManagerState::load(roots)?
+        .for_installation(roots, path, requested)?
         .open(InstallationAccess::Write)?;
     let store = selected.store.expect("write access opens manager state");
     let game = selected.root;
@@ -62,9 +61,8 @@ pub(super) fn uninstall(
     progress: &Progress,
 ) -> Result<()> {
     progress.begin()?;
-    let state_path = roots.state_database();
-    let state = ManagerState::load(&state_path)?;
-    let state = state.for_installation(args.path.clone(), requested)?;
+    let state = ManagerState::load(roots)?;
+    let state = state.for_installation(roots, args.path.clone(), requested)?;
     let scope = UninstallScope::default()
         .including_dependencies(args.include_deps)
         .including_dependents(args.cascade);
@@ -162,9 +160,8 @@ pub(super) fn pin(
     requested: Option<&str>,
     pinned: bool,
 ) -> Result<()> {
-    let state_path = roots.state_database();
-    let selected = ManagerState::load(&state_path)?
-        .for_installation(args.path.clone(), requested)?
+    let selected = ManagerState::load(roots)?
+        .for_installation(roots, args.path.clone(), requested)?
         .open(InstallationAccess::Write)?;
     let mut store = selected.store.expect("write access opens manager state");
     let game = selected.root;
@@ -181,8 +178,7 @@ pub(super) fn recover(
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let state_path = roots.state_database();
-    let mut store = ManagerState::load(&state_path)?
+    let mut store = ManagerState::load(roots)?
         .require_existing("no manager state database to recover")?
         .open_writable(&ProtectedTarget {
             game: requested.map(str::to_owned),

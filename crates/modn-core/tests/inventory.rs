@@ -1,6 +1,5 @@
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
-use modn_core::data_dir;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::scan::IntegrityStatus;
@@ -12,7 +11,7 @@ use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
 #[expect(clippy::unwrap_used, reason = "Test helpers may fail fast")]
-fn fixture() -> (TempDir, Store, PathBuf, PathBuf, ManagerRoots) {
+fn fixture(data: &Path) -> (TempDir, Store, PathBuf, PathBuf, ManagerRoots) {
     let root = tempdir().unwrap();
     let game = root.path().join("game");
     fs::create_dir_all(game.join("bin/x64")).unwrap();
@@ -28,7 +27,7 @@ fn fixture() -> (TempDir, Store, PathBuf, PathBuf, ManagerRoots) {
         .unwrap();
     writer.write_all(b"expected").unwrap();
     writer.finish().unwrap();
-    let roots = main_bucket::roots(&data_dir::data_directory().unwrap());
+    let roots = main_bucket::roots(data);
     (root, state, game, archive, roots)
 }
 
@@ -47,12 +46,13 @@ fn owned<'a>(scan: &'a modn_core::scan::ScanReport, name: &str) -> &'a str {
     reason = "Test fixtures fail immediately on setup errors"
 )]
 fn install_zip(
+    roots: &ManagerRoots,
     store: &mut Store,
     game: &Path,
     archive: &Path,
 ) -> modn_core::transactions::ManagedPackage {
     let proposal =
-        modn_core::planning::preview_install_zip("cyberpunk-2077", game, archive).unwrap();
+        modn_core::planning::preview_install_zip(roots, "cyberpunk-2077", game, archive).unwrap();
     store
         .install_operations_zip(game, archive, &proposal)
         .unwrap()
@@ -60,9 +60,9 @@ fn install_zip(
 
 #[test]
 fn discovers_unmanaged_frameworks_and_owned_legacy_archives() {
-    main_bucket::seeded(|| {
-        let (_root, mut store, game, archive, roots) = fixture();
-        let installed = install_zip(&mut store, &game, &archive);
+    main_bucket::seeded_roots(|roots| {
+        let (_root, mut store, game, archive, roots) = fixture(roots.data());
+        let installed = install_zip(&roots, &mut store, &game, &archive);
         fs::write(game.join("archive/pc/mod/unmanaged.archive"), b"manual").unwrap();
         fs::create_dir_all(game.join("red4ext/plugins/SomePlugin")).unwrap();
         fs::create_dir_all(game.join("bin/x64/plugins/cyber_engine_tweaks/mods/nativeSettings"))
@@ -136,9 +136,9 @@ fn discovers_unmanaged_frameworks_and_owned_legacy_archives() {
 
 #[test]
 fn reports_modified_missing_and_restored_files_without_changing_them() {
-    main_bucket::seeded(|| {
-        let (_root, mut store, game, archive, roots) = fixture();
-        install_zip(&mut store, &game, &archive);
+    main_bucket::seeded_roots(|roots| {
+        let (_root, mut store, game, archive, roots) = fixture(roots.data());
+        install_zip(&roots, &mut store, &game, &archive);
         let installed = store.installed(&game).unwrap();
         assert_eq!(
             installed[0].files[0].blake3,
@@ -197,9 +197,9 @@ fn reports_modified_missing_and_restored_files_without_changing_them() {
 
 #[test]
 fn keeps_inventory_separate_across_game_installations() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, archive, roots) = fixture();
-        install_zip(&mut store, &game, &archive);
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, archive, roots) = fixture(roots.data());
+        install_zip(&roots, &mut store, &game, &archive);
         let another = root.path().join("other-game");
         fs::create_dir_all(another.join("bin/x64")).unwrap();
         fs::write(another.join("bin/x64/Cyberpunk2077.exe"), b"game").unwrap();
@@ -214,9 +214,9 @@ fn keeps_inventory_separate_across_game_installations() {
 
 #[test]
 fn redirects_away_from_game_are_never_marked_intact() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, archive, roots) = fixture();
-        install_zip(&mut store, &game, &archive);
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, archive, roots) = fixture(roots.data());
+        install_zip(&roots, &mut store, &game, &archive);
         let folder = game.join("archive").join("pc").join("mod");
         let outside = root.path().join("outside");
         fs::rename(&folder, &outside).unwrap();
@@ -256,10 +256,10 @@ fn redirects_away_from_game_are_never_marked_intact() {
 #[cfg(windows)]
 #[test]
 fn locked_managed_file_is_unreadable_not_unmanaged() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         use std::os::windows::fs::OpenOptionsExt;
-        let (_root, mut store, game, archive, roots) = fixture();
-        install_zip(&mut store, &game, &archive);
+        let (_root, mut store, game, archive, roots) = fixture(roots.data());
+        install_zip(&roots, &mut store, &game, &archive);
         let target = game.join("archive/pc/mod/managed.archive");
         let lock = fs::OpenOptions::new()
             .read(true)
@@ -292,8 +292,8 @@ fn locked_managed_file_is_unreadable_not_unmanaged() {
 
 #[test]
 fn unicode_casefold_collision_does_not_adopt_unmanaged_file() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, _archive, roots) = fixture();
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, _archive, roots) = fixture(roots.data());
         let zip_path = root.path().join("kelvin.zip");
         let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
         writer
@@ -301,7 +301,7 @@ fn unicode_casefold_collision_does_not_adopt_unmanaged_file() {
             .unwrap();
         writer.write_all(b"owned contents").unwrap();
         writer.finish().unwrap();
-        let package = install_zip(&mut store, &game, &zip_path);
+        let package = install_zip(&roots, &mut store, &game, &zip_path);
 
         let lookalike = game.join("archive/pc/mod/\u{212A}.archive");
         if lookalike.exists() {
@@ -337,8 +337,8 @@ fn unicode_casefold_collision_does_not_adopt_unmanaged_file() {
 #[cfg(not(windows))]
 #[test]
 fn ordinary_case_sensitive_file_names_remain_distinct() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, _archive, roots) = fixture();
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, _archive, roots) = fixture(roots.data());
         let zip_path = root.path().join("case.zip");
         let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
         writer
@@ -346,7 +346,7 @@ fn ordinary_case_sensitive_file_names_remain_distinct() {
             .unwrap();
         writer.write_all(b"owned").unwrap();
         writer.finish().unwrap();
-        install_zip(&mut store, &game, &zip_path);
+        install_zip(&roots, &mut store, &game, &zip_path);
         fs::write(game.join("archive/pc/mod/K.archive"), b"unmanaged").unwrap();
         let report = scan_with_ownership_for(&roots, &store, "cyberpunk-2077", &game).unwrap();
         assert!(report
@@ -363,8 +363,8 @@ fn ordinary_case_sensitive_file_names_remain_distinct() {
 #[cfg(windows)]
 #[test]
 fn windows_non_ascii_case_only_rename_stays_managed() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, _archive, roots) = fixture();
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, _archive, roots) = fixture(roots.data());
         let zip_path = root.path().join("unicode-case.zip");
         let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
         writer
@@ -375,7 +375,7 @@ fn windows_non_ascii_case_only_rename_stays_managed() {
             .unwrap();
         writer.write_all(b"owned").unwrap();
         writer.finish().unwrap();
-        let package = install_zip(&mut store, &game, &zip_path);
+        let package = install_zip(&roots, &mut store, &game, &zip_path);
         let original = game.join("archive/pc/mod/\u{00C9}.archive");
         let renamed = game.join("archive/pc/mod/\u{00E9}.archive");
         fs::rename(&original, &renamed).unwrap();
@@ -400,8 +400,8 @@ fn windows_non_ascii_case_only_rename_stays_managed() {
 
 #[test]
 fn different_hardlink_alias_does_not_gain_ownership() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, _archive, roots) = fixture();
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, _archive, roots) = fixture(roots.data());
         let zip_path = root.path().join("hardlink.zip");
         let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
         writer
@@ -409,7 +409,7 @@ fn different_hardlink_alias_does_not_gain_ownership() {
             .unwrap();
         writer.write_all(b"owned").unwrap();
         writer.finish().unwrap();
-        install_zip(&mut store, &game, &zip_path);
+        install_zip(&roots, &mut store, &game, &zip_path);
         let original = game.join("archive/pc/mod/k.archive");
         let alias = game.join("archive/pc/mod/\u{212A}.archive");
         if alias.exists() {
@@ -431,8 +431,8 @@ fn different_hardlink_alias_does_not_gain_ownership() {
 #[cfg(windows)]
 #[test]
 fn windows_greek_sigma_contextual_case_rename_stays_managed() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, _archive, roots) = fixture();
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, _archive, roots) = fixture(roots.data());
         let zip_path = root.path().join("greek-sigma.zip");
         let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
         writer
@@ -443,7 +443,7 @@ fn windows_greek_sigma_contextual_case_rename_stays_managed() {
             .unwrap();
         writer.write_all(b"owned").unwrap();
         writer.finish().unwrap();
-        let package = install_zip(&mut store, &game, &zip_path);
+        let package = install_zip(&roots, &mut store, &game, &zip_path);
         let original = game.join("archive/pc/mod/\u{039F}\u{03A3}1.archive");
         let renamed = game.join("archive/pc/mod/\u{03BF}\u{03C3}1.archive");
         fs::rename(&original, &renamed).unwrap();
@@ -470,8 +470,8 @@ fn windows_greek_sigma_contextual_case_rename_stays_managed() {
 #[cfg(windows)]
 #[test]
 fn unicode_lookalike_directory_never_inherits_exclusive_claim() {
-    main_bucket::seeded(|| {
-        let (root, mut store, game, _archive, roots) = fixture();
+    main_bucket::seeded_roots(|roots| {
+        let (root, mut store, game, _archive, roots) = fixture(roots.data());
         fs::create_dir_all(game.join("red4ext/plugins")).unwrap();
         let zip_path = root.path().join("directory-unicode.zip");
         let mut writer = zip::ZipWriter::new(File::create(&zip_path).unwrap());
@@ -480,7 +480,7 @@ fn unicode_lookalike_directory_never_inherits_exclusive_claim() {
             .unwrap();
         writer.write_all(b"owned plugin").unwrap();
         writer.finish().unwrap();
-        let package = install_zip(&mut store, &game, &zip_path);
+        let package = install_zip(&roots, &mut store, &game, &zip_path);
         assert_eq!(package.directories, ["red4ext/plugins/k"]);
         let lookalike_dir = game.join("red4ext/plugins/\u{212A}");
         if lookalike_dir.exists() {

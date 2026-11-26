@@ -4,35 +4,7 @@ use super::registry::{ModuleRegistry, ModuleSource};
 use crate::buckets::BucketStore;
 use crate::manager_roots::ManagerRoots;
 use anyhow::{bail, Result};
-use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-
-thread_local! {
-    static MODULE_SOURCE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
-}
-
-/// Temporarily select one local source directory for policy operations.
-///
-/// Nested calls restore the previous directory, including during unwinding.
-/// No override is persisted to manager state or propagated to other threads.
-pub fn with_module_source<T>(source: Option<&Path>, action: impl FnOnce() -> T) -> T {
-    struct Restore(Option<PathBuf>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            MODULE_SOURCE.with(|slot| {
-                slot.replace(self.0.take());
-            });
-        }
-    }
-    let previous = MODULE_SOURCE.with(|slot| slot.replace(source.map(Path::to_path_buf)));
-    let _restore = Restore(previous);
-    action()
-}
-
-/// The development module override selected on this thread, if any.
-pub(super) fn development_source() -> Option<PathBuf> {
-    MODULE_SOURCE.with(|slot| slot.borrow().clone())
-}
 
 /// Game IDs of every module that ordinary commands can select: the official
 /// `main` modules and the registered third-party modules, without duplicates.

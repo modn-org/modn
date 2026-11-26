@@ -15,15 +15,14 @@ pub(super) fn run(
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let state_path = roots.state_database();
     if requested.is_some_and(|id| id != game) {
         return Err(coded(
             ErrorCode::LaunchGameMismatch,
             "LAUNCH_GAME_MISMATCH: --game must match the play game ID",
         ));
     }
-    let state = ManagerState::load_deferred(&state_path)?;
-    let (game_id, installation) = selected_installation(state.existing(), path, Some(game))
+    let state = ManagerState::load_deferred(roots)?;
+    let (game_id, installation) = selected_installation(roots, state.existing(), path, Some(game))
         .map_err(|error| {
             coded(
                 ErrorCode::LaunchInstallationInvalid,
@@ -51,8 +50,9 @@ pub(super) fn run(
             ),
         ));
     }
-    let detection = detect_installations(&StoreLibraries::system(), &[game.to_owned()]);
+    let detection = detect_installations(roots, &StoreLibraries::system(), &[game.to_owned()]);
     let plan = launch_with_lock(
+        roots,
         state.existing(),
         game,
         &installation,

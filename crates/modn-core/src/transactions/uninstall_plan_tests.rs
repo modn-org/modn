@@ -1,8 +1,7 @@
-use super::catalog_tests::{module_source, reference, Fixture};
+use super::catalog_tests::{reference, Fixture};
 use super::validation::validate_transaction_root;
 use super::{CatalogDependency, CatalogReference, CatalogRelease, UninstallScope};
 use crate::archive::inspect;
-use crate::game_modules::with_module_source;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -60,9 +59,9 @@ impl Lab {
 
     fn uninstall(&mut self, selector: &str, scope: UninstallScope) -> anyhow::Result<Vec<String>> {
         let game = self.fixture.game.clone();
-        with_module_source(Some(&module_source()), || {
+        {
             self.fixture.store.uninstall_with(&game, selector, scope)
-        })
+        }
     }
 
     fn installed(&self) -> Vec<String> {

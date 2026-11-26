@@ -32,13 +32,16 @@ fn bucket(temp: &Path, name: &str) -> std::path::PathBuf {
 
 #[test]
 fn other_releases_are_listed_only_for_their_mod() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempfile::tempdir().expect("temp");
         let root = bucket(temp.path(), "local");
         write_release(&root, "foo.json", "foo", "1.1");
         write_release(&root, "foo@1.0.json", "foo", "1.0");
         write_release(&root, "foo@0.9.json", "foo", "0.9");
-        let store = BucketStore::new(&main_bucket::roots(&temp.path().join("state")));
+        let store = BucketStore::new(&main_bucket::roots_with_profile(
+            roots.data(),
+            &temp.path().join("state"),
+        ));
         store.add("local", &root).expect("register");
 
         let current: Vec<String> = store
@@ -68,7 +71,7 @@ fn other_releases_are_listed_only_for_their_mod() {
 
 #[test]
 fn malformed_release_files_are_rejected() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         for (file, id, version, message) in [
             ("foo@2.0.json", "foo", "1.9", "disagrees with its version"),
             ("bar@1.0.json", "bar", "1.0", "has no current release"),
@@ -79,9 +82,12 @@ fn malformed_release_files_are_rejected() {
             let root = bucket(temp.path(), "local");
             write_release(&root, "foo.json", "foo", "1.1");
             write_release(&root, file, id, version);
-            let error = BucketStore::new(&main_bucket::roots(&temp.path().join("state")))
-                .add("local", &root)
-                .expect_err(file);
+            let error = BucketStore::new(&main_bucket::roots_with_profile(
+                roots.data(),
+                &temp.path().join("state"),
+            ))
+            .add("local", &root)
+            .expect_err(file);
             assert!(format!("{error:#}").contains(message), "{file}: {error:#}");
         }
     });
@@ -89,11 +95,14 @@ fn malformed_release_files_are_rejected() {
 
 #[test]
 fn contract_v1_bucket_json_is_refused_at_load_without_writing_state() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempfile::tempdir().expect("temp");
         let root = bucket(temp.path(), "local");
         write_release(&root, "foo.json", "foo", "1.0");
-        let store = BucketStore::new(&main_bucket::roots(&temp.path().join("state")));
+        let store = BucketStore::new(&main_bucket::roots_with_profile(
+            roots.data(),
+            &temp.path().join("state"),
+        ));
         store.add("local", &root).expect("register");
         let registration = temp.path().join("state/buckets/registrations/local.json");
         let before = fs::read(&registration).expect("registration");
@@ -113,7 +122,7 @@ fn contract_v1_bucket_json_is_refused_at_load_without_writing_state() {
 
 #[test]
 fn record_file_names_are_lowercase_and_case_collisions_are_refused() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempfile::tempdir().expect("temp");
         let root = bucket(temp.path(), "local");
         write_release(&root, "foo.json", "foo", "1.0");
@@ -122,9 +131,12 @@ fn record_file_names_are_lowercase_and_case_collisions_are_refused() {
             root.join("mods/test-game/Foo.json"),
         )
         .expect("rename record");
-        let error = BucketStore::new(&main_bucket::roots(&temp.path().join("state")))
-            .add("local", &root)
-            .expect_err("mixed-case record name");
+        let error = BucketStore::new(&main_bucket::roots_with_profile(
+            roots.data(),
+            &temp.path().join("state"),
+        ))
+        .add("local", &root)
+        .expect_err("mixed-case record name");
         assert!(
             format!("{error:#}").contains("invalid package filename"),
             "{error:#}"
@@ -135,14 +147,17 @@ fn record_file_names_are_lowercase_and_case_collisions_are_refused() {
 #[cfg(unix)]
 #[test]
 fn case_colliding_records_are_refused() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempfile::tempdir().expect("temp");
         let root = bucket(temp.path(), "local");
         write_release(&root, "foo.json", "foo", "1.0");
         write_release(&root, "FOO.json", "foo", "1.0");
-        let error = BucketStore::new(&main_bucket::roots(&temp.path().join("state")))
-            .add("local", &root)
-            .expect_err("case collision");
+        let error = BucketStore::new(&main_bucket::roots_with_profile(
+            roots.data(),
+            &temp.path().join("state"),
+        ))
+        .add("local", &root)
+        .expect_err("case collision");
         assert!(
             format!("{error:#}").contains("invalid package filename"),
             "{error:#}"
@@ -154,7 +169,7 @@ fn case_colliding_records_are_refused() {
 #[test]
 fn linked_mods_records_are_refused() {
     use std::os::unix::fs::symlink;
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempfile::tempdir().expect("temp");
         let root = bucket(temp.path(), "local");
         write_release(&root, "foo.json", "foo", "1.0");
@@ -163,9 +178,12 @@ fn linked_mods_records_are_refused() {
         fs::rename(&record, &outside).expect("move record");
         symlink(&outside, &record).expect("link record");
 
-        let error = BucketStore::new(&main_bucket::roots(&temp.path().join("state")))
-            .add("local", &root)
-            .expect_err("linked record");
+        let error = BucketStore::new(&main_bucket::roots_with_profile(
+            roots.data(),
+            &temp.path().join("state"),
+        ))
+        .add("local", &root)
+        .expect_err("linked record");
         assert!(
             format!("{error:#}").contains("unexpected bucket package entry"),
             "{error:#}"
@@ -175,9 +193,12 @@ fn linked_mods_records_are_refused() {
         fs::remove_dir_all(root.join("mods")).expect("remove mods");
         symlink(temp.path().join("mods-target"), root.join("mods")).expect("link mods");
         fs::create_dir_all(temp.path().join("mods-target/test-game")).expect("target");
-        let error = BucketStore::new(&main_bucket::roots(&temp.path().join("state")))
-            .add("local", &root)
-            .expect_err("linked mods directory");
+        let error = BucketStore::new(&main_bucket::roots_with_profile(
+            roots.data(),
+            &temp.path().join("state"),
+        ))
+        .add("local", &root)
+        .expect_err("linked mods directory");
         assert!(
             format!("{error:#}").contains("unsafe bucket directory"),
             "{error:#}"
@@ -187,12 +208,15 @@ fn linked_mods_records_are_refused() {
 
 #[test]
 fn snapshot_keeps_selection_and_historical_versions_after_bucket_edits() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempfile::tempdir().expect("temp");
         let root = bucket(temp.path(), "local");
         write_release(&root, "foo.json", "foo", "1.1");
         write_release(&root, "foo@1.0.json", "foo", "1.0");
-        let store = BucketStore::new(&main_bucket::roots(&temp.path().join("state")));
+        let store = BucketStore::new(&main_bucket::roots_with_profile(
+            roots.data(),
+            &temp.path().join("state"),
+        ));
         store.add("local", &root).expect("register");
         let snapshot = store.snapshot(Some("test-game")).expect("snapshot");
 
@@ -224,12 +248,12 @@ fn snapshot_keeps_selection_and_historical_versions_after_bucket_edits() {
 
 #[test]
 fn a_package_entry_that_is_not_a_regular_file_is_refused_by_name() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempfile::tempdir().expect("temp");
         let root = bucket(temp.path(), "local");
         fs::create_dir(root.join("mods/test-game/foo.json")).expect("directory entry");
         let state = temp.path().join("state");
-        let error = BucketStore::new(&main_bucket::roots(&state))
+        let error = BucketStore::new(&main_bucket::roots_with_profile(roots.data(), &state))
             .add("local", &root)
             .expect_err("special package entry");
         let message = format!("{error:#}");
