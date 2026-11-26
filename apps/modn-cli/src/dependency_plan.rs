@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 pub(super) struct PlannedDependency {
     reference: String,
     version: String,
-    blake3: String,
+    blake3: Option<String>,
     source: PackageSource,
     state: DependencyState,
     archive: Option<PathBuf>,
@@ -96,7 +96,7 @@ pub(super) fn plan(
                 archive: archives.get(&reference).cloned(),
                 reference,
                 version: release.package.version.clone(),
-                blake3: digest.as_str().unwrap_or("").to_owned(),
+                blake3: digest.as_str().map(str::to_owned),
                 source: planned_source(&release.package.sources, release.package.primary_source())
                     .clone(),
                 state,
@@ -457,5 +457,27 @@ mod tests {
         let text = report_text(&report, None, &[], &[], None, &[]);
         assert!(text.contains("when you install it"), "{text}");
         assert!(!text.contains("then add --file <archive>"), "{text}");
+    }
+
+    #[test]
+    fn a_dependency_reports_a_known_digest_and_null_for_an_unknown_one() {
+        let digest = "a".repeat(64);
+        for (blake3, expected) in [
+            (Some(digest.clone()), serde_json::json!(digest)),
+            (None, serde_json::Value::Null),
+        ] {
+            let dependency = PlannedDependency {
+                reference: "community/test-game/example".to_owned(),
+                version: "1.0".to_owned(),
+                blake3,
+                source: PackageSource::Manual {
+                    filename: "example.zip".to_owned(),
+                },
+                state: DependencyState::Missing,
+                archive: None,
+            };
+            let value = dependency.as_json().expect("record");
+            assert_eq!(value["blake3"], expected);
+        }
     }
 }
