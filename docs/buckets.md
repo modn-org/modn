@@ -153,10 +153,21 @@ next sync records only the tree that it supersedes. A sync that fails removes
 nothing, and a tree that a registration names is never removed. `bucket remove` deletes the store-created live tree
 and the retired trees of that bucket after the registration file is gone; a
 local folder source and a tree that another registration names stay.
-When a step after the registration switch fails, for example a staged game
-module cannot be committed, sync restores the previous registration and removes
-the new snapshot. If the restore itself fails, sync keeps the new tree, because
-the registration may still point at it, and reports both errors.
+A Git sync verifies the catalog, stages its game modules, commits those modules
+to the module registry and only then publishes the registration. The modules
+were checked against the signed catalog snapshot, so committing them first adds
+no trust. A module commit failure therefore leaves the previous registration
+and the previous active releases in place. A registration write that fails
+after the module commit keeps the previous registration usable and leaves the
+new releases active; the next sync publishes the revision, and a release that
+is already active is reported `unchanged`. A sync whose fetched revision
+matches the registration still stages and checks its modules; it never skips
+the module step.
+
+A ZIP sync publishes the registration before it commits staged modules. When
+that commit fails, it restores the previous registration and removes the new
+snapshot. If the restore itself fails, sync keeps the new tree, because the
+registration may still point at it, and reports both errors.
 
 After a revision verifies with the pinned key, a `relocation.json` whose primary
 differs from the registered primary publishes the catalog and updates the

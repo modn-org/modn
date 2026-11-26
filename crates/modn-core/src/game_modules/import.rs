@@ -1,19 +1,30 @@
-use super::registry::layout;
-use super::registry::{ImportReport, ModuleRegistry, ReleaseOutcome};
+use super::registry::{activation, ImportReport, ModuleRegistry, ModuleSource, ReleaseOutcome};
 use crate::buckets::BucketStore;
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
 #[cfg(test)]
 pub(crate) static FAIL_NEXT_CATALOG_COMMIT: std::sync::Mutex<BTreeSet<PathBuf>> =
     std::sync::Mutex::new(BTreeSet::new());
 
 #[cfg(test)]
+static STOP_NEXT_AFTER_MOVES: std::sync::Mutex<BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(BTreeSet::new());
+
+#[cfg(test)]
 fn injected_commit_failure(root: &Path) -> bool {
     let mut armed = FAIL_NEXT_CATALOG_COMMIT.lock().expect("seam lock");
+    armed.remove(root)
+}
+
+#[cfg(test)]
+fn injected_stop_after_moves(root: &Path) -> bool {
+    let mut armed = STOP_NEXT_AFTER_MOVES.lock().expect("seam lock");
     armed.remove(root)
 }
 
@@ -23,7 +34,7 @@ mod staging;
 pub(crate) use catalog::ignored_catalog_modules;
 
 use catalog::module_directories;
-use staging::stage_one;
+use staging::{stage_one, StagedRelease};
 
 /// Why one catalog module was not imported.
 #[expect(clippy::exhaustive_enums, reason = "Ignore reasons are a closed set")]
@@ -72,20 +83,6 @@ pub struct StagedCatalogImport {
     ignored: Vec<IgnoredModule>,
 }
 
-struct StagedRelease {
-    game_id: String,
-    version: String,
-    blake3: String,
-    directory: PathBuf,
-    newer: bool,
-    current: Option<String>,
-}
-
-struct MovedRelease {
-    staged: PathBuf,
-    target: PathBuf,
-}
-
 /// Stage every module in one trusted catalog without changing active releases.
 ///
 /// The catalog signature must already be verified by the caller. Each module is
@@ -109,11 +106,15 @@ pub(crate) fn stage_catalog_modules_at(
         bail!("catalog module source must name a bucket and signer");
     }
     let registry = ModuleRegistry::new(roots);
-    let lock = registry.lock()?;
+    let (lock, _repair) = registry.lock_and_repair()?;
     let staging = tempfile::Builder::new()
         .prefix(".staging-catalog-")
         .tempdir_in(registry.root())?;
     let candidates = module_directories(catalog)?;
+    let source = ModuleSource {
+        bucket: Some(bucket.to_owned()),
+        signer_key_id: Some(signer_key_id.to_owned()),
+    };
     let mut staged = Vec::new();
     let mut reports = Vec::new();
     let mut ignored = Vec::new();
@@ -137,8 +138,7 @@ pub(crate) fn stage_catalog_modules_at(
         stage_one(
             &registry,
             staging.path(),
-            bucket,
-            signer_key_id,
+            &source,
             &game,
             &directory,
             &mut staged,
@@ -183,19 +183,10 @@ impl StagedCatalogImport {
             drop(staging);
             bail!("injected catalog module commit failure");
         }
-        let mut moved = Vec::with_capacity(staged.len());
-        let mut switched = Vec::new();
-        let mut created = Vec::new();
-        let result = apply(
-            &registry,
-            &staged,
-            &mut moved,
-            &mut switched,
-            &mut created,
-            &mut reports,
-        );
+        let mut progress = activation::ActivationProgress::default();
+        let result = apply(&registry, &staged, &mut progress, &mut reports);
         if let Err(error) = result {
-            return match restore(&moved, &switched, &created) {
+            return match activation::undo_activation(&registry.root(), &progress) {
                 Ok(()) => Err(error.context(
                     "catalog module commit failed; the module registry was restored",
                 )),
@@ -213,42 +204,38 @@ impl StagedCatalogImport {
 fn apply(
     registry: &ModuleRegistry,
     staged: &[StagedRelease],
-    moved: &mut Vec<MovedRelease>,
-    switched: &mut Vec<(PathBuf, String)>,
-    created: &mut Vec<PathBuf>,
+    progress: &mut activation::ActivationProgress,
     reports: &mut Vec<ImportReport>,
 ) -> Result<()> {
-    for release in staged {
-        let directory = registry.directory(&release.game_id)?;
-        if release.current.is_none() {
-            created.push(directory.clone());
-        }
-        fs::create_dir_all(directory.join(layout::VERSIONS))?;
-        let target = layout::release_directory(&directory, &release.version);
-        fs::rename(&release.directory, &target).with_context(|| {
-            format!(
-                "cannot activate game module {} version {}",
-                release.game_id, release.version
-            )
-        })?;
-        moved.push(MovedRelease {
-            staged: release.directory.clone(),
-            target,
-        });
-    }
-    for release in staged {
-        if release.newer {
-            let directory = registry.directory(&release.game_id)?;
-            layout::write_current(&directory, &release.version).with_context(|| {
+    let root = registry.root();
+    let releases = staged
+        .iter()
+        .map(|release| {
+            let staged = release.directory.strip_prefix(&root).with_context(|| {
                 format!(
-                    "cannot switch game module {} to version {}",
-                    release.game_id, release.version
+                    "staged game module {} is outside the registry",
+                    release.game_id
                 )
             })?;
-            if let Some(previous) = &release.current {
-                switched.push((directory, previous.clone()));
-            }
-        }
+            Ok(activation::ActivationRelease {
+                game_id: release.game_id.clone(),
+                version: release.version.clone(),
+                blake3: release.blake3.clone(),
+                previous: release.current.clone(),
+                staged: staged.to_path_buf(),
+                newer: release.newer,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    activation::write_intent(&root, &releases)?;
+    activation::move_releases(&root, &releases, progress)?;
+    #[cfg(test)]
+    if injected_stop_after_moves(&root) {
+        return Ok(());
+    }
+    activation::write_current_pointers(&root, &releases, progress)?;
+    activation::finish_activation(&root)?;
+    for release in staged {
         reports.push(ImportReport {
             game_id: release.game_id.clone(),
             version: release.version.clone(),
@@ -263,114 +250,5 @@ fn apply(
     Ok(())
 }
 
-fn restore(
-    moved: &[MovedRelease],
-    switched: &[(PathBuf, String)],
-    created: &[PathBuf],
-) -> Result<()> {
-    let mut failures = Vec::new();
-    for (directory, previous) in switched.iter().rev() {
-        if let Err(error) = layout::write_current(directory, previous) {
-            failures.push(format!(
-                "cannot restore the active release in {}: {error:#}",
-                directory.display()
-            ));
-        }
-    }
-    for release in moved.iter().rev() {
-        if let Err(error) = fs::rename(&release.target, &release.staged)
-            .or_else(|_| fs::remove_dir_all(&release.target))
-        {
-            failures.push(format!(
-                "cannot remove the partial release {}: {error:#}",
-                release.target.display()
-            ));
-        }
-    }
-    for directory in created.iter().rev() {
-        match fs::remove_dir_all(directory) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => failures.push(format!(
-                "cannot remove the new module entry {}: {error:#}",
-                directory.display()
-            )),
-        }
-    }
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        bail!("{}", failures.join("; "))
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn moved_release(root: &Path, game: &str, version: &str) -> MovedRelease {
-        let staged = root.join("staging").join(game);
-        fs::create_dir_all(&staged).expect("staging directory");
-        fs::write(staged.join("module.json"), b"{}").expect("staged manifest");
-        let game_directory = root.join("game-modules").join(game);
-        fs::create_dir_all(game_directory.join(layout::VERSIONS)).expect("versions directory");
-        let target = layout::release_directory(&game_directory, version);
-        fs::rename(&staged, &target).expect("move staged release");
-        MovedRelease { staged, target }
-    }
-
-    #[test]
-    fn restore_undoes_partial_moves_and_created_entries() {
-        let root = tempfile::tempdir().expect("root");
-        let new_release = moved_release(root.path(), "new-game", "2.0.0");
-        let new_directory = root.path().join("game-modules/new-game");
-        let old_release = moved_release(root.path(), "old-game", "2.0.0");
-        let old_directory = root.path().join("game-modules/old-game");
-        layout::write_current(&old_directory, "2.0.0").expect("simulated switch");
-        let old_target = old_release.target.clone();
-        let old_staged = old_release.staged.clone();
-
-        restore(
-            &[new_release, old_release],
-            &[(old_directory.clone(), "1.0.0".to_owned())],
-            std::slice::from_ref(&new_directory),
-        )
-        .expect("restore");
-
-        assert!(fs::symlink_metadata(&new_directory).is_err());
-        assert_eq!(
-            layout::read_current(&old_directory).expect("restored current"),
-            "1.0.0"
-        );
-        assert!(fs::symlink_metadata(&old_target).is_err());
-        assert!(old_staged.join("module.json").is_file());
-    }
-
-    #[test]
-    fn an_armed_commit_failure_is_scoped_to_one_registry() {
-        let here = PathBuf::from("fixture-registry-here");
-        let elsewhere = PathBuf::from("fixture-registry-elsewhere");
-        super::FAIL_NEXT_CATALOG_COMMIT
-            .lock()
-            .expect("seam")
-            .insert(here.clone());
-        let other_failed = std::thread::scope(|scope| {
-            scope
-                .spawn(|| super::injected_commit_failure(&elsewhere))
-                .join()
-                .expect("thread")
-        });
-        assert!(
-            !other_failed,
-            "arming one registry does not fail another registry's commit"
-        );
-        assert!(
-            super::injected_commit_failure(&here),
-            "the armed registry still fails"
-        );
-        assert!(
-            !super::injected_commit_failure(&here),
-            "the failure fires once"
-        );
-    }
-}
+mod tests;
