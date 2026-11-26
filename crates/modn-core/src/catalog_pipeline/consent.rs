@@ -185,6 +185,6 @@ impl std::error::Error for StalePlan {}
 ///
 /// The planner installs the selected release and every missing dependency.
 /// Ready, damaged and other-release dependencies are not placed.
-fn installs(planned: &PlannedRelease) -> bool {
+pub(crate) fn installs(planned: &PlannedRelease) -> bool {
     matches!(&planned.state, None | Some(DependencyState::Missing))
 }

@@ -16,6 +16,10 @@ Transactions are **recoverable** rather than one single filesystem-wide atomic v
 
 `Store` installs catalog releases through two entry points. `Store::install_catalog_release_with_permissions` installs the plan that the caller reviewed. `Store::install_catalog_release_planned` takes a re-planning closure instead. Under the transaction lock, after the idle check and after the archive inspection, it passes the archive path to the closure and installs the `InstallPlan` that the closure returns. A closure error propagates unchanged and writes no game file, ownership row or journal entry. Both entry points share the same install path (`install_locked`), so the archive, ownership, conflict and dependency checks and the journal treatment are identical. The closure runs while the lock is held, so a caller can compare a fresh plan with the plan the user saw before any write.
 
+`catalog_pipeline::commit_plan` is the one routine above those entry points. It takes a `CatalogPlan`, a separate `Consent`, the acquisition seams and an already-open writable `Store`. A plan alone never commits. The routine refuses a blocking plan, acquires each missing release through `ArchiveCache::acquire_release` before any lock, and calls the transaction layer once: one release through `install_catalog_release_planned`, several through `install_catalog_stack`. Each closure runs the game module preview under the lock and compares a fresh `PlanDigest` with the consent. A mismatch is a `StalePlan` error with code `PLAN_STALE` and no write. The routine records approvals only after the transaction returns, and it opens no second write path.
+
+A stack commit re-previews every member before its first member is written. A stale digest therefore refuses with no member written. A later failure keeps the stack rollback described above.
+
 ## The commit point and cancellation
 
 An install, update, uninstall or download may report progress and accept a
