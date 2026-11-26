@@ -229,7 +229,9 @@ fn install_mod(
             &installation,
             &args.file,
             &cache,
-            cache_use,
+            // The batch just verified and cached these archives, so the report
+            // reads them back even after `--no-cache`.
+            CacheUse::Reuse,
             &flags,
         )?;
         artifacts = plan_data::PlanArchives::of(&plan);
