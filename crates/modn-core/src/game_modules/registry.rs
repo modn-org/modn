@@ -1,12 +1,15 @@
+pub(super) mod activation;
 pub(super) mod admission;
 pub(super) mod layout;
 mod pin;
+pub(super) mod repair;
 #[cfg(test)]
 mod tests;
 
 use self::admission::{admit, Admission, Candidate, RegistryState};
 use self::layout::RetainedRelease;
 pub use self::pin::ModulePin;
+pub use self::repair::{ActivationRepair, RegistryOpen};
 use super::loader::{self, GameModuleInfo, VerifiedModule};
 use crate::buckets::BucketStore;
 use crate::manager_roots::ManagerRoots;
@@ -195,7 +198,7 @@ impl ModuleRegistry {
         let root = source.canonicalize()?;
         let manifest_bytes =
             loader::bounded_file(&root.join("module.json"), &root, loader::MAX_MANIFEST_BYTES)?;
-        let _lock = self.lock()?;
+        let (_lock, _repair) = self.lock_and_repair()?;
         self.import_verified(&manifest, &script, &manifest_bytes, origin)
     }
 
@@ -225,12 +228,7 @@ impl ModuleRegistry {
             Admission::Unchanged { blake3 } => (blake3, ReleaseOutcome::Unchanged),
             Admission::Refused { blake3 } => (blake3, ReleaseOutcome::Pinned),
             Admission::Admitted(release) => {
-                let version_directory = layout::release_directory(&directory, &manifest.version);
-                fs::create_dir_all(directory.join(layout::VERSIONS))?;
-                fs::rename(&staged, &version_directory)?;
-                if release.newer {
-                    layout::write_current(&directory, &manifest.version)?;
-                }
+                activation::activate_admitted(&self.root(), manifest, &staged, game, &release)?;
                 let outcome = if release.newer {
                     ReleaseOutcome::Imported
                 } else {
@@ -274,7 +272,7 @@ impl ModuleRegistry {
 
     /// Pin the active release. Automatic imports and rollback then refuse to move it.
     pub fn pin(&self, game: &str) -> Result<ModulePin> {
-        let _lock = self.lock()?;
+        let (_lock, _repair) = self.lock_and_repair()?;
         let directory = self.directory(game)?;
         let Some(current) = layout::open_game(&directory, game)? else {
             bail!("no registered game module for {game}");
@@ -292,7 +290,7 @@ impl ModuleRegistry {
 
     /// Remove the pin, if any. Retained releases are unchanged.
     pub fn unpin(&self, game: &str) -> Result<()> {
-        let _lock = self.lock()?;
+        let (_lock, _repair) = self.lock_and_repair()?;
         let directory = self.directory(game)?;
         if layout::open_game(&directory, game)?.is_none() {
             bail!("no registered game module for {game}");
@@ -314,7 +312,7 @@ impl ModuleRegistry {
     /// Rollback changes only manager metadata, so it can affect future plans but
     /// never installed files.
     pub fn rollback(&self, game: &str, to: Option<&str>) -> Result<RegisteredModule> {
-        let _lock = self.lock()?;
+        let (_lock, _repair) = self.lock_and_repair()?;
         let directory = self.directory(game)?;
         let Some(current) = layout::open_game(&directory, game)? else {
             bail!("no registered game module for {game}");
@@ -364,7 +362,7 @@ impl ModuleRegistry {
             let entry = entry?;
             let name = entry.file_name();
             let name = name.to_str().context("invalid module registry name")?;
-            if name == "registry.lock" || name.starts_with(".staging-") {
+            if name == "registry.lock" || name == activation::ACTIVATION || name.starts_with('.') {
                 continue;
             }
             let (_, _, info) = self
@@ -409,7 +407,7 @@ impl ModuleRegistry {
     /// A corrupt snapshot can be removed without executing its Lua source.
     pub fn unregister(&self, game: &str) -> Result<()> {
         let path = self.directory(game)?;
-        let _lock = self.lock()?;
+        let (_lock, _repair) = self.lock_and_repair()?;
         if !fs::symlink_metadata(&path)?.file_type().is_dir() {
             bail!("registered module must be a real directory");
         }

@@ -229,9 +229,10 @@ fn retained_file(roots: &ManagerRoots, name: &str) -> Vec<u8> {
     .expect("retained release file")
 }
 
-/// Build the registry state that a process death leaves between the two loops
-/// of `apply`: every version directory is moved, but the `current` pointer is
-/// still the old release. Returns the published manifest and script bytes.
+/// Build the registry state that a process death leaves between the version
+/// moves and the `current` pointer: every version directory is moved, the
+/// activation intent is still present, and `current` is still the old release.
+/// Returns the published manifest and script bytes.
 fn leave_release_moved_but_inactive(roots: &ManagerRoots, catalog: &Catalog) -> (Vec<u8>, Vec<u8>) {
     let published = catalog.module_directory();
     let manifest = fs::read(published.join("module.json")).expect("published manifest");
@@ -257,11 +258,25 @@ fn leave_release_moved_but_inactive(roots: &ManagerRoots, catalog: &Catalog) -> 
         serde_json::to_vec(&receipt).expect("receipt"),
     )
     .expect("moved receipt");
+    let activation = json!({
+        "schema_version": 1,
+        "releases": [{
+            "game_id": GAME,
+            "version": NEW_VERSION,
+            "blake3": digest(&manifest, &script),
+            "previous": OLD_VERSION,
+            "staged": format!(".staging-catalog-death/{GAME}"),
+        }],
+    });
+    fs::write(
+        roots.module_registry().join("activation.json"),
+        serde_json::to_vec(&activation).expect("activation intent"),
+    )
+    .expect("activation intent");
     (manifest, script)
 }
 
 #[test]
-#[ignore = "reproduces issue #167: a death between the version moves and the current write leaves the newer release inactive; the activation fix removes the ignore"]
 fn process_death_between_moves_and_current_write_activates_the_newer_release() {
     let isolation = tempfile::tempdir().expect("isolation");
     let _environment = IsolatedEnvironment::new(isolation.path());

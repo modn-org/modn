@@ -25,8 +25,8 @@ pub use loader::{
     MIN_HOST_API_VERSION,
 };
 pub use registry::{
-    ImportReport, ModulePin, ModuleRegistry, ModuleSource, ModuleTrust, RegisteredModule,
-    ReleaseOutcome,
+    ActivationRepair, ImportReport, ModulePin, ModuleRegistry, ModuleSource, ModuleTrust,
+    RegisteredModule, RegistryOpen, ReleaseOutcome,
 };
 pub use resolver::available_games;
 pub use store_data::StoreIdentities;
