@@ -98,7 +98,7 @@ access to the game or changes Rust installation transactions.
 ### Governing module selection
 
 One command has at most one governing game module, held by one
-`ModuleSelection` value. The precedence is fixed:
+`ModuleSelection` value. The governing-module precedence is fixed:
 
 1. **Development override.** The directory selected by `--module-src`, or
    `MODN_GAME_MODULES_DIR/<game-id>`, is verified and used.

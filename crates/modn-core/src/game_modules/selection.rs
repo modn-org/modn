@@ -34,9 +34,10 @@ pub struct ModuleSelection {
 }
 
 impl ModuleSelection {
-    /// Select the game module that governs one command.
+    /// Select the game module that governs one command using the fixed
+    /// **governing-module precedence**.
     ///
-    /// The precedence is fixed:
+    /// The precedence is:
     ///
     /// 1. **Development override**: [`ManagerRoots::development_modules`] as a
     ///    direct module directory, otherwise `MODN_GAME_MODULES_DIR/<game>` as
