@@ -44,7 +44,7 @@ fn signature_reader(source: &str, signature: &str) -> Result<Box<dyn Read>> {
     }
 }
 
-pub(super) fn refresh() -> Result<MainRefresh> {
+pub(super) fn refresh(roots: &modn_core::manager_roots::ManagerRoots) -> Result<MainRefresh> {
     let (source, signature, selection) = match std::env::var("MODN_MAIN_BUCKET_SOURCE") {
         Ok(source) => {
             let signature = format!("{source}.minisig");
@@ -59,7 +59,7 @@ pub(super) fn refresh() -> Result<MainRefresh> {
             )
         }
     };
-    let store = BucketStore::new(&modn_core::data_dir::data_directory()?);
+    let store = BucketStore::new(roots);
     let (digest, changed, key_id) = store.update_main(
         crate::main_key::MAIN_BUCKET_PUBLIC_KEY,
         || source_reader(&source),
@@ -78,11 +78,15 @@ pub(super) fn refresh() -> Result<MainRefresh> {
     })
 }
 
-pub(super) fn run(name: Option<&str>, json: bool) -> Result<()> {
+pub(super) fn run(
+    name: Option<&str>,
+    roots: &modn_core::manager_roots::ManagerRoots,
+    json: bool,
+) -> Result<()> {
     if name.is_some_and(|name| name != "main") {
         bail!("only main can be updated; registered local buckets are local directories");
     }
-    let refreshed = refresh()?;
+    let refreshed = refresh(roots)?;
     if json {
         println!(
             "{}",

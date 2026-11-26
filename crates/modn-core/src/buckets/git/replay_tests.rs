@@ -3,6 +3,7 @@
 use super::statement_tests::write_rotation_files;
 use super::tests::{commit, registration, remote, source, test_key, write_signature};
 use super::BucketStore;
+use crate::manager_roots::ManagerRoots;
 use std::fs;
 
 #[test]
@@ -11,7 +12,7 @@ fn a_replayed_rotation_cannot_roll_the_pin_back_to_a_retired_key() {
     let middle = test_key();
     let remote = remote("1", original.clone());
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_git_with_signer("community", Some(source(&remote)))
         .expect("first sync");

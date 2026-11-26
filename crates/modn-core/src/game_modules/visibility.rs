@@ -1,6 +1,6 @@
 use super::loader;
 use crate::buckets::BucketStore;
-use crate::data_dir;
+use crate::manager_roots::ManagerRoots;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -30,8 +30,7 @@ pub fn hidden_modules(game: &str) -> Result<Vec<HiddenModule>> {
     if !loader::valid_game_id(game) {
         anyhow::bail!("invalid game module identifier");
     }
-    let data = data_dir::profile_directory()?;
-    let store = BucketStore::new(&data);
+    let store = BucketStore::new(&ManagerRoots::from_ambient()?);
     if !store.official_games()?.iter().any(|id| id == game) {
         return Ok(Vec::new());
     }

@@ -1,4 +1,5 @@
 use crate::buckets::{BucketStore, ZipCatalogSource};
+use modn_core::manager_roots::ManagerRoots;
 use std::cell::Cell;
 use std::fs;
 use std::io::{self, Cursor, Read, Write};
@@ -33,7 +34,7 @@ fn assert_no_state(state: &Path) {
 #[test]
 fn injected_download_failure_keeps_state_and_removes_staging() {
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let zip = state.path().join("catalog.zip");
     let error = store
         .sync_zip_with_signer("community", Some(source(&zip)), |_| {
@@ -47,7 +48,7 @@ fn injected_download_failure_keeps_state_and_removes_staging() {
 #[test]
 fn truncated_download_is_refused_without_state() {
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let zip = state.path().join("catalog.zip");
     let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
     writer
@@ -68,7 +69,7 @@ fn truncated_download_is_refused_without_state() {
 #[test]
 fn oversized_download_is_refused_without_state() {
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let zip = state.path().join("catalog.zip");
     let error = store
         .sync_zip_with_signer("community", Some(source(&zip)), |_| {
@@ -82,7 +83,7 @@ fn oversized_download_is_refused_without_state() {
 #[test]
 fn plain_http_is_refused_before_the_source_is_opened() {
     let state = tempfile::tempdir().expect("state");
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let opened = Cell::new(false);
     let error = store
         .sync_zip_with_signer(
@@ -259,7 +260,7 @@ fn rotation_is_accepted_when_a_mirror_serves_the_revision() {
     write_catalog(catalog.path(), mirror, &old);
     let first = pack_catalog(catalog.path());
 
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let first_bytes = first.clone();
     let synced = store
         .sync_zip_with_signer(
@@ -336,7 +337,7 @@ fn mirror_rotation_with_a_swapped_catalog_public_key_is_refused() {
     let mirror = "https://mirror.example/catalog.zip";
     write_catalog(catalog.path(), mirror, &old);
     let first = pack_catalog(catalog.path());
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let first_bytes = first.clone();
     store
         .sync_zip_with_signer(

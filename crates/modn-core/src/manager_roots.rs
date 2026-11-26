@@ -54,6 +54,12 @@ impl ManagerRoots {
         Ok(roots)
     }
 
+    pub(crate) fn from_ambient() -> Result<Self> {
+        let data = crate::data_dir::data_directory()?;
+        let profile = crate::data_dir::profile_directory()?;
+        Ok(Self::new(&data, Some(&profile)))
+    }
+
     /// The shared data directory.
     #[must_use]
     pub fn data(&self) -> &Path {

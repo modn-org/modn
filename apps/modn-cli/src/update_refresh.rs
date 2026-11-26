@@ -171,8 +171,8 @@ fn refuse_target_options(args: &UpdateArgs, requested: Option<&str>) -> Result<(
     Ok(())
 }
 
-fn main_refresh() -> Refresh {
-    match bucket_update::refresh() {
+fn main_refresh(roots: &ManagerRoots) -> Refresh {
+    match bucket_update::refresh(roots) {
         Ok(refreshed) => Refresh::main(Ok(Detail::Main {
             changed: refreshed.changed,
             key_id: refreshed.key_id.to_string(),
@@ -236,9 +236,8 @@ fn key_change_suffix(change: Option<&CatalogKeyChange>) -> String {
     change.map_or_else(String::new, |change| format!(", {}", change.line()))
 }
 fn catalog_refreshes(roots: &ManagerRoots, json: bool) -> Vec<Refresh> {
-    let mut refreshes = vec![main_refresh()];
-    let root = roots.profile();
-    let store = BucketStore::new(root);
+    let mut refreshes = vec![main_refresh(roots)];
+    let store = BucketStore::new(roots);
     if let Err(error) = validate_write_targets(roots, None) {
         refreshes.push(Refresh {
             name: "registrations".into(),

@@ -229,11 +229,13 @@ pub(super) fn package_with_sources(
         .expect("manifest JSON"),
     )
     .expect("manifest");
-    data_dir::with_data_directory(root, || BucketStore::new(root).packages(Some("test-game")))
-        .expect("packages")
-        .into_iter()
-        .next()
-        .expect("example package")
+    data_dir::with_data_directory(root, || {
+        BucketStore::new(&ManagerRoots::new(root, None)).packages(Some("test-game"))
+    })
+    .expect("packages")
+    .into_iter()
+    .next()
+    .expect("example package")
 }
 
 fn acquire_with_sources(

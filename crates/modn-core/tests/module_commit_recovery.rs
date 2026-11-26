@@ -238,7 +238,7 @@ fn synchronize(store: &BucketStore) -> GitCatalogSync {
 fn failed_commit_restores_registry_and_next_sync_activates_v2() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         catalog.trust(&store);
@@ -310,7 +310,7 @@ fn failed_commit_restores_registry_and_next_sync_activates_v2() {
 fn deliberate_rollback_survives_unchanged_catalog_sync() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         catalog.trust(&store);

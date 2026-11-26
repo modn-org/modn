@@ -197,7 +197,7 @@ fn state(root: &Path) -> modn_core::state::Store {
 fn trusted_sync_imports_module_as_active_release() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         assert!(catalog.trust(&store).imported.is_empty());
@@ -227,7 +227,7 @@ fn trusted_sync_imports_module_as_active_release() {
 fn newer_catalog_revision_switches_and_retains_the_old_release() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         catalog.trust(&store);
@@ -266,7 +266,7 @@ fn newer_catalog_revision_switches_and_retains_the_old_release() {
 fn staging_failure_leaves_the_previous_release_active() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         catalog.trust(&store);
@@ -304,7 +304,7 @@ fn staging_failure_leaves_the_previous_release_active() {
 fn untrusted_sync_ignores_modules_and_never_runs_lua() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.write_module("fixture-game", "1.0.0", 3, "this is not lua", None);
         catalog.sign_and_commit("broken module");
@@ -327,7 +327,7 @@ fn untrusted_sync_ignores_modules_and_never_runs_lua() {
 fn trust_imports_modules_immediately_and_returns_them() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.write_module(
             "fixture-game",
@@ -359,7 +359,7 @@ fn trust_imports_modules_immediately_and_returns_them() {
 fn official_module_priority_hides_a_trusted_catalog_module() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.write_module(
             "cyberpunk-2077",
@@ -412,7 +412,7 @@ fn official_module_priority_hides_a_trusted_catalog_module() {
 fn untrusted_source_is_refused_at_use_and_reported_by_doctor() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.write_module(
             "fixture-game",

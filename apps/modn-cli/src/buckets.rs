@@ -307,8 +307,7 @@ pub(super) fn run(
     json_output: bool,
     game: Option<&str>,
 ) -> Result<()> {
-    let root = roots.profile();
-    let store = BucketStore::new(root);
+    let store = BucketStore::new(roots);
     if matches!(
         &command,
         BucketCommand::Add { .. }
@@ -351,7 +350,7 @@ pub(super) fn run(
             return untrust_modules(&store, &bucket, json_output);
         }
         BucketCommand::Update { name } => {
-            return crate::bucket_update::run(name.as_deref(), json_output);
+            return crate::bucket_update::run(name.as_deref(), roots, json_output);
         }
         BucketCommand::Add { name, path } => serde_json::to_value(store.add(&name, &path)?)?,
         BucketCommand::Remove { name } => {
@@ -432,7 +431,7 @@ pub(super) fn search(
     json_output: bool,
     game: Option<&str>,
 ) -> Result<()> {
-    let catalog = BucketStore::new(roots.profile());
+    let catalog = BucketStore::new(roots);
     let needle = query.unwrap_or("").to_lowercase();
     let matches: Vec<_> = catalog
         .packages(game)?

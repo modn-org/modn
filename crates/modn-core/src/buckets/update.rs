@@ -195,6 +195,7 @@ impl BucketStore {
 mod tests {
     use super::{recover, swap};
     use crate::buckets::BucketStore;
+    use crate::manager_roots::ManagerRoots;
     use fs2::FileExt;
     use minisign::KeyPair;
     use std::fs::{self, OpenOptions};
@@ -252,7 +253,7 @@ mod tests {
     }
 
     fn held_update_lock(state: &std::path::Path) -> (std::fs::File, BucketStore, String) {
-        let store = BucketStore::new(state);
+        let store = BucketStore::new(&ManagerRoots::new(state, None));
         fs::create_dir_all(state.join("buckets")).unwrap();
         let lock = OpenOptions::new()
             .create(true)

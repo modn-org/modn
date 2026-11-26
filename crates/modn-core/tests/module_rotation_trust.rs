@@ -212,7 +212,7 @@ fn doctor_reports_untrusted() -> bool {
 fn a_key_rotation_keeps_a_retained_module_release_usable() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.write_module("1.0.0");
         catalog.publish("module");
@@ -266,7 +266,7 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
 fn a_revocation_keeps_the_revoked_release_untrusted() {
     main_bucket::seeded(|| {
         let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         let revocation = KeyPair::generate_unencrypted_keypair().expect("revocation key");
         catalog.pin_revocation_key(&revocation);
