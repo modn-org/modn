@@ -126,6 +126,10 @@ The `current` file names the one active release. An update stages the new releas
 
 Modn refuses a release when the same version is already retained with a different digest. Remove the module and register it again to resolve the conflict. An unversioned registry entry from an earlier release is refused in the same way: remove it and register the module again.
 
+An import that activates releases writes one activation intent, `activation.json`, in the registry root before the first version-directory move. The intent records, for each release that will become active, the game id, version, BLAKE3 digest, previous `current` value and private staging directory. The write is atomic: Modn writes and syncs a temporary file in the same directory, then renames it. Modn removes the intent after the last `current` pointer is written.
+
+The next open of the registry repairs a pending intent. For each listed release, Modn verifies the bytes of `versions/<version>` against the recorded digest. A release that is still in private staging moves into `versions` only after its bytes verify. Modn then writes the `current` pointers and removes the intent. If any listed release does not verify, Modn rolls the whole set back to the recorded previous `current` values, removes a game entry that the set created, leaves every release directory and its bytes in place, removes the intent, and reports the rollback. Repair changes only directories and `current` pointers. It never writes or replaces module bytes, and it never activates bytes that do not verify. A corrupt or unreadable intent is reported and left in place; the registry stays readable. Sync, registration, update, pin, rollback and removal repair a pending intent before they change the registry.
+
 ### Pin, unpin, update and rollback
 
 ```sh
