@@ -292,6 +292,16 @@ mod tests {
     }
 
     #[test]
+    fn a_plan_stale_envelope_keeps_its_code() {
+        let value = json!({
+            "error": "PLAN_STALE",
+            "message": "the plan changed since it was made"
+        });
+        let envelope = ErrorEnvelope::parse(&value).expect("a CLI error envelope");
+        assert_eq!(envelope.code, "PLAN_STALE");
+    }
+
+    #[test]
     fn a_diagnostics_key_is_ignored_for_other_codes() {
         let value = json!({
             "error": "PLAN_BLOCKED",

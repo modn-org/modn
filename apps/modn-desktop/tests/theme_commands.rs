@@ -6,10 +6,6 @@
 #[path = "../src/backend.rs"]
 mod backend;
 
-#[expect(
-    dead_code,
-    reason = "The theme tests include every argument builder but pin only the select request"
-)]
 #[cfg(windows)]
 #[path = "../src/app/commands/args.rs"]
 mod args;

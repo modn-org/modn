@@ -7,6 +7,7 @@ import { showToast } from './toast.js';
 
 const BLOCKED_CODES = new Set([
   'PLAN_BLOCKED',
+  'PLAN_STALE',
   'CONFLICT',
   'PACKAGE_NEEDED',
   'PACKAGE_PINNED',

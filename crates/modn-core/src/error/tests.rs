@@ -37,6 +37,16 @@ fn codes_serialize_as_their_names() {
 }
 
 #[test]
+fn plan_stale_is_stable_and_serializes_as_its_name() {
+    assert!(ErrorCode::ALL.contains(&ErrorCode::PlanStale));
+    assert_eq!(ErrorCode::PlanStale.as_str(), "PLAN_STALE");
+    assert_eq!(
+        serde_json::to_value(ErrorCode::PlanStale).expect("code JSON"),
+        "PLAN_STALE"
+    );
+}
+
+#[test]
 fn launch_and_detect_codes_serialize_as_their_names() {
     for code in [
         ErrorCode::DetectFolderUnconfirmed,

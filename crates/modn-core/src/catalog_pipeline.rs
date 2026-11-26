@@ -24,12 +24,16 @@ use anyhow::Result;
 )]
 mod archives;
 mod conflicts;
+mod consent;
 mod dependencies;
+mod digest;
 mod input;
 mod order;
 mod plan;
 mod requirements;
 
+pub use consent::{Consent, ExecutableApproval, StalePlan};
+pub use digest::{plan_digest, PlanDigest, ReleasePreview};
 pub use input::{ConsentInputs, InstallInput, InstallTarget};
 pub use plan::{
     CatalogPlan, PendingDownload, PlanConflict, PlanKind, PlanRefusal, PlannedRelease,
