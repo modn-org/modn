@@ -33,7 +33,7 @@ pub use nexus::{
 };
 pub use plan::{plan_sources, source_cache_url, PlannedAction, PlannedSource};
 pub use provider::GithubReleaseAsset;
-pub use release::{NexusResolution, ReleaseAcquired, ReleaseResolver};
+pub use release::{ReleaseAcquired, ReleaseResolver};
 pub use release_digest::{ArchiveDigest, ReleaseDigest};
 pub use sources::{
     FetchError, SourceAttempt, SourceBody, SourceCandidate, SourceFailure, SourcePolicy,

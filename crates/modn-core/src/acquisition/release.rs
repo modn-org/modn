@@ -31,16 +31,6 @@ pub struct ReleaseAcquired {
     pub attempts: Vec<SourceAttempt>,
 }
 
-/// The outcome of resolving one planned Nexus source.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum NexusResolution {
-    /// A validated CDN link that [`ReleaseResolver::open_nexus`] reads.
-    Download(NexusDownloadUrl),
-    /// The source is refused before a link exists, with its cause.
-    Refused(anyhow::Error),
-}
-
 /// The provider steps that release acquisition keeps in its caller.
 ///
 /// Nexus credentials and `nxm` links, the Git process and GitHub metadata
@@ -48,7 +38,7 @@ pub enum NexusResolution {
 /// records and orders with the other sources.
 pub trait ReleaseResolver {
     /// Acquire the planned Git source, reporting progress and honouring
-    /// cancellation through the control the resolver holds.
+    /// `control`.
     fn git(
         &self,
         release: &BucketPackage,
@@ -59,8 +49,8 @@ pub trait ReleaseResolver {
         control: &OperationControl,
     ) -> Result<GitAcquired>;
 
-    /// Resolve the planned Nexus file, with its credentials and `nxm` link.
-    fn nexus(&self, release: &BucketPackage, source: &PackageSource) -> NexusResolution;
+    /// Resolve the planned Nexus file to a CDN link, or refuse it.
+    fn nexus(&self, release: &BucketPackage, source: &PackageSource) -> Result<NexusDownloadUrl>;
 
     /// Open the CDN link that [`ReleaseResolver::nexus`] resolved.
     fn open_nexus(&self, link: &NexusDownloadUrl) -> Result<SourceBody>;
@@ -210,14 +200,14 @@ impl ArchiveCache {
                 } => {
                     let label = nexus_label(&game_domain, mod_id, file_id, &file_name);
                     match resolver.nexus(release, source) {
-                        NexusResolution::Refused(error) => {
+                        Err(error) => {
                             if is_cancelled(&error) {
                                 return Err(error);
                             }
                             attempts.push(SourceAttempt::failed(label, 1, classify(&error)));
                             specific = Some(error);
                         }
-                        NexusResolution::Download(link) => {
+                        Ok(link) => {
                             let Some(url) = source_cache_url(source)? else {
                                 return Err(anyhow::anyhow!(
                                     "a Nexus source has no archive cache URL"

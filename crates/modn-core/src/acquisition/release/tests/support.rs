@@ -1,4 +1,4 @@
-use super::super::{NexusResolution, ReleaseAcquired, ReleaseResolver};
+use super::super::{ReleaseAcquired, ReleaseResolver};
 use crate::acquisition::{
     ArchiveCache, CacheKey, CacheUse, FetchError, GitAcquired, GitCacheKey, NexusApiKey,
     NexusDownloadUrl, NexusFile, Origin, PlannedAction, SourceBody, SourceCandidate, SourcePolicy,
@@ -144,7 +144,7 @@ enum OpenReply {
 #[derive(Default)]
 pub(super) struct FakeResolver {
     git: RefCell<BTreeMap<String, VecDeque<Result<GitAcquired>>>>,
-    nexus: RefCell<BTreeMap<u64, VecDeque<NexusResolution>>>,
+    nexus: RefCell<BTreeMap<u64, VecDeque<Result<NexusDownloadUrl>>>>,
     open: RefCell<BTreeMap<String, VecDeque<OpenReply>>>,
     opened: RefCell<Vec<String>>,
 }
@@ -175,7 +175,7 @@ impl FakeResolver {
             .borrow_mut()
             .entry(file_id)
             .or_default()
-            .push_back(NexusResolution::Download(link));
+            .push_back(Ok(link));
     }
 
     pub(super) fn nexus_refused(&self, file_id: u64, message: &str) {
@@ -183,9 +183,7 @@ impl FakeResolver {
             .borrow_mut()
             .entry(file_id)
             .or_default()
-            .push_back(NexusResolution::Refused(
-                anyhow::anyhow!(message.to_owned()),
-            ));
+            .push_back(Err(anyhow::anyhow!(message.to_owned())));
     }
 
     pub(super) fn open_ok(&self, link: &NexusDownloadUrl, bytes: &[u8]) {
@@ -230,11 +228,9 @@ impl ReleaseResolver for FakeResolver {
             .expect("a queued Git result")
     }
 
-    fn nexus(&self, _release: &BucketPackage, source: &PackageSource) -> NexusResolution {
+    fn nexus(&self, _release: &BucketPackage, source: &PackageSource) -> Result<NexusDownloadUrl> {
         let PackageSource::Nexus { file_id, .. } = source else {
-            return NexusResolution::Refused(anyhow::anyhow!(
-                "the fake resolver was asked for a non-Nexus source"
-            ));
+            bail!("the fake resolver was asked for a non-Nexus source");
         };
         self.nexus
             .borrow_mut()
