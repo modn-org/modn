@@ -1,6 +1,8 @@
 //! Catalog pipeline tests.
 
 mod archives_tests;
+mod commit_support;
+mod commit_tests;
 mod consent_tests;
 mod digest_tests;
 mod fixtures;
