@@ -131,7 +131,12 @@ struct Candidate {
     present: std::collections::BTreeSet<String>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "manager roots, explicit approvals and stored consent are separate inputs"
+)]
 fn plan_update(
+    roots: &ManagerRoots,
     game_id: &str,
     game: &Path,
     archive: &Path,
@@ -140,13 +145,15 @@ fn plan_update(
     explicit: &[String],
     stored: Option<&Capabilities>,
 ) -> Result<Candidate> {
-    let appdata = content_root_appdata(game_id)?;
+    let appdata = content_root_appdata(roots, game_id)?;
     let preview = |approved: &[String]| -> Result<InstallPlan> {
         match &appdata {
-            Some(appdata) => {
-                preview_update_with_appdata(game_id, game, archive, approved, replaced, appdata)
+            Some(appdata) => preview_update_with_appdata(
+                roots, game_id, game, archive, approved, replaced, appdata,
+            ),
+            None => {
+                preview_update_with_permissions(roots, game_id, game, archive, approved, replaced)
             }
-            None => preview_update_with_permissions(game_id, game, archive, approved, replaced),
         }
     };
     let declared = &target.package.executables;
@@ -202,7 +209,6 @@ pub(super) fn run(
             "an update writes game files; pass --yes with --progress json",
         ));
     }
-    let state_path = roots.state_database();
     let catalog = BucketStore::new(roots).snapshot(requested)?;
     let current = catalog_install::resolve(target, &catalog, json)?;
     let reference = reference_of(&current);
@@ -219,12 +225,16 @@ pub(super) fn run(
     let target = choose_release(releases, args.version.as_deref(), &label)?;
     download::validate_links(&args.nxm_links, &[&target])?;
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
-    let state = ManagerState::load_deferred(&state_path)?;
+    let state = ManagerState::load_deferred(roots)?;
     let store = state
         .existing()
         .context("no manager state database; nothing is installed")?;
-    let (game_id, game) =
-        selected_installation(Some(store), args.path.clone(), Some(&current.package.game))?;
+    let (game_id, game) = selected_installation(
+        roots,
+        Some(store),
+        args.path.clone(),
+        Some(&current.package.game),
+    )?;
     let old = installed_package(store.installed(&game)?, &reference)?;
     if old.pinned {
         println!(
@@ -329,6 +339,7 @@ pub(super) fn run(
     let archive = archives.get(&label).cloned();
     let candidate = match (&archive, up_to_date) {
         (Some(archive), false) => Some(plan_update(
+            roots,
             &game_id,
             &game,
             archive,

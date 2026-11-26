@@ -7,6 +7,7 @@ use modn_core::state::Store;
 use std::path::{Component, Path, PathBuf};
 
 pub(super) struct ManagerState {
+    roots: ManagerRoots,
     path: PathBuf,
     existing: Option<Store>,
     registered_roots: Option<Vec<PathBuf>>,
@@ -44,6 +45,7 @@ impl InstallationState {
             target,
             selected,
         } = self;
+        let roots = state.roots.clone();
         let store = match access {
             InstallationAccess::ArchivePreview
                 if target.root.is_some() && state.existing().is_none() =>
@@ -65,7 +67,9 @@ impl InstallationState {
         }
         let (game_id, root) = match selected {
             Some(selected) => selected,
-            None => selected_installation(store.as_ref(), target.root, target.game.as_deref())?,
+            None => {
+                selected_installation(&roots, store.as_ref(), target.root, target.game.as_deref())?
+            }
         };
         Ok(SelectedState {
             store,
@@ -76,19 +80,21 @@ impl InstallationState {
 }
 
 impl ManagerState {
-    pub(super) fn load(path: &Path) -> Result<Self> {
-        let mut state = Self::load_deferred(path)?;
+    pub(super) fn load(roots: &ManagerRoots) -> Result<Self> {
+        let mut state = Self::load_deferred(roots)?;
         state.registered_roots = Some(registered_roots(state.existing())?);
         Ok(state)
     }
 
-    pub(super) fn load_deferred(path: &Path) -> Result<Self> {
+    pub(super) fn load_deferred(roots: &ManagerRoots) -> Result<Self> {
+        let path = roots.state_database();
         let existing = path
             .is_file()
-            .then(|| Store::open_readonly(path))
+            .then(|| Store::open_readonly(&path))
             .transpose()?;
         Ok(Self {
-            path: path.to_path_buf(),
+            roots: roots.clone(),
+            path,
             existing,
             registered_roots: None,
         })
@@ -105,12 +111,17 @@ impl ManagerState {
         self.existing.as_ref()
     }
 
+    pub(super) fn manager_roots(&self) -> &ManagerRoots {
+        &self.roots
+    }
+
     pub(super) fn into_existing(self) -> Option<Store> {
         self.existing
     }
 
     pub(super) fn for_installation(
         self,
+        roots: &ManagerRoots,
         path: Option<PathBuf>,
         requested: Option<&str>,
     ) -> Result<InstallationState> {
@@ -123,7 +134,7 @@ impl ManagerState {
                 None,
             )
         } else {
-            let (game_id, root) = selected_installation(self.existing(), None, requested)?;
+            let (game_id, root) = selected_installation(roots, self.existing(), None, requested)?;
             (
                 ProtectedTarget {
                     game: Some(game_id.clone()),
@@ -153,6 +164,7 @@ impl ManagerState {
     pub(super) fn validate_download(&self, cache: &Path, target: &ProtectedTarget) -> Result<()> {
         self.validate(target)?;
         validate_outside_games(
+            &self.roots,
             "cache directory",
             cache,
             target.game.as_deref(),
@@ -178,6 +190,7 @@ impl ManagerState {
             }
         };
         validate_state_path(
+            &self.roots,
             &self.path,
             target.game.as_deref(),
             target.root.as_deref(),
@@ -197,7 +210,7 @@ fn registered_roots(store: Option<&Store>) -> Result<Vec<PathBuf>> {
 }
 
 pub(super) fn validate_write_targets(roots: &ManagerRoots, extra_game: Option<&str>) -> Result<()> {
-    let state = ManagerState::load_deferred(&roots.state_database())?;
+    let state = ManagerState::load_deferred(roots)?;
     let registered = state
         .existing()
         .map(Store::list)
@@ -214,17 +227,18 @@ pub(super) fn validate_write_targets(roots: &ManagerRoots, extra_game: Option<&s
     games.dedup();
     let targets = roots.write_targets();
     for target in &targets {
-        validate_state_path(target, None, None, &registered)?;
+        validate_state_path(roots, target, None, None, &registered)?;
     }
     for game in games {
         for target in &targets {
-            validate_state_path(target, Some(&game), None, &registered)?;
+            validate_state_path(roots, target, Some(&game), None, &registered)?;
         }
     }
     Ok(())
 }
 
 pub(super) fn validate_state_path(
+    roots: &ManagerRoots,
     state_path: &Path,
     selected_game: Option<&str>,
     selected_path: Option<&Path>,
@@ -237,6 +251,7 @@ pub(super) fn validate_state_path(
     }
     let parent = state_path.parent().context("invalid state path")?;
     validate_outside_games(
+        roots,
         "state directory",
         parent,
         selected_game,
@@ -246,6 +261,7 @@ pub(super) fn validate_state_path(
 }
 
 pub(super) fn validate_outside_games(
+    roots: &ManagerRoots,
     label: &str,
     parent: &Path,
     selected_game: Option<&str>,
@@ -277,7 +293,7 @@ pub(super) fn validate_outside_games(
             }
             if let Some(game) = selected_game {
                 for ancestor in existing.ancestors() {
-                    if recognizes_installation_for(game, ancestor)? {
+                    if recognizes_installation_for(roots, game, ancestor)? {
                         bail!("{label} must be outside a game installation");
                     }
                 }

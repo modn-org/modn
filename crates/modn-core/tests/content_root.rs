@@ -1,4 +1,4 @@
-use modn_core::game_modules::{check_module, with_module_source};
+use modn_core::game_modules::check_module;
 use modn_core::planning::{
     preview_adoption_with_appdata, preview_install_zip_with_appdata, preview_update_with_appdata,
 };
@@ -132,50 +132,58 @@ fn content_root_lifecycle_keeps_ownership_on_the_content_root() {
     let state = temp.path().join("state/state.sqlite");
     let mut store = Store::open(&state).expect("state");
 
-    with_module_source(Some(&module), || {
-        let plan = preview_install_zip_with_appdata(GAME, &game, &first, &appdata).expect("plan");
-        assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
-        assert_eq!(plan.operations[0].root, "content");
-        assert_eq!(
-            plan.content_root.as_deref(),
-            Some(
-                appdata
-                    .canonicalize()
-                    .unwrap()
-                    .join("Fixture")
-                    .join("Mods")
-                    .as_path()
-            )
-        );
-        assert!(!game.join("core.lua").exists());
-        assert!(
-            !appdata.join("Fixture").exists(),
-            "dry run must not create the content root"
-        );
+    let roots = modn_core::manager_roots::ManagerRoots::new(temp.path(), None)
+        .with_development_modules(Some(module.clone()));
+    let plan =
+        preview_install_zip_with_appdata(&roots, GAME, &game, &first, &appdata).expect("plan");
+    assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
+    assert_eq!(plan.operations[0].root, "content");
+    assert_eq!(
+        plan.content_root.as_deref(),
+        Some(
+            appdata
+                .canonicalize()
+                .unwrap()
+                .join("Fixture")
+                .join("Mods")
+                .as_path()
+        )
+    );
+    assert!(!game.join("core.lua").exists());
+    assert!(
+        !appdata.join("Fixture").exists(),
+        "dry run must not create the content root"
+    );
 
-        let installed = store
-            .install_operations_zip(&game, &first, &plan)
-            .expect("install");
-        assert_eq!(installed.files[0].root, "content");
-        assert_eq!(
-            fs::read(appdata.join("Fixture/Mods/core.lua")).expect("content file"),
-            b"version one"
-        );
-        assert!(!game.join("core.lua").exists());
-        let reloaded = store.installed(&game).expect("installed");
-        assert_eq!(reloaded[0].files[0].root, "content");
+    let installed = store
+        .install_operations_zip(&game, &first, &plan)
+        .expect("install");
+    assert_eq!(installed.files[0].root, "content");
+    assert_eq!(
+        fs::read(appdata.join("Fixture/Mods/core.lua")).expect("content file"),
+        b"version one"
+    );
+    assert!(!game.join("core.lua").exists());
+    let reloaded = store.installed(&game).expect("installed");
+    assert_eq!(reloaded[0].files[0].root, "content");
 
-        let second = temp.path().join("second.zip");
-        archive(&second, &[("core.lua", b"version two")]);
-        let update =
-            preview_update_with_appdata(GAME, &game, &second, &[], &["core.lua".into()], &appdata)
-                .expect("update preview");
-        assert!(update.blockers.is_empty(), "{:?}", update.blockers);
+    let second = temp.path().join("second.zip");
+    archive(&second, &[("core.lua", b"version two")]);
+    let update = preview_update_with_appdata(
+        &roots,
+        GAME,
+        &game,
+        &second,
+        &[],
+        &["core.lua".into()],
+        &appdata,
+    )
+    .expect("update preview");
+    assert!(update.blockers.is_empty(), "{:?}", update.blockers);
 
-        store.uninstall(&game, &installed.id).expect("uninstall");
-        assert!(!appdata.join("Fixture/Mods/core.lua").exists());
-        assert!(!game.join("core.lua").exists());
-    });
+    store.uninstall(&game, &installed.id).expect("uninstall");
+    assert!(!appdata.join("Fixture/Mods/core.lua").exists());
+    assert!(!game.join("core.lua").exists());
 }
 
 #[test]
@@ -188,26 +196,27 @@ fn adoption_of_existing_content_files_is_root_qualified() {
     archive(&archive_path, &[("core.lua", b"manual")]);
     let mut store = Store::open(&temp.path().join("state/state.sqlite")).expect("state");
 
-    with_module_source(Some(&module), || {
-        let preview =
-            preview_adoption_with_appdata(GAME, &game, &archive_path, &appdata).expect("preview");
-        assert!(preview.blockers.is_empty(), "{:?}", preview.blockers);
-        let adopted = store
-            .adopt_archive_with_appdata(
-                GAME,
-                &game,
-                &archive_path,
-                &preview.archive_blake3,
-                modn_core::transactions::AdoptionApproval::Acknowledged,
-                &appdata,
-            )
-            .expect("adopt");
-        assert_eq!(adopted.files[0].root, "content");
-        assert_eq!(
-            fs::read(root.join("core.lua")).expect("adopted file"),
-            b"manual"
-        );
-    });
+    let roots = modn_core::manager_roots::ManagerRoots::new(temp.path(), None)
+        .with_development_modules(Some(module.clone()));
+    let preview = preview_adoption_with_appdata(&roots, GAME, &game, &archive_path, &appdata)
+        .expect("preview");
+    assert!(preview.blockers.is_empty(), "{:?}", preview.blockers);
+    let adopted = store
+        .adopt_archive_with_appdata(
+            &roots,
+            GAME,
+            &game,
+            &archive_path,
+            &preview.archive_blake3,
+            modn_core::transactions::AdoptionApproval::Acknowledged,
+            &appdata,
+        )
+        .expect("adopt");
+    assert_eq!(adopted.files[0].root, "content");
+    assert_eq!(
+        fs::read(root.join("core.lua")).expect("adopted file"),
+        b"manual"
+    );
 }
 
 #[test]
@@ -229,7 +238,9 @@ fn linked_content_roots_are_rejected() {
         ),
         SCRIPT,
     );
-    with_module_source(Some(&directory), || {
-        assert!(preview_install_zip_with_appdata(GAME, &game, &archive_path, &appdata).is_err());
-    });
+    let roots = modn_core::manager_roots::ManagerRoots::new(temp.path(), None)
+        .with_development_modules(Some(directory.clone()));
+    assert!(
+        preview_install_zip_with_appdata(&roots, GAME, &game, &archive_path, &appdata).is_err()
+    );
 }

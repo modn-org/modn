@@ -1,6 +1,5 @@
 use super::catalog_tests::{module_source, plan_into, Fixture};
 use super::ManagedPackage;
-use crate::game_modules::with_module_source;
 use std::fs;
 use std::path::Path;
 
@@ -8,23 +7,23 @@ impl Fixture {
     fn install_into(&mut self, archive: &Path, directory: &str) -> anyhow::Result<ManagedPackage> {
         let proposal = plan_into(&self.game, archive, directory);
         let game = self.game.clone();
-        with_module_source(Some(&module_source()), || {
+        {
             self.store.install_operations_zip(&game, archive, &proposal)
-        })
+        }
     }
 
     fn interrupted_into(&mut self, archive: &Path, directory: &str) -> anyhow::Error {
         let proposal = plan_into(&self.game, archive, directory);
         let game = self.game.clone();
-        with_module_source(Some(&module_source()), || {
+        {
             self.store
                 .install_operations_inner(&game, archive, &proposal, Some(1))
-        })
+        }
         .unwrap_err()
     }
 
     fn recover(&mut self) {
-        with_module_source(Some(&module_source()), || self.store.recover()).unwrap();
+        self.store.recover().unwrap();
     }
 }
 
@@ -101,10 +100,10 @@ fn unregistering_a_game_ends_its_directory_records() {
     assert_eq!(fixture.count("created_directories"), 1);
 
     let game = fixture.game.clone();
-    with_module_source(Some(&module_source()), || {
-        fixture.store.add_game("test-game", &game, "manual")
-    })
-    .unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let roots = crate::manager_roots::ManagerRoots::new(data.path(), None)
+        .with_development_modules(Some(module_source()));
+    { fixture.store.add_game(&roots, "test-game", &game, "manual") }.unwrap();
     fixture.store.remove_game("test-game", Some(&game)).unwrap();
     assert_eq!(fixture.count("created_directories"), 0);
     assert_eq!(fs::read(&user_file).unwrap(), b"user");

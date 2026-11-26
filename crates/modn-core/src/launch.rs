@@ -9,6 +9,7 @@ use crate::detection::DetectedInstallation;
 use crate::error::{coded, ErrorCode};
 use crate::game_modules::{self, LaunchTargets};
 use crate::integrity::{self, FileRoots};
+use crate::manager_roots::ManagerRoots;
 use crate::scan::IntegrityStatus;
 use crate::state::{recorded_root, RootKind, Store};
 use crate::stores::Storefront;
@@ -60,6 +61,7 @@ pub struct LaunchPlan {
 /// Refuses while any transaction awaits recovery. Managed-file drift produces
 /// a warning and never a refusal.
 pub fn plan_launch(
+    roots: &ManagerRoots,
     store: Option<&Store>,
     game_id: &str,
     installation: &Path,
@@ -77,7 +79,7 @@ pub fn plan_launch(
     if let Some(store) = store {
         ensure_no_pending(store)?;
     }
-    let targets = game_modules::launch_targets(game_id)?;
+    let targets = game_modules::launch_targets(roots, game_id)?;
     let target = select_target(game_id, &targets, &installation, detected)?;
     Ok(LaunchPlan {
         game_id: game_id.to_owned(),
@@ -104,6 +106,7 @@ where
 /// function returns, before the started game runs; a start failure releases it
 /// too.
 pub fn launch_with_lock<F>(
+    roots: &ManagerRoots,
     store: Option<&Store>,
     game_id: &str,
     installation: &Path,
@@ -114,7 +117,7 @@ where
     F: FnOnce(&LaunchPlan) -> Result<()>,
 {
     let _lock = store.map(crate::transactions::lock_store).transpose()?;
-    let plan = plan_launch(store, game_id, installation, detected)?;
+    let plan = plan_launch(roots, store, game_id, installation, detected)?;
     launcher(&plan)?;
     Ok(plan)
 }

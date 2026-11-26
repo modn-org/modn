@@ -1,8 +1,7 @@
-use super::catalog_tests::{module_source, plan, reference, Fixture};
+use super::catalog_tests::{plan, reference, Fixture};
 use super::history_tests::context;
 use super::{CatalogConflict, CatalogDependency, CatalogRelease, NativeInjectorPolicy};
 use crate::archive::inspect;
-use crate::game_modules::with_module_source;
 
 #[test]
 fn release_metadata_keeps_declarations_for_a_later_uninstall() {
@@ -118,7 +117,7 @@ fn history_install_hashes_the_archive_once_per_inspection() {
         .store
         .set_history_context(context(&fixture, "mod", "mod.zip"));
     crate::archive::reset_hashed_file_count();
-    let package = with_module_source(Some(&module_source()), || {
+    let package = {
         fixture.store.install_catalog_release(
             &game,
             &archive,
@@ -126,7 +125,7 @@ fn history_install_hashes_the_archive_once_per_inspection() {
             &release,
             NativeInjectorPolicy::Refuse,
         )
-    })
+    }
     .expect("install");
     assert_eq!(
         crate::archive::hashed_file_count(),

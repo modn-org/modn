@@ -13,8 +13,7 @@ fn games(operation: &HistoryOperation) -> String {
 }
 
 pub(super) fn run(roots: &ManagerRoots, game_id: Option<&str>, json: bool) -> Result<()> {
-    let state_path = roots.state_database();
-    let operations = ManagerState::load_deferred(&state_path)?
+    let operations = ManagerState::load_deferred(roots)?
         .into_existing()
         .map(|store| store.history(game_id))
         .transpose()?

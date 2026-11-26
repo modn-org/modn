@@ -123,6 +123,7 @@ pub(super) fn run(
             "installation writes game files; pass --yes with --progress json",
         ));
     }
+    let roots = state.manager_roots().clone();
     let releases = releases(&stack)?;
     download::validate_links(&args.nxm_links, &releases)?;
     let interactive = !args.yes && !progress.enabled();
@@ -254,8 +255,9 @@ pub(super) fn run(
     let installed =
         store.install_catalog_stack(&stack.installation, &members, policy, |member| {
             let reference = member.release.reference.to_string();
-            let plan = match content_root_appdata(&stack.game_id)? {
+            let plan = match content_root_appdata(&roots, &stack.game_id)? {
                 Some(appdata) => preview_install_zip_with_appdata_permissions(
+                    &roots,
                     &stack.game_id,
                     &stack.installation,
                     &member.archive,
@@ -263,6 +265,7 @@ pub(super) fn run(
                     &appdata,
                 )?,
                 None => preview_install_zip_with_permissions(
+                    &roots,
                     &stack.game_id,
                     &stack.installation,
                     &member.archive,

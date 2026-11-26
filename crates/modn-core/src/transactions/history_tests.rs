@@ -1,9 +1,8 @@
-use super::catalog_tests::{module_source, plan, reference, Fixture};
+use super::catalog_tests::{plan, reference, Fixture};
 use super::install::Fault;
 use super::{CatalogRelease, NativeInjectorPolicy, StackMember};
 use crate::archive::inspect;
 use crate::buckets::PackageSource;
-use crate::game_modules::with_module_source;
 use crate::history::{HistoryContext, HistoryKind};
 use crate::progress::{CancellationToken, OperationControl};
 use crate::state::Store;
@@ -428,7 +427,7 @@ fn overlapping_writes_each_report_the_record_they_committed() {
     fixture
         .store
         .set_history_context(context(&fixture, "first", "first.zip"));
-    let first = with_module_source(Some(&module_source()), || {
+    let first = {
         fixture.store.install_catalog_release(
             &game,
             &first_archive,
@@ -436,12 +435,12 @@ fn overlapping_writes_each_report_the_record_they_committed() {
             &CatalogRelease::new(reference("first"), Vec::new()),
             NativeInjectorPolicy::Refuse,
         )
-    })
+    }
     .expect("first install");
 
     let mut second_store = Store::open(&fixture.state_path()).expect("second store");
     second_store.set_history_context(context(&fixture, "second", "second.zip"));
-    let second = with_module_source(Some(&module_source()), || {
+    let second = {
         second_store.install_catalog_release(
             &game,
             &second_archive,
@@ -449,7 +448,7 @@ fn overlapping_writes_each_report_the_record_they_committed() {
             &CatalogRelease::new(reference("second"), Vec::new()),
             NativeInjectorPolicy::Refuse,
         )
-    })
+    }
     .expect("second install");
 
     assert_eq!(

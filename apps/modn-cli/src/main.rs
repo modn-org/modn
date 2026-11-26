@@ -39,9 +39,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use commands::{Cli, Command};
 use modn_core::archive::inspect;
-use modn_core::data_dir::with_profile_directory;
 use modn_core::error::{code_of, ErrorCode};
-use modn_core::game_modules::with_module_source;
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::transactions::NativeInjectorNotAllowed;
 use progress::Progress;
@@ -73,11 +71,7 @@ fn run(mut cli: Cli, progress: &Progress) -> Result<()> {
     }
     prepare_nxm(&mut cli.command)?;
     let roots = manager_roots(&cli)?;
-    with_profile_directory(roots.profile(), || {
-        with_module_source(roots.development_modules(), || {
-            run_cli(cli, &roots, progress)
-        })
-    })
+    run_cli(cli, &roots, progress)
 }
 
 fn prepare_nxm(command: &mut Command) -> Result<()> {

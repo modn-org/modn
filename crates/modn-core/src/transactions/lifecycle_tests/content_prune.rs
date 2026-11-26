@@ -74,15 +74,16 @@ impl Lab {
         }
         zip.finish().unwrap();
         let module = self.module.clone();
-        crate::game_modules::with_module_source(Some(&module), || {
-            let plan = crate::planning::preview_install_zip_with_appdata(
-                "content-game",
-                game,
-                &archive,
-                &self.appdata,
-            )?;
-            self.store.install_operations_zip(game, &archive, &plan)
-        })
+        let roots = crate::manager_roots::ManagerRoots::new(self.temp.path(), None)
+            .with_development_modules(Some(module));
+        let plan = crate::planning::preview_install_zip_with_appdata(
+            &roots,
+            "content-game",
+            game,
+            &archive,
+            &self.appdata,
+        )?;
+        self.store.install_operations_zip(game, &archive, &plan)
     }
 
     fn install_and_uninstall(&mut self, entries: &[&str], unowned: &[&Path]) {
