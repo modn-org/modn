@@ -1,7 +1,7 @@
 //! Reconcile on-disk discovery against manager-owned SQLite records without writing to a game.
 use crate::buckets::BucketStore;
 use crate::content_root::{self, ContentRootHealth, ContentRootStatus};
-use crate::game_modules::{content_root_spec_with_roots, hidden_modules, ModuleRegistry};
+use crate::game_modules::{content_root_spec, hidden_modules, ModuleRegistry};
 use crate::integrity::{self, FileRoots, PathState};
 use crate::manager_roots::ManagerRoots;
 use crate::scan::{self, Diagnostic, DoctorReport, IntegrityStatus, ScanReport, ScanRoot};
@@ -44,12 +44,11 @@ fn scan_inner(
     installation: &Path,
     appdata: Option<&Path>,
 ) -> Result<(ScanReport, Option<ContentRootHealth>)> {
-    let game = crate::discovery::validate_installation_for(game_id, installation)?;
+    let game = crate::discovery::validate_installation_for(roots, game_id, installation)?;
     let installed = store.installed(&game)?;
     let health = content_health(roots, store, game_id, &game, appdata)?;
     let content = health.as_ref().and_then(|health| health.root.as_deref());
-    let mut report =
-        crate::game_modules::policy::scan_with_roots(roots, game_id, &game, content, 20_000)?;
+    let mut report = crate::game_modules::policy::scan(roots, game_id, &game, content, 20_000)?;
     if report.content_root.is_none() {
         report.content_root = health.as_ref().map(|health| health.path.clone());
     }
@@ -184,7 +183,7 @@ fn content_health(
     game: &Path,
     appdata: Option<&Path>,
 ) -> Result<Option<ContentRootHealth>> {
-    let Some(spec) = content_root_spec_with_roots(roots, game_id)? else {
+    let Some(spec) = content_root_spec(roots, game_id)? else {
         return Ok(None);
     };
     let appdata = match appdata {

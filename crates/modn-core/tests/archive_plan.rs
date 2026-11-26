@@ -36,15 +36,16 @@ fn setup_game(root: &Path, redmod: bool) {
 
 #[expect(clippy::unwrap_used, reason = "Disposable fixture plan resolution")]
 fn plan(
+    roots: &modn_core::manager_roots::ManagerRoots,
     inspection: &modn_core::archive::Inspection,
     game: &Path,
 ) -> modn_core::planning::InstallPlan {
-    resolve("cyberpunk-2077", inspection, game).unwrap()
+    resolve(roots, "cyberpunk-2077", inspection, game).unwrap()
 }
 
 #[test]
 fn zip_inspection_and_legacy_plan_are_read_only() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game = dir.path().join("game");
         setup_game(&game, false);
@@ -60,7 +61,7 @@ fn zip_inspection_and_legacy_plan_are_read_only() {
         assert_eq!(inspection.format, ArchiveFormat::Zip);
         assert_eq!(inspection.blake3.len(), 64);
         assert_eq!(inspection.files.len(), 2);
-        let report = plan(&inspection, &game);
+        let report = plan(roots, &inspection, &game);
         assert_eq!(
             report.status,
             PlanStatus::Reviewable,
@@ -82,7 +83,7 @@ fn zip_inspection_and_legacy_plan_are_read_only() {
 
 #[test]
 fn unmanaged_file_and_linked_directory_block_installation_plan() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game = dir.path().join("game");
         setup_game(&game, false);
@@ -92,7 +93,7 @@ fn unmanaged_file_and_linked_directory_block_installation_plan() {
         let target = game.join("archive/pc/mod/example.archive");
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(&target, "existing").unwrap();
-        let report = plan(&inspection, &game);
+        let report = plan(roots, &inspection, &game);
         assert_eq!(report.status, PlanStatus::Blocked);
         assert!(report
             .blockers
@@ -104,7 +105,7 @@ fn unmanaged_file_and_linked_directory_block_installation_plan() {
 
 #[test]
 fn unsafe_paths_duplicates_and_unknown_layouts_are_refused() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let archive = dir.path().join("unsafe.zip");
         zip_fixture(&archive, &[("../escape.archive", b"x")]);
@@ -124,7 +125,7 @@ fn unsafe_paths_duplicates_and_unknown_layouts_are_refused() {
         setup_game(&game, true);
         let archive = dir.path().join("unknown.zip");
         zip_fixture(&archive, &[("random/location/data.bin", b"x")]);
-        let report = plan(&inspect(&archive).unwrap(), &game);
+        let report = plan(roots, &inspect(&archive).unwrap(), &game);
         assert_eq!(report.status, PlanStatus::Blocked);
         assert!(report
             .blockers
@@ -133,7 +134,7 @@ fn unsafe_paths_duplicates_and_unknown_layouts_are_refused() {
 
         let archive = dir.path().join("installer.zip");
         zip_fixture(&archive, &[("mods/Foo/setup.exe", b"exe")]);
-        let report = plan(&inspect(&archive).unwrap(), &game);
+        let report = plan(roots, &inspect(&archive).unwrap(), &game);
         assert!(report
             .blockers
             .iter()
@@ -143,7 +144,7 @@ fn unsafe_paths_duplicates_and_unknown_layouts_are_refused() {
 
 #[test]
 fn mixed_package_variants_are_blocked() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game = dir.path().join("game");
         setup_game(&game, false);
@@ -155,7 +156,7 @@ fn mixed_package_variants_are_blocked() {
                 ("Ultra/archive/pc/mod/quality.archive", b"ultra"),
             ],
         );
-        let result = plan(&inspect(&archive).unwrap(), &game);
+        let result = plan(roots, &inspect(&archive).unwrap(), &game);
         assert_eq!(result.status, PlanStatus::Blocked);
         assert!(result
             .blockers
@@ -166,7 +167,7 @@ fn mixed_package_variants_are_blocked() {
 
 #[test]
 fn sevenz_headers_can_be_inspected_without_extraction() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let input = dir.path().join("package");
         fs::create_dir_all(input.join("archive/pc/mod")).unwrap();
@@ -192,7 +193,7 @@ fn sevenz_headers_can_be_inspected_without_extraction() {
 
 #[test]
 fn mixed_framework_layouts_are_plannable() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game_dir = dir.path().join("game");
         setup_game(&game_dir, false);
@@ -209,7 +210,7 @@ fn mixed_framework_layouts_are_plannable() {
                 ("Pack/red4ext/plugins/Codeware/entry.dll", b"dll"),
             ],
         );
-        let report = plan(&inspect(&archive).unwrap(), &game_dir);
+        let report = plan(roots, &inspect(&archive).unwrap(), &game_dir);
         assert_eq!(report.status, PlanStatus::Blocked, "{:?}", report.blockers);
         assert_eq!(report.operations.len(), 4);
         assert!(report
@@ -222,7 +223,7 @@ fn mixed_framework_layouts_are_plannable() {
 
 #[test]
 fn directory_replaced_by_file_blocks_plan() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game_dir = dir.path().join("game");
         setup_game(&game_dir, false);
@@ -230,7 +231,7 @@ fn directory_replaced_by_file_blocks_plan() {
         fs::write(game_dir.join("archive/pc"), b"not a directory").unwrap();
         let archive = dir.path().join("mod.zip");
         zip_fixture(&archive, &[("archive/pc/mod/test.archive", b"x")]);
-        let report = plan(&inspect(&archive).unwrap(), &game_dir);
+        let report = plan(roots, &inspect(&archive).unwrap(), &game_dir);
         assert_eq!(report.status, PlanStatus::Blocked);
         assert!(report
             .blockers
@@ -241,7 +242,7 @@ fn directory_replaced_by_file_blocks_plan() {
 
 #[test]
 fn executable_disguised_as_documentation_is_not_ignored() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game_dir = dir.path().join("game");
         setup_game(&game_dir, false);
@@ -253,7 +254,7 @@ fn executable_disguised_as_documentation_is_not_ignored() {
                 ("README.exe", b"malicious"),
             ],
         );
-        let report = plan(&inspect(&archive).unwrap(), &game_dir);
+        let report = plan(roots, &inspect(&archive).unwrap(), &game_dir);
         assert_eq!(report.status, PlanStatus::Blocked);
         assert!(report
             .blockers
@@ -264,7 +265,7 @@ fn executable_disguised_as_documentation_is_not_ignored() {
 
 #[test]
 fn identical_zip_record_names_are_refused() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let archive = dir.path().join("duplicate-raw.zip");
         zip_fixture(
@@ -293,7 +294,7 @@ fn identical_zip_record_names_are_refused() {
 
 #[test]
 fn documentation_prefix_does_not_hide_payloads() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let root = dir.path().join("game");
         setup_game(&root, false);
@@ -306,7 +307,7 @@ fn documentation_prefix_does_not_hide_payloads() {
                 ("README.md", b"documentation"),
             ],
         );
-        let report = plan(&inspect(&archive).unwrap(), &root);
+        let report = plan(roots, &inspect(&archive).unwrap(), &root);
         assert_eq!(report.status, PlanStatus::Blocked, "{:?}", report.blockers);
         assert!(report
             .blockers
@@ -318,7 +319,7 @@ fn documentation_prefix_does_not_hide_payloads() {
 
 #[test]
 fn conflicts_between_planned_file_and_directory_are_blocked() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let root = dir.path().join("game");
         setup_game(&root, false);
@@ -330,7 +331,7 @@ fn conflicts_between_planned_file_and_directory_are_blocked() {
                 ("r6/scripts/Foo/hello.reds", b"script"),
             ],
         );
-        let report = plan(&inspect(&archive).unwrap(), &root);
+        let report = plan(roots, &inspect(&archive).unwrap(), &root);
         assert_eq!(report.status, PlanStatus::Blocked);
         assert!(report
             .blockers
@@ -341,7 +342,7 @@ fn conflicts_between_planned_file_and_directory_are_blocked() {
 
 #[test]
 fn redmod_manifest_must_be_canonical_and_at_package_root() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let root = dir.path().join("game");
         setup_game(&root, true);
@@ -353,7 +354,7 @@ fn redmod_manifest_must_be_canonical_and_at_package_root() {
                 ("mods/Foo/archives/test.archive", b"test"),
             ],
         );
-        let result = plan(&inspect(&archive).unwrap(), &root);
+        let result = plan(roots, &inspect(&archive).unwrap(), &root);
         assert_eq!(result.status, PlanStatus::Blocked);
         assert!(result
             .blockers
@@ -362,7 +363,7 @@ fn redmod_manifest_must_be_canonical_and_at_package_root() {
 
         let archive = dir.path().join("upper-info.zip");
         zip_fixture(&archive, &[("mods/Foo/INFO.JSON", b"{}")]);
-        let result = plan(&inspect(&archive).unwrap(), &root);
+        let result = plan(roots, &inspect(&archive).unwrap(), &root);
         assert_eq!(result.status, PlanStatus::Blocked);
         for code in ["REDMOD_INFO_MISSING", "REDMOD_INVALID_CONTENT"] {
             assert!(
@@ -377,7 +378,7 @@ fn redmod_manifest_must_be_canonical_and_at_package_root() {
 
 #[test]
 fn redmod_cannot_be_mixed_with_legacy_archives() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game = dir.path().join("game");
         setup_game(&game, true);
@@ -390,7 +391,7 @@ fn redmod_cannot_be_mixed_with_legacy_archives() {
                 ("archive/pc/mod/sample.archive", b"legacy"),
             ],
         );
-        let report = plan(&inspect(&archive).unwrap(), &game);
+        let report = plan(roots, &inspect(&archive).unwrap(), &game);
         assert_eq!(report.status, PlanStatus::Blocked);
         assert!(report
             .blockers
@@ -404,7 +405,7 @@ fn redmod_cannot_be_mixed_with_legacy_archives() {
 
 #[test]
 fn windows_invalid_filename_chars_are_refused() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let archive = dir.path().join("invalid.zip");
         zip_fixture(&archive, &[("archive/pc/mod/bad?.archive", b"bad")]);
@@ -414,7 +415,7 @@ fn windows_invalid_filename_chars_are_refused() {
 
 #[test]
 fn extensionless_readme_and_changelog_do_not_block_valid_package() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let root = dir.path().join("game");
         setup_game(&root, false);
@@ -427,7 +428,7 @@ fn extensionless_readme_and_changelog_do_not_block_valid_package() {
                 ("CHANGELOG", b"history"),
             ],
         );
-        let report = plan(&inspect(&archive).unwrap(), &root);
+        let report = plan(roots, &inspect(&archive).unwrap(), &root);
         assert_eq!(
             report.status,
             PlanStatus::Reviewable,
@@ -440,7 +441,7 @@ fn extensionless_readme_and_changelog_do_not_block_valid_package() {
 
 #[test]
 fn stale_archive_inspection_cannot_make_module_preview_reviewable() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game = dir.path().join("game");
         setup_game(&game, false);
@@ -448,7 +449,7 @@ fn stale_archive_inspection_cannot_make_module_preview_reviewable() {
         zip_fixture(&archive, &[("archive/pc/mod/example.archive", b"before")]);
         let stale = inspect(&archive).unwrap();
         zip_fixture(&archive, &[("archive/pc/mod/example.archive", b"after")]);
-        let result = modn_core::planning::resolve("cyberpunk-2077", &stale, &game).unwrap();
+        let result = modn_core::planning::resolve(roots, "cyberpunk-2077", &stale, &game).unwrap();
         assert_eq!(result.status, PlanStatus::Blocked);
         assert!(
             result

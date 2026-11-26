@@ -172,7 +172,6 @@ fn install_mod(
     json: bool,
     progress: &Progress,
 ) -> Result<()> {
-    let state_path = roots.state_database();
     if progress.enabled() && !args.yes && !args.dry_run {
         return Err(coded(
             ErrorCode::ApprovalRequired,
@@ -184,7 +183,7 @@ fn install_mod(
     let mut order = catalog.install_order(&selected)?;
     order.pop();
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
-    catalog_approval::check_native_approvals(&selected, &order, args, &state_path)?;
+    catalog_approval::check_native_approvals(&selected, &order, args, roots)?;
     let supplied = match_archives(&args.file, &selected, &order)?;
     let mut archives = supplied.paths.clone();
     let supplied = supplied.verified;
@@ -210,8 +209,9 @@ fn install_mod(
     if interactive && !install_consent::can_prompt(json) {
         bail!("installation writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
     }
-    let state = ManagerState::load_deferred(&state_path)?;
+    let state = ManagerState::load_deferred(roots)?;
     let (game_id, installation) = selected_installation(
+        roots,
         state.existing(),
         args.path.clone(),
         Some(&selected.package.game),
@@ -358,17 +358,22 @@ fn install_mod(
         );
     };
     let preview = |approved: &[String]| -> Result<InstallPlan> {
-        let plan = match content_root_appdata(&game_id)? {
+        let plan = match content_root_appdata(roots, &game_id)? {
             Some(appdata) => preview_install_zip_with_appdata_permissions(
+                roots,
                 &game_id,
                 &installation,
                 archive,
                 approved,
                 &appdata,
             )?,
-            None => {
-                preview_install_zip_with_permissions(&game_id, &installation, archive, approved)?
-            }
+            None => preview_install_zip_with_permissions(
+                roots,
+                &game_id,
+                &installation,
+                archive,
+                approved,
+            )?,
         };
         if Some(plan.archive_blake3.as_str()) != download::digest(&selected, &digests) {
             bail!("{reference}: source changed after catalog verification");

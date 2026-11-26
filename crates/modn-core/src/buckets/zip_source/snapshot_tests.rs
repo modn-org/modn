@@ -323,24 +323,20 @@ fn sign_catalog(catalog: &Path, key: &SigningKey) {
 
 /// Give the store a local main bucket and trust `community` for modules.
 fn trust_modules(state: &Path, store: &BucketStore) {
-    crate::data_dir::with_data_directory(state, || {
-        crate::data_dir::with_profile_directory(state, || {
-            fs::create_dir_all(state.join("buckets/main")).expect("main bucket");
-            fs::write(
-                state.join("buckets/main/bucket.json"),
-                r#"{"schema_version":2,"name":"main","title":"Main"}"#,
-            )
-            .expect("main metadata");
-            store
-                .trust_modules(
-                    "community",
-                    ModuleTrustAck::Acknowledged {
-                        expected_fingerprint: None,
-                    },
-                )
-                .expect("trust modules");
-        });
-    });
+    fs::create_dir_all(state.join("buckets/main")).expect("main bucket");
+    fs::write(
+        state.join("buckets/main/bucket.json"),
+        r#"{"schema_version":2,"name":"main","title":"Main"}"#,
+    )
+    .expect("main metadata");
+    store
+        .trust_modules(
+            "community",
+            ModuleTrustAck::Acknowledged {
+                expected_fingerprint: None,
+            },
+        )
+        .expect("trust modules");
 }
 #[test]
 fn a_failed_module_commit_restores_the_previous_registration() {
@@ -362,11 +358,9 @@ fn a_failed_module_commit_restores_the_previous_registration() {
         .lock()
         .expect("seam")
         .insert(state.path().join("game-modules"));
-    let error = crate::data_dir::with_data_directory(state.path(), || {
-        crate::data_dir::with_profile_directory(state.path(), || sync(&store, changed))
-    })
-    .expect_err("the module commit fails")
-    .to_string();
+    let error = sync(&store, changed)
+        .expect_err("the module commit fails")
+        .to_string();
     assert!(
         error.contains("injected catalog module commit failure"),
         "{error}"
@@ -397,15 +391,10 @@ fn a_failed_registration_restore_keeps_the_published_snapshot() {
         .lock()
         .expect("seam")
         .insert(state.path().join("game-modules"));
-    let error = crate::data_dir::with_data_directory(state.path(), || {
-        crate::data_dir::with_profile_directory(state.path(), || {
-            store
-                .fail_next_registration_restore
-                .store(true, Ordering::SeqCst);
-            sync(&store, changed)
-        })
-    })
-    .expect_err("the module commit and the restore fail");
+    store
+        .fail_next_registration_restore
+        .store(true, Ordering::SeqCst);
+    let error = sync(&store, changed).expect_err("the module commit and the restore fail");
     let error = format!("{error:#}");
     assert!(
         error.contains("injected catalog module commit failure"),

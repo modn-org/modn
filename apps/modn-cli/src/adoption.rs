@@ -15,19 +15,21 @@ pub(super) fn run(
     if !args.dry_run && !(args.acknowledge && args.yes) {
         bail!("adoption records ownership; use --dry-run or both --acknowledge and --yes");
     }
-    let state_path = roots.state_database();
-    let selected = ManagerState::load(&state_path)?
-        .for_installation(args.path.clone(), requested)?
+    let selected = ManagerState::load(roots)?
+        .for_installation(roots, args.path.clone(), requested)?
         .open(InstallationAccess::ArchivePreview)?;
-    let appdata = content_root_appdata(&selected.game_id)?;
+    let appdata = content_root_appdata(roots, &selected.game_id)?;
     let plan = match &appdata {
         Some(appdata) => planning::preview_adoption_with_appdata(
+            roots,
             &selected.game_id,
             &selected.root,
             &args.archive,
             appdata,
         )?,
-        None => planning::preview_adoption(&selected.game_id, &selected.root, &args.archive)?,
+        None => {
+            planning::preview_adoption(roots, &selected.game_id, &selected.root, &args.archive)?
+        }
     };
     if args.dry_run {
         let status = if plan.status == PlanStatus::Blocked {
@@ -77,12 +79,13 @@ pub(super) fn run(
     let game_id = selected.game_id;
     let game = selected.root;
     drop(selected.store);
-    let mut store = ManagerState::load(&state_path)?.open_writable(&ProtectedTarget {
+    let mut store = ManagerState::load(roots)?.open_writable(&ProtectedTarget {
         game: Some(game_id.clone()),
         root: Some(game.clone()),
     })?;
     let package = match &appdata {
         Some(appdata) => store.adopt_archive_with_appdata(
+            roots,
             &game_id,
             &game,
             &args.archive,
@@ -91,6 +94,7 @@ pub(super) fn run(
             appdata,
         )?,
         None => store.adopt_archive(
+            roots,
             &game_id,
             &game,
             &args.archive,

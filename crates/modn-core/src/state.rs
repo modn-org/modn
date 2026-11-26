@@ -1,3 +1,4 @@
+use crate::manager_roots::ManagerRoots;
 use crate::progress::OperationControl;
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
@@ -271,8 +272,14 @@ impl Store {
     }
 
     /// Register a game installation using its runtime Lua validation policy.
-    pub fn add_game(&self, game_id: &str, path: &Path, source: &str) -> Result<GameInstallation> {
-        let path = crate::discovery::validate_installation_for(game_id, path)?;
+    pub fn add_game(
+        &self,
+        roots: &ManagerRoots,
+        game_id: &str,
+        path: &Path,
+        source: &str,
+    ) -> Result<GameInstallation> {
+        let path = crate::discovery::validate_installation_for(roots, game_id, path)?;
         let path_text = path.to_str().context("game path must be valid UTF-8")?;
         let tx = self.connection.unchecked_transaction()?;
         roots::record_root(&tx, &path, roots::RootKind::Game, &path)?;

@@ -3,8 +3,6 @@ use crate::download::{TEST_CALLS, TEST_METADATA_FAILURES, TEST_RESPONSES};
 use clap::Parser;
 use modn_core::acquisition::{CacheUse, FetchError, SourceAttempt, SourceTarget};
 use modn_core::buckets::{BucketPackage, BucketStore};
-use modn_core::data_dir;
-use modn_core::game_modules::with_module_source;
 use modn_core::manager_roots::ManagerRoots;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -15,12 +13,12 @@ use std::path::Path;
 const URL: &str = "https://github.com/fixture/project/releases/download/v1/example.zip";
 const METADATA_URL: &str = "https://api.github.com/repos/fixture/project/releases/tags/v1";
 
-fn command(root: &Path, args: &[&str]) -> anyhow::Result<()> {
+fn command(roots: &ManagerRoots, root: &Path, args: &[&str]) -> anyhow::Result<()> {
     let cli = Cli::try_parse_from(std::iter::once("modn").chain(args.iter().copied()))
         .expect("test command line");
     crate::run_cli(
         cli,
-        &ManagerRoots::new(root, None),
+        roots,
         &crate::progress::Progress::start(None),
     )
 }
@@ -96,36 +94,38 @@ fn undo_restores_a_github_release_from_the_cache_without_network() {
     let module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
     let game_arg = game.to_str().expect("game path").to_owned();
 
-    data_dir::with_data_directory(&root, || {
-        with_module_source(Some(&module), || {
-            command(&root, &["game", "add", "test-game", "--path", &game_arg])
-                .expect("register game");
-            command(
-                &root,
-                &["--json", "install", "example", "--path", &game_arg, "--yes"],
-            )
-            .expect("install from the seeded cache");
-            let plugin = game.join("addons/example.plugin");
-            assert_eq!(
-                fs::read(&plugin).expect("installed plugin"),
-                b"cached-release"
-            );
-            command(&root, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
-            assert!(!plugin.exists());
+    let roots = ManagerRoots::new(&root, None).with_development_modules(Some(module.clone()));
+    command(
+        &roots,
+        &root,
+        &["game", "add", "test-game", "--path", &game_arg],
+    )
+    .expect("register game");
+    command(
+        &roots,
+        &root,
+        &["--json", "install", "example", "--path", &game_arg, "--yes"],
+    )
+    .expect("install from the seeded cache");
+    let plugin = game.join("addons/example.plugin");
+    assert_eq!(
+        fs::read(&plugin).expect("installed plugin"),
+        b"cached-release"
+    );
+    command(&roots, &root, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
+    assert!(!plugin.exists());
 
-            TEST_RESPONSES.with(|responses| responses.replace(Some(BTreeMap::new())));
-            TEST_CALLS.with(|calls| calls.borrow_mut().clear());
-            command(&root, &["--json", "undo", "--yes"]).expect("undo from the cache");
-            assert!(
-                TEST_CALLS.with(|calls| calls.borrow().is_empty()),
-                "undo contacted the provider"
-            );
-            assert_eq!(
-                fs::read(&plugin).expect("restored plugin"),
-                b"cached-release"
-            );
-        });
-    });
+    TEST_RESPONSES.with(|responses| responses.replace(Some(BTreeMap::new())));
+    TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+    command(&roots, &root, &["--json", "undo", "--yes"]).expect("undo from the cache");
+    assert!(
+        TEST_CALLS.with(|calls| calls.borrow().is_empty()),
+        "undo contacted the provider"
+    );
+    assert_eq!(
+        fs::read(&plugin).expect("restored plugin"),
+        b"cached-release"
+    );
     TEST_RESPONSES.with(|responses| responses.replace(None));
 }
 
@@ -143,59 +143,61 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
     let module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
     let game_arg = game.to_str().expect("game path").to_owned();
 
-    data_dir::with_data_directory(&root, || {
-        with_module_source(Some(&module), || {
-            command(&root, &["game", "add", "test-game", "--path", &game_arg])
-                .expect("register game");
-            command(
-                &root,
-                &["--json", "install", "example", "--path", &game_arg, "--yes"],
-            )
-            .expect("install from the seeded cache");
-            let plugin = game.join("addons/example.plugin");
-            assert_eq!(
-                fs::read(&plugin).expect("installed plugin"),
-                b"cached-release"
-            );
-            command(&root, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
-            assert!(!plugin.exists());
-            fs::remove_dir_all(root.join("cache")).expect("clear the archive cache");
+    let roots = ManagerRoots::new(&root, None).with_development_modules(Some(module.clone()));
+    command(
+        &roots,
+        &root,
+        &["game", "add", "test-game", "--path", &game_arg],
+    )
+    .expect("register game");
+    command(
+        &roots,
+        &root,
+        &["--json", "install", "example", "--path", &game_arg, "--yes"],
+    )
+    .expect("install from the seeded cache");
+    let plugin = game.join("addons/example.plugin");
+    assert_eq!(
+        fs::read(&plugin).expect("installed plugin"),
+        b"cached-release"
+    );
+    command(&roots, &root, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
+    assert!(!plugin.exists());
+    fs::remove_dir_all(root.join("cache")).expect("clear the archive cache");
 
-            let metadata = json!({
-                "tag_name": "v1",
-                "html_url": "https://github.com/fixture/project/releases/tag/v1",
-                "assets": [{"name": "example.zip", "browser_download_url": URL}],
-            });
-            TEST_RESPONSES.with(|responses| {
-                responses.replace(Some(BTreeMap::from([
-                    (
-                        METADATA_URL.to_owned(),
-                        serde_json::to_vec(&metadata).expect("metadata JSON"),
-                    ),
-                    (URL.to_owned(), bytes.clone()),
-                ])))
-            });
-            TEST_CALLS.with(|calls| calls.borrow_mut().clear());
-            command(&root, &["--json", "undo", "--yes"]).expect("undo downloads again");
-
-            let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
-            assert_eq!(
-                calls,
-                vec![METADATA_URL.to_owned(), URL.to_owned()],
-                "undo did not resolve and download the recorded source"
-            );
-            assert_eq!(
-                fs::read(&plugin).expect("restored plugin"),
-                b"cached-release"
-            );
-            let cached: Vec<_> = fs::read_dir(root.join("cache"))
-                .expect("cache directory")
-                .map(|entry| entry.expect("cache entry").path())
-                .filter(|path| path.extension().is_some_and(|extension| extension == "zip"))
-                .collect();
-            assert_eq!(cached.len(), 1, "undo did not acquire the archive again");
-        });
+    let metadata = json!({
+        "tag_name": "v1",
+        "html_url": "https://github.com/fixture/project/releases/tag/v1",
+        "assets": [{"name": "example.zip", "browser_download_url": URL}],
     });
+    TEST_RESPONSES.with(|responses| {
+        responses.replace(Some(BTreeMap::from([
+            (
+                METADATA_URL.to_owned(),
+                serde_json::to_vec(&metadata).expect("metadata JSON"),
+            ),
+            (URL.to_owned(), bytes.clone()),
+        ])))
+    });
+    TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+    command(&roots, &root, &["--json", "undo", "--yes"]).expect("undo downloads again");
+
+    let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
+    assert_eq!(
+        calls,
+        vec![METADATA_URL.to_owned(), URL.to_owned()],
+        "undo did not resolve and download the recorded source"
+    );
+    assert_eq!(
+        fs::read(&plugin).expect("restored plugin"),
+        b"cached-release"
+    );
+    let cached: Vec<_> = fs::read_dir(root.join("cache"))
+        .expect("cache directory")
+        .map(|entry| entry.expect("cache entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "zip"))
+        .collect();
+    assert_eq!(cached.len(), 1, "undo did not acquire the archive again");
     TEST_RESPONSES.with(|responses| responses.replace(None));
 }
 
@@ -229,13 +231,12 @@ pub(super) fn package_with_sources(
         .expect("manifest JSON"),
     )
     .expect("manifest");
-    data_dir::with_data_directory(root, || {
-        BucketStore::new(&ManagerRoots::new(root, None)).packages(Some("test-game"))
-    })
-    .expect("packages")
-    .into_iter()
-    .next()
-    .expect("example package")
+    BucketStore::new(&ManagerRoots::new(root, None))
+        .packages(Some("test-game"))
+        .expect("packages")
+        .into_iter()
+        .next()
+        .expect("example package")
 }
 
 fn acquire_with_sources(

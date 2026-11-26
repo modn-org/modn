@@ -4,8 +4,8 @@ use std::fs;
 
 #[test]
 fn manual_redmod_adoption_claims_files_without_unknown_descendants() {
-    crate::test_support::seeded(|| {
-        let mut fixture = Fixture::new();
+    crate::test_support::seeded_roots(|roots| {
+        let mut fixture = Fixture::new(roots);
         let entries: &[(&str, &[u8])] = &[
             (
                 "mods/Manual/info.json",
@@ -45,8 +45,8 @@ fn manual_redmod_adoption_claims_files_without_unknown_descendants() {
 
 #[test]
 fn adoption_refuses_size_mismatch_and_files_owned_by_another_package() {
-    crate::test_support::seeded(|| {
-        let mut fixture = Fixture::new();
+    crate::test_support::seeded_roots(|roots| {
+        let mut fixture = Fixture::new(roots);
         let path = "archive/pc/mod/a.archive";
         let archive = fixture.archive("owned.zip", &[(path, b"one")]);
         let package = fixture.install(&archive);

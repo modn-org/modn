@@ -73,9 +73,8 @@ fn evaluate_with_profile<T>(
     )
 }
 
-pub(crate) fn validate(game_id: &str, root: &Path) -> Result<(bool, String)> {
-    let roots = super::ambient_roots()?;
-    evaluate(&roots, game_id, &[root.to_path_buf()], |_, policy| {
+pub(crate) fn validate(roots: &ManagerRoots, game_id: &str, root: &Path) -> Result<(bool, String)> {
+    evaluate(roots, game_id, &[root.to_path_buf()], |_, policy| {
         let valid: bool = policy.get::<Function>("validate")?.call(())?;
         let marker: String = policy.get("marker")?;
         Ok((valid, marker))
@@ -192,15 +191,6 @@ fn decode_scan(
 }
 
 pub(crate) fn scan(
-    game_id: &str,
-    root: &Path,
-    content_root: Option<&Path>,
-    limit: usize,
-) -> Result<ScanReport> {
-    scan_with_roots(&super::ambient_roots()?, game_id, root, content_root, limit)
-}
-
-pub(crate) fn scan_with_roots(
     roots: &ManagerRoots,
     game_id: &str,
     root: &Path,
@@ -226,14 +216,7 @@ pub(crate) fn scan_with_roots(
     )
 }
 
-pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
-    diagnose_with_roots(&super::ambient_roots()?, report)
-}
-
-pub(crate) fn diagnose_with_roots(
-    roots: &ManagerRoots,
-    report: &ScanReport,
-) -> Result<Vec<Diagnostic>> {
+pub(crate) fn diagnose(roots: &ManagerRoots, report: &ScanReport) -> Result<Vec<Diagnostic>> {
     evaluate(roots, &report.game_id, &[], |lua, policy| {
         let input = lua.create_table()?;
         input.set("incomplete", report.incomplete)?;
@@ -317,6 +300,7 @@ fn plan_field(
 }
 
 pub(crate) fn plan(
+    roots: &ManagerRoots,
     game_id: &str,
     root: &Path,
     inspection: &crate::archive::Inspection,
@@ -324,9 +308,8 @@ pub(crate) fn plan(
     appdata: Option<&Path>,
 ) -> Result<RequestedPlan> {
     const MAX_PROPOSALS: usize = 2_048;
-    let roots = super::ambient_roots()?;
     let root = root.canonicalize()?;
-    let (manifest, _) = read_policy(&roots, game_id)?;
+    let (manifest, _) = read_policy(roots, game_id)?;
     let content_root = match &manifest.content_root {
         Some(spec) => {
             let base = appdata.context(
@@ -348,7 +331,7 @@ pub(crate) fn plan(
             content_root,
         });
     }
-    evaluate_hiding(&roots, game_id, &[root], replaced, |lua, policy| {
+    evaluate_hiding(roots, game_id, &[root], replaced, |lua, policy| {
         let input = lua.create_table()?;
         for (index, file) in inspection.files.iter().enumerate() {
             let entry = lua.create_table()?;

@@ -5,8 +5,8 @@ use modn_core::game_modules::{check_module_with_roots, ModuleRegistry, ModuleTru
 use modn_core::manager_roots::ManagerRoots;
 use std::path::PathBuf;
 
-pub(super) fn content_root_appdata(game_id: &str) -> Result<Option<PathBuf>> {
-    if modn_core::game_modules::content_root_spec(game_id)?.is_some() {
+pub(super) fn content_root_appdata(roots: &ManagerRoots, game_id: &str) -> Result<Option<PathBuf>> {
+    if modn_core::game_modules::content_root_spec(roots, game_id)?.is_some() {
         Ok(Some(modn_core::content_root::appdata_directory()?))
     } else {
         Ok(None)

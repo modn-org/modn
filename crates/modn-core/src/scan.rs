@@ -205,21 +205,27 @@ pub struct DoctorReport {
 
 /// Scan using a runtime-selected game's Lua module.
 #[must_use]
-pub fn scan_for(game_id: &str, installation: &Path) -> ScanReport {
-    scan_bounded_for(game_id, installation, MAX_ENTRIES)
+pub fn scan_for(roots: &ManagerRoots, game_id: &str, installation: &Path) -> ScanReport {
+    scan_bounded_for(roots, game_id, installation, MAX_ENTRIES)
 }
 
-fn scan_bounded_for(game_id: &str, installation: &Path, limit: usize) -> ScanReport {
-    scan_bounded_with_health(game_id, installation, None, limit).0
+fn scan_bounded_for(
+    roots: &ManagerRoots,
+    game_id: &str,
+    installation: &Path,
+    limit: usize,
+) -> ScanReport {
+    scan_bounded_with_health(roots, game_id, installation, None, limit).0
 }
 
 fn scan_bounded_with_health(
+    roots: &ManagerRoots,
     game_id: &str,
     installation: &Path,
     appdata: Option<&Path>,
     limit: usize,
 ) -> (ScanReport, Option<ContentRootHealth>) {
-    let health = crate::game_modules::content_root_spec(game_id)
+    let health = crate::game_modules::content_root_spec(roots, game_id)
         .ok()
         .flatten()
         .and_then(|spec| {
@@ -231,7 +237,7 @@ fn scan_bounded_with_health(
     let content = health.as_ref().and_then(|health| health.root.as_deref());
     let content_path = health.as_ref().map(|health| health.path.clone());
     let report =
-        policy::scan(game_id, installation, content, limit).unwrap_or_else(|_| ScanReport {
+        policy::scan(roots, game_id, installation, content, limit).unwrap_or_else(|_| ScanReport {
             incomplete: true,
             scan_issues: vec!["SCAN_UNREADABLE_ENTRY".into()],
             game_id: game_id.into(),
@@ -251,9 +257,10 @@ fn scan_bounded_with_health(
 
 /// Diagnose a runtime-selected game's read-only inventory.
 #[must_use]
-pub fn doctor_for(game_id: &str, installation: &Path) -> DoctorReport {
-    let (report, health) = scan_bounded_with_health(game_id, installation, None, MAX_ENTRIES);
-    let mut doctor = diagnose(report);
+pub fn doctor_for(roots: &ManagerRoots, game_id: &str, installation: &Path) -> DoctorReport {
+    let (report, health) =
+        scan_bounded_with_health(roots, game_id, installation, None, MAX_ENTRIES);
+    let mut doctor = diagnose(roots, report);
     doctor
         .diagnostics
         .extend(content_root_diagnostics(health.as_ref()));
@@ -274,7 +281,7 @@ pub(crate) fn content_root_diagnostics(health: Option<&ContentRootHealth>) -> Ve
 }
 
 pub(crate) fn diagnose_checked(roots: &ManagerRoots, report: ScanReport) -> Result<DoctorReport> {
-    let diagnostics = policy::diagnose_with_roots(roots, &report)?;
+    let diagnostics = policy::diagnose(roots, &report)?;
     Ok(DoctorReport {
         scan: report,
         diagnostics,
@@ -282,8 +289,8 @@ pub(crate) fn diagnose_checked(roots: &ManagerRoots, report: ScanReport) -> Resu
     })
 }
 
-pub(crate) fn diagnose(report: ScanReport) -> DoctorReport {
-    match policy::diagnose(&report) {
+pub(crate) fn diagnose(roots: &ManagerRoots, report: ScanReport) -> DoctorReport {
+    match policy::diagnose(roots, &report) {
         Ok(diagnostics) => DoctorReport {
             scan: report,
             diagnostics,
@@ -313,16 +320,16 @@ mod tests {
 
     #[test]
     fn exhausted_budget_is_reported() {
-        crate::test_support::seeded(|| {
+        crate::test_support::seeded_roots(|roots| {
             let game = tempdir().unwrap();
             let dir = game.path().join("archive/pc/mod");
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("unrelated.txt"), "fixture").unwrap();
             fs::create_dir_all(game.path().join("mods/ActualRedmod")).unwrap();
-            let report = scan_bounded_for("cyberpunk-2077", game.path(), 1);
+            let report = scan_bounded_for(roots, "cyberpunk-2077", game.path(), 1);
             assert!(report.incomplete);
             assert!(report.mods.is_empty());
-            assert!(diagnose(report)
+            assert!(diagnose(roots, report)
                 .diagnostics
                 .iter()
                 .any(|d| d.code == "SCAN_INCOMPLETE"));
@@ -331,15 +338,15 @@ mod tests {
 
     #[test]
     fn exact_entry_limit_is_not_truncation() {
-        crate::test_support::seeded(|| {
+        crate::test_support::seeded_roots(|roots| {
             let game = tempdir().unwrap();
             let dir = game.path().join("archive/pc/mod");
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("one.archive"), "fixture").unwrap();
-            let report = scan_bounded_for("cyberpunk-2077", game.path(), 1);
+            let report = scan_bounded_for(roots, "cyberpunk-2077", game.path(), 1);
             assert!(!report.incomplete);
             assert_eq!(report.mods.len(), 1);
-            assert!(!diagnose(report)
+            assert!(!diagnose(roots, report)
                 .diagnostics
                 .iter()
                 .any(|d| d.code == "SCAN_INCOMPLETE"));
@@ -348,23 +355,27 @@ mod tests {
 
     #[test]
     fn linked_ancestor_is_excluded() {
-        let game = tempdir().unwrap();
-        let outside = tempdir().unwrap();
-        fs::create_dir_all(outside.path().join("pc/mod")).unwrap();
-        fs::write(outside.path().join("pc/mod/external.archive"), "fixture").unwrap();
-        #[cfg(windows)]
-        {
-            let link = game.path().join("archive");
-            assert!(std::process::Command::new("cmd")
-                .args(["/C", "mklink", "/J"])
-                .arg(&link)
-                .arg(outside.path())
-                .status()
-                .unwrap()
-                .success());
-        }
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(outside.path(), game.path().join("archive")).unwrap();
-        assert!(scan_for("cyberpunk-2077", game.path()).mods.is_empty());
+        crate::test_support::seeded_roots(|roots| {
+            let game = tempdir().unwrap();
+            let outside = tempdir().unwrap();
+            fs::create_dir_all(outside.path().join("pc/mod")).unwrap();
+            fs::write(outside.path().join("pc/mod/external.archive"), "fixture").unwrap();
+            #[cfg(windows)]
+            {
+                let link = game.path().join("archive");
+                assert!(std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(&link)
+                    .arg(outside.path())
+                    .status()
+                    .unwrap()
+                    .success());
+            }
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(outside.path(), game.path().join("archive")).unwrap();
+            assert!(scan_for(roots, "cyberpunk-2077", game.path())
+                .mods
+                .is_empty());
+        });
     }
 }

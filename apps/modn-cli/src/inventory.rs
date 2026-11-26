@@ -7,12 +7,12 @@ use modn_core::state::Store;
 use std::path::{Path, PathBuf};
 
 fn selected_store(
+    roots: &ManagerRoots,
     path: Option<PathBuf>,
-    state_path: &Path,
     requested: Option<&str>,
 ) -> Result<(Store, String, PathBuf)> {
-    let selected = ManagerState::load(state_path)?
-        .for_installation(path, requested)?
+    let selected = ManagerState::load(roots)?
+        .for_installation(roots, path, requested)?
         .open(InstallationAccess::Write)?;
     Ok((
         selected.store.expect("write access opens manager state"),
@@ -27,8 +27,7 @@ pub(super) fn scan(
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let state_path = roots.state_database();
-    let (store, game_id, path) = selected_store(path, &state_path, requested)?;
+    let (store, game_id, path) = selected_store(roots, path, requested)?;
     let report = scan_with_ownership_for(roots, &store, &game_id, &path)?;
     if report.incomplete {
         eprintln!("warning: modn scan incomplete (see doctor diagnostics)");
@@ -93,8 +92,7 @@ pub(super) fn doctor(
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let state_path = roots.state_database();
-    let (store, game_id, path) = selected_store(path, &state_path, requested)?;
+    let (store, game_id, path) = selected_store(roots, path, requested)?;
     let report = doctor_with_ownership_for(roots, &store, &game_id, &path)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);

@@ -9,11 +9,12 @@ use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
 fn install_zip(
+    roots: &crate::manager_roots::ManagerRoots,
     store: &mut Store,
     game: &Path,
     archive: &Path,
 ) -> anyhow::Result<super::ManagedPackage> {
-    let proposal = crate::planning::preview_install_zip("cyberpunk-2077", game, archive)?;
+    let proposal = crate::planning::preview_install_zip(roots, "cyberpunk-2077", game, archive)?;
     store.install_operations_zip(game, archive, &proposal)
 }
 
@@ -51,7 +52,7 @@ fn prepared_file(dest: &str, data: &[u8]) -> JournalFile {
 
 #[test]
 fn install_list_and_uninstall_preserve_unmanaged_files() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, mut store, game) = fixture();
         let path = archive(
             dir.path(),
@@ -63,7 +64,7 @@ fn install_list_and_uninstall_preserve_unmanaged_files() {
         fs::create_dir_all(game.join("archive/pc/mod")).unwrap();
         let unmanaged = game.join("archive/pc/mod/unmanaged.archive");
         fs::write(&unmanaged, b"keep").unwrap();
-        let installed = install_zip(&mut store, &game, &path).unwrap();
+        let installed = install_zip(roots, &mut store, &game, &path).unwrap();
         assert_eq!(installed.files.len(), 1);
         assert_eq!(
             fs::read(game.join(&installed.files[0].destination)).unwrap(),
@@ -79,13 +80,13 @@ fn install_list_and_uninstall_preserve_unmanaged_files() {
 
 #[test]
 fn existing_file_blocks_install_without_changing_it() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, mut store, game) = fixture();
         let path = archive(dir.path(), &[("archive/pc/mod/x.archive", b"replacement")]);
         fs::create_dir_all(game.join("archive/pc/mod")).unwrap();
         let dest = game.join("archive/pc/mod/x.archive");
         fs::write(&dest, b"unmanaged").unwrap();
-        assert!(install_zip(&mut store, &game, &path).is_err());
+        assert!(install_zip(roots, &mut store, &game, &path).is_err());
         assert_eq!(fs::read(dest).unwrap(), b"unmanaged");
         assert!(store.installed(&game).unwrap().is_empty());
     });
@@ -93,10 +94,10 @@ fn existing_file_blocks_install_without_changing_it() {
 
 #[test]
 fn modified_managed_content_cannot_be_uninstalled() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, mut store, game) = fixture();
         let path = archive(dir.path(), &[("archive/pc/mod/x.archive", b"original")]);
-        let package = install_zip(&mut store, &game, &path).unwrap();
+        let package = install_zip(roots, &mut store, &game, &path).unwrap();
         let dest = game.join(&package.files[0].destination);
         fs::write(&dest, b"user edits").unwrap();
         assert!(store.uninstall(&game, &package.id).is_err());
@@ -107,7 +108,7 @@ fn modified_managed_content_cannot_be_uninstalled() {
 
 #[test]
 fn injected_partial_install_rolls_back_all_owned_files() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, mut store, game) = fixture();
         let path = archive(
             dir.path(),
@@ -120,7 +121,8 @@ fn injected_partial_install_rolls_back_all_owned_files() {
             .install_operations_inner(
                 &game,
                 &path,
-                &crate::planning::preview_install_zip("cyberpunk-2077", &game, &path).unwrap(),
+                &crate::planning::preview_install_zip(roots, "cyberpunk-2077", &game, &path)
+                    .unwrap(),
                 Some(1),
             )
             .is_err());
@@ -128,13 +130,13 @@ fn injected_partial_install_rolls_back_all_owned_files() {
         assert!(!game.join("archive/pc/mod/two.archive").exists());
         assert!(store.installed(&game).unwrap().is_empty());
         assert_eq!(store.recover().unwrap(), 0);
-        assert!(install_zip(&mut store, &game, &path).is_ok());
+        assert!(install_zip(roots, &mut store, &game, &path).is_ok());
     });
 }
 
 #[test]
 fn recovering_crashed_install_removes_only_proven_hardlinks() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (_dir, mut store, game) = fixture();
         let f = prepared_file("archive/pc/mod/crashed.archive", b"owned");
         let id = "txn-test-crash";
@@ -163,7 +165,7 @@ fn recovering_crashed_install_removes_only_proven_hardlinks() {
 
 #[test]
 fn recovering_crashed_uninstall_restores_original_file() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (_dir, mut store, game) = fixture();
         let f = prepared_file("archive/pc/mod/crashed.archive", b"owned");
         let id = "txn-test-uninstall";
@@ -193,7 +195,7 @@ fn recovering_crashed_uninstall_restores_original_file() {
 
 #[test]
 fn changed_witness_blocks_recovery_and_preserves_files() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (_dir, mut store, game) = fixture();
         let f = prepared_file("archive/pc/mod/crashed.archive", b"owned");
         let id = "txn-test-tamper";
@@ -216,6 +218,7 @@ fn changed_witness_blocks_recovery_and_preserves_files() {
         assert!(store.recover().is_err());
         assert_eq!(fs::read(&dest).unwrap(), b"changed");
         assert!(install_zip(
+            roots,
             &mut store,
             &game,
             &archive(_dir.path(), &[("archive/pc/mod/other.archive", b"x")])
@@ -257,7 +260,7 @@ fn older_linked_install(
 
 #[test]
 fn recovery_keeps_a_changed_sole_witness_from_an_older_journal() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, store, game) = fixture();
         let (mut store, dest, temp) = older_linked_install(dir.path(), store, &game, "txn-older-a");
         fs::write(&dest, b"unique user data").unwrap();
@@ -275,7 +278,7 @@ fn recovery_keeps_a_changed_sole_witness_from_an_older_journal() {
 
 #[test]
 fn recovery_rolls_back_a_linked_destination_from_an_older_journal() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, store, game) = fixture();
         let (mut store, dest, temp) = older_linked_install(dir.path(), store, &game, "txn-older-b");
 
@@ -288,7 +291,7 @@ fn recovery_rolls_back_a_linked_destination_from_an_older_journal() {
 
 #[test]
 fn recovering_crashed_extraction_removes_staging_without_game_writes() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (_dir, mut store, game) = fixture();
         let id = "txn-crashed-extraction";
         let stage = store.state_root.join(id);
@@ -305,7 +308,7 @@ fn recovering_crashed_extraction_removes_staging_without_game_writes() {
 #[cfg(windows)]
 #[test]
 fn locked_staging_cleanup_keeps_journal_for_retry() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         use std::os::windows::fs::OpenOptionsExt;
         let (_dir, mut store, game) = fixture();
         let f = prepared_file("archive/pc/mod/never-created.archive", b"not installed");
@@ -341,7 +344,7 @@ fn locked_staging_cleanup_keeps_journal_for_retry() {
 
 #[test]
 fn recovery_never_deletes_preexisting_empty_directories() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (_dir, mut store, game) = fixture();
         let directory = game.join("archive/pc/mod");
         fs::create_dir_all(&directory).unwrap();
@@ -364,7 +367,7 @@ fn recovery_never_deletes_preexisting_empty_directories() {
 
 #[test]
 fn rejects_non_zip_or_mixed_framework_package() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, mut store, game) = fixture();
         let path = archive(
             dir.path(),
@@ -373,22 +376,22 @@ fn rejects_non_zip_or_mixed_framework_package() {
                 ("r6/scripts/script.reds", b"script"),
             ],
         );
-        assert!(install_zip(&mut store, &game, &path).is_err());
+        assert!(install_zip(roots, &mut store, &game, &path).is_err());
         assert!(!game.join("archive").exists());
         let other = dir.path().join("fake.7z");
         fs::write(&other, b"wrong format").unwrap();
-        assert!(install_zip(&mut store, &game, &other).is_err());
+        assert!(install_zip(roots, &mut store, &game, &other).is_err());
     });
 }
 
 #[test]
 fn cet_and_red4ext_multifile_injected_failure_rolls_back_and_recovers() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, mut store, game) = fixture();
         let cet = "bin/x64/plugins/cyber_engine_tweaks/mods/Fixture/init.lua";
         let red = "red4ext/plugins/Fixture/Fixture.dll";
         let path = archive(dir.path(), &[(cet, b"lua"), (red, b"plugin")]);
-        let proposal = crate::planning::preview_install_zip("cyberpunk-2077", &game, &path)
+        let proposal = crate::planning::preview_install_zip(roots, "cyberpunk-2077", &game, &path)
             .expect("Lua mixed CET/RED4ext plan");
         assert_eq!(proposal.status, crate::planning::PlanStatus::Reviewable);
         assert_eq!(proposal.operations.len(), 2);
@@ -412,7 +415,7 @@ fn cet_and_red4ext_multifile_injected_failure_rolls_back_and_recovers() {
 
 #[test]
 fn redscript_archivexl_mixed_failure_preserves_manual_files_and_recovers() {
-    crate::test_support::seeded(|| {
+    crate::test_support::seeded_roots(|roots| {
         let (dir, mut store, game) = fixture();
         let compiler = "engine/tools/scc.exe";
         let xl_plugin = "red4ext/plugins/ArchiveXL/ArchiveXL.dll";
@@ -428,8 +431,9 @@ fn redscript_archivexl_mixed_failure_preserves_manual_files_and_recovers() {
             dir.path(),
             &[(script, b"script"), (xl, b"xl"), (legacy, b"archive")],
         );
-        let proposal = crate::planning::preview_install_zip("cyberpunk-2077", &game, &archive)
-            .expect("Lua mixed redscript and ArchiveXL plan");
+        let proposal =
+            crate::planning::preview_install_zip(roots, "cyberpunk-2077", &game, &archive)
+                .expect("Lua mixed redscript and ArchiveXL plan");
         assert_eq!(proposal.status, crate::planning::PlanStatus::Reviewable);
         assert_eq!(proposal.operations.len(), 3);
         assert!(store

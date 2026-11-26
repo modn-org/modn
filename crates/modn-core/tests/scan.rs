@@ -6,7 +6,7 @@ use tempfile::tempdir;
 
 #[test]
 fn directory_heavy_scan_preserves_every_mod() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
         let base = temp.path().join("archive/pc/mod");
         for number in 0..141 {
@@ -15,7 +15,7 @@ fn directory_heavy_scan_preserves_every_mod() {
             fs::write(folder.join("example.archive"), b"fixture").unwrap();
         }
 
-        let report = scan_for("cyberpunk-2077", temp.path());
+        let report = scan_for(roots, "cyberpunk-2077", temp.path());
         assert!(!report.incomplete, "scan must not silently truncate");
         assert_eq!(report.mods.len(), 141);
     });
@@ -23,7 +23,7 @@ fn directory_heavy_scan_preserves_every_mod() {
 
 #[test]
 fn nested_unreadable_depth_marks_scan_incomplete() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
         let mut nested = temp.path().join("archive/pc/mod");
         for number in 0..18 {
@@ -32,7 +32,7 @@ fn nested_unreadable_depth_marks_scan_incomplete() {
         fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("deep.archive"), b"fixture").unwrap();
 
-        let report = scan_for("cyberpunk-2077", temp.path());
+        let report = scan_for(roots, "cyberpunk-2077", temp.path());
         assert!(
             report.incomplete,
             "failed nested directory read must be reported"
@@ -42,7 +42,7 @@ fn nested_unreadable_depth_marks_scan_incomplete() {
 
 #[test]
 fn reports_known_layouts_without_modifying_files() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
         let root = temp.path();
         let files = [
@@ -61,7 +61,7 @@ fn reports_known_layouts_without_modifying_files() {
         fs::create_dir_all(root.join("tools/redmod/bin")).unwrap();
         fs::write(root.join("tools/redmod/bin/redMod.exe"), "tool").unwrap();
 
-        let report = scan_for("cyberpunk-2077", root);
+        let report = scan_for(roots, "cyberpunk-2077", root);
         assert!(report.redmod_available);
         assert_eq!(report.mods.len(), 6);
         assert!(report.mods.iter().all(|entry| !entry.managed));
@@ -74,7 +74,7 @@ fn reports_known_layouts_without_modifying_files() {
             .iter()
             .any(|entry| entry.kind == "redmod-directory"));
         assert!(report.mods.iter().any(|entry| entry.kind == "cet-mod"));
-        assert!(doctor_for("cyberpunk-2077", root)
+        assert!(doctor_for(roots, "cyberpunk-2077", root)
             .diagnostics
             .iter()
             .any(|d| d.code == "UNMANAGED_CONTENT"));
@@ -86,10 +86,10 @@ fn reports_known_layouts_without_modifying_files() {
 
 #[test]
 fn missing_redmod_tools_warns_without_failing_scan() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
         fs::create_dir_all(temp.path().join("mods/Test")).unwrap();
-        let result = doctor_for("cyberpunk-2077", temp.path());
+        let result = doctor_for(roots, "cyberpunk-2077", temp.path());
         assert!(result
             .diagnostics
             .iter()
@@ -100,7 +100,7 @@ fn missing_redmod_tools_warns_without_failing_scan() {
 #[cfg(unix)]
 #[test]
 fn does_not_traverse_symlinked_mod_directories() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         use std::os::unix::fs::symlink;
         let temp = tempdir().unwrap();
         let outside = temp.path().join("outside");
@@ -108,6 +108,8 @@ fn does_not_traverse_symlinked_mod_directories() {
         fs::write(outside.join("bad.archive"), "outside").unwrap();
         fs::create_dir_all(temp.path().join("archive/pc")).unwrap();
         symlink(&outside, temp.path().join("archive/pc/mod")).unwrap();
-        assert!(scan_for("cyberpunk-2077", temp.path()).mods.is_empty());
+        assert!(scan_for(roots, "cyberpunk-2077", temp.path())
+            .mods
+            .is_empty());
     });
 }

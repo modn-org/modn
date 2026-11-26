@@ -29,18 +29,28 @@ impl Store {
     /// This API never claims a directory or unknown descendants.
     pub fn adopt_archive(
         &mut self,
+        roots: &crate::manager_roots::ManagerRoots,
         game_id: &str,
         game: &Path,
         archive: &Path,
         reviewed_blake3: &str,
         approval: AdoptionApproval,
     ) -> Result<ManagedPackage> {
-        self.adopt_archive_inner(game_id, game, archive, reviewed_blake3, approval, None)
+        self.adopt_archive_inner(
+            roots,
+            game_id,
+            game,
+            archive,
+            reviewed_blake3,
+            approval,
+            None,
+        )
     }
 
     /// Adopt existing content-root files with an explicit appdata base.
     pub fn adopt_archive_with_appdata(
         &mut self,
+        roots: &crate::manager_roots::ManagerRoots,
         game_id: &str,
         game: &Path,
         archive: &Path,
@@ -49,6 +59,7 @@ impl Store {
         appdata: &Path,
     ) -> Result<ManagedPackage> {
         self.adopt_archive_inner(
+            roots,
             game_id,
             game,
             archive,
@@ -60,6 +71,7 @@ impl Store {
 
     fn adopt_archive_inner(
         &mut self,
+        roots: &crate::manager_roots::ManagerRoots,
         game_id: &str,
         game: &Path,
         archive: &Path,
@@ -81,8 +93,8 @@ impl Store {
             bail!("archive changed since adoption preview");
         }
         let proposal = match appdata {
-            Some(base) => preview_adoption_with_appdata(game_id, &game, archive, base)?,
-            None => crate::planning::preview_adoption(game_id, &game, archive)?,
+            Some(base) => preview_adoption_with_appdata(roots, game_id, &game, archive, base)?,
+            None => crate::planning::preview_adoption(roots, game_id, &game, archive)?,
         };
         let content = match (&proposal.content_base, &proposal.content_root) {
             (Some(base), Some(root)) => Some(crate::content_root::validate(&game, base, root)?),

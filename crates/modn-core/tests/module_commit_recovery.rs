@@ -8,7 +8,6 @@ use modn_core::buckets::{
     catalog_statement, BucketStore, CatalogPublicKey, GitCatalogSource, GitCatalogSync,
     ModuleTrustAck,
 };
-use modn_core::data_dir;
 use modn_core::game_modules::{ModuleRegistry, ReleaseOutcome};
 use serde_json::json;
 use std::fs;
@@ -236,8 +235,8 @@ fn synchronize(store: &BucketStore) -> GitCatalogSync {
 
 #[test]
 fn failed_commit_restores_registry_and_next_sync_activates_v2() {
-    main_bucket::seeded(|| {
-        let data = data_dir::data_directory().expect("data");
+    main_bucket::seeded_roots(|roots| {
+        let data = roots.data();
         let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
@@ -308,8 +307,8 @@ fn failed_commit_restores_registry_and_next_sync_activates_v2() {
 
 #[test]
 fn deliberate_rollback_survives_unchanged_catalog_sync() {
-    main_bucket::seeded(|| {
-        let data = data_dir::data_directory().expect("data");
+    main_bucket::seeded_roots(|roots| {
+        let data = roots.data();
         let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
@@ -325,7 +324,7 @@ fn deliberate_rollback_survives_unchanged_catalog_sync() {
             Some("2.0.0")
         );
 
-        ModuleRegistry::new(&main_bucket::roots(&data))
+        ModuleRegistry::new(roots)
             .rollback("alpha-game", Some("1.0.0"))
             .expect("rollback");
         let synced = synchronize(&store);

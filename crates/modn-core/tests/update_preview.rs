@@ -24,7 +24,7 @@ fn plugin(dir: &Path, name: &str, contents: &str) -> PathBuf {
 
 #[test]
 fn update_preview_plans_as_if_the_installed_release_were_removed() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempfile::tempdir().expect("temp");
         let game = temp.path().join("game");
         fs::create_dir_all(game.join("bin/x64")).expect("game");
@@ -37,14 +37,16 @@ fn update_preview_plans_as_if_the_installed_release_were_removed() {
             CatalogReference::new("main".into(), GAME.into(), "foo".into()),
             Vec::new(),
         );
-        let first = preview_install_zip_with_permissions(GAME, &game, &old, &[]).expect("preview");
+        let first =
+            preview_install_zip_with_permissions(roots, GAME, &game, &old, &[]).expect("preview");
         let installed = store
             .install_catalog_release(&game, &old, &first, &release, NativeInjectorPolicy::Refuse)
             .expect("install");
         assert_eq!(installed.directories, ["red4ext/plugins/Foo"]);
         fs::write(game.join("red4ext/plugins/Foo/runtime.log"), b"log").expect("log");
 
-        let naive = preview_install_zip_with_permissions(GAME, &game, &new, &[]).expect("naive");
+        let naive =
+            preview_install_zip_with_permissions(roots, GAME, &game, &new, &[]).expect("naive");
         assert_eq!(naive.status, PlanStatus::Blocked);
         assert_eq!(naive.operations[0].owned_directory, None);
 
@@ -54,7 +56,7 @@ fn update_preview_plans_as_if_the_installed_release_were_removed() {
             .map(|file| file.destination.clone())
             .collect();
         replaced.extend(installed.directories.iter().cloned());
-        let plan = preview_update_with_permissions(GAME, &game, &new, &[], &replaced)
+        let plan = preview_update_with_permissions(roots, GAME, &game, &new, &[], &replaced)
             .expect("update plan");
         assert_eq!(plan.status, PlanStatus::Reviewable, "{:?}", plan.blockers);
         assert_eq!(
