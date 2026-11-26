@@ -1,4 +1,4 @@
-use super::catalog_tests::{module_source, reference, Fixture};
+use super::catalog_tests::{reference, Fixture};
 use super::validation::validate_transaction_root;
 use super::{CatalogDependency, CatalogReference, CatalogRelease, UninstallScope};
 use crate::archive::inspect;

@@ -136,7 +136,7 @@ fn injected_partial_install_rolls_back_all_owned_files() {
 
 #[test]
 fn recovering_crashed_install_removes_only_proven_hardlinks() {
-    crate::test_support::seeded_roots(|roots| {
+    crate::test_support::seeded(|| {
         let (_dir, mut store, game) = fixture();
         let f = prepared_file("archive/pc/mod/crashed.archive", b"owned");
         let id = "txn-test-crash";
@@ -165,7 +165,7 @@ fn recovering_crashed_install_removes_only_proven_hardlinks() {
 
 #[test]
 fn recovering_crashed_uninstall_restores_original_file() {
-    crate::test_support::seeded_roots(|roots| {
+    crate::test_support::seeded(|| {
         let (_dir, mut store, game) = fixture();
         let f = prepared_file("archive/pc/mod/crashed.archive", b"owned");
         let id = "txn-test-uninstall";
@@ -260,7 +260,7 @@ fn older_linked_install(
 
 #[test]
 fn recovery_keeps_a_changed_sole_witness_from_an_older_journal() {
-    crate::test_support::seeded_roots(|roots| {
+    crate::test_support::seeded(|| {
         let (dir, store, game) = fixture();
         let (mut store, dest, temp) = older_linked_install(dir.path(), store, &game, "txn-older-a");
         fs::write(&dest, b"unique user data").unwrap();
@@ -278,7 +278,7 @@ fn recovery_keeps_a_changed_sole_witness_from_an_older_journal() {
 
 #[test]
 fn recovery_rolls_back_a_linked_destination_from_an_older_journal() {
-    crate::test_support::seeded_roots(|roots| {
+    crate::test_support::seeded(|| {
         let (dir, store, game) = fixture();
         let (mut store, dest, temp) = older_linked_install(dir.path(), store, &game, "txn-older-b");
 
@@ -291,7 +291,7 @@ fn recovery_rolls_back_a_linked_destination_from_an_older_journal() {
 
 #[test]
 fn recovering_crashed_extraction_removes_staging_without_game_writes() {
-    crate::test_support::seeded_roots(|roots| {
+    crate::test_support::seeded(|| {
         let (_dir, mut store, game) = fixture();
         let id = "txn-crashed-extraction";
         let stage = store.state_root.join(id);
@@ -308,7 +308,7 @@ fn recovering_crashed_extraction_removes_staging_without_game_writes() {
 #[cfg(windows)]
 #[test]
 fn locked_staging_cleanup_keeps_journal_for_retry() {
-    crate::test_support::seeded_roots(|roots| {
+    crate::test_support::seeded(|| {
         use std::os::windows::fs::OpenOptionsExt;
         let (_dir, mut store, game) = fixture();
         let f = prepared_file("archive/pc/mod/never-created.archive", b"not installed");
@@ -344,7 +344,7 @@ fn locked_staging_cleanup_keeps_journal_for_retry() {
 
 #[test]
 fn recovery_never_deletes_preexisting_empty_directories() {
-    crate::test_support::seeded_roots(|roots| {
+    crate::test_support::seeded(|| {
         let (_dir, mut store, game) = fixture();
         let directory = game.join("archive/pc/mod");
         fs::create_dir_all(&directory).unwrap();

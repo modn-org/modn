@@ -1,4 +1,4 @@
-use super::catalog_tests::{module_source, plan, reference, Fixture};
+use super::catalog_tests::{plan, reference, Fixture};
 use super::history_tests::context;
 use super::{CatalogConflict, CatalogDependency, CatalogRelease, NativeInjectorPolicy};
 use crate::archive::inspect;

@@ -13,7 +13,7 @@ use std::path::Path;
 const URL: &str = "https://github.com/fixture/project/releases/download/v1/example.zip";
 const METADATA_URL: &str = "https://api.github.com/repos/fixture/project/releases/tags/v1";
 
-fn command(roots: &ManagerRoots, root: &Path, args: &[&str]) -> anyhow::Result<()> {
+fn command(roots: &ManagerRoots, args: &[&str]) -> anyhow::Result<()> {
     let cli = Cli::try_parse_from(std::iter::once("modn").chain(args.iter().copied()))
         .expect("test command line");
     crate::run_cli(cli, roots, &crate::progress::Progress::start(None))
@@ -91,15 +91,9 @@ fn undo_restores_a_github_release_from_the_cache_without_network() {
     let game_arg = game.to_str().expect("game path").to_owned();
 
     let roots = ManagerRoots::new(&root, None).with_development_modules(Some(module.clone()));
+    command(&roots, &["game", "add", "test-game", "--path", &game_arg]).expect("register game");
     command(
         &roots,
-        &root,
-        &["game", "add", "test-game", "--path", &game_arg],
-    )
-    .expect("register game");
-    command(
-        &roots,
-        &root,
         &["--json", "install", "example", "--path", &game_arg, "--yes"],
     )
     .expect("install from the seeded cache");
@@ -108,12 +102,12 @@ fn undo_restores_a_github_release_from_the_cache_without_network() {
         fs::read(&plugin).expect("installed plugin"),
         b"cached-release"
     );
-    command(&roots, &root, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
+    command(&roots, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
     assert!(!plugin.exists());
 
     TEST_RESPONSES.with(|responses| responses.replace(Some(BTreeMap::new())));
     TEST_CALLS.with(|calls| calls.borrow_mut().clear());
-    command(&roots, &root, &["--json", "undo", "--yes"]).expect("undo from the cache");
+    command(&roots, &["--json", "undo", "--yes"]).expect("undo from the cache");
     assert!(
         TEST_CALLS.with(|calls| calls.borrow().is_empty()),
         "undo contacted the provider"
@@ -140,15 +134,9 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
     let game_arg = game.to_str().expect("game path").to_owned();
 
     let roots = ManagerRoots::new(&root, None).with_development_modules(Some(module.clone()));
+    command(&roots, &["game", "add", "test-game", "--path", &game_arg]).expect("register game");
     command(
         &roots,
-        &root,
-        &["game", "add", "test-game", "--path", &game_arg],
-    )
-    .expect("register game");
-    command(
-        &roots,
-        &root,
         &["--json", "install", "example", "--path", &game_arg, "--yes"],
     )
     .expect("install from the seeded cache");
@@ -157,7 +145,7 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
         fs::read(&plugin).expect("installed plugin"),
         b"cached-release"
     );
-    command(&roots, &root, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
+    command(&roots, &["--json", "uninstall", "example", "--yes"]).expect("uninstall");
     assert!(!plugin.exists());
     fs::remove_dir_all(root.join("cache")).expect("clear the archive cache");
 
@@ -176,7 +164,7 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
         ])))
     });
     TEST_CALLS.with(|calls| calls.borrow_mut().clear());
-    command(&roots, &root, &["--json", "undo", "--yes"]).expect("undo downloads again");
+    command(&roots, &["--json", "undo", "--yes"]).expect("undo downloads again");
 
     let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
     assert_eq!(

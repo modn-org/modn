@@ -6,7 +6,7 @@ use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use modn_core::stores::StoreLibraries;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Status {

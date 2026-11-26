@@ -131,6 +131,10 @@ struct Candidate {
     present: std::collections::BTreeSet<String>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "manager roots, explicit approvals and stored consent are separate inputs"
+)]
 fn plan_update(
     roots: &ManagerRoots,
     game_id: &str,

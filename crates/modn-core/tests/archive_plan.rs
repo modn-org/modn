@@ -167,7 +167,7 @@ fn mixed_package_variants_are_blocked() {
 
 #[test]
 fn sevenz_headers_can_be_inspected_without_extraction() {
-    main_bucket::seeded_roots(|roots| {
+    main_bucket::seeded(|| {
         let dir = tempdir().unwrap();
         let input = dir.path().join("package");
         fs::create_dir_all(input.join("archive/pc/mod")).unwrap();
@@ -265,7 +265,7 @@ fn executable_disguised_as_documentation_is_not_ignored() {
 
 #[test]
 fn identical_zip_record_names_are_refused() {
-    main_bucket::seeded_roots(|roots| {
+    main_bucket::seeded(|| {
         let dir = tempdir().unwrap();
         let archive = dir.path().join("duplicate-raw.zip");
         zip_fixture(
@@ -405,7 +405,7 @@ fn redmod_cannot_be_mixed_with_legacy_archives() {
 
 #[test]
 fn windows_invalid_filename_chars_are_refused() {
-    main_bucket::seeded_roots(|roots| {
+    main_bucket::seeded(|| {
         let dir = tempdir().unwrap();
         let archive = dir.path().join("invalid.zip");
         zip_fixture(&archive, &[("archive/pc/mod/bad?.archive", b"bad")]);

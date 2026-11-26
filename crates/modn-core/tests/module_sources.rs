@@ -196,7 +196,7 @@ fn state(root: &Path) -> modn_core::state::Store {
 fn trusted_sync_imports_module_as_active_release() {
     main_bucket::seeded_roots(|roots| {
         let data = roots.data();
-        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         assert!(catalog.trust(&store).imported.is_empty());
@@ -212,7 +212,7 @@ fn trusted_sync_imports_module_as_active_release() {
         assert_eq!(synced.modules.imported.len(), 1);
         assert_eq!(synced.modules.imported[0].outcome, ReleaseOutcome::Imported);
         assert!(synced.modules.ignored.is_empty());
-        let release = active(&data, "fixture-game").expect("active release");
+        let release = active(data, "fixture-game").expect("active release");
         assert_eq!(release.module.version, "1.0.0");
         assert_eq!(release.source.bucket.as_deref(), Some("community"));
         assert_eq!(
@@ -226,7 +226,7 @@ fn trusted_sync_imports_module_as_active_release() {
 fn newer_catalog_revision_switches_and_retains_the_old_release() {
     main_bucket::seeded_roots(|roots| {
         let data = roots.data();
-        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         catalog.trust(&store);
@@ -265,7 +265,7 @@ fn newer_catalog_revision_switches_and_retains_the_old_release() {
 fn staging_failure_leaves_the_previous_release_active() {
     main_bucket::seeded_roots(|roots| {
         let data = roots.data();
-        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         catalog.trust(&store);
@@ -287,7 +287,7 @@ fn staging_failure_leaves_the_previous_release_active() {
                 .expect_err("staging failure")
         );
         assert!(error.contains("failed staging validation"), "{error}");
-        let release = active(&data, "fixture-game").expect("active release");
+        let release = active(data, "fixture-game").expect("active release");
         assert_eq!(release.module.version, "1.0.0");
         assert_eq!(
             ModuleRegistry::new(roots)
@@ -303,7 +303,7 @@ fn staging_failure_leaves_the_previous_release_active() {
 fn untrusted_sync_ignores_modules_and_never_runs_lua() {
     main_bucket::seeded_roots(|roots| {
         let data = roots.data();
-        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.write_module("fixture-game", "1.0.0", 3, "this is not lua", None);
         catalog.sign_and_commit("broken module");
@@ -316,7 +316,7 @@ fn untrusted_sync_ignores_modules_and_never_runs_lua() {
                 reason: ModuleIgnoreReason::UntrustedSource,
             }]
         );
-        assert!(active(&data, "fixture-game").is_none());
+        assert!(active(data, "fixture-game").is_none());
         store.packages(None).expect("package listing skips modules");
         assert!(!store.list().expect("list").is_empty());
     });
@@ -326,7 +326,7 @@ fn untrusted_sync_ignores_modules_and_never_runs_lua() {
 fn trust_imports_modules_immediately_and_returns_them() {
     main_bucket::seeded_roots(|roots| {
         let data = roots.data();
-        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.write_module(
             "fixture-game",
@@ -345,10 +345,7 @@ fn trust_imports_modules_immediately_and_returns_them() {
             ModuleTrustState::Trusted
         );
         assert_eq!(
-            active(&data, "fixture-game")
-                .expect("active")
-                .module
-                .version,
+            active(data, "fixture-game").expect("active").module.version,
             "1.0.0"
         );
     });
@@ -358,7 +355,7 @@ fn trust_imports_modules_immediately_and_returns_them() {
 fn official_module_priority_hides_a_trusted_catalog_module() {
     main_bucket::seeded_roots(|roots| {
         let data = roots.data();
-        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.write_module(
             "cyberpunk-2077",
@@ -378,7 +375,7 @@ fn official_module_priority_hides_a_trusted_catalog_module() {
                 reason: ModuleIgnoreReason::OfficialPriority,
             }]
         );
-        assert!(active(&data, "cyberpunk-2077").is_none());
+        assert!(active(data, "cyberpunk-2077").is_none());
         let hidden = hidden_modules(roots, "cyberpunk-2077").expect("hidden modules");
         assert_eq!(hidden.len(), 1);
         assert_eq!(hidden[0].bucket, "community");
@@ -413,7 +410,7 @@ fn official_module_priority_hides_a_trusted_catalog_module() {
 fn untrusted_source_is_refused_at_use_and_reported_by_doctor() {
     main_bucket::seeded_roots(|roots| {
         let data = roots.data();
-        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(&data, None));
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.write_module(
             "fixture-game",
@@ -470,7 +467,6 @@ fn untrusted_source_is_refused_at_use_and_reported_by_doctor() {
 #[test]
 fn locally_registered_modules_still_resolve() {
     main_bucket::seeded_roots(|roots| {
-        let data = roots.data();
         let source = tempfile::tempdir().expect("source");
         let directory = source.path().join("module");
         fs::create_dir_all(&directory).expect("module directory");

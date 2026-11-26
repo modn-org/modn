@@ -4,7 +4,7 @@ use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::scan::{IntegrityStatus, ScanRoot};
 use modn_core::state::Store;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn selected_store(
     roots: &ManagerRoots,

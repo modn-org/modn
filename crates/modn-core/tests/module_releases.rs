@@ -89,7 +89,7 @@ fn register_v1_then_import_v2_keeps_v1_bytes_and_switches_active() {
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         let registered = registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         assert!(registered.active);
-        let v1_bytes = snapshot(&game_directory(&data).join("versions").join("1.0.0"));
+        let v1_bytes = snapshot(&game_directory(data).join("versions").join("1.0.0"));
 
         let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         let report = registry.import_release(&v2, origin("community")).unwrap();
@@ -97,7 +97,7 @@ fn register_v1_then_import_v2_keeps_v1_bytes_and_switches_active() {
         assert_eq!(report.version, "2.0.0");
 
         assert_eq!(
-            snapshot(&game_directory(&data).join("versions").join("1.0.0")),
+            snapshot(&game_directory(data).join("versions").join("1.0.0")),
             v1_bytes
         );
         let releases = registry.releases(GAME).unwrap();
@@ -109,7 +109,7 @@ fn register_v1_then_import_v2_keeps_v1_bytes_and_switches_active() {
             vec![("1.0.0", false), ("2.0.0", true)]
         );
         assert_eq!(
-            fs::read_to_string(game_directory(&data).join("current")).unwrap(),
+            fs::read_to_string(game_directory(data).join("current")).unwrap(),
             "2.0.0"
         );
         assert_eq!(registry.list().unwrap(), vec![releases[1].clone()]);
@@ -126,7 +126,7 @@ fn same_version_with_changed_digest_is_refused_and_same_digest_is_unchanged() {
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         registry.import_release(&v2, origin("community")).unwrap();
-        let before = snapshot(&game_directory(&data));
+        let before = snapshot(&game_directory(data));
 
         let changed = source(
             fixture.path(),
@@ -145,13 +145,13 @@ fn same_version_with_changed_digest_is_refused_and_same_digest_is_unchanged() {
         assert!(message.contains("different digest"), "{message}");
         assert!(message.contains("community"), "{message}");
         assert!(message.contains("other-bucket"), "{message}");
-        assert_eq!(snapshot(&game_directory(&data)), before);
+        assert_eq!(snapshot(&game_directory(data)), before);
         assert_eq!(active_version(&registry), "2.0.0");
 
         let same = source(fixture.path(), "v2-same", "2.0.0", 3, &lua(3), None);
         let report = registry.import_release(&same, origin("community")).unwrap();
         assert_eq!(report.outcome, ReleaseOutcome::Unchanged);
-        assert_eq!(snapshot(&game_directory(&data)), before);
+        assert_eq!(snapshot(&game_directory(data)), before);
         assert_eq!(registry.releases(GAME).unwrap().len(), 2);
     });
 }
@@ -160,7 +160,6 @@ fn same_version_with_changed_digest_is_refused_and_same_digest_is_unchanged() {
 fn lower_release_is_retained_but_never_activated() {
     main_bucket::seeded_roots(|roots| {
         let fixture = tempfile::tempdir().unwrap();
-        let data = roots.data();
         let registry = ModuleRegistry::new(roots);
         let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         registry.register(&v2, ModuleTrust::Acknowledged).unwrap();
@@ -179,7 +178,6 @@ fn lower_release_is_retained_but_never_activated() {
 fn pin_blocks_import_and_rollback_until_unpinned() {
     main_bucket::seeded_roots(|roots| {
         let fixture = tempfile::tempdir().unwrap();
-        let data = roots.data();
         let registry = ModuleRegistry::new(roots);
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
@@ -220,7 +218,7 @@ fn rollback_switches_only_current_pointer_and_uses_next_older_release() {
                 .import_release(&source, origin("community"))
                 .unwrap();
         }
-        let before = snapshot(&game_directory(&data));
+        let before = snapshot(&game_directory(data));
         let current = Path::new("current");
         let unchanged = |entries: &[(PathBuf, Vec<u8>)]| {
             entries
@@ -233,7 +231,7 @@ fn rollback_switches_only_current_pointer_and_uses_next_older_release() {
         let rolled_back = registry.rollback(GAME, None).unwrap();
         assert_eq!(rolled_back.module.version, "2.0.0");
         assert!(rolled_back.active);
-        let after = snapshot(&game_directory(&data));
+        let after = snapshot(&game_directory(data));
         assert_eq!(unchanged(&after), unchanged(&before));
         assert_eq!(
             after
@@ -279,7 +277,7 @@ fn failed_staging_validation_keeps_active_release_and_no_partial_version() {
         assert!(message.contains("rejected release"), "{message}");
         assert_eq!(active_version(&registry), "1.0.0");
         assert_eq!(registry.releases(GAME).unwrap().len(), 1);
-        let versions = game_directory(&data).join("versions");
+        let versions = game_directory(data).join("versions");
         assert!(!versions.join("2.0.0").exists());
         assert_eq!(
             fs::read_dir(&versions).unwrap().count(),
@@ -305,7 +303,7 @@ fn corrupt_current_and_digest_mismatch_fail_closed() {
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
-        let game = game_directory(&data);
+        let game = game_directory(data);
         fs::write(game.join("current"), "9.9.9").unwrap();
         assert!(registry.releases(GAME).is_err());
         assert!(registry.list().is_err());
@@ -370,7 +368,6 @@ fn unsafe_version_strings_are_rejected() {
 fn resolution_reads_the_active_release() {
     main_bucket::seeded_roots(|roots| {
         let fixture = tempfile::tempdir().unwrap();
-        let data = roots.data();
         let registry = ModuleRegistry::new(roots);
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();

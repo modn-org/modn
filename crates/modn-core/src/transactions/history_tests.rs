@@ -1,4 +1,4 @@
-use super::catalog_tests::{module_source, plan, reference, Fixture};
+use super::catalog_tests::{plan, reference, Fixture};
 use super::install::Fault;
 use super::{CatalogRelease, NativeInjectorPolicy, StackMember};
 use crate::archive::inspect;

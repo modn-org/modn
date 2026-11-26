@@ -59,7 +59,6 @@ fn refuses_host_api_1_and_2_modules_without_registry_changes() {
 fn imports_a_host_api_3_module() {
     main_bucket::seeded_roots(|roots| {
         let root = tempfile::tempdir().unwrap();
-        let data = roots.data();
         let registry = ModuleRegistry::new(roots);
         let module = source(root.path(), "fixture-game", 3, "fixture-game");
         let registered = registry

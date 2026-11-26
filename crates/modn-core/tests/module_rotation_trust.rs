@@ -217,7 +217,6 @@ fn doctor_reports_untrusted(roots: &ManagerRoots) -> bool {
 #[test]
 fn a_key_rotation_keeps_a_retained_module_release_usable() {
     main_bucket::seeded_roots(|roots| {
-        let data = roots.data();
         let store = BucketStore::new(roots);
         let catalog = Catalog::new();
         catalog.write_module("1.0.0");
@@ -271,7 +270,6 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
 #[test]
 fn a_revocation_keeps_the_revoked_release_untrusted() {
     main_bucket::seeded_roots(|roots| {
-        let data = roots.data();
         let store = BucketStore::new(roots);
         let catalog = Catalog::new();
         let revocation = KeyPair::generate_unencrypted_keypair().expect("revocation key");

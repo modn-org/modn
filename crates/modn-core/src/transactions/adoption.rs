@@ -48,6 +48,10 @@ impl Store {
     }
 
     /// Adopt existing content-root files with an explicit appdata base.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the manager roots and the appdata base are separate explicit inputs"
+    )]
     pub fn adopt_archive_with_appdata(
         &mut self,
         roots: &crate::manager_roots::ManagerRoots,
@@ -69,6 +73,10 @@ impl Store {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the manager roots and the appdata base are separate explicit inputs"
+    )]
     fn adopt_archive_inner(
         &mut self,
         roots: &crate::manager_roots::ManagerRoots,
