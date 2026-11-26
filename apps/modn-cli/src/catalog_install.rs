@@ -3,6 +3,7 @@ use crate::commands::InstallArgs;
 use crate::dependency_plan::{self, PlannedDependency};
 use crate::download;
 use crate::install_consent::{self, Request};
+use crate::install_report::{self, ArchivePreview};
 use crate::modules::content_root_appdata;
 use crate::progress::Progress;
 use crate::selection::selected_installation;
@@ -11,8 +12,9 @@ use crate::state_access::{ManagerState, ProtectedTarget};
 use anyhow::{bail, Context, Result};
 use modn_core::acquisition::CacheUse;
 use modn_core::approval::Capabilities;
-use modn_core::archive::{self, inspect};
+use modn_core::archive;
 use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
+use modn_core::catalog_pipeline::PlanRefusal;
 use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
 use modn_core::manager_roots::ManagerRoots;
@@ -20,14 +22,16 @@ use modn_core::planning::{
     preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
     InstallPlan, PlanStatus,
 };
-use modn_core::transactions::{CatalogReference, NativeInjectorPolicy};
-use std::collections::{BTreeMap, BTreeSet};
+use modn_core::transactions::CatalogReference;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(test)]
 #[path = "catalog_snapshot_tests.rs"]
 mod tests;
+
+mod plan_data;
 
 #[derive(Debug)]
 pub(super) struct AmbiguousTarget {
@@ -114,54 +118,11 @@ pub(super) fn reference_of(package: &BucketPackage) -> CatalogReference {
     package.reference()
 }
 
-struct SuppliedArchives {
-    paths: BTreeMap<String, PathBuf>,
-    verified: BTreeMap<String, download::SuppliedArchive>,
-}
-
-fn match_archives(
-    files: &[PathBuf],
-    selected: &BucketPackage,
-    dependencies: &[BucketPackage],
-) -> Result<SuppliedArchives> {
-    let reference = reference_of(selected);
-    let mut supplied = SuppliedArchives {
-        paths: BTreeMap::new(),
-        verified: BTreeMap::new(),
-    };
-    for file in files {
-        if !std::fs::symlink_metadata(file)?.file_type().is_file() {
-            bail!("archive must be a regular file: {}", file.display());
-        }
-        let inspected = inspect(file)?;
-        let matches: Vec<&BucketPackage> = dependencies
-            .iter()
-            .chain([selected])
-            .filter(|release| release.package.pin() == Some(inspected.blake3.as_str()))
-            .collect();
-        if matches.is_empty() {
-            bail!(
-                "{}: archive BLAKE3 does not match catalog manifest of {reference} or its dependencies",
-                file.display()
-            );
-        }
-        for release in matches {
-            let matched = reference_of(release);
-            if Some(inspected.format) != expected_format(release.package.archive_format.as_ref()) {
-                bail!("{matched}: archive format does not match catalog manifest");
-            }
-            let matched = matched.to_string();
-            supplied.paths.insert(matched.clone(), file.clone());
-            supplied.verified.insert(
-                matched,
-                download::SuppliedArchive {
-                    path: file.clone(),
-                    blake3: inspected.blake3.clone(),
-                },
-            );
-        }
+fn refuse_unpromptable(interactive: bool, json: bool) -> Result<()> {
+    if interactive && !install_consent::can_prompt(json) {
+        bail!("installation writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
     }
-    Ok(supplied)
+    Ok(())
 }
 
 fn install_mod(
@@ -180,54 +141,58 @@ fn install_mod(
     }
     let reference_key = reference_of(&selected);
     let reference = reference_key.to_string();
+    let interactive = !args.yes && !args.dry_run && !progress.enabled();
     let mut order = catalog.install_order(&selected)?;
     order.pop();
-    let interactive = !args.yes && !args.dry_run && !progress.enabled();
     catalog_approval::check_native_approvals(&selected, &order, args, roots)?;
-    let supplied = match_archives(&args.file, &selected, &order)?;
-    let mut archives = supplied.paths.clone();
-    let supplied = supplied.verified;
-    let mut digests = BTreeMap::new();
-    let mut served = BTreeMap::new();
+    let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
     let cache = roots.archive_cache();
     let cache_use = if args.no_cache {
         CacheUse::Refresh
     } else {
-        download::add_cached(
-            &cache,
-            order.iter().chain([&selected]),
-            &mut archives,
-            &mut digests,
-            &mut served,
-        )?;
         CacheUse::Reuse
     };
-    if !archives.contains_key(&reference) && !args.dry_run && !download::downloadable(&selected) {
-        let source = dependency_plan::acquisition(selected.package.primary_source());
-        bail!("{reference}: {source}, then use modn install {reference} --file <archive>");
-    }
-    if interactive && !install_consent::can_prompt(json) {
-        bail!("installation writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
-    }
     let state = ManagerState::load_deferred(roots)?;
-    let (game_id, installation) = selected_installation(
+    let selection = selected_installation(
         roots,
         state.existing(),
         args.path.clone(),
         Some(&selected.package.game),
-    )?;
-    let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
-    let stored = install_consent::stored_approval(state.existing(), &installation, &reference_key)?;
-    let native_covered = args.allow_native_injector
-        || stored
-            .as_ref()
-            .is_some_and(|approval| approval.native_injector);
-    let policy = if selected.package.native_injector && native_covered {
-        NativeInjectorPolicy::Allow
-    } else {
-        NativeInjectorPolicy::Refuse
+    );
+    let (game_id, installation, mut plan) = match selection {
+        Ok((game_id, installation)) => {
+            let plan = plan_data::plan(
+                &selected,
+                catalog,
+                state.existing(),
+                &game_id,
+                &installation,
+                &args.file,
+                &cache,
+                cache_use,
+                &flags,
+            )?;
+            (game_id, installation, plan)
+        }
+        Err(error) => {
+            let probe = plan_data::plan(
+                &selected,
+                catalog,
+                None,
+                &selected.package.game,
+                Path::new(""),
+                &args.file,
+                &cache,
+                cache_use,
+                &flags,
+            )?;
+            plan_data::archive_refusals(&probe, &reference_key, &reference, args.dry_run)?;
+            refuse_unpromptable(interactive, json)?;
+            return Err(error);
+        }
     };
-    let release = catalog.release(&selected)?;
+    plan_data::archive_refusals(&plan, &reference_key, &reference, args.dry_run)?;
+    refuse_unpromptable(interactive, json)?;
     if !args.dry_run || args.download {
         state.validate_download(
             cache.root(),
@@ -237,57 +202,66 @@ fn install_mod(
             },
         )?;
     }
-    let mut dependencies =
-        dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
-    let installing: Vec<&BucketPackage> = order
-        .iter()
-        .zip(&dependencies)
-        .filter(|(_, dependency)| dependency.missing())
-        .map(|(release, _)| release)
-        .chain([&selected])
-        .collect();
-    download::validate_links(&args.nxm_links, &installing)?;
+    let mut artifacts = plan_data::PlanArchives::of(&plan);
+    {
+        let installing = plan_data::installing(&plan);
+        download::validate_links(&args.nxm_links, &installing)?;
+    }
     let mut download_attempts = Vec::new();
     if args.download {
+        let installing = plan_data::installing(&plan);
         download_attempts.extend(download::download(
             &cache,
             cache_use,
             &installing,
-            &mut archives,
-            &mut digests,
-            &mut served,
+            &mut artifacts.archives,
+            &mut artifacts.digests,
+            &mut artifacts.served,
             &args.nxm_links,
             json,
             progress,
         )?);
-        dependencies =
-            dependency_plan::plan(&order, &archives, &digests, state.existing(), &installation)?;
+        plan = plan_data::plan(
+            &selected,
+            catalog,
+            state.existing(),
+            &game_id,
+            &installation,
+            &args.file,
+            &cache,
+            // The batch just verified and cached these archives, so the report
+            // reads them back even after `--no-cache`.
+            CacheUse::Reuse,
+            &flags,
+        )?;
+        artifacts = plan_data::PlanArchives::of(&plan);
     }
-    let conflicts = dependency_plan::conflicts(
-        &installing,
-        catalog,
-        &digests,
-        state.existing(),
-        &installation,
-    )?;
-    if !args.dry_run && !conflicts.is_empty() {
-        bail!(
-            "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
-            conflicts.join("\n  ")
-        );
+    if !args.dry_run {
+        let conflicts = install_report::conflict_lines(&plan);
+        if !conflicts.is_empty() {
+            bail!(
+                "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
+                conflicts.join("\n  ")
+            );
+        }
     }
+    let dependencies = dependency_plan::dependencies(&plan);
     let stackable = dependencies
         .iter()
         .all(|dependency| dependency.ready() || dependency.missing());
     if !args.dry_run && stackable && !dependencies.iter().all(PlannedDependency::ready) {
+        let stack_order: Vec<BucketPackage> = plan.order[..plan.order.len() - 1]
+            .iter()
+            .map(|release| release.package.clone())
+            .collect();
         let stack = stack_install::Stack {
             selected: &selected,
-            order: &order,
+            order: &stack_order,
             dependencies: &dependencies,
-            archives,
-            digests,
-            served,
-            supplied,
+            archives: artifacts.archives,
+            digests: artifacts.digests,
+            served: artifacts.served,
+            supplied: artifacts.supplied,
             catalog,
             cache: &cache,
             cache_use,
@@ -297,21 +271,15 @@ fn install_mod(
         return stack_install::run(stack, state, args, json, progress, download_attempts);
     }
     if !args.dry_run {
-        match state.existing() {
-            Some(store) => {
-                store.ready_dependencies(&installation, &release.dependencies)?;
-            }
-            None => {
-                if let Some(dependency) = release.dependencies.first() {
-                    bail!(
-                        "dependency not installed or intact: {}; install or restore it first",
-                        dependency.reference
-                    );
-                }
-            }
+        if let Some(PlanRefusal::DependencyNotReady { reference, .. }) = plan
+            .refusals
+            .iter()
+            .find(|refusal| matches!(refusal, PlanRefusal::DependencyNotReady { .. }))
+        {
+            bail!("dependency not installed or intact: {reference}; install or restore it first");
         }
     }
-    if !args.dry_run && !archives.contains_key(&reference) {
+    if !args.dry_run && !artifacts.archives.contains_key(&reference) {
         if interactive {
             let download = dependency_plan::download_line(
                 &reference,
@@ -331,31 +299,23 @@ fn install_mod(
             &cache,
             cache_use,
             &[&selected],
-            &mut archives,
-            &mut digests,
-            &mut served,
+            &mut artifacts.archives,
+            &mut artifacts.digests,
+            &mut artifacts.served,
             &args.nxm_links,
             json,
             progress,
         )?);
     }
-    let Some(archive) = archives.get(&reference).map(PathBuf::as_path) else {
-        let needed = Capabilities::new(
-            selected.package.native_injector,
-            selected.package.executables.iter().cloned(),
+    let planned_selected = plan_data::selected(&plan);
+    let Some(archive) = artifacts.archives.get(&reference).map(PathBuf::as_path) else {
+        let check = install_consent::ApprovalCheck::new(
+            reference_key.clone(),
+            planned_selected.needed.clone(),
+            planned_selected.stored.clone(),
+            &flags,
         );
-        let check =
-            install_consent::ApprovalCheck::new(reference_key.clone(), needed, stored, &flags);
-        return dependency_plan::report(
-            &reference,
-            &selected,
-            None,
-            &dependencies,
-            &conflicts,
-            Some(&check),
-            &download_attempts,
-            json,
-        );
+        return install_report::print(&plan, None, Some(&check), &download_attempts, json);
     };
     let preview = |approved: &[String]| -> Result<InstallPlan> {
         let plan = match content_root_appdata(roots, &game_id)? {
@@ -375,7 +335,7 @@ fn install_mod(
                 approved,
             )?,
         };
-        let digest = download::digest(&selected, &digests)?;
+        let digest = download::digest(&selected, &artifacts.digests)?;
         if Some(plan.archive_blake3.as_str()) != digest.as_str() {
             bail!("{reference}: source changed after catalog verification");
         }
@@ -403,42 +363,37 @@ fn install_mod(
         install_consent::present_executables(declared, &destinations)
     });
     let needed = Capabilities::new(selected.package.native_injector, present);
-    let check =
-        install_consent::ApprovalCheck::new(reference_key.clone(), needed.clone(), stored, &flags);
+    let check = install_consent::ApprovalCheck::new(
+        reference_key.clone(),
+        needed.clone(),
+        planned_selected.stored.clone(),
+        &flags,
+    );
     let pending = check.uncovered.executables.clone();
     let mut approved = check.approved_executables();
-    let mut plan = preview(&approved)?;
+    let mut plan_preview = preview(&approved)?;
     if args.dry_run {
-        let preview = dependency_plan::ArchivePreview {
-            plan: &plan,
+        let archive = ArchivePreview {
+            plan: &plan_preview,
             unapproved_declared_executables: &pending,
         };
-        return dependency_plan::report(
-            &reference,
-            &selected,
-            Some(preview),
-            &dependencies,
-            &conflicts,
-            Some(&check),
-            &download_attempts,
-            json,
-        );
+        return install_report::print(&plan, Some(archive), Some(&check), &download_attempts, json);
     }
     if !check.uncovered.is_empty() && (!interactive || check.uncovered.native_injector) {
         return check.ensure_approved();
     }
     if interactive && !pending.is_empty() {
         approved.extend(pending.iter().cloned());
-        plan = preview(&approved)?;
+        plan_preview = preview(&approved)?;
     }
-    if plan.status != PlanStatus::Reviewable {
+    if plan_preview.status != PlanStatus::Reviewable {
         bail!("{reference}: installation blocked; inspect with --dry-run first");
     }
     if interactive {
         let request = Request {
             reference: &reference,
             game: &installation,
-            files: plan.operations.len(),
+            files: plan_preview.operations.len(),
             executables: &pending,
         };
         if !install_consent::confirm(&request, &mut io::stdin().lock(), &mut io::stderr())? {
@@ -453,15 +408,20 @@ fn install_mod(
     store.set_history_context(
         HistoryContext::new(game_id.clone(), installation.clone()).with_source(
             &reference_of(&selected),
-            download::serving_source(&reference, &supplied, &served, &selected),
+            download::serving_source(
+                &reference,
+                &artifacts.supplied,
+                &artifacts.served,
+                &selected,
+            ),
         ),
     );
     let package = store.install_catalog_release_with_permissions(
         &installation,
         archive,
-        &plan,
-        &release,
-        policy,
+        &plan_preview,
+        &planned_selected.release,
+        plan.native_injector,
         &approved,
     )?;
     let operation_id = store.committed_operation_id().map(str::to_owned);

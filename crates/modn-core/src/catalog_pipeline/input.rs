@@ -31,6 +31,38 @@ pub struct InstallInput<'a> {
     pub consent: ConsentInputs,
 }
 
+impl<'a> InstallInput<'a> {
+    /// Build one plan input.
+    ///
+    /// Every argument is data or a durable read; the value grants nothing.
+    #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the plan input keeps its selected release, catalog, state, target, archives and consent explicit"
+    )]
+    pub fn new(
+        selected: &'a BucketPackage,
+        catalog: &'a BucketSnapshot,
+        store: Option<&'a Store>,
+        target: InstallTarget<'a>,
+        supplied: &'a [PathBuf],
+        cache: &'a ArchiveCache,
+        cache_use: CacheUse,
+        consent: ConsentInputs,
+    ) -> Self {
+        Self {
+            selected,
+            catalog,
+            store,
+            target,
+            supplied,
+            cache,
+            cache_use,
+            consent,
+        }
+    }
+}
+
 /// The game and installation that one plan targets.
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
@@ -41,6 +73,17 @@ pub struct InstallTarget<'a> {
     pub installation: &'a Path,
 }
 
+impl<'a> InstallTarget<'a> {
+    /// Name the game and its canonical installation root.
+    #[must_use]
+    pub fn new(game_id: &'a str, installation: &'a Path) -> Self {
+        Self {
+            game_id,
+            installation,
+        }
+    }
+}
+
 /// The command-line grants, as data. The core never prompts and never infers
 /// one.
 #[derive(Clone, Debug, Default)]
@@ -48,4 +91,12 @@ pub struct InstallTarget<'a> {
 pub struct ConsentInputs {
     /// `--allow-native-injector` and `--allow-executable` folded into one set.
     pub flags: Capabilities,
+}
+
+impl ConsentInputs {
+    /// Build the command-line grants of one plan.
+    #[must_use]
+    pub fn new(flags: Capabilities) -> Self {
+        Self { flags }
+    }
 }
