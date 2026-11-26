@@ -1,4 +1,5 @@
 use super::NativeInjectorPolicy;
+use crate::acquisition::ReleaseDigest;
 use crate::integrity::package_intact;
 use crate::state::Store;
 use anyhow::{bail, Result};
@@ -53,13 +54,33 @@ impl CatalogConflict {
 
 impl CatalogDependency {
     /// Require the release whose archive digest is pinned by its manifest.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `archive_blake3` is not exactly 64 lowercase hexadecimal
+    /// characters. A bucket manifest pin is validated before this constructor
+    /// receives it; use [`Self::unknown`] for a release without a pin.
     #[must_use]
     pub fn new(reference: CatalogReference, archive_blake3: String) -> Self {
+        let archive_blake3 = ReleaseDigest::pinned(&archive_blake3)
+            .expect("a catalog archive digest is 64 lowercase hex characters");
+        Self::with_digest(reference, archive_blake3)
+    }
+
+    /// Require the release whose archive digest is `archive_blake3`.
+    #[must_use]
+    pub fn with_digest(reference: CatalogReference, archive_blake3: ReleaseDigest) -> Self {
         Self {
             reference,
             archive_blake3,
             requirement: None,
         }
+    }
+
+    /// Require the release before Modn knows its archive digest.
+    #[must_use]
+    pub fn unknown(reference: CatalogReference) -> Self {
+        Self::with_digest(reference, ReleaseDigest::Unknown)
     }
 
     /// Record the manifest's version requirement, such as `>=1.31.0`, so a
@@ -128,14 +149,14 @@ impl fmt::Display for CatalogReference {
     }
 }
 
-/// One required catalog release, identified by its manifest-pinned archive digest.
-#[expect(missing_docs, reason = "Field and variant names state their meaning")]
+/// One required catalog release and the archive digest Modn knows for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct CatalogDependency {
     /// Catalog identity used in diagnostics.
     pub reference: CatalogReference,
-    pub archive_blake3: String,
+    /// Archive digest and how Modn knows it.
+    pub archive_blake3: ReleaseDigest,
     /// The dependent manifest's version requirement for this dependency.
     pub requirement: Option<String>,
 }
@@ -258,17 +279,18 @@ impl Store {
         dependencies
             .iter()
             .map(|dependency| {
-                let (intact, damaged): (Vec<_>, Vec<_>) = if dependency.archive_blake3.is_empty() {
-                    let recorded = provenance_packages(self, &dependency.reference)?;
-                    installed
+                let (intact, damaged): (Vec<_>, Vec<_>) = match dependency.archive_blake3.as_str() {
+                    None => {
+                        let recorded = provenance_packages(self, &dependency.reference)?;
+                        installed
+                            .iter()
+                            .filter(|package| recorded.contains(&package.id))
+                            .partition(|package| package_intact(self, &game, package))
+                    }
+                    Some(digest) => installed
                         .iter()
-                        .filter(|package| recorded.contains(&package.id))
-                        .partition(|package| package_intact(self, &game, package))
-                } else {
-                    installed
-                        .iter()
-                        .filter(|package| package.archive_blake3 == dependency.archive_blake3)
-                        .partition(|package| package_intact(self, &game, package))
+                        .filter(|package| package.archive_blake3.as_str() == digest)
+                        .partition(|package| package_intact(self, &game, package)),
                 };
                 if !intact.is_empty() {
                     return Ok(DependencyState::Ready {
@@ -377,7 +399,7 @@ pub(super) fn record(tx: &Transaction<'_>, package_id: &str, record: &CatalogRec
                 reference.bucket,
                 reference.game_id,
                 reference.mod_id,
-                dependency.archive_blake3,
+                dependency.archive_blake3.stored(),
                 dependency.requirement
             ],
         )?;
@@ -426,6 +448,9 @@ pub(super) fn reference_of(store: &Store, package_id: &str) -> Result<Option<Cat
         )
         .optional()?)
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn dependents(store: &Store, package_id: &str) -> Result<Vec<String>> {
     let mut statement = store.connection.prepare(

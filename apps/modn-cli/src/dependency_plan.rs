@@ -2,7 +2,7 @@ use crate::catalog_install::reference_of;
 use crate::download;
 use crate::install_consent::ApprovalCheck;
 use anyhow::Result;
-use modn_core::acquisition::SourceAttempt;
+use modn_core::acquisition::{GithubReleaseAsset, SourceAttempt};
 use modn_core::buckets::{BucketPackage, BucketSnapshot, PackageSource};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 pub(super) struct PlannedDependency {
     reference: String,
     version: String,
-    blake3: String,
+    blake3: Option<String>,
     source: PackageSource,
     state: DependencyState,
     archive: Option<PathBuf>,
@@ -76,36 +76,33 @@ pub(super) fn plan(
     let required: Vec<CatalogDependency> = order
         .iter()
         .map(|release| {
-            CatalogDependency::new(
+            Ok(CatalogDependency::with_digest(
                 reference_of(release),
-                download::digest(release, digests)
-                    .unwrap_or_default()
-                    .to_owned(),
-            )
+                download::digest(release, digests)?,
+            ))
         })
-        .collect();
+        .collect::<Result<_>>()?;
     let states = match store {
         Some(store) => store.dependency_states(game, &required)?,
         None => vec![DependencyState::Missing; required.len()],
     };
-    Ok(order
+    order
         .iter()
         .zip(states)
         .map(|(release, state)| {
+            let digest = download::digest(release, digests)?;
             let reference = reference_of(release).to_string();
-            PlannedDependency {
+            Ok(PlannedDependency {
                 archive: archives.get(&reference).cloned(),
                 reference,
                 version: release.package.version.clone(),
-                blake3: download::digest(release, digests)
-                    .unwrap_or_default()
-                    .to_owned(),
+                blake3: digest.as_str().map(str::to_owned),
                 source: planned_source(&release.package.sources, release.package.primary_source())
                     .clone(),
                 state,
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 pub(super) fn conflicts(
@@ -122,11 +119,10 @@ pub(super) fn conflicts(
     for release in releases {
         let reference = reference_of(release);
         let catalog_release = catalog.release(release)?;
-        for package in store.conflicting_packages(
-            game,
-            Some(&catalog_release),
-            download::digest(release, digests).unwrap_or_default(),
-        )? {
+        let digest = download::digest(release, digests)?;
+        for package in
+            store.conflicting_packages_for_digest(game, Some(&catalog_release), &digest)?
+        {
             found.push(format!("{reference} conflicts with installed {package}"));
         }
     }
@@ -171,7 +167,7 @@ pub(super) fn source_label(source: &PackageSource) -> String {
             repository,
             tag,
             asset,
-        } => format!("https://github.com/{repository}/releases/download/{tag}/{asset}"),
+        } => GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone()).download_url(),
         PackageSource::Git { repository, commit } => format!("git {repository} commit {commit}"),
         _ => "unsupported source".to_owned(),
     }
@@ -461,5 +457,27 @@ mod tests {
         let text = report_text(&report, None, &[], &[], None, &[]);
         assert!(text.contains("when you install it"), "{text}");
         assert!(!text.contains("then add --file <archive>"), "{text}");
+    }
+
+    #[test]
+    fn a_dependency_reports_a_known_digest_and_null_for_an_unknown_one() {
+        let digest = "a".repeat(64);
+        for (blake3, expected) in [
+            (Some(digest.clone()), serde_json::json!(digest)),
+            (None, serde_json::Value::Null),
+        ] {
+            let dependency = PlannedDependency {
+                reference: "community/test-game/example".to_owned(),
+                version: "1.0".to_owned(),
+                blake3,
+                source: PackageSource::Manual {
+                    filename: "example.zip".to_owned(),
+                },
+                state: DependencyState::Missing,
+                archive: None,
+            };
+            let value = dependency.as_json().expect("record");
+            assert_eq!(value["blake3"], expected);
+        }
     }
 }

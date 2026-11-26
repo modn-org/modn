@@ -36,8 +36,9 @@ with another digest) or `missing`. Missing dependencies name their artifact
 source. Without the archive, the dry run tells you how to get it: a
 download-capable source says when you install it, and a `manual` source asks
 for `--file`. JSON `plan` is `null`. JSON adds `dependencies` and `dependencies_ready`. Each
-dependency also shows the supplied `archive`, if one matches. The plan
-writes nothing.
+dependency also shows its `blake3` digest and the supplied `archive`, if one
+matches. The digest is `null` when Modn does not know it yet, such as a Git
+source before a fetch. The plan writes nothing.
 
 ## Download during a dry run
 

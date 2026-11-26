@@ -5,7 +5,11 @@ cache is `<state-dir>/cache` unless `MODN_CACHE` names another directory.
 Each entry is named `<game>#<mod>#<version>#<url hash><extension>`. Modn
 downloads only over HTTPS, and redirects must stay on HTTPS. A download
 attempt fails if the server sends nothing for 60 seconds, and Modn then tries
-the next source in the record; see [sources.md](sources.md#artifact-source-fallback). Each attempt writes its own
+the next source in the record; see
+[sources.md](sources.md#artifact-source-fallback). The core routine
+`ArchiveCache::acquire_release` chooses that source order, each cache key and
+the cache-hit check; a front end supplies only the transport, Nexus credentials
+and links, the Git process and GitHub metadata. Each attempt writes its own
 `<entry>.<random>.download` file, so concurrent downloads never share bytes.
 Modn checks the manifest's BLAKE3 pin and a 4 GiB size limit, then atomically
 renames the file into place. A failed check removes that attempt's partial
@@ -16,7 +20,10 @@ cache keeps only complete, verified entries. `--progress json` reports the bytes
 expected total; see [cli.md](cli.md#progress-events-and-cancellation). Unlike Scoop,
 an entry exists only after its digest is verified. Modn verifies an entry
 again each time it uses it; an entry that fails is never used, and the next
-download replaces it. The cache directory, like the state directory, must be
+download replaces it. A release digest is typed: a catalog BLAKE3 pin, a digest
+Modn computed after a fetch, or unknown. A Git release has no digest until Modn
+fetches and hashes its packed archive. A cache key requires a known digest, so
+an unknown digest never names a cache entry. The cache directory, like the state directory, must be
 outside every game installation; Modn checks this before it downloads. A dry
 run reads the cache and downloads nothing unless you pass `--download`.
 `modn install --dry-run --download` and `modn update --dry-run --download`

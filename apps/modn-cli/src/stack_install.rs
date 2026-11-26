@@ -36,7 +36,7 @@ pub(super) struct Stack<'a> {
 }
 
 fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
-    let mut by_digest: BTreeMap<&str, &BucketPackage> = BTreeMap::new();
+    let mut by_digest: BTreeMap<String, &BucketPackage> = BTreeMap::new();
     let mut needed: Vec<&BucketPackage> = Vec::new();
     let missing = stack
         .order
@@ -45,11 +45,12 @@ fn releases<'a>(stack: &Stack<'a>) -> Result<Vec<&'a BucketPackage>> {
         .filter(|(_, dependency)| dependency.missing())
         .map(|(release, _)| release);
     for release in missing {
-        let Some(digest) = download::digest(release, &stack.digests) else {
+        let digest = download::digest(release, &stack.digests)?;
+        let Some(digest) = digest.as_str().map(str::to_owned) else {
             needed.push(release);
             continue;
         };
-        let Some(kept) = by_digest.get(digest) else {
+        let Some(kept) = by_digest.get(&digest) else {
             by_digest.insert(digest, release);
             needed.push(release);
             continue;
@@ -231,7 +232,9 @@ pub(super) fn run(
             if interactive {
                 approved.extend(check.uncovered.executables.iter().cloned());
             }
-            let digest = download::digest(release, &stack.digests)
+            let digest = download::digest(release, &stack.digests)?;
+            let digest = digest
+                .as_str()
                 .with_context(|| format!("{} has no archive digest", reference_of(release)))?
                 .to_owned();
             digests.insert(reference_of(release).to_string(), digest);

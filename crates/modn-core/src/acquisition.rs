@@ -19,7 +19,10 @@ mod entry_name;
 mod git;
 mod index;
 mod nexus;
+mod plan;
 mod provider;
+mod release;
+mod release_digest;
 mod sources;
 use digest::{copy_blake3, file_blake3, file_has_blake3};
 use entry_name::{component, extension, parse_entry_name, parse_retired_entry_name};
@@ -28,7 +31,10 @@ use index::{ArchiveIndex, ArchivePin};
 pub use nexus::{
     NexusApiKey, NexusDownloadGrant, NexusDownloadUrl, NexusFile, NexusGameDomain, NexusRequest,
 };
+pub use plan::{plan_sources, source_cache_url, PlannedAction, PlannedSource};
 pub use provider::GithubReleaseAsset;
+pub use release::{recorded_release, ReleaseAcquired, ReleaseResolver};
+pub use release_digest::{ArchiveDigest, ReleaseDigest};
 pub use sources::{
     FetchError, SourceAttempt, SourceBody, SourceCandidate, SourceFailure, SourcePolicy,
     SourceTarget, SourceTransport, SourcesAcquired, SourcesError, CONNECT_TIMEOUT,
@@ -40,7 +46,7 @@ pub const MAX_DOWNLOAD_BYTES: u64 = 4 << 30;
 
 /// One release's archive, as the package manifest pins it.
 #[expect(missing_docs, reason = "Field and variant names state their meaning")]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CacheKey<'a> {
     pub game_id: &'a str,
@@ -49,20 +55,27 @@ pub struct CacheKey<'a> {
     pub version: &'a str,
     /// `https` artifact source.
     pub url: &'a str,
-    /// BLAKE3 archive pin as 64 lowercase hex characters.
-    pub blake3: &'a str,
+    /// Validated BLAKE3 archive digest.
+    blake3: ArchiveDigest,
 }
 
-#[expect(missing_docs, reason = "Method names state their behavior")]
 impl<'a> CacheKey<'a> {
+    /// Name one verified archive cache entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `blake3` is not exactly 64 lowercase hexadecimal
+    /// characters. Every caller holds a validated pin or a computed digest.
     #[must_use]
     pub fn new(
         game_id: &'a str,
         mod_id: &'a str,
         version: &'a str,
         url: &'a str,
-        blake3: &'a str,
+        blake3: &str,
     ) -> Self {
+        let blake3 =
+            ArchiveDigest::new(blake3).expect("cache key requires a BLAKE3 archive digest");
         Self {
             game_id,
             mod_id,
@@ -70,6 +83,12 @@ impl<'a> CacheKey<'a> {
             url,
             blake3,
         }
+    }
+
+    /// The archive digest this entry must match.
+    #[must_use]
+    pub fn blake3(&self) -> &str {
+        self.blake3.as_str()
     }
 }
 
@@ -161,14 +180,14 @@ impl ArchiveCache {
         if !metadata.is_file() {
             bail!("cache entry is not a regular file: {}", path.display());
         }
-        if file_blake3(&path)? == key.blake3 {
+        if file_blake3(&path)? == key.blake3() {
             return Ok(Some(path));
         }
         self.cached_alias(key)
     }
 
     fn cached_alias(&self, key: &CacheKey<'_>) -> Result<Option<PathBuf>> {
-        let Some(pin) = ArchivePin::blake3(key.blake3) else {
+        let Some(pin) = ArchivePin::blake3(key.blake3()) else {
             return Ok(None);
         };
         let existing = ArchiveIndex::read(&self.root);
@@ -177,11 +196,11 @@ impl ArchiveCache {
             .and_then(|index| index.file_name(&pin).map(str::to_owned))
         {
             let path = self.root.join(name);
-            if file_has_blake3(&path, key.blake3)? {
+            if file_has_blake3(&path, key.blake3())? {
                 return Ok(Some(path));
             }
         }
-        self.scan_for(key.blake3)
+        self.scan_for(key.blake3())
     }
 
     fn scan_for(&self, blake3: &str) -> Result<Option<PathBuf>> {
@@ -323,12 +342,17 @@ impl ArchiveCache {
                 format!("download exceeds {limit} bytes: {}", key.url),
             ));
         }
-        if actual != key.blake3 {
+        if actual != key.blake3() {
             return Err(coded(
                 ErrorCode::DigestMismatch,
                 format!(
                     "BLAKE3 check failed for {}/{} {}\nURL:      {}\nExpected: {}\nActual:   {}",
-                    key.game_id, key.mod_id, key.version, key.url, key.blake3, actual
+                    key.game_id,
+                    key.mod_id,
+                    key.version,
+                    key.url,
+                    key.blake3(),
+                    actual
                 ),
             ));
         }
@@ -336,7 +360,7 @@ impl ArchiveCache {
         partial
             .persist(&path)
             .with_context(|| format!("cannot store cache entry {}", path.display()))?;
-        if let (Some(pin), Some(name)) = (ArchivePin::blake3(key.blake3), path.file_name()) {
+        if let (Some(pin), Some(name)) = (ArchivePin::blake3(key.blake3()), path.file_name()) {
             ArchiveIndex::record(&self.root, pin, name.to_string_lossy().into_owned());
         }
         Ok(Acquired {

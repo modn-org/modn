@@ -1,8 +1,10 @@
 use crate::commands::Cli;
 use crate::download::{TEST_CALLS, TEST_METADATA_FAILURES, TEST_RESPONSES};
 use clap::Parser;
-use modn_core::acquisition::{CacheUse, FetchError, SourceAttempt, SourceTarget};
-use modn_core::buckets::{BucketPackage, BucketStore};
+use modn_core::acquisition::{
+    CacheUse, FetchError, GithubReleaseAsset, PlannedAction, SourceAttempt, SourceTarget,
+};
+use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
 use modn_core::manager_roots::ManagerRoots;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -185,6 +187,47 @@ fn undo_downloads_a_github_release_again_after_a_cache_miss() {
     TEST_RESPONSES.with(|responses| responses.replace(None));
 }
 
+#[test]
+fn an_undo_refetch_uses_the_core_release_routine() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path().join("manager");
+    fs::create_dir_all(&root).expect("manager directory");
+    let (bytes, digest) = archive(temporary.path());
+    let source: PackageSource =
+        serde_json::from_value(json!({"kind": "https", "url": FALLBACK_URL}))
+            .expect("recorded source");
+    TEST_RESPONSES.with(|responses| {
+        responses.replace(Some(BTreeMap::from([(
+            FALLBACK_URL.to_owned(),
+            bytes.clone(),
+        )])))
+    });
+    TEST_CALLS.with(|calls| calls.borrow_mut().clear());
+    let cache = modn_core::acquisition::ArchiveCache::new(root.join("cache"));
+
+    let path = super::acquire_recorded(
+        &cache,
+        "main",
+        "test-game",
+        "example",
+        "1.0",
+        &source,
+        &digest,
+        &crate::progress::Progress::start(None),
+    )
+    .expect("the recorded source refetches the archive");
+    let calls = TEST_CALLS.with(|calls| calls.borrow().clone());
+    TEST_RESPONSES.with(|responses| responses.replace(None));
+
+    assert_eq!(calls, vec![FALLBACK_URL.to_owned()]);
+    assert_eq!(fs::read(path).expect("refetched archive"), bytes);
+    assert_eq!(
+        cache.entries(Some("example")).expect("cache entries").len(),
+        1,
+        "the refetch did not store one verified entry"
+    );
+}
+
 pub(super) const FALLBACK_URL: &str = "https://fixture.invalid/example.zip";
 
 pub(super) fn package_with_sources(
@@ -247,19 +290,6 @@ fn acquire_with_sources(
     Ok((attempts, archive))
 }
 
-fn github_package(root: &Path, digest: &str) -> BucketPackage {
-    package_with_sources(
-        root,
-        digest,
-        json!([{
-            "kind": "github-release",
-            "repository": "fixture/project",
-            "tag": "v1",
-            "asset": "example.zip"
-        }]),
-    )
-}
-
 fn github_metadata() -> Vec<u8> {
     serde_json::to_vec(&json!({
         "tag_name": "v1",
@@ -269,13 +299,21 @@ fn github_metadata() -> Vec<u8> {
     .expect("metadata JSON")
 }
 
+fn github_action() -> PlannedAction {
+    PlannedAction::Github {
+        selector: GithubReleaseAsset::new(
+            "fixture/project".to_owned(),
+            "v1".to_owned(),
+            "example.zip".to_owned(),
+        ),
+        expected: URL.to_owned(),
+    }
+}
+
 #[test]
 fn a_transient_metadata_failure_is_retried_before_the_source_is_refused() {
     let temporary = tempfile::tempdir().expect("fixture");
-    let root = temporary.path().join("manager");
-    fs::create_dir_all(&root).expect("manager directory");
-    let (bytes, digest) = archive(temporary.path());
-    let package = github_package(&root, &digest);
+    let (bytes, _) = archive(temporary.path());
     TEST_RESPONSES.with(|responses| {
         responses.replace(Some(BTreeMap::from([
             (METADATA_URL.to_owned(), github_metadata()),
@@ -289,11 +327,7 @@ fn a_transient_metadata_failure_is_retried_before_the_source_is_refused() {
             vec![FetchError::Timeout],
         )])))
     });
-    let candidates = super::fallback::plan(&package);
-    let candidate = match candidates.into_iter().next().expect("one source") {
-        (super::fallback::Planned::Fetch(fetch), _) => fetch.resolve(),
-        _ => panic!("the GitHub source is not a fetch entry"),
-    };
+    let candidate = super::fallback::resolve_candidate(github_action());
     TEST_RESPONSES.with(|responses| responses.replace(None));
     TEST_METADATA_FAILURES.with(|failures| failures.replace(None));
 
@@ -312,10 +346,7 @@ fn a_transient_metadata_failure_is_retried_before_the_source_is_refused() {
 #[test]
 fn a_404_metadata_failure_is_refused_without_a_retry() {
     let temporary = tempfile::tempdir().expect("fixture");
-    let root = temporary.path().join("manager");
-    fs::create_dir_all(&root).expect("manager directory");
-    let (bytes, digest) = archive(temporary.path());
-    let package = github_package(&root, &digest);
+    let (bytes, _) = archive(temporary.path());
     TEST_RESPONSES.with(|responses| {
         responses.replace(Some(BTreeMap::from([
             (METADATA_URL.to_owned(), github_metadata()),
@@ -329,11 +360,7 @@ fn a_404_metadata_failure_is_refused_without_a_retry() {
             vec![FetchError::Http(404)],
         )])))
     });
-    let candidates = super::fallback::plan(&package);
-    let candidate = match candidates.into_iter().next().expect("one source") {
-        (super::fallback::Planned::Fetch(fetch), _) => fetch.resolve(),
-        _ => panic!("the GitHub source is not a fetch entry"),
-    };
+    let candidate = super::fallback::resolve_candidate(github_action());
     TEST_RESPONSES.with(|responses| responses.replace(None));
     TEST_METADATA_FAILURES.with(|failures| failures.replace(None));
 

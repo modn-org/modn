@@ -1,4 +1,5 @@
 use super::{dependencies, BucketPackage};
+use crate::acquisition::ReleaseDigest;
 use crate::transactions::{CatalogConflict, CatalogDependency, CatalogReference, CatalogRelease};
 use anyhow::{bail, Context, Result};
 
@@ -107,9 +108,9 @@ impl BucketSnapshot {
                         selected.bucket, selected.package.game, id
                     )
                 })?;
-                Ok(CatalogDependency::new(
+                Ok(CatalogDependency::with_digest(
                     dependency.reference(),
-                    dependency.package.blake3.clone().unwrap_or_default(),
+                    ReleaseDigest::from_pin(dependency.package.blake3.as_deref())?,
                 )
                 .with_requirement(selected.package.dependency_versions.get(id).cloned()))
             })
@@ -135,3 +136,6 @@ impl BucketSnapshot {
             .with_native_injector(selected.package.native_injector))
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,30 +1,30 @@
 use super::http::fetch_metadata;
 use modn_core::acquisition::{
-    FetchError, GithubReleaseAsset, NexusFile, SourceCandidate, SourcePolicy, SourceTarget,
+    FetchError, GithubReleaseAsset, PlannedAction, SourceCandidate, SourcePolicy,
 };
-use modn_core::buckets::{BucketPackage, PackageSource};
 use std::io::Read;
 
-pub(super) fn github_url(repository: &str, tag: &str, asset: &str) -> String {
-    format!("https://github.com/{repository}/releases/download/{tag}/{asset}")
-}
-
-pub(super) fn cache_url(source: &PackageSource) -> anyhow::Result<Option<String>> {
-    Ok(match source {
-        PackageSource::Https { url } => Some(url.clone()),
-        PackageSource::GithubRelease {
-            repository,
-            tag,
-            asset,
-        } => Some(github_url(repository, tag, asset)),
-        PackageSource::Nexus {
-            game_domain,
-            mod_id,
-            file_id,
-            file_name,
-        } => Some(NexusFile::new(game_domain, *mod_id, *file_id, file_name)?.cache_url()),
-        _ => None,
-    })
+/// Turn one planned core action into the candidate this command fetches.
+///
+/// GitHub release metadata is resolved here, only when the ordered loop reaches
+/// that source. Every other action is already a candidate.
+pub(super) fn resolve_candidate(action: PlannedAction) -> SourceCandidate {
+    match action {
+        PlannedAction::Fetch { candidate } => candidate,
+        PlannedAction::Github { selector, expected } => {
+            match resolve_metadata(&selector, fetch_metadata) {
+                Ok(resolved) if resolved == expected => SourceCandidate::fetch(expected),
+                Ok(_) => {
+                    SourceCandidate::refused(expected, "provider source changed during resolution")
+                }
+                Err(error) => SourceCandidate::refused(
+                    expected,
+                    format!("provider metadata failed: {error:#}"),
+                ),
+            }
+        }
+        _ => SourceCandidate::refused("unknown source", "unknown release source"),
+    }
 }
 
 pub(super) fn resolve_metadata(
@@ -56,112 +56,6 @@ fn transient(error: &anyhow::Error) -> bool {
         .downcast_ref::<std::io::Error>()
         .and_then(super::transport_io)
         .is_some_and(|error| super::retryable(&error))
-}
-
-pub(super) enum Planned {
-    Git {
-        repository: String,
-        commit: String,
-    },
-    Nexus {
-        game_domain: String,
-        mod_id: u64,
-        file_id: u64,
-        file_name: String,
-    },
-    Fetch(FetchPlan),
-}
-
-pub(super) enum FetchPlan {
-    Ready(SourceCandidate),
-    Github {
-        repository: String,
-        tag: String,
-        asset: String,
-        expected: String,
-    },
-}
-
-impl FetchPlan {
-    pub(super) fn resolve(self) -> SourceCandidate {
-        match self {
-            Self::Ready(candidate) => candidate,
-            Self::Github {
-                repository,
-                tag,
-                asset,
-                expected,
-            } => {
-                let selector = GithubReleaseAsset::new(repository, tag, asset);
-                match resolve_metadata(&selector, fetch_metadata) {
-                    Ok(resolved) if resolved == expected => SourceCandidate::fetch(expected),
-                    Ok(_) => SourceCandidate::refused(
-                        expected,
-                        "provider source changed during resolution",
-                    ),
-                    Err(error) => SourceCandidate::refused(
-                        expected,
-                        format!("provider metadata failed: {error:#}"),
-                    ),
-                }
-            }
-        }
-    }
-}
-
-pub(super) fn plan(release: &BucketPackage) -> Vec<(Planned, PackageSource)> {
-    release
-        .package
-        .sources
-        .iter()
-        .map(|source| {
-            let planned = match source {
-                PackageSource::Git { repository, commit } => Planned::Git {
-                    repository: repository.clone(),
-                    commit: commit.clone(),
-                },
-                PackageSource::Nexus {
-                    game_domain,
-                    mod_id,
-                    file_id,
-                    file_name,
-                } => Planned::Nexus {
-                    game_domain: game_domain.clone(),
-                    mod_id: *mod_id,
-                    file_id: *file_id,
-                    file_name: file_name.clone(),
-                },
-                PackageSource::GithubRelease {
-                    repository,
-                    tag,
-                    asset,
-                } => Planned::Fetch(FetchPlan::Github {
-                    repository: repository.clone(),
-                    tag: tag.clone(),
-                    asset: asset.clone(),
-                    expected: github_url(repository, tag, asset),
-                }),
-                PackageSource::Https { url } => {
-                    Planned::Fetch(FetchPlan::Ready(SourceCandidate::fetch(url.clone())))
-                }
-                PackageSource::Manual { filename } => {
-                    Planned::Fetch(FetchPlan::Ready(SourceCandidate::manual(filename.clone())))
-                }
-                _ => Planned::Fetch(FetchPlan::Ready(SourceCandidate::refused(
-                    "unknown source",
-                    "unknown release source",
-                ))),
-            };
-            (planned, source.clone())
-        })
-        .collect()
-}
-
-pub(super) fn fetch_url(candidate: &SourceCandidate) -> &str {
-    match &candidate.target {
-        SourceTarget::Fetch(url) => url.as_str(),
-        _ => candidate.label.as_str(),
-    }
 }
 
 #[cfg(test)]
