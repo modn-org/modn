@@ -48,10 +48,17 @@ fn key(blake3: &str) -> CacheKey<'_> {
 }
 
 #[test]
+#[should_panic(expected = "cache key requires a BLAKE3 archive digest")]
+fn a_cache_key_refuses_an_empty_digest() {
+    let _ = CacheKey::new("test-game", "fixture", "1.0", URL, "");
+}
+
+#[test]
 fn entry_names_follow_the_scoop_layout() {
     let cache = ArchiveCache::new(PathBuf::from("cache"));
+    let placeholder = pin(b"layout placeholder");
     let name = cache
-        .path(&key("0"))
+        .path(&key(&placeholder))
         .file_name()
         .unwrap()
         .to_string_lossy()
@@ -182,6 +189,7 @@ fn entries_filter_by_mod_and_remove_only_listed_files() {
             mod_id,
             ..key(&digest)
         };
+        assert_eq!(key.blake3(), digest);
         cache
             .acquire(&key, CacheUse::Reuse, |_| Ok(Cursor::new(body.to_vec())))
             .unwrap();

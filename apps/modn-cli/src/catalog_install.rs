@@ -375,7 +375,8 @@ fn install_mod(
                 approved,
             )?,
         };
-        if Some(plan.archive_blake3.as_str()) != download::digest(&selected, &digests) {
+        let digest = download::digest(&selected, &digests)?;
+        if Some(plan.archive_blake3.as_str()) != digest.as_str() {
             bail!("{reference}: source changed after catalog verification");
         }
         Ok(plan)

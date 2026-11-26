@@ -16,7 +16,7 @@ use http::{fetch_measured, fetch_metadata, HttpTransport};
 use modn_core::acquisition::SourceTransport;
 use modn_core::acquisition::{
     source_cache_url, ArchiveCache, CacheKey, CacheUse, FetchError, GitCacheKey,
-    GithubReleaseAsset, SourceAttempt, SourcePolicy,
+    GithubReleaseAsset, ReleaseDigest, SourceAttempt, SourcePolicy,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::manager_roots::ManagerRoots;
@@ -113,12 +113,16 @@ pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {
     }
 }
 fn key<'a>(release: &'a BucketPackage, url: &'a str) -> CacheKey<'a> {
+    let pin = release
+        .package
+        .pin()
+        .expect("an archive source has a validated BLAKE3 pin");
     CacheKey::new(
         &release.package.game,
         &release.package.id,
         &release.package.version,
         url,
-        release.package.pin().unwrap_or_default(),
+        pin,
     )
 }
 
@@ -167,14 +171,14 @@ pub(super) fn source_label(source: &PackageSource) -> Option<String> {
     }
 }
 
-pub(super) fn digest<'a>(
-    release: &'a BucketPackage,
-    digests: &'a BTreeMap<String, String>,
-) -> Option<&'a str> {
-    digests
-        .get(&reference_of(release).to_string())
-        .map(String::as_str)
-        .or(release.package.pin())
+pub(super) fn digest(
+    release: &BucketPackage,
+    digests: &BTreeMap<String, String>,
+) -> Result<ReleaseDigest> {
+    match digests.get(&reference_of(release).to_string()) {
+        Some(value) => Ok(ReleaseDigest::computed(value)?),
+        None => Ok(ReleaseDigest::from_pin(release.package.pin())?),
+    }
 }
 
 pub(super) fn acquire_source(

@@ -76,36 +76,33 @@ pub(super) fn plan(
     let required: Vec<CatalogDependency> = order
         .iter()
         .map(|release| {
-            CatalogDependency::new(
+            Ok(CatalogDependency::with_digest(
                 reference_of(release),
-                download::digest(release, digests)
-                    .unwrap_or_default()
-                    .to_owned(),
-            )
+                download::digest(release, digests)?,
+            ))
         })
-        .collect();
+        .collect::<Result<_>>()?;
     let states = match store {
         Some(store) => store.dependency_states(game, &required)?,
         None => vec![DependencyState::Missing; required.len()],
     };
-    Ok(order
+    order
         .iter()
         .zip(states)
         .map(|(release, state)| {
+            let digest = download::digest(release, digests)?;
             let reference = reference_of(release).to_string();
-            PlannedDependency {
+            Ok(PlannedDependency {
                 archive: archives.get(&reference).cloned(),
                 reference,
                 version: release.package.version.clone(),
-                blake3: download::digest(release, digests)
-                    .unwrap_or_default()
-                    .to_owned(),
+                blake3: digest.as_str().unwrap_or("").to_owned(),
                 source: planned_source(&release.package.sources, release.package.primary_source())
                     .clone(),
                 state,
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 pub(super) fn conflicts(
@@ -122,11 +119,10 @@ pub(super) fn conflicts(
     for release in releases {
         let reference = reference_of(release);
         let catalog_release = catalog.release(release)?;
-        for package in store.conflicting_packages(
-            game,
-            Some(&catalog_release),
-            download::digest(release, digests).unwrap_or_default(),
-        )? {
+        let digest = download::digest(release, digests)?;
+        for package in
+            store.conflicting_packages_for_digest(game, Some(&catalog_release), &digest)?
+        {
             found.push(format!("{reference} conflicts with installed {package}"));
         }
     }

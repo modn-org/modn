@@ -1,4 +1,5 @@
 use super::catalog::{CatalogConflict, CatalogReference, CatalogRelease};
+use crate::acquisition::ReleaseDigest;
 use crate::state::Store;
 use anyhow::Result;
 use rusqlite::{params, Transaction};
@@ -25,19 +26,40 @@ impl Installed {
 }
 
 impl Store {
-    /// Managed packages in `game` that conflict with an archive whose digest
-    /// is `archive_blake3`, as `package-id (bucket/game/mod)`.
+    /// Managed packages in `game` that conflict with a verified archive whose
+    /// digest is `archive_blake3`, as `package-id (bucket/game/mod)`.
     ///
-    /// A conflict exists when `release` declares an installed package, or an
-    /// installed package declares the archive's release, by catalog identity
-    /// or digest. A standalone archive (`release` is `None`) is checked by
-    /// digest against recorded conflicts only. This read does not lock;
-    /// installation repeats it under the lock.
+    /// This is the verified-digest form of
+    /// [`Self::conflicting_packages_for_digest`]. An empty or malformed value
+    /// is refused instead of matching a recorded empty digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `archive_blake3` is not a BLAKE3 digest.
     pub fn conflicting_packages(
         &self,
         game: &Path,
         release: Option<&CatalogRelease>,
         archive_blake3: &str,
+    ) -> Result<Vec<String>> {
+        let digest = ReleaseDigest::pinned(archive_blake3)?;
+        self.conflicting_packages_for_digest(game, release, &digest)
+    }
+
+    /// Managed packages in `game` that conflict with an archive whose typed
+    /// digest is `archive_blake3`, as `package-id (bucket/game/mod)`.
+    ///
+    /// A conflict exists when `release` declares an installed package, or an
+    /// installed package declares the archive's release, by catalog identity
+    /// or digest. An unknown digest matches no recorded digest, but catalog
+    /// identity still matches. A standalone archive (`release` is `None`) is
+    /// checked by digest against recorded conflicts only. This read does not
+    /// lock; installation repeats it under the lock.
+    pub fn conflicting_packages_for_digest(
+        &self,
+        game: &Path,
+        release: Option<&CatalogRelease>,
+        archive_blake3: &ReleaseDigest,
     ) -> Result<Vec<String>> {
         let game = self.transaction_root(game)?;
         let game_path = game.to_string_lossy().into_owned();
@@ -82,7 +104,7 @@ impl Store {
                         reference.map(|r| r.bucket.as_str()),
                         reference.map(|r| r.game_id.as_str()),
                         reference.map(|r| r.mod_id.as_str()),
-                        archive_blake3
+                        archive_blake3.as_str()
                     ],
                     |row| row.get::<_, String>(0),
                 )?
@@ -107,6 +129,9 @@ impl Store {
         )?)
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn record(
     tx: &Transaction<'_>,

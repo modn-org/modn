@@ -16,7 +16,10 @@ cache keeps only complete, verified entries. `--progress json` reports the bytes
 expected total; see [cli.md](cli.md#progress-events-and-cancellation). Unlike Scoop,
 an entry exists only after its digest is verified. Modn verifies an entry
 again each time it uses it; an entry that fails is never used, and the next
-download replaces it. The cache directory, like the state directory, must be
+download replaces it. A release digest is typed: a catalog BLAKE3 pin, a digest
+Modn computed after a fetch, or unknown. A Git release has no digest until Modn
+fetches and hashes its packed archive. A cache key requires a known digest, so
+an unknown digest never names a cache entry. The cache directory, like the state directory, must be
 outside every game installation; Modn checks this before it downloads. A dry
 run reads the cache and downloads nothing unless you pass `--download`.
 `modn install --dry-run --download` and `modn update --dry-run --download`

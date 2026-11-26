@@ -73,7 +73,8 @@ fn supplied_archive(
     }
     let inspected = inspect(file)?;
     let reference = reference_of(target);
-    let expected = download::digest(target, digests).with_context(|| {
+    let expected = download::digest(target, digests)?;
+    let expected = expected.as_str().with_context(|| {
         format!(
             "{reference}: Modn knows no archive digest to verify {} against; run modn update {reference} without --file so it can acquire the archive from the source",
             file.display()
@@ -351,7 +352,8 @@ pub(super) fn run(
         _ => None,
     };
     if let Some(candidate) = &candidate {
-        let expected = download::digest(&target, &digests).with_context(|| {
+        let expected = download::digest(&target, &digests)?;
+        let expected = expected.as_str().with_context(|| {
             format!(
                 "{label}: Modn knows no archive digest to verify {} against",
                 target.package.version
