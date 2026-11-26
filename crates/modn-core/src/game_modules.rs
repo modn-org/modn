@@ -7,6 +7,7 @@ pub(crate) mod policy;
 mod registry;
 mod resolver;
 mod runtime;
+mod selection;
 mod store_data;
 mod visibility;
 
@@ -21,14 +22,15 @@ pub use import::{
 };
 pub use launch_data::LaunchTargets;
 pub use loader::{
-    check_module, check_module_with_roots, ContentRootSpec, GameModuleInfo, HOST_API_VERSION,
-    MIN_HOST_API_VERSION,
+    check_module, check_module_with_roots, ContentRootSpec, GameModuleInfo, VerifiedModule,
+    HOST_API_VERSION, MIN_HOST_API_VERSION,
 };
 pub use registry::{
     ActivationRepair, ImportReport, ModulePin, ModuleRegistry, ModuleSource, ModuleTrust,
     RegisteredModule, RegistryOpen, ReleaseOutcome,
 };
 pub use resolver::available_games;
+pub use selection::{ModuleOrigin, ModuleSelection, ModuleSelectionError};
 pub use store_data::StoreIdentities;
 pub use visibility::{hidden_modules, HiddenModule};
 

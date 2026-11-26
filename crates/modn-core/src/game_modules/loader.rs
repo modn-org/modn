@@ -259,8 +259,9 @@ pub fn check_module_with_roots(
     Ok(info.into())
 }
 
+/// A game module whose manifest and Lua entrypoint were read and validated.
 #[derive(Debug)]
-pub(super) struct VerifiedModule {
+pub struct VerifiedModule {
     pub(super) game_id: String,
     pub(super) version: String,
     pub(super) api_version: u32,
@@ -268,6 +269,50 @@ pub(super) struct VerifiedModule {
     pub(super) content_root: Option<ContentRootSpec>,
     pub(super) stores: StoreIdentities,
     pub(super) launch: LaunchTargets,
+}
+
+impl VerifiedModule {
+    /// The game identity declared by the verified manifest.
+    #[must_use]
+    pub fn game_id(&self) -> &str {
+        &self.game_id
+    }
+
+    /// The module version declared by the verified manifest.
+    #[must_use]
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// The host API version declared by the verified manifest.
+    #[must_use]
+    pub fn api_version(&self) -> u32 {
+        self.api_version
+    }
+
+    /// The single Lua entrypoint filename declared by the verified manifest.
+    #[must_use]
+    pub fn entrypoint(&self) -> &str {
+        &self.entrypoint
+    }
+
+    /// The content root declared by the module, when it names one.
+    #[must_use]
+    pub fn content_root(&self) -> Option<&ContentRootSpec> {
+        self.content_root.as_ref()
+    }
+
+    /// The store identities declared by the module.
+    #[must_use]
+    pub fn stores(&self) -> &StoreIdentities {
+        &self.stores
+    }
+
+    /// The launch targets declared by the module.
+    #[must_use]
+    pub fn launch(&self) -> &LaunchTargets {
+        &self.launch
+    }
 }
 
 impl From<VerifiedModule> for GameModuleInfo {
