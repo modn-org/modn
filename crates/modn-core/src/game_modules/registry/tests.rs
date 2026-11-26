@@ -101,16 +101,19 @@ fn table_official_main_follows_data_and_module_state_follows_profile() {
                 .expect("official module path"),
             main.join("games/cyberpunk-2077")
         );
-        let (official, _) = super::super::resolver::read_policy(&roots, "cyberpunk-2077")
-            .expect("official module resolves");
+        let (official, _) =
+            super::super::selection::ModuleSelection::resolve(&roots, "cyberpunk-2077")
+                .expect("official module resolves")
+                .into_parts();
         assert_eq!(official.version, case.official_version);
 
         let source = write_module_source(&sources, "fixture-game", case.module_version);
         ModuleRegistry::new(&roots)
             .register(&source, ModuleTrust::Acknowledged)
             .expect("register module");
-        let (module, _) = super::super::resolver::read_policy(&roots, "fixture-game")
-            .expect("registered module resolves");
+        let (module, _) = super::super::selection::ModuleSelection::resolve(&roots, "fixture-game")
+            .expect("registered module resolves")
+            .into_parts();
         assert_eq!(module.version, case.module_version);
         assert!(profile.join("game-modules/fixture-game").is_dir());
         assert!(!data.join("game-modules").exists());

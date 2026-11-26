@@ -1,10 +1,9 @@
-use super::loader::{self, VerifiedModule};
 use crate::buckets::BucketStore;
 use crate::manager_roots::ManagerRoots;
 use anyhow::Result;
+use std::path::PathBuf;
 
-pub(super) fn read_official(roots: &ManagerRoots, game: &str) -> Result<(VerifiedModule, String)> {
-    let store = BucketStore::new(roots);
-    let directory = store.official_module(game)?;
-    loader::read_verified_module(&directory)
+/// The directory of the local first-party `main` module for `game`.
+pub(super) fn official_directory(roots: &ManagerRoots, game: &str) -> Result<PathBuf> {
+    BucketStore::new(roots).official_module(game)
 }

@@ -43,12 +43,16 @@ use modn_core::error::{code_of, ErrorCode};
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::transactions::NativeInjectorNotAllowed;
 use progress::Progress;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn manager_roots(cli: &Cli) -> Result<ManagerRoots> {
-    let roots = ManagerRoots::from_environment(cli.state_dir.as_deref())?
-        .with_development_modules(cli.module_source.clone());
+    let mut roots = ManagerRoots::from_environment(cli.state_dir.as_deref())?;
+    if let Some(directory) = cli.module_source.clone() {
+        roots = roots.with_development_modules(Some(directory));
+    } else if let Some(base) = std::env::var_os("MODN_GAME_MODULES_DIR") {
+        roots = roots.with_development_module_base(Some(PathBuf::from(base)));
+    }
     if roots.profile().as_os_str().is_empty() {
         bail!("invalid manager state directory");
     }

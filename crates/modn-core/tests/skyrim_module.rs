@@ -42,7 +42,7 @@ fn registered_skyrim_policy_runs_managed_lifecycle_and_preserves_unrelated_files
         registry
             .register(&module(), ModuleTrust::Acknowledged)
             .unwrap();
-        discovery::validate_installation_for(roots, GAME, &game).unwrap();
+        validate(roots, GAME, &game).unwrap();
         let zip = fixture.path().join("mod.zip");
         archive(
             &zip,
@@ -74,9 +74,9 @@ fn registered_skyrim_policy_runs_managed_lifecycle_and_preserves_unrelated_files
         let missing = roots
             .clone()
             .with_development_modules(Some(fixture.path().join("missing")));
-        assert!(discovery::validate_installation_for(&missing, GAME, &game).is_err());
+        assert!(validate(&missing, GAME, &game).is_err());
         let local = roots.clone().with_development_modules(Some(module()));
-        assert!(discovery::validate_installation_for(&local, "other-game", &game).is_err());
+        assert!(validate(&local, "other-game", &game).is_err());
         registry.unregister(GAME).unwrap();
         assert!(game.join("Data/Example.esp").exists());
         store.uninstall(&game, &installed.id).unwrap();
@@ -95,9 +95,9 @@ fn explicit_source_rejects_missing_markers_and_unsupported_payloads() {
     let fixture = tempfile::tempdir().unwrap();
     fs::create_dir(fixture.path().join("Data")).unwrap();
     let roots = ManagerRoots::new(fixture.path(), None).with_development_modules(Some(module()));
-    assert!(discovery::validate_installation_for(&roots, GAME, fixture.path()).is_err());
+    assert!(validate(&roots, GAME, fixture.path()).is_err());
     fs::write(fixture.path().join("SkyrimSE.exe"), b"marker").unwrap();
-    discovery::validate_installation_for(&roots, GAME, fixture.path()).unwrap();
+    validate(&roots, GAME, fixture.path()).unwrap();
     let zip = fixture.path().join("unsupported.zip");
     for entry in [
         "skse64_loader.exe",
@@ -110,4 +110,9 @@ fn explicit_source_rejects_missing_markers_and_unsupported_payloads() {
         let preview = planning::preview_install_zip(&roots, GAME, fixture.path(), &zip).unwrap();
         assert!(!preview.blockers.is_empty(), "accepted {entry}");
     }
+}
+
+fn validate(roots: &ManagerRoots, game: &str, path: &Path) -> anyhow::Result<PathBuf> {
+    let selection = modn_core::game_modules::ModuleSelection::resolve(roots, game)?;
+    discovery::validate_installation_for(&selection, path)
 }

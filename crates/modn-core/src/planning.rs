@@ -243,8 +243,9 @@ pub(crate) fn resolve_with_permissions(
         bail!("installation root must be a real directory, not a link");
     }
     let game = game.canonicalize()?;
+    let selection = crate::game_modules::ModuleSelection::resolve(roots, game_id)?;
     let proposed =
-        crate::game_modules::policy::plan(roots, game_id, &game, inspection, replaced, appdata)?;
+        crate::game_modules::policy::plan(&selection, &game, inspection, replaced, appdata)?;
     let (content_base, content_root) = proposed
         .content_root
         .as_ref()

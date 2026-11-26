@@ -7,7 +7,7 @@
 
 use crate::detection::DetectedInstallation;
 use crate::error::{coded, ErrorCode};
-use crate::game_modules::{self, LaunchTargets};
+use crate::game_modules::{self, LaunchTargets, ModuleSelection};
 use crate::integrity::{self, FileRoots};
 use crate::manager_roots::ManagerRoots;
 use crate::scan::IntegrityStatus;
@@ -79,7 +79,8 @@ pub fn plan_launch(
     if let Some(store) = store {
         ensure_no_pending(store)?;
     }
-    let targets = game_modules::launch_targets(roots, game_id)?;
+    let selection = ModuleSelection::resolve(roots, game_id)?;
+    let targets = game_modules::launch_targets(&selection)?;
     let target = select_target(game_id, &targets, &installation, detected)?;
     Ok(LaunchPlan {
         game_id: game_id.to_owned(),

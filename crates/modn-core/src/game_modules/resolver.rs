@@ -1,6 +1,4 @@
-use super::loader::VerifiedModule;
 use super::registry::ModuleRegistry;
-use super::selection::ModuleSelection;
 use crate::buckets::BucketStore;
 use crate::manager_roots::ManagerRoots;
 use anyhow::Result;
@@ -18,8 +16,4 @@ pub fn available_games(roots: &ManagerRoots) -> Result<Vec<String>> {
     games.sort();
     games.dedup();
     Ok(games)
-}
-
-pub(crate) fn read_policy(roots: &ManagerRoots, game: &str) -> Result<(VerifiedModule, String)> {
-    Ok(ModuleSelection::resolve(roots, game)?.into_parts())
 }
