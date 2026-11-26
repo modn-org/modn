@@ -55,6 +55,28 @@ pub fn preview_catalog_install(
     Ok(previews)
 }
 
+/// Preview one release of `plan` from its archive.
+///
+/// The caller names the release and its verified archive, so this reads no
+/// plan members and refuses nothing about the rest of the plan. A dry run uses
+/// it to preview the selected release before any other archive is available.
+///
+/// # Errors
+///
+/// Returns the error of the game module or of the archive inspection.
+pub fn preview_catalog_release(
+    roots: &ManagerRoots,
+    plan: &CatalogPlan,
+    reference: &CatalogReference,
+    archive: &Path,
+    approved: &[String],
+) -> Result<ReleasePreview> {
+    Ok(ReleasePreview {
+        reference: reference.clone(),
+        plan: preview_release(roots, &plan.game_id, &plan.installation, archive, approved)?,
+    })
+}
+
 /// Preview one release's archive with the selected game module.
 pub(crate) fn preview_release(
     roots: &ManagerRoots,

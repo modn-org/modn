@@ -15,14 +15,14 @@ use modn_core::acquisition::{ArchiveCache, CacheUse, SourceAttempt, SourcePolicy
 use modn_core::approval::Capabilities;
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
 use modn_core::catalog_pipeline::{
-    acquire_pending, preview_catalog_install, AcquiredArchives, CatalogPlan, ExecutableApproval,
-    PlanRefusal, PlannedRelease, ReleasePreview,
+    acquire_pending, preview_catalog_release, AcquiredArchives, CatalogPlan, PlanRefusal,
+    PlannedRelease, ReleasePreview,
 };
 use modn_core::error::{coded, ErrorCode};
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use modn_core::transactions::CatalogReference;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::io;
 use std::path::Path;
 
@@ -266,11 +266,8 @@ pub(super) fn preview_selected(
     let Some(served) = &plan_data::selected(plan).served else {
         return Ok(None);
     };
-    let reference = plan.selected.clone();
-    let archives = BTreeMap::from([(reference.to_string(), served.path.clone())]);
-    let approvals = vec![ExecutableApproval::new(reference, approved.iter().cloned())];
-    let previews = preview_catalog_install(roots, plan, &archives, &approvals)?;
-    Ok(previews.into_iter().next())
+    let preview = preview_catalog_release(roots, plan, &plan.selected, &served.path, approved)?;
+    Ok(Some(preview))
 }
 
 /// The member that shares a refreshable archive is also the archive of a

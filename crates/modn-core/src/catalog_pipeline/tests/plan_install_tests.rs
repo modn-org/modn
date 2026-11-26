@@ -2,7 +2,9 @@
 
 use super::fixtures::{self, plan_for, readonly_store, reference_of, release, tree, Fixture, GAME};
 use crate::approval::Capabilities;
-use crate::catalog_pipeline::{preview_catalog_install, PlanKind, PlanRefusal};
+use crate::catalog_pipeline::{
+    preview_catalog_install, preview_catalog_release, PlanKind, PlanRefusal,
+};
 use crate::state::Store;
 use crate::transactions::{DependencyState, NativeInjectorPolicy};
 use std::fs;
@@ -383,4 +385,24 @@ fn a_preview_skips_members_without_an_archive() {
     .expect("previews");
 
     assert!(previews.is_empty());
+}
+
+#[test]
+fn a_selected_preview_does_not_need_the_dependency_archives() {
+    use super::commit_support::{digest, manifest, CommitFixture};
+
+    let fixture = CommitFixture::new();
+    let top = fixture.plugin_zip("top");
+    let mut top_manifest = manifest("top", Some(&digest(&top)));
+    top_manifest.dependencies = vec!["base".to_owned()];
+    fixture.add(&manifest("base", Some(&"a".repeat(64))));
+    fixture.add(&top_manifest);
+    let snapshot = fixture.snapshot();
+    let plan = fixture.plan(&snapshot, "top", None, std::slice::from_ref(&top));
+
+    let preview = preview_catalog_release(fixture.roots(), &plan, &plan.selected, &top, &[])
+        .expect("selected preview");
+
+    assert_eq!(preview.reference, plan.selected);
+    assert!(preview.plan.status == crate::planning::PlanStatus::Reviewable);
 }
