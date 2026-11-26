@@ -5,9 +5,10 @@ mod support;
 mod main_bucket;
 use minisign::KeyPair;
 use modn_core::buckets::{
-    BucketStore, CatalogPublicKey, GitCatalogRevision, GitCatalogSource, ModuleTrustAck,
-    ModuleTrustState,
+    BucketStore, CatalogPublicKey, GitCatalogRevision, GitCatalogSource, ModuleSourceTrustReason,
+    ModuleTrustAck, ModuleTrustState,
 };
+use modn_core::game_modules::ModuleSource;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -82,6 +83,13 @@ fn local_bucket(root: &Path) -> PathBuf {
     bucket
 }
 
+fn source(bucket: &str, signer: Option<&str>) -> ModuleSource {
+    ModuleSource {
+        bucket: Some(bucket.to_owned()),
+        signer_key_id: signer.map(str::to_owned),
+    }
+}
+
 fn other_key_id() -> String {
     let pair = KeyPair::generate_unencrypted_keypair().expect("key");
     let text = pair.pk.to_box().expect("public key").into_string();
@@ -108,10 +116,16 @@ fn acknowledged_trust_records_the_pinned_signer() {
         store.module_trust("community").expect("trust state"),
         ModuleTrustState::Trusted
     );
-    let sources = store.trusted_module_sources().expect("sources");
-    assert_eq!(sources.len(), 1);
-    assert_eq!(sources[0].bucket, "community");
-    assert_eq!(sources[0].signer_key_id, revision.signer.key_id);
+    let decision = store
+        .module_source_trust(&source("community", Some(&revision.signer.key_id)))
+        .expect("decision");
+    assert!(decision.is_trusted());
+    let ModuleSourceTrustReason::AuthorizedReleaseSigner { bucket, signer } = decision.reason()
+    else {
+        panic!("unexpected trust reason: {}", decision.reason());
+    };
+    assert_eq!(bucket, "community");
+    assert_eq!(signer, &revision.signer.key_id);
     let registration: Value =
         serde_json::from_slice(&fs::read(registration(state.path())).expect("registration"))
             .expect("JSON");
@@ -151,7 +165,10 @@ fn unacknowledged_or_mismatched_trust_writes_nothing() {
     assert!(error.contains("fingerprint mismatch"), "{error}");
     assert!(error.contains(&revision.signer.key_id), "{error}");
     assert_eq!(fs::read(&path).expect("registration"), before);
-    assert!(store.trusted_module_sources().expect("sources").is_empty());
+    assert!(!store
+        .module_source_trust(&source("community", Some(&revision.signer.key_id)))
+        .expect("decision")
+        .is_trusted());
 }
 
 #[test]
@@ -282,7 +299,7 @@ fn git_bucket_without_a_pinned_signer_cannot_be_trusted() {
 
 #[test]
 fn untrust_removes_only_the_trust_record() {
-    let (state, store, _remote, _revision) = fixture();
+    let (state, store, _remote, revision) = fixture();
     store
         .trust_modules(
             "community",
@@ -296,7 +313,10 @@ fn untrust_removes_only_the_trust_record() {
         store.module_trust("community").expect("trust state"),
         ModuleTrustState::Untrusted
     );
-    assert!(store.trusted_module_sources().expect("sources").is_empty());
+    assert!(!store
+        .module_source_trust(&source("community", Some(&revision.signer.key_id)))
+        .expect("decision")
+        .is_trusted());
     let registration: Value =
         serde_json::from_slice(&fs::read(registration(state.path())).expect("registration"))
             .expect("JSON");
@@ -311,7 +331,7 @@ fn untrust_removes_only_the_trust_record() {
 
 #[test]
 fn changed_pinned_signer_ends_trust() {
-    let (state, store, _remote, _revision) = fixture();
+    let (state, store, _remote, revision) = fixture();
     store
         .trust_modules(
             "community",
@@ -329,7 +349,10 @@ fn changed_pinned_signer_ends_trust() {
         store.module_trust("community").expect("trust state"),
         ModuleTrustState::Untrusted
     );
-    assert!(store.trusted_module_sources().expect("sources").is_empty());
+    assert!(!store
+        .module_source_trust(&source("community", Some(&revision.signer.key_id)))
+        .expect("decision")
+        .is_trusted());
 }
 
 #[test]
@@ -376,7 +399,10 @@ fn later_sync_keeps_trust_for_the_same_pinned_signer() {
         store.module_trust("community").expect("trust state"),
         ModuleTrustState::Trusted
     );
-    assert_eq!(store.trusted_module_sources().expect("sources").len(), 1);
+    assert!(store
+        .module_source_trust(&source("community", Some(&revision.signer.key_id)))
+        .expect("decision")
+        .is_trusted());
 }
 
 #[test]

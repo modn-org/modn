@@ -206,7 +206,9 @@ registered. Retained modules from that bucket are then refused at use.
 `module list` verifies and lists every retained release. Each entry has the
 module identity, `blake3`, `source`, `active`, `source_trusted` and `pinned`.
 Text output marks an active release `[active]` and the pinned release `[pinned]`.
-It also warns when a release's bucket is not a trusted module source.
+It also warns when the release is not a trusted module source: its recorded
+signer must be authorized by the signer the bucket's trust record currently
+names, and `main` is always trusted.
 
 `module pin <game-id>` records the active version and digest in `pin.json`.
 While pinned, automatic imports, `module update` and `module rollback` do not
