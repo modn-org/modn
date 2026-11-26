@@ -4,7 +4,8 @@
 //! functions then write one activation intent, move the version directories,
 //! write the `current` pointers and remove the intent. The intent lets the next
 //! open complete a set that a process death interrupted, or roll it back when
-//! retained bytes do not match the recorded digest.
+//! retained bytes do not match the recorded digest. An undo removes the intent
+//! last, so a death during the undo also leaves the set repairable.
 
 use super::super::loader::VerifiedModule;
 use super::admission::AdmittedRelease;
@@ -16,6 +17,24 @@ use std::path::{Path, PathBuf};
 
 pub(in crate::game_modules) const ACTIVATION: &str = "activation.json";
 const SCHEMA_VERSION: u32 = 1;
+
+/// Unit tests arm one registry root to fail its next `current` restore.
+#[cfg(test)]
+static FAIL_NEXT_POINTER_RESTORE: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Make the next undo of `root` fail one `current` restore.
+#[cfg(test)]
+pub(in crate::game_modules) fn fail_next_pointer_restore(root: &Path) {
+    let mut armed = FAIL_NEXT_POINTER_RESTORE.lock().expect("seam lock");
+    armed.insert(root.to_path_buf());
+}
+
+#[cfg(test)]
+fn injected_pointer_restore_failure(root: &Path) -> bool {
+    let mut armed = FAIL_NEXT_POINTER_RESTORE.lock().expect("seam lock");
+    armed.remove(root)
+}
 
 /// One admitted release in an activation set.
 pub(in crate::game_modules) struct ActivationRelease {
@@ -193,17 +212,18 @@ pub(in crate::game_modules) fn activate_admitted(
     Ok(())
 }
 
-/// Undo the changes recorded in `progress` and remove the intent.
+/// Undo the changes recorded in `progress`, then remove the intent.
+///
+/// The intent stays on disk until every step succeeds. A death before the last
+/// step therefore leaves a set that the next open repairs, even when only some
+/// `current` pointers were restored.
 pub(in crate::game_modules) fn undo_activation(
     root: &Path,
     progress: &ActivationProgress,
 ) -> Result<()> {
     let mut failures = Vec::new();
-    if let Err(error) = remove_intent(root) {
-        failures.push(format!("cannot remove the activation intent: {error:#}"));
-    }
     for (directory, previous) in progress.switched.iter().rev() {
-        if let Err(error) = layout::write_current(directory, previous) {
+        if let Err(error) = restore_current(root, directory, previous) {
             failures.push(format!(
                 "cannot restore the active release in {}: {error:#}",
                 directory.display()
@@ -231,10 +251,26 @@ pub(in crate::game_modules) fn undo_activation(
         }
     }
     if failures.is_empty() {
+        if let Err(error) = remove_intent(root) {
+            failures.push(format!("cannot remove the activation intent: {error:#}"));
+        }
+    }
+    if failures.is_empty() {
         Ok(())
     } else {
         bail!("{}", failures.join("; "))
     }
+}
+
+/// Restore one `current` pointer, subject to the test failure seam.
+fn restore_current(root: &Path, directory: &Path, previous: &str) -> Result<()> {
+    #[cfg(test)]
+    if injected_pointer_restore_failure(root) {
+        bail!("injected activation pointer restore failure");
+    }
+    #[cfg(not(test))]
+    let _ = root;
+    layout::write_current(directory, previous)
 }
 
 pub(super) fn remove_intent(root: &Path) -> Result<()> {

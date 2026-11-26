@@ -3,7 +3,8 @@
 //! An activation intent lists the releases that a commit was making active.
 //! Repair verifies every listed release against the recorded digest, completes
 //! the set when all bytes match, and otherwise restores the recorded previous
-//! `current` pointers. It never writes or replaces module bytes.
+//! `current` pointers. It never writes or replaces module bytes. A rollback that
+//! cannot finish keeps the intent, so the next open retries it.
 
 use super::super::loader;
 use super::activation::{remove_intent, ActivationIntent, IntentRelease, ACTIVATION};
@@ -25,6 +26,8 @@ pub enum ActivationRepair {
         games: Vec<String>,
     },
     /// Verification failed, so every listed game kept or regained its previous release.
+    ///
+    /// An incomplete rollback keeps the intent, so the next open retries it.
     RolledBack {
         /// Games whose `current` pointer was restored.
         games: Vec<String>,
@@ -139,7 +142,9 @@ fn repair_locked(root: &Path) -> Result<Option<ActivationRepair>> {
             }
         }
     }
-    remove_intent(root)?;
+    if rollback_failures.is_empty() {
+        remove_intent(root)?;
+    }
     let mut reason = failures.join("; ");
     if !rollback_failures.is_empty() {
         reason.push_str("; rollback incomplete: ");
