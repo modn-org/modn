@@ -177,7 +177,7 @@ fn fixture_module(game: &str, version: &str) -> String {
 }
 
 fn active(data: &Path, game: &str) -> Option<modn_core::game_modules::RegisteredModule> {
-    ModuleRegistry::new(data)
+    ModuleRegistry::new(&main_bucket::roots(data))
         .active(game)
         .expect("active release")
 }
@@ -250,7 +250,7 @@ fn newer_catalog_revision_switches_and_retains_the_old_release() {
         catalog.sign_and_commit("v2");
         let synced = catalog.sync(&store);
         assert_eq!(synced.modules.imported[0].version, "2.0.0");
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let releases = registry.releases("fixture-game").expect("releases");
         assert_eq!(
             releases
@@ -291,7 +291,7 @@ fn staging_failure_leaves_the_previous_release_active() {
         let release = active(&data, "fixture-game").expect("active release");
         assert_eq!(release.module.version, "1.0.0");
         assert_eq!(
-            ModuleRegistry::new(&data)
+            ModuleRegistry::new(&main_bucket::roots(&data))
                 .releases("fixture-game")
                 .expect("releases")
                 .len(),
@@ -380,7 +380,8 @@ fn official_module_priority_hides_a_trusted_catalog_module() {
             }]
         );
         assert!(active(&data, "cyberpunk-2077").is_none());
-        let hidden = hidden_modules("cyberpunk-2077").expect("hidden modules");
+        let hidden =
+            hidden_modules(&main_bucket::roots(&data), "cyberpunk-2077").expect("hidden modules");
         assert_eq!(hidden.len(), 1);
         assert_eq!(hidden[0].bucket, "community");
         assert_eq!(hidden[0].version, "9.9.9");
@@ -392,6 +393,7 @@ fn official_module_priority_hides_a_trusted_catalog_module() {
         let root = tempfile::tempdir().expect("root");
         let game = installation(root.path());
         let report = modn_core::inventory::doctor_with_ownership_appdata(
+            &main_bucket::roots(&data),
             &state(root.path()),
             "cyberpunk-2077",
             &game,
@@ -438,6 +440,7 @@ fn untrusted_source_is_refused_at_use_and_reported_by_doctor() {
         let root = tempfile::tempdir().expect("root");
         let game = installation(root.path());
         let report = modn_core::inventory::doctor_with_ownership_appdata(
+            &main_bucket::roots(&data),
             &state(root.path()),
             "fixture-game",
             &game,
@@ -484,7 +487,7 @@ fn locally_registered_modules_still_resolve() {
         )
         .expect("manifest");
         fs::write(directory.join("module.lua"), policy_lua("fixture-game")).expect("Lua");
-        ModuleRegistry::new(&data)
+        ModuleRegistry::new(&main_bucket::roots(&data))
             .register(&directory, ModuleTrust::Acknowledged)
             .expect("register");
         assert_eq!(

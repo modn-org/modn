@@ -27,7 +27,7 @@ fn refuses_host_api_1_and_2_modules_without_registry_changes() {
     main_bucket::seeded(|| {
         let root = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         for api in [1, 2] {
             let module = source(root.path(), "fixture-game", api, "fixture-game");
             let error = registry
@@ -61,7 +61,7 @@ fn imports_a_host_api_3_module() {
     main_bucket::seeded(|| {
         let root = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let module = source(root.path(), "fixture-game", 3, "fixture-game");
         let registered = registry
             .register(&module, ModuleTrust::Acknowledged)
@@ -111,7 +111,8 @@ fn retired_sha256_hash_call_fails_clearly_and_blake3_works() {
 fn rejects_official_incompatible_and_mismatched_modules_without_registration() {
     main_bucket::seeded(|| {
         let root = tempfile::tempdir().unwrap();
-        let registry = ModuleRegistry::new(&data_dir::data_directory().unwrap());
+        let registry =
+            ModuleRegistry::new(&main_bucket::roots(&data_dir::data_directory().unwrap()));
         for (game, api, lua_game) in [
             ("cyberpunk-2077", 3, "cyberpunk-2077"),
             ("fixture-game", 4, "fixture-game"),
@@ -134,7 +135,7 @@ fn refuses_duplicate_and_tampered_snapshot() {
         let root = tempfile::tempdir().unwrap();
         let source = source(root.path(), "fixture-game", 3, "fixture-game");
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let registered = registry
             .register(&source, ModuleTrust::Acknowledged)
             .unwrap();
@@ -158,7 +159,8 @@ fn new_module_release_identity_is_blake3() {
     main_bucket::seeded(|| {
         let root = tempfile::tempdir().unwrap();
         let source = source(root.path(), "fixture-game", 3, "fixture-game");
-        let registry = ModuleRegistry::new(&data_dir::data_directory().unwrap());
+        let registry =
+            ModuleRegistry::new(&main_bucket::roots(&data_dir::data_directory().unwrap()));
         let registered = registry
             .register(&source, ModuleTrust::Acknowledged)
             .unwrap();
@@ -178,7 +180,7 @@ fn a_receipt_with_the_retired_sha256_digest_is_refused_without_panic() {
     main_bucket::seeded(|| {
         let root = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         registry
             .register(
                 &source(root.path(), "fixture-game", 3, "fixture-game"),
@@ -202,7 +204,7 @@ fn a_pin_with_the_retired_sha256_digest_is_refused_without_panic() {
     main_bucket::seeded(|| {
         let root = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         registry
             .register(
                 &source(root.path(), "fixture-game", 3, "fixture-game"),
@@ -240,7 +242,8 @@ fn copies_trusted_module_and_removes_only_registration() {
             "return {game_id='fixture-game', api_version=3}",
         )
         .unwrap();
-        let registry = ModuleRegistry::new(&data_dir::data_directory().unwrap());
+        let registry =
+            ModuleRegistry::new(&main_bucket::roots(&data_dir::data_directory().unwrap()));
         assert!(registry
             .register(&source, ModuleTrust::NotAcknowledged)
             .is_err());

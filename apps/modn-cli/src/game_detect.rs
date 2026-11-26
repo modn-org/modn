@@ -34,7 +34,7 @@ pub(super) fn run(
     let state_path = roots.state_database();
     let games = match requested {
         Some(game) => vec![game.to_owned()],
-        None => available_games()?,
+        None => available_games(roots)?,
     };
     let detection = detect_installations(&StoreLibraries::system(), &games);
     let state = ManagerState::load(&state_path)?;

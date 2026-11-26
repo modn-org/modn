@@ -86,7 +86,7 @@ fn register_v1_then_import_v2_keeps_v1_bytes_and_switches_active() {
     main_bucket::seeded(|| {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         let registered = registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         assert!(registered.active);
@@ -122,7 +122,7 @@ fn same_version_with_changed_digest_is_refused_and_same_digest_is_unchanged() {
     main_bucket::seeded(|| {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
@@ -162,7 +162,7 @@ fn lower_release_is_retained_but_never_activated() {
     main_bucket::seeded(|| {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
         registry.register(&v2, ModuleTrust::Acknowledged).unwrap();
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
@@ -181,7 +181,7 @@ fn pin_blocks_import_and_rollback_until_unpinned() {
     main_bucket::seeded(|| {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
@@ -212,7 +212,7 @@ fn rollback_switches_only_current_pointer_and_uses_next_older_release() {
     main_bucket::seeded(|| {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         for (name, version) in [("v2", "2.0.0"), ("v3", "3.0.0")] {
@@ -260,7 +260,7 @@ fn failed_staging_validation_keeps_active_release_and_no_partial_version() {
     main_bucket::seeded(|| {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         let v2 = source(
@@ -302,7 +302,7 @@ fn corrupt_current_and_digest_mismatch_fail_closed() {
     main_bucket::seeded(|| {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         let v2 = source(fixture.path(), "v2", "2.0.0", 3, &lua(3), None);
@@ -332,7 +332,7 @@ fn legacy_unversioned_layout_instructs_re_registration() {
     )
     .unwrap();
     fs::write(legacy.join("registration.json"), "{}").unwrap();
-    let registry = ModuleRegistry::new(&data);
+    let registry = ModuleRegistry::new(&main_bucket::roots(&data));
     let message = format!("{:#}", registry.releases("legacy-game").unwrap_err());
     assert!(message.contains("legacy unversioned"), "{message}");
     assert!(message.contains("remove and register"), "{message}");
@@ -343,7 +343,7 @@ fn legacy_unversioned_layout_instructs_re_registration() {
 fn unsafe_version_strings_are_rejected() {
     let fixture = tempfile::tempdir().unwrap();
     let data = fixture.path().join("data");
-    let registry = ModuleRegistry::new(&data);
+    let registry = ModuleRegistry::new(&main_bucket::roots(&data));
     for (index, version) in [".", "..", ".hidden"].iter().enumerate() {
         let source = source(
             fixture.path(),
@@ -372,7 +372,7 @@ fn resolution_reads_the_active_release() {
     main_bucket::seeded(|| {
         let fixture = tempfile::tempdir().unwrap();
         let data = data_dir::data_directory().unwrap();
-        let registry = ModuleRegistry::new(&data);
+        let registry = ModuleRegistry::new(&main_bucket::roots(&data));
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
         assert_eq!(

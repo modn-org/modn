@@ -91,12 +91,12 @@ struct MovedRelease {
 /// The catalog signature must already be verified by the caller. Each module is
 /// copied and executed only inside private staging storage.
 pub fn stage_catalog_modules(
+    roots: &crate::manager_roots::ManagerRoots,
     bucket: &str,
     signer_key_id: &str,
     catalog: &Path,
 ) -> Result<StagedCatalogImport> {
-    let roots = crate::manager_roots::ManagerRoots::from_ambient()?;
-    stage_catalog_modules_at(&roots, bucket, signer_key_id, catalog)
+    stage_catalog_modules_at(roots, bucket, signer_key_id, catalog)
 }
 
 pub(crate) fn stage_catalog_modules_at(
@@ -108,7 +108,7 @@ pub(crate) fn stage_catalog_modules_at(
     if bucket.is_empty() || signer_key_id.is_empty() {
         bail!("catalog module source must name a bucket and signer");
     }
-    let registry = ModuleRegistry::new(roots.profile());
+    let registry = ModuleRegistry::new(roots);
     let lock = registry.lock()?;
     let staging = tempfile::Builder::new()
         .prefix(".staging-catalog-")

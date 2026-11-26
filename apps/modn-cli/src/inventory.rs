@@ -29,7 +29,7 @@ pub(super) fn scan(
 ) -> Result<()> {
     let state_path = roots.state_database();
     let (store, game_id, path) = selected_store(path, &state_path, requested)?;
-    let report = scan_with_ownership_for(&store, &game_id, &path)?;
+    let report = scan_with_ownership_for(roots, &store, &game_id, &path)?;
     if report.incomplete {
         eprintln!("warning: modn scan incomplete (see doctor diagnostics)");
     }
@@ -95,7 +95,7 @@ pub(super) fn doctor(
 ) -> Result<()> {
     let state_path = roots.state_database();
     let (store, game_id, path) = selected_store(path, &state_path, requested)?;
-    let report = doctor_with_ownership_for(&store, &game_id, &path)?;
+    let report = doctor_with_ownership_for(roots, &store, &game_id, &path)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());

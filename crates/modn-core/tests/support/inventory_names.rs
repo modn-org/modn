@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn final_sigma_directory_rename_retains_managed_scan_attribution() {
     main_bucket::seeded(|| {
-        let (root, mut store, game, _archive) = fixture();
+        let (root, mut store, game, _archive, roots) = fixture();
         fs::create_dir_all(game.join("red4ext/plugins")).unwrap();
         let zip_path = root.path().join("sigma-folder.zip");
         let source = "red4ext/plugins/\u{039F}\u{03A3}/plugin.dll";
@@ -27,7 +27,7 @@ fn final_sigma_directory_rename_retains_managed_scan_attribution() {
             return;
         }
         fs::write(renamed.join("generated.dll"), b"runtime").unwrap();
-        let report = scan_with_ownership_for(&store, "cyberpunk-2077", &game).unwrap();
+        let report = scan_with_ownership_for(&roots, &store, "cyberpunk-2077", &game).unwrap();
         for file in ["plugin.dll", "generated.dll"] {
             let relative = PathBuf::from("red4ext/plugins/\u{03BF}\u{03C2}").join(file);
             let scanned = report

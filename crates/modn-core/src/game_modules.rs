@@ -10,6 +10,8 @@ mod runtime;
 mod store_data;
 mod visibility;
 
+use crate::manager_roots::ManagerRoots;
+
 #[cfg(test)]
 pub(crate) use import::FAIL_NEXT_CATALOG_COMMIT;
 pub(crate) use import::{ignored_catalog_modules, stage_catalog_modules_at};
@@ -30,17 +32,33 @@ pub use resolver::{available_games, with_module_source};
 pub use store_data::StoreIdentities;
 pub use visibility::{hidden_modules, HiddenModule};
 
+/// Manager roots for callers that still select the profile and the development
+/// module source through the thread-local overrides.
+///
+/// Detection, scan and launch use this bridge until they take roots directly.
+pub(crate) fn ambient_roots() -> anyhow::Result<ManagerRoots> {
+    Ok(ManagerRoots::from_ambient()?.with_development_modules(resolver::development_source()))
+}
+
 /// Read the selected module's declared content root without executing it.
 pub fn content_root_spec(game_id: &str) -> anyhow::Result<Option<ContentRootSpec>> {
-    Ok(resolver::read_policy(game_id)?.0.content_root)
+    content_root_spec_with_roots(&ambient_roots()?, game_id)
+}
+
+/// Read the selected module's declared content root under explicit roots.
+pub(crate) fn content_root_spec_with_roots(
+    roots: &ManagerRoots,
+    game_id: &str,
+) -> anyhow::Result<Option<ContentRootSpec>> {
+    Ok(resolver::read_policy(roots, game_id)?.0.content_root)
 }
 
 /// Read the selected module's declared store identities without executing it.
 pub fn store_identities(game_id: &str) -> anyhow::Result<StoreIdentities> {
-    Ok(resolver::read_policy(game_id)?.0.stores)
+    Ok(resolver::read_policy(&ambient_roots()?, game_id)?.0.stores)
 }
 
 /// Read the selected module's declared launch targets without executing it.
 pub fn launch_targets(game_id: &str) -> anyhow::Result<LaunchTargets> {
-    Ok(resolver::read_policy(game_id)?.0.launch)
+    Ok(resolver::read_policy(&ambient_roots()?, game_id)?.0.launch)
 }

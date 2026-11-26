@@ -1,5 +1,6 @@
 use crate::content_root::{self, ContentRootHealth};
 use crate::game_modules::policy;
+use crate::manager_roots::ManagerRoots;
 use anyhow::Result;
 use serde::Serialize;
 use std::fmt;
@@ -272,8 +273,8 @@ pub(crate) fn content_root_diagnostics(health: Option<&ContentRootHealth>) -> Ve
         .collect()
 }
 
-pub(crate) fn diagnose_checked(report: ScanReport) -> Result<DoctorReport> {
-    let diagnostics = policy::diagnose(&report)?;
+pub(crate) fn diagnose_checked(roots: &ManagerRoots, report: ScanReport) -> Result<DoctorReport> {
+    let diagnostics = policy::diagnose_with_roots(roots, &report)?;
     Ok(DoctorReport {
         scan: report,
         diagnostics,

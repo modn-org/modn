@@ -38,7 +38,9 @@ fn registered_skyrim_policy_runs_managed_lifecycle_and_preserves_unrelated_files
         fs::write(game.join("SkyrimSE.exe"), b"synthetic marker").unwrap();
         fs::write(game.join("Data/manual.esp"), b"manual").unwrap();
         fs::write(game.join("plugins.txt"), b"user load order").unwrap();
-        let registry = ModuleRegistry::new(&data_dir::data_directory().unwrap());
+        let data = data_dir::data_directory().unwrap();
+        let roots = main_bucket::roots(&data);
+        let registry = ModuleRegistry::new(&roots);
         registry
             .register(&module(), ModuleTrust::Acknowledged)
             .unwrap();
@@ -59,14 +61,14 @@ fn registered_skyrim_policy_runs_managed_lifecycle_and_preserves_unrelated_files
         let mut store = Store::open(&fixture.path().join("state/state.sqlite")).unwrap();
         let installed = store.install_operations_zip(&game, &zip, &preview).unwrap();
         assert_eq!(fs::read(game.join("Data/Example.esp")).unwrap(), b"plugin");
-        let scan = inventory::scan_with_ownership_for(&store, GAME, &game).unwrap();
+        let scan = inventory::scan_with_ownership_for(&roots, &store, GAME, &game).unwrap();
         assert!(!scan.incomplete);
         assert_eq!(scan.mods.iter().filter(|item| item.managed).count(), 3);
         assert!(scan
             .mods
             .iter()
             .any(|item| !item.managed && item.relative_path == Path::new("Data/manual.esp")));
-        let doctor = inventory::doctor_with_ownership_for(&store, GAME, &game).unwrap();
+        let doctor = inventory::doctor_with_ownership_for(&roots, &store, GAME, &game).unwrap();
         assert!(doctor
             .diagnostics
             .iter()
