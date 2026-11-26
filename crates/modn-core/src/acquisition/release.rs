@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 /// A verified archive for one release and every attempt the acquisition made.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ReleaseAcquired {
     /// The verified cache entry that serves the release.
