@@ -575,6 +575,7 @@ otherwise the command's default code is used. No command reports a generic
 | `PACKAGE_PINNED` | The managed package is pinned. |
 | `PENDING_TRANSACTION` | An interrupted transaction must be recovered first. |
 | `PLAN_BLOCKED` | The installation plan has blockers. |
+| `PLAN_STALE` | The plan changed since it was made; run the command again. |
 | `STATE_ERROR` | Manager state cannot be read or written. |
 | `UNDO_CONFLICT` | A later operation changed a package or file that the undo target owns. |
 | `UNDO_FAILED` | Default code of `modn undo`. |
