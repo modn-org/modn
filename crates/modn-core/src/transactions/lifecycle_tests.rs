@@ -90,6 +90,7 @@ fn redmod_lifecycle_reports_individual_files_as_managed() {
             b"content"
         );
         let report = crate::inventory::scan_with_ownership_for(
+            &crate::game_modules::ambient_roots().expect("ambient roots"),
             &fixture.store,
             "cyberpunk-2077",
             &fixture.game,
@@ -104,6 +105,7 @@ fn redmod_lifecycle_reports_individual_files_as_managed() {
         assert_eq!(report.mods.len(), 1);
         assert!(!report.mods[0].managed);
         let doctor = crate::inventory::doctor_with_ownership_for(
+            &crate::game_modules::ambient_roots().expect("ambient roots"),
             &fixture.store,
             "cyberpunk-2077",
             &fixture.game,

@@ -167,14 +167,14 @@ fn write_both(catalog: &Catalog, version: &str) {
 }
 
 fn active_version(data: &Path, game: &str) -> Option<String> {
-    ModuleRegistry::new(data)
+    ModuleRegistry::new(&main_bucket::roots(data))
         .active(game)
         .expect("active release")
         .map(|release| release.module.version)
 }
 
 fn retained_versions(data: &Path, game: &str) -> Vec<(String, bool)> {
-    ModuleRegistry::new(data)
+    ModuleRegistry::new(&main_bucket::roots(data))
         .releases(game)
         .expect("releases")
         .iter()
@@ -325,7 +325,7 @@ fn deliberate_rollback_survives_unchanged_catalog_sync() {
             Some("2.0.0")
         );
 
-        ModuleRegistry::new(&data)
+        ModuleRegistry::new(&main_bucket::roots(&data))
             .rollback("alpha-game", Some("1.0.0"))
             .expect("rollback");
         let synced = synchronize(&store);

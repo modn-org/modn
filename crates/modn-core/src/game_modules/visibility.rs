@@ -26,11 +26,11 @@ struct ModuleVersion {
 /// List trusted catalog modules for `game` that `main` hides by official priority.
 ///
 /// Only the manifest version is parsed. The module's Lua is never executed.
-pub fn hidden_modules(game: &str) -> Result<Vec<HiddenModule>> {
+pub fn hidden_modules(roots: &ManagerRoots, game: &str) -> Result<Vec<HiddenModule>> {
     if !loader::valid_game_id(game) {
         anyhow::bail!("invalid game module identifier");
     }
-    let store = BucketStore::new(&ManagerRoots::from_ambient()?);
+    let store = BucketStore::new(roots);
     if !store.official_games()?.iter().any(|id| id == game) {
         return Ok(Vec::new());
     }

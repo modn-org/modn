@@ -29,6 +29,11 @@ pub fn with_module_source<T>(source: Option<&Path>, action: impl FnOnce() -> T) 
     action()
 }
 
+/// The development module override selected on this thread, if any.
+pub(super) fn development_source() -> Option<PathBuf> {
+    MODULE_SOURCE.with(|slot| slot.borrow().clone())
+}
+
 /// Game IDs of every module that ordinary commands can select: the official
 /// `main` modules and the registered third-party modules, without duplicates.
 ///
@@ -36,37 +41,37 @@ pub fn with_module_source<T>(source: Option<&Path>, action: impl FnOnce() -> T) 
 /// reports it in its `skipped` list instead of failing every game.
 /// Development overrides are not listed, because they name no game until a
 /// command selects one.
-pub fn available_games() -> Result<Vec<String>> {
-    let roots = ManagerRoots::from_ambient()?;
-    let mut games = BucketStore::new(&roots).official_games()?;
-    games.extend(ModuleRegistry::new(roots.profile()).game_ids()?);
+pub fn available_games(roots: &ManagerRoots) -> Result<Vec<String>> {
+    let mut games = BucketStore::new(roots).official_games()?;
+    games.extend(ModuleRegistry::new(roots).game_ids()?);
     games.sort();
     games.dedup();
     Ok(games)
 }
 
-pub(crate) fn read_policy(game: &str) -> Result<(VerifiedModule, String)> {
+pub(crate) fn read_policy(roots: &ManagerRoots, game: &str) -> Result<(VerifiedModule, String)> {
     if !loader::valid_game_id(game) {
         bail!("invalid game module identifier");
     }
-    let source = MODULE_SOURCE.with(|slot| slot.borrow().clone());
-    let directory = source.or_else(|| {
-        std::env::var_os("MODN_GAME_MODULES_DIR").map(|base| PathBuf::from(base).join(game))
-    });
+    let directory = roots
+        .development_modules()
+        .map(Path::to_path_buf)
+        .or_else(|| {
+            std::env::var_os("MODN_GAME_MODULES_DIR").map(|base| PathBuf::from(base).join(game))
+        });
     let (manifest, source) = match directory {
         Some(directory) => loader::read_verified_module(&directory)?,
         None => {
-            let roots = ManagerRoots::from_ambient()?;
-            let store = BucketStore::new(&roots);
+            let store = BucketStore::new(roots);
             if store.official_games()?.iter().any(|id| id == game) {
-                read_official(game)?
+                read_official(roots, game)?
             } else if let Some((manifest, script, registered)) =
-                ModuleRegistry::new(roots.profile()).read(game)?
+                ModuleRegistry::new(roots).read(game)?
             {
                 ensure_source_trusted(&store, game, &registered.source)?;
                 (manifest, script)
             } else {
-                read_official(game)?
+                read_official(roots, game)?
             }
         }
     };

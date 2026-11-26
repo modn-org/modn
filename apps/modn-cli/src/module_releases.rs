@@ -7,9 +7,8 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: bool) -> Result<()> {
-    let data = roots.profile();
     crate::state_access::validate_write_targets(roots, None)?;
-    let registry = ModuleRegistry::new(data);
+    let registry = ModuleRegistry::new(roots);
     match command {
         ModuleCommand::Pin { game } => {
             let pin = registry.pin(&game)?;
@@ -142,8 +141,7 @@ fn rollback(
 }
 
 pub(super) fn list(roots: &ManagerRoots, json_output: bool) -> Result<()> {
-    let data = roots.profile();
-    let registry = ModuleRegistry::new(data);
+    let registry = ModuleRegistry::new(roots);
     let store = BucketStore::new(roots);
     let mut trust = BTreeMap::new();
     let mut entries = Vec::new();

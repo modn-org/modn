@@ -14,8 +14,7 @@ pub(super) fn content_root_appdata(game_id: &str) -> Result<Option<PathBuf>> {
 }
 
 pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: bool) -> Result<()> {
-    let data = roots.profile();
-    let registry = ModuleRegistry::new(data);
+    let registry = ModuleRegistry::new(roots);
     if matches!(
         &command,
         ModuleCommand::Pin { .. }

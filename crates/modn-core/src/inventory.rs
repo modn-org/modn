@@ -1,8 +1,9 @@
 //! Reconcile on-disk discovery against manager-owned SQLite records without writing to a game.
 use crate::buckets::BucketStore;
 use crate::content_root::{self, ContentRootHealth, ContentRootStatus};
-use crate::game_modules::{hidden_modules, ModuleRegistry};
+use crate::game_modules::{content_root_spec_with_roots, hidden_modules, ModuleRegistry};
 use crate::integrity::{self, FileRoots, PathState};
+use crate::manager_roots::ManagerRoots;
 use crate::scan::{self, Diagnostic, DoctorReport, IntegrityStatus, ScanReport, ScanRoot};
 use crate::state::{recorded_root, RootKind, Store};
 use anyhow::Result;
@@ -13,11 +14,12 @@ use crate::transactions::ownership_key;
 
 /// Reconcile owned files using the selected game's ordinary Lua scan policy.
 pub fn scan_with_ownership_for(
+    roots: &ManagerRoots,
     store: &Store,
     game_id: &str,
     installation: &Path,
 ) -> Result<ScanReport> {
-    scan_with_ownership_appdata(store, game_id, installation, None)
+    scan_with_ownership_appdata(roots, store, game_id, installation, None)
 }
 
 /// Reconcile owned files with an explicit appdata base.
@@ -26,15 +28,17 @@ pub fn scan_with_ownership_for(
 /// user appdata directory. `None` uses the platform base when the module
 /// declares a content root.
 pub fn scan_with_ownership_appdata(
+    roots: &ManagerRoots,
     store: &Store,
     game_id: &str,
     installation: &Path,
     appdata: Option<&Path>,
 ) -> Result<ScanReport> {
-    Ok(scan_inner(store, game_id, installation, appdata)?.0)
+    Ok(scan_inner(roots, store, game_id, installation, appdata)?.0)
 }
 
 fn scan_inner(
+    roots: &ManagerRoots,
     store: &Store,
     game_id: &str,
     installation: &Path,
@@ -42,9 +46,10 @@ fn scan_inner(
 ) -> Result<(ScanReport, Option<ContentRootHealth>)> {
     let game = crate::discovery::validate_installation_for(game_id, installation)?;
     let installed = store.installed(&game)?;
-    let health = content_health(store, game_id, &game, appdata)?;
+    let health = content_health(roots, store, game_id, &game, appdata)?;
     let content = health.as_ref().and_then(|health| health.root.as_deref());
-    let mut report = crate::game_modules::policy::scan(game_id, &game, content, 20_000)?;
+    let mut report =
+        crate::game_modules::policy::scan_with_roots(roots, game_id, &game, content, 20_000)?;
     if report.content_root.is_none() {
         report.content_root = health.as_ref().map(|health| health.path.clone());
     }
@@ -173,12 +178,13 @@ fn scan_root_path<'a>(
 }
 
 fn content_health(
+    roots: &ManagerRoots,
     store: &Store,
     game_id: &str,
     game: &Path,
     appdata: Option<&Path>,
 ) -> Result<Option<ContentRootHealth>> {
-    let Some(spec) = crate::game_modules::content_root_spec(game_id)? else {
+    let Some(spec) = content_root_spec_with_roots(roots, game_id)? else {
         return Ok(None);
     };
     let appdata = match appdata {
@@ -196,21 +202,23 @@ fn content_health(
 
 /// Evaluate the selected game's Lua doctor policy over the reconciled inventory.
 pub fn doctor_with_ownership_for(
+    roots: &ManagerRoots,
     store: &Store,
     game_id: &str,
     installation: &Path,
 ) -> Result<DoctorReport> {
-    doctor_with_ownership_appdata(store, game_id, installation, None)
+    doctor_with_ownership_appdata(roots, store, game_id, installation, None)
 }
 
 /// Evaluate diagnostics with an explicit appdata base for the content root.
 pub fn doctor_with_ownership_appdata(
+    roots: &ManagerRoots,
     store: &Store,
     game_id: &str,
     installation: &Path,
     appdata: Option<&Path>,
 ) -> Result<DoctorReport> {
-    let source_diagnostics = module_source_diagnostics(game_id)?;
+    let source_diagnostics = module_source_diagnostics(roots, game_id)?;
     if source_diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == "MODULE_SOURCE_UNTRUSTED")
@@ -233,8 +241,8 @@ pub fn doctor_with_ownership_appdata(
             created_directories,
         });
     }
-    let (report, health) = scan_inner(store, game_id, installation, appdata)?;
-    let mut report = scan::diagnose_checked(report)?;
+    let (report, health) = scan_inner(roots, store, game_id, installation, appdata)?;
+    let mut report = scan::diagnose_checked(roots, report)?;
     report
         .diagnostics
         .extend(scan::content_root_diagnostics(health.as_ref()));
@@ -263,12 +271,11 @@ pub fn doctor_with_ownership_appdata(
     Ok(report)
 }
 
-fn module_source_diagnostics(game_id: &str) -> Result<Vec<Diagnostic>> {
-    let roots = crate::manager_roots::ManagerRoots::from_ambient()?;
-    let buckets = BucketStore::new(&roots);
+fn module_source_diagnostics(roots: &ManagerRoots, game_id: &str) -> Result<Vec<Diagnostic>> {
+    let buckets = BucketStore::new(roots);
     let trusted = buckets.trusted_module_sources()?;
     let mut diagnostics = Vec::new();
-    if let Some(release) = ModuleRegistry::new(roots.profile()).active(game_id)? {
+    if let Some(release) = ModuleRegistry::new(roots).active(game_id)? {
         if let Some(bucket) = release.source.bucket.as_deref() {
             let trusted = bucket == "main"
                 || trusted.iter().any(|source| {
@@ -293,7 +300,7 @@ fn module_source_diagnostics(game_id: &str) -> Result<Vec<Diagnostic>> {
             }
         }
     }
-    for hidden in hidden_modules(game_id)? {
+    for hidden in hidden_modules(roots, game_id)? {
         diagnostics.push(Diagnostic {
             code: "MODULE_HIDDEN_BY_OFFICIAL".into(),
             severity: "info".into(),
