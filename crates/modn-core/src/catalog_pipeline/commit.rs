@@ -15,7 +15,7 @@
 //! `crate::transactions`; this module opens no second write path.
 
 use super::acquire::{acquire_pending, archives_of, digests_of, sources_of};
-use super::consent::{installs, Consent};
+use super::consent::Consent;
 use super::digest::ReleasePreview;
 use super::outcome::{blocking_refusal, CommitOutcome};
 use super::plan::{CatalogPlan, PlannedRelease};
@@ -27,7 +27,7 @@ use crate::approval::Capabilities;
 use crate::error::{coded, ErrorCode};
 use crate::history::HistoryContext;
 use crate::manager_roots::ManagerRoots;
-use crate::planning::{InstallPlan, PlanStatus};
+use crate::planning::InstallPlan;
 use crate::progress::OperationControl;
 use crate::state::Store;
 use crate::transactions::{ManagedPackage, NativeInjectorPolicy, StackMember};
@@ -144,11 +144,7 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
     let archives = archives_of(plan, &acquired);
     let digests = digests_of(plan, &acquired);
     let sources = sources_of(plan, &acquired);
-    let installing: Vec<&PlannedRelease> = plan
-        .order
-        .iter()
-        .filter(|planned| installs(planned))
-        .collect();
+    let installing = plan.members()?;
     for planned in &installing {
         let key = planned.package.reference().to_string();
         if !archives.contains_key(&key) {
@@ -160,7 +156,12 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
     }
     let previews = preview_catalog_install(roots, plan, &archives, &consent.executables)?;
     for preview in &previews {
-        verify_preview(preview, digests.get(&preview.reference.to_string()))?;
+        verify_digest(preview, digests.get(&preview.reference.to_string()))?;
+    }
+    if installing.len() == 1 {
+        for preview in &previews {
+            verify_reviewable(preview)?;
+        }
     }
     consent.check(plan, &previews)?;
     let policy = native_policy(&installing, consent);
@@ -308,13 +309,15 @@ fn install_stack(
                 first = false;
                 let locked = preview_catalog_install(roots, plan, archives, &consent.executables)?;
                 for preview in &locked {
-                    verify_preview(preview, digests.get(&preview.reference.to_string()))?;
+                    verify_digest(preview, digests.get(&preview.reference.to_string()))?;
                 }
                 consent.check(plan, &locked)?;
-                locked
+                let current = locked
                     .into_iter()
                     .find(|preview| preview.reference == reference)
-                    .with_context(|| format!("{key}: the re-plan returned no preview"))?
+                    .with_context(|| format!("{key}: the re-plan returned no preview"))?;
+                verify_reviewable(&current)?;
+                current
             } else {
                 ReleasePreview {
                     reference: reference.clone(),
@@ -385,6 +388,12 @@ fn native_policy(installing: &[&PlannedRelease], consent: &Consent) -> NativeInj
 
 /// Check one fresh preview against the digest the plan expects.
 fn verify_preview(preview: &ReleasePreview, expected: Option<&ReleaseDigest>) -> Result<()> {
+    verify_digest(preview, expected)?;
+    verify_reviewable(preview)
+}
+
+/// Check that the archive a preview read is the release that the plan pins.
+fn verify_digest(preview: &ReleasePreview, expected: Option<&ReleaseDigest>) -> Result<()> {
     if let Some(expected) = expected {
         if expected.as_str() != Some(preview.plan.archive_blake3.as_str()) {
             return Err(coded(
@@ -396,7 +405,12 @@ fn verify_preview(preview: &ReleasePreview, expected: Option<&ReleaseDigest>) ->
             ));
         }
     }
-    if preview.plan.status != PlanStatus::Reviewable || !preview.plan.blockers.is_empty() {
+    Ok(())
+}
+
+/// Check that the game module allows one release as previewed.
+fn verify_reviewable(preview: &ReleasePreview) -> Result<()> {
+    if !preview.reviewable() {
         return Err(coded(
             ErrorCode::PlanBlocked,
             format!(

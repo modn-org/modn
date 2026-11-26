@@ -111,10 +111,6 @@ impl ManagerState {
         self.existing.as_ref()
     }
 
-    pub(super) fn manager_roots(&self) -> &ManagerRoots {
-        &self.roots
-    }
-
     pub(super) fn into_existing(self) -> Option<Store> {
         self.existing
     }

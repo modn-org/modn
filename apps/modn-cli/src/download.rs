@@ -5,6 +5,7 @@ mod http;
 pub(super) mod nexus_download;
 
 pub(super) use acquire::download;
+pub(super) use acquire::resolver;
 
 use crate::catalog_install::reference_of;
 use crate::commands::CacheCommand;
@@ -101,6 +102,11 @@ fn transport_io(error: &std::io::Error) -> Option<FetchError> {
         },
         _ => None,
     }
+}
+
+/// The HTTP transport that release acquisition uses.
+pub(super) fn transport() -> &'static dyn SourceTransport {
+    &HttpTransport
 }
 
 pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {

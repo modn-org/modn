@@ -5,14 +5,13 @@
 //! re-plan: every fact comes from the `CatalogPlan` the caller built.
 
 use crate::dependency_plan;
-use crate::download;
 use anyhow::{bail, Result};
 use modn_core::acquisition::{ArchiveCache, CacheUse};
 use modn_core::approval::Capabilities;
-use modn_core::buckets::{BucketPackage, BucketSnapshot, PackageSource};
+use modn_core::buckets::{BucketPackage, BucketSnapshot};
 use modn_core::catalog_pipeline::{
     plan_install, CatalogPlan, ConsentInputs, InstallInput, InstallTarget, PlanRefusal,
-    PlannedRelease, ServedOrigin,
+    PlannedRelease,
 };
 use modn_core::state::Store;
 use modn_core::transactions::{CatalogReference, DependencyState};
@@ -99,45 +98,17 @@ pub(super) fn installing(plan: &CatalogPlan) -> Vec<&BucketPackage> {
         .collect()
 }
 
-/// The archive maps that acquisition, the stack step and history already take.
-#[derive(Default)]
-pub(super) struct PlanArchives {
-    pub(super) archives: BTreeMap<String, PathBuf>,
-    pub(super) digests: BTreeMap<String, String>,
-    pub(super) served: BTreeMap<String, PackageSource>,
-    pub(super) supplied: BTreeMap<String, download::SuppliedArchive>,
-}
-
-impl PlanArchives {
-    /// Project every served archive of `plan` into the CLI maps.
-    pub(super) fn of(plan: &CatalogPlan) -> Self {
-        let mut archives = Self::default();
-        for release in &plan.order {
-            let Some(served) = &release.served else {
-                continue;
-            };
-            let reference = release.package.reference().to_string();
-            archives
-                .archives
-                .insert(reference.clone(), served.path.clone());
-            if let Some(digest) = served.digest.as_str() {
-                archives
-                    .digests
-                    .insert(reference.clone(), digest.to_owned());
-            }
-            archives
+/// The verified archive of every release that already has one, by reference.
+pub(super) fn archives<'a>(
+    releases: impl IntoIterator<Item = &'a PlannedRelease>,
+) -> BTreeMap<String, PathBuf> {
+    releases
+        .into_iter()
+        .filter_map(|release| {
+            release
                 .served
-                .insert(reference.clone(), served.source.clone());
-            if served.origin == ServedOrigin::Supplied {
-                archives.supplied.insert(
-                    reference,
-                    download::SuppliedArchive {
-                        path: served.path.clone(),
-                        blake3: served.digest.as_str().unwrap_or_default().to_owned(),
-                    },
-                );
-            }
-        }
-        archives
-    }
+                .as_ref()
+                .map(|served| (release.package.reference().to_string(), served.path.clone()))
+        })
+        .collect()
 }

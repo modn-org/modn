@@ -91,10 +91,7 @@ impl Consent {
         if found != self.plan {
             return Err(StalePlan::new(self.plan.clone(), found).into_error());
         }
-        for planned in &plan.order {
-            if !installs(planned) {
-                continue;
-            }
+        for planned in plan.members()? {
             let reference = planned.package.reference();
             let approved = self.approval_for(&reference);
             let uncovered = planned.needed.uncovered_by(&approved);

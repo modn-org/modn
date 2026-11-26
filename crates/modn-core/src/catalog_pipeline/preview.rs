@@ -6,7 +6,7 @@
 //! prompts. Every preview call of the catalog pipeline lives here, so a future
 //! module-selection change touches one file.
 
-use super::consent::{installs, ExecutableApproval};
+use super::consent::ExecutableApproval;
 use super::digest::ReleasePreview;
 use super::plan::CatalogPlan;
 use crate::content_root::appdata_directory;
@@ -16,22 +16,23 @@ use crate::planning::{
     preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions, InstallPlan,
 };
 use crate::transactions::CatalogReference;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Preview every release that `plan` would install.
+/// Preview every member of `plan` that has an archive.
 ///
-/// `archives` names the verified archive of each release, keyed by its
-/// `bucket/game/mod` reference. The result is aligned with the installing
-/// releases of [`CatalogPlan::order`], dependencies first and the selected
-/// release last. The game module's `plan(files)` and declared `content_root`
-/// run through the existing `planning` functions.
+/// `archives` names the verified archive of each member, keyed by its
+/// `bucket/game/mod` reference. [`CatalogPlan::members`] names the releases
+/// this installation would place, dependencies first and the selected release
+/// last. A member without an archive is skipped; the caller refuses it
+/// separately. The game module's `plan(files)` and declared `content_root` run
+/// through the existing `planning` functions.
 ///
 /// # Errors
 ///
-/// Returns the error of the game module, of an archive inspection, or of a
-/// release that has no archive in `archives`.
+/// Returns the refusal of a shared archive that cannot be merged, the error of
+/// the game module, or the error of an archive inspection.
 pub fn preview_catalog_install(
     roots: &ManagerRoots,
     plan: &CatalogPlan,
@@ -39,15 +40,12 @@ pub fn preview_catalog_install(
     approvals: &[ExecutableApproval],
 ) -> Result<Vec<ReleasePreview>> {
     let mut previews = Vec::new();
-    for planned in &plan.order {
-        if !installs(planned) {
-            continue;
-        }
+    for planned in plan.members()? {
         let reference = planned.package.reference();
         let key = reference.to_string();
-        let archive = archives
-            .get(&key)
-            .with_context(|| format!("{key}: the plan has no archive to preview"))?;
+        let Some(archive) = archives.get(&key) else {
+            continue;
+        };
         let approved = approved_for(&reference, approvals);
         previews.push(ReleasePreview {
             reference,

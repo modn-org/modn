@@ -75,6 +75,14 @@ pub struct ReleasePreview {
     pub plan: InstallPlan,
 }
 
+impl ReleasePreview {
+    /// Whether the game module allows this release's installation as previewed.
+    #[must_use]
+    pub fn reviewable(&self) -> bool {
+        self.plan.status == PlanStatus::Reviewable && self.plan.blockers.is_empty()
+    }
+}
+
 /// Fingerprint the identity facts of `plan`, `approved` and `previews`.
 ///
 /// The digest includes the install order, each release's reference, version
