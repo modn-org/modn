@@ -73,8 +73,8 @@ impl CommandError {
 
     pub(crate) fn plan_changed() -> Self {
         Self {
-            code: "PLAN_BLOCKED".to_string(),
-            message: "The installation plan changed. Review the archive again.".to_string(),
+            code: "PLAN_STALE".to_string(),
+            message: "The plan changed since it was made. Run the operation again.".to_string(),
             approval: None,
             diagnostics: Vec::new(),
         }
@@ -275,6 +275,7 @@ fn short_message(code: &str) -> &'static str {
         "MOD_NOT_FOUND" => "The catalog does not list that package.",
         "UPDATE_FAILED" => "This package cannot be updated from the catalog.",
         "PLAN_BLOCKED" => "Modn blocked this operation. Open details for the reason.",
+        "PLAN_STALE" => "The plan changed since it was made. Run the operation again.",
         "CONFLICT" => "Another package owns these files.",
         "APPROVAL_REQUIRED" => "This change needs your approval.",
         "NATIVE_INJECTOR_NOT_ALLOWED" => "This mod runs native code and needs your approval.",
@@ -316,6 +317,13 @@ mod tests {
     fn plan_blocked_prefix_maps_to_the_stable_code() {
         let mapped = CommandError::from(super::plan_blocked());
         assert_eq!(mapped.code, "PLAN_BLOCKED");
+    }
+
+    #[test]
+    fn a_changed_plan_maps_to_plan_stale() {
+        let mapped = CommandError::plan_changed();
+        assert_eq!(mapped.code, "PLAN_STALE");
+        assert!(mapped.message.contains("Run the operation again"));
     }
 
     #[test]
