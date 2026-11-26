@@ -216,7 +216,7 @@ impl BucketStore {
         source: Option<ZipCatalogSource>,
         mut open: impl FnMut(&ZipCatalogSource) -> Result<Box<dyn Read>>,
     ) -> Result<ZipCatalogSync> {
-        self.check_registry_root()?;
+        Self::check_registry_root(&self.root)?;
         if !valid_id(name) || name == "main" {
             bail!("invalid or reserved ZIP catalog name");
         }

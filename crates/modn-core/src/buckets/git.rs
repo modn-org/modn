@@ -239,7 +239,7 @@ impl BucketStore {
         name: &str,
         source: Option<GitCatalogSource>,
     ) -> Result<GitCatalogSync> {
-        self.check_registry_root()?;
+        Self::check_registry_root(&self.root)?;
         if !valid_id(name) || name == "main" {
             bail!("invalid or reserved Git catalog name");
         }

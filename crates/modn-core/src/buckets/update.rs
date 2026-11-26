@@ -130,7 +130,8 @@ fn extract(path: &Path, stage: &Path) -> Result<()> {
 }
 
 impl BucketStore {
-    /// Verify and install a signed main bucket ZIP. Recover an interrupted swap before updating.
+    /// Verify and install a signed main bucket ZIP into the shared official
+    /// bucket root. Recover an interrupted swap before updating.
     /// Return the installed tree digest, whether its contents changed, and the signer key.
     pub fn update_main<R: Read, S: Read>(
         &self,
@@ -139,28 +140,27 @@ impl BucketStore {
         signature: impl FnOnce() -> Result<S>,
     ) -> Result<(String, bool, CatalogKeyId)> {
         let key = main_bucket_public_key(embedded_key)?;
-        self.check_registry_root()?;
-        fs::create_dir_all(&self.root)?;
-        let lock_path = self.root.join(".main-update.lock");
+        let root = self.roots.official_bucket_root();
+        Self::check_registry_root(&root)?;
+        fs::create_dir_all(&root)?;
+        let lock_path = root.join(".main-update.lock");
         let _lock = acquire_lock(
             &lock_path,
             "unsafe main bucket update lock",
             "main bucket update is already running",
             LOCK_WAIT,
         )?;
-        recover(&self.root)?;
+        recover(&root)?;
         let signature_text = read_signature(signature()?)?;
         let mut source = source()?;
-        let mut zip = tempfile::Builder::new()
-            .suffix(".zip")
-            .tempfile_in(&self.root)?;
+        let mut zip = tempfile::Builder::new().suffix(".zip").tempfile_in(&root)?;
         let copied = io::copy(&mut source.by_ref().take(MAX_DOWNLOAD_BYTES + 1), &mut zip)?;
         if copied > MAX_DOWNLOAD_BYTES {
             bail!("main bucket download exceeds size limit");
         }
         zip.as_file().sync_all()?;
-        let stage = self.root.join(".main-staging");
-        let main = self.root.join("main");
+        let stage = root.join(".main-staging");
+        let main = root.join("main");
         let result = (|| {
             extract(zip.path(), &stage)?;
             let verified = verify_catalog(&stage, &key, &signature_text)?;
@@ -174,7 +174,7 @@ impl BucketStore {
             let digest = bucket_digest::directory_digest(&stage)?;
             let had_main = directory_exists(&main)?;
             let changed = !had_main || bucket_digest::directory_digest(&main)? != digest;
-            swap(&self.root, had_main, remove_directory)?;
+            swap(&root, had_main, remove_directory)?;
             Ok((digest, changed, verified.key_id))
         })();
         let cleanup = remove_directory(&stage);
