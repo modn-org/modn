@@ -159,8 +159,8 @@ were checked against the signed catalog snapshot, so committing them first adds
 no trust. A module commit failure therefore leaves the previous registration
 and the previous active releases in place. A registration write that fails
 after the module commit keeps the previous registration usable and leaves the
-new releases retained; the next sync publishes the revision, and a release that
-is already retained is reported `unchanged`. A sync whose fetched revision
+new releases active; the next sync publishes the revision, and a release that
+is already active is reported `unchanged`. A sync whose fetched revision
 matches the registration still stages and checks its modules; it never skips
 the module step.
 
