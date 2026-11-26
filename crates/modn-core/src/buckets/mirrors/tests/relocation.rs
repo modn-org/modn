@@ -1,4 +1,5 @@
 use super::*;
+use modn_core::manager_roots::ManagerRoots;
 use std::fs;
 
 #[test]
@@ -16,7 +17,7 @@ fn relocation_moves_the_primary_and_the_next_sync_uses_it() {
         ],
     );
     let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
     let opener = Opener::new(vec![(PRIMARY, Some(first.clone()))]);
     let synced = store
         .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {
@@ -57,7 +58,7 @@ fn relocation_to_the_same_primary_is_ignored() {
         &[("relocation.json", &relocation_json(PRIMARY))],
     );
     let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
     let opener = Opener::new(vec![(PRIMARY, Some(bytes))]);
     let synced = store
         .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {
@@ -80,7 +81,7 @@ fn invalid_declared_sources_refuse_the_revision() {
     ];
     for (index, target) in invalid_relocations.iter().enumerate() {
         let state = temp.path().join(format!("relocation-state-{index}"));
-        let store = BucketStore::new(&state);
+        let store = BucketStore::new(&ManagerRoots::new(&state, None));
         let bytes = signed_zip(
             temp.path(),
             &format!("relocation-{index}"),
@@ -119,7 +120,7 @@ fn invalid_declared_sources_refuse_the_revision() {
     ];
     for (index, mirrors) in invalid_mirrors.iter().enumerate() {
         let state = temp.path().join(format!("mirrors-state-{index}"));
-        let store = BucketStore::new(&state);
+        let store = BucketStore::new(&ManagerRoots::new(&state, None));
         let bytes = signed_zip(
             temp.path(),
             &format!("mirrors-{index}"),
@@ -150,7 +151,7 @@ fn invalid_declared_sources_keep_the_previous_registration() {
         &[("mirrors.json", &mirrors_json(&[MIRROR]))],
     );
     let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
     let opener = Opener::new(vec![(PRIMARY, Some(first))]);
     store
         .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {

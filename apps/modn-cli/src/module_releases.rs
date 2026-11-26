@@ -2,16 +2,13 @@ use crate::commands::ModuleCommand;
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{local_bucket_module_refusal, BucketStore, ModuleTrustState};
 use modn_core::game_modules::{ModuleRegistry, ModuleSource, ReleaseOutcome};
+use modn_core::manager_roots::ManagerRoots;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::path::Path;
 
-pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) -> Result<()> {
-    let data = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    crate::modules::validate_registry_writes(state_path, data)?;
-    let registry = ModuleRegistry::new(data);
+pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: bool) -> Result<()> {
+    crate::state_access::validate_write_targets(roots, None)?;
+    let registry = ModuleRegistry::new(roots);
     match command {
         ModuleCommand::Pin { game } => {
             let pin = registry.pin(&game)?;
@@ -39,7 +36,7 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
                 println!("Unpinned game module {game}; updates and rollback may move it again.");
             }
         }
-        ModuleCommand::Update { game } => update(&registry, data, &game, json_output)?,
+        ModuleCommand::Update { game } => update(&registry, roots, &game, json_output)?,
         ModuleCommand::Rollback { game, to } => {
             rollback(&registry, &game, to.as_deref(), json_output)?;
         }
@@ -55,7 +52,7 @@ pub(super) fn run(command: ModuleCommand, state_path: &Path, json_output: bool) 
 
 fn update(
     registry: &ModuleRegistry,
-    store_root: &Path,
+    roots: &ManagerRoots,
     game: &str,
     json_output: bool,
 ) -> Result<()> {
@@ -68,7 +65,7 @@ fn update(
             "game module {game} was registered from a local source; register the new version with `modn module register <directory> --trust`"
         );
     };
-    let store = BucketStore::new(store_root);
+    let store = BucketStore::new(roots);
     match store.module_trust(&bucket)? {
         ModuleTrustState::Trusted | ModuleTrustState::Main => {}
         ModuleTrustState::Untrusted => bail!(
@@ -143,12 +140,9 @@ fn rollback(
     Ok(())
 }
 
-pub(super) fn list(data: &Path, state_path: &Path, json_output: bool) -> Result<()> {
-    let registry = ModuleRegistry::new(data);
-    let store_root = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    let store = BucketStore::new(store_root);
+pub(super) fn list(roots: &ManagerRoots, json_output: bool) -> Result<()> {
+    let registry = ModuleRegistry::new(roots);
+    let store = BucketStore::new(roots);
     let mut trust = BTreeMap::new();
     let mut entries = Vec::new();
     let mut lines = Vec::new();

@@ -8,7 +8,6 @@ use modn_core::buckets::{
     catalog_statement, BucketStore, CatalogPublicKey, GitCatalogSource, GitCatalogSync,
     ModuleTrustAck,
 };
-use modn_core::data_dir;
 use modn_core::game_modules::{ModuleRegistry, ReleaseOutcome};
 use serde_json::json;
 use std::fs;
@@ -167,14 +166,14 @@ fn write_both(catalog: &Catalog, version: &str) {
 }
 
 fn active_version(data: &Path, game: &str) -> Option<String> {
-    ModuleRegistry::new(data)
+    ModuleRegistry::new(&main_bucket::roots(data))
         .active(game)
         .expect("active release")
         .map(|release| release.module.version)
 }
 
 fn retained_versions(data: &Path, game: &str) -> Vec<(String, bool)> {
-    ModuleRegistry::new(data)
+    ModuleRegistry::new(&main_bucket::roots(data))
         .releases(game)
         .expect("releases")
         .iter()
@@ -236,9 +235,9 @@ fn synchronize(store: &BucketStore) -> GitCatalogSync {
 
 #[test]
 fn failed_commit_restores_registry_and_next_sync_activates_v2() {
-    main_bucket::seeded(|| {
-        let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+    main_bucket::seeded_roots(|roots| {
+        let data = roots.data();
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         catalog.trust(&store);
@@ -246,15 +245,12 @@ fn failed_commit_restores_registry_and_next_sync_activates_v2() {
         catalog.sign_and_commit("v1");
         let synced = synchronize(&store);
         assert_eq!(synced.modules.imported.len(), 2);
-        assert_eq!(
-            active_version(&data, "alpha-game").as_deref(),
-            Some("1.0.0")
-        );
-        assert_eq!(active_version(&data, "beta-game").as_deref(), Some("1.0.0"));
+        assert_eq!(active_version(data, "alpha-game").as_deref(), Some("1.0.0"));
+        assert_eq!(active_version(data, "beta-game").as_deref(), Some("1.0.0"));
 
         write_both(&catalog, "2.0.0");
         catalog.sign_and_commit("v2");
-        block_active_switch(&data, "beta-game");
+        block_active_switch(data, "beta-game");
         let error = format!(
             "{:#}",
             store
@@ -264,21 +260,18 @@ fn failed_commit_restores_registry_and_next_sync_activates_v2() {
         assert!(error.contains("registry was restored"), "{error}");
         assert!(error.contains("beta-game"), "{error}");
 
+        assert_eq!(active_version(data, "alpha-game").as_deref(), Some("1.0.0"));
+        assert_eq!(active_version(data, "beta-game").as_deref(), Some("1.0.0"));
         assert_eq!(
-            active_version(&data, "alpha-game").as_deref(),
-            Some("1.0.0")
-        );
-        assert_eq!(active_version(&data, "beta-game").as_deref(), Some("1.0.0"));
-        assert_eq!(
-            retained_versions(&data, "alpha-game"),
+            retained_versions(data, "alpha-game"),
             vec![("1.0.0".to_owned(), true)]
         );
         assert_eq!(
-            retained_versions(&data, "beta-game"),
+            retained_versions(data, "beta-game"),
             vec![("1.0.0".to_owned(), true)]
         );
 
-        unblock_active_switch(&data, "beta-game");
+        unblock_active_switch(data, "beta-game");
         let synced = synchronize(&store);
         assert_eq!(synced.modules.imported.len(), 2);
         assert_eq!(
@@ -290,17 +283,14 @@ fn failed_commit_restores_registry_and_next_sync_activates_v2() {
                 .collect::<Vec<_>>(),
             vec![ReleaseOutcome::Imported, ReleaseOutcome::Imported]
         );
+        assert_eq!(active_version(data, "alpha-game").as_deref(), Some("2.0.0"));
+        assert_eq!(active_version(data, "beta-game").as_deref(), Some("2.0.0"));
         assert_eq!(
-            active_version(&data, "alpha-game").as_deref(),
-            Some("2.0.0")
-        );
-        assert_eq!(active_version(&data, "beta-game").as_deref(), Some("2.0.0"));
-        assert_eq!(
-            retained_versions(&data, "alpha-game"),
+            retained_versions(data, "alpha-game"),
             vec![("1.0.0".to_owned(), false), ("2.0.0".to_owned(), true)]
         );
         assert_eq!(
-            retained_versions(&data, "beta-game"),
+            retained_versions(data, "beta-game"),
             vec![("1.0.0".to_owned(), false), ("2.0.0".to_owned(), true)]
         );
     });
@@ -308,9 +298,9 @@ fn failed_commit_restores_registry_and_next_sync_activates_v2() {
 
 #[test]
 fn deliberate_rollback_survives_unchanged_catalog_sync() {
-    main_bucket::seeded(|| {
-        let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+    main_bucket::seeded_roots(|roots| {
+        let data = roots.data();
+        let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(data, None));
         let catalog = Catalog::new();
         catalog.sync(&store);
         catalog.trust(&store);
@@ -320,12 +310,9 @@ fn deliberate_rollback_survives_unchanged_catalog_sync() {
         write_both(&catalog, "2.0.0");
         catalog.sign_and_commit("v2");
         synchronize(&store);
-        assert_eq!(
-            active_version(&data, "alpha-game").as_deref(),
-            Some("2.0.0")
-        );
+        assert_eq!(active_version(data, "alpha-game").as_deref(), Some("2.0.0"));
 
-        ModuleRegistry::new(&data)
+        ModuleRegistry::new(roots)
             .rollback("alpha-game", Some("1.0.0"))
             .expect("rollback");
         let synced = synchronize(&store);
@@ -335,13 +322,10 @@ fn deliberate_rollback_survives_unchanged_catalog_sync() {
             .imported
             .iter()
             .all(|report| report.outcome == ReleaseOutcome::Unchanged));
+        assert_eq!(active_version(data, "alpha-game").as_deref(), Some("1.0.0"));
+        assert_eq!(active_version(data, "beta-game").as_deref(), Some("2.0.0"));
         assert_eq!(
-            active_version(&data, "alpha-game").as_deref(),
-            Some("1.0.0")
-        );
-        assert_eq!(active_version(&data, "beta-game").as_deref(), Some("2.0.0"));
-        assert_eq!(
-            retained_versions(&data, "alpha-game"),
+            retained_versions(data, "alpha-game"),
             vec![("1.0.0".to_owned(), true), ("2.0.0".to_owned(), false)]
         );
     });

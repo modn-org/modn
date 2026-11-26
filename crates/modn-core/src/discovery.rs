@@ -1,4 +1,5 @@
 use crate::game_modules::policy;
+use crate::manager_roots::ManagerRoots;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -17,11 +18,15 @@ pub struct Candidate {
 }
 
 /// Validate an installation against a runtime-selected game's Lua policy.
-pub fn validate_installation_for(game_id: &str, path: &Path) -> Result<PathBuf> {
+pub fn validate_installation_for(
+    roots: &ManagerRoots,
+    game_id: &str,
+    path: &Path,
+) -> Result<PathBuf> {
     let canonical = path
         .canonicalize()
         .with_context(|| format!("cannot access game directory {}", path.display()))?;
-    let (valid, marker) = policy::validate(game_id, &canonical)?;
+    let (valid, marker) = policy::validate(roots, game_id, &canonical)?;
     if !valid {
         bail!("{} does not contain {}", canonical.display(), marker);
     }
@@ -32,7 +37,11 @@ pub fn validate_installation_for(game_id: &str, path: &Path) -> Result<PathBuf> 
 ///
 /// Use for manager-state write boundaries: a missing or broken selected policy
 /// must fail closed, while a valid policy may return false for other directories.
-pub fn recognizes_installation_for(game_id: &str, path: &Path) -> Result<bool> {
+pub fn recognizes_installation_for(
+    roots: &ManagerRoots,
+    game_id: &str,
+    path: &Path,
+) -> Result<bool> {
     let canonical = path.canonicalize()?;
-    Ok(policy::validate(game_id, &canonical)?.0)
+    Ok(policy::validate(roots, game_id, &canonical)?.0)
 }

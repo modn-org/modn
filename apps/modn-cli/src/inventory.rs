@@ -1,17 +1,18 @@
 use crate::state_access::{InstallationAccess, ManagerState};
 use anyhow::Result;
 use modn_core::inventory::{doctor_with_ownership_for, scan_with_ownership_for};
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::scan::{IntegrityStatus, ScanRoot};
 use modn_core::state::Store;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn selected_store(
+    roots: &ManagerRoots,
     path: Option<PathBuf>,
-    state_path: &Path,
     requested: Option<&str>,
 ) -> Result<(Store, String, PathBuf)> {
-    let selected = ManagerState::load(state_path)?
-        .for_installation(path, requested)?
+    let selected = ManagerState::load(roots)?
+        .for_installation(roots, path, requested)?
         .open(InstallationAccess::Write)?;
     Ok((
         selected.store.expect("write access opens manager state"),
@@ -22,12 +23,12 @@ fn selected_store(
 
 pub(super) fn scan(
     path: Option<PathBuf>,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let (store, game_id, path) = selected_store(path, state_path, requested)?;
-    let report = scan_with_ownership_for(&store, &game_id, &path)?;
+    let (store, game_id, path) = selected_store(roots, path, requested)?;
+    let report = scan_with_ownership_for(roots, &store, &game_id, &path)?;
     if report.incomplete {
         eprintln!("warning: modn scan incomplete (see doctor diagnostics)");
     }
@@ -87,12 +88,12 @@ pub(super) fn scan(
 
 pub(super) fn doctor(
     path: Option<PathBuf>,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    let (store, game_id, path) = selected_store(path, state_path, requested)?;
-    let report = doctor_with_ownership_for(&store, &game_id, &path)?;
+    let (store, game_id, path) = selected_store(roots, path, requested)?;
+    let report = doctor_with_ownership_for(roots, &store, &game_id, &path)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());

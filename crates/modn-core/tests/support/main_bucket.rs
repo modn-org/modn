@@ -33,15 +33,43 @@ pub fn copy_main_module(source: &std::path::Path, target: &std::path::Path) {
     .expect("fixture invariant");
 }
 
+pub fn roots(data: &std::path::Path) -> modn_core::manager_roots::ManagerRoots {
+    modn_core::manager_roots::ManagerRoots::new(data, None)
+}
+
+pub fn roots_with_profile(
+    data: &std::path::Path,
+    profile: &std::path::Path,
+) -> modn_core::manager_roots::ManagerRoots {
+    modn_core::manager_roots::ManagerRoots::new(data, Some(profile))
+}
+
 pub fn seeded<T>(action: impl FnOnce() -> T) -> T {
+    let data = seeded_temp();
+    let _keep = data;
+    action()
+}
+
+pub fn seeded_roots<T>(action: impl FnOnce(&modn_core::manager_roots::ManagerRoots) -> T) -> T {
+    let data = seeded_temp();
+    action(&roots(data.path()))
+}
+
+pub fn seeded_data<T>(action: impl FnOnce(&std::path::Path) -> T) -> T {
+    let data = seeded_temp();
+    action(data.path())
+}
+
+pub fn isolated_profile<T>(action: impl FnOnce(&std::path::Path, &std::path::Path) -> T) -> T {
+    let data = seeded_temp();
+    let profile = tempfile::tempdir().expect("fixture invariant");
+    action(data.path(), profile.path())
+}
+
+fn seeded_temp() -> tempfile::TempDir {
     let temp = tempfile::tempdir().expect("fixture invariant");
     let target = temp.path().join("buckets/main");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main");
     copy_tree(&root, &target);
-    modn_core::data_dir::with_data_directory(temp.path(), action)
-}
-
-pub fn isolated_profile<T>(action: impl FnOnce(&std::path::Path) -> T) -> T {
-    let profile = tempfile::tempdir().expect("fixture invariant");
-    modn_core::data_dir::with_profile_directory(profile.path(), || action(profile.path()))
+    temp
 }

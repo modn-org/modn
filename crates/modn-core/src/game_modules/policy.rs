@@ -1,6 +1,7 @@
 use super::capabilities::{AllowedRoots, ReadProfile};
 use super::resolver::read_policy;
 use super::runtime;
+use crate::manager_roots::ManagerRoots;
 use crate::planning::{RequestedFile, RequestedPlan};
 use crate::scan::{DetectedMod, Diagnostic, FrameworkSignal, ScanReport, ScanRoot};
 
@@ -11,34 +12,44 @@ use std::path::{Component, Path, PathBuf};
 const MAX_ITEMS: usize = 20_000;
 
 fn evaluate<T>(
+    roots: &ManagerRoots,
     game_id: &str,
-    roots: &[PathBuf],
+    allowed: &[PathBuf],
     action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
-    evaluate_hiding(game_id, roots, &[], action)
+    evaluate_hiding(roots, game_id, allowed, &[], action)
 }
 
 fn evaluate_hiding<T>(
+    roots: &ManagerRoots,
     game_id: &str,
-    roots: &[PathBuf],
+    allowed: &[PathBuf],
     replaced: &[String],
     action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
-    evaluate_with_profile(game_id, roots, ReadProfile::Standard, replaced, action)
+    evaluate_with_profile(
+        roots,
+        game_id,
+        allowed,
+        ReadProfile::Standard,
+        replaced,
+        action,
+    )
 }
 
 fn evaluate_with_profile<T>(
+    roots: &ManagerRoots,
     game_id: &str,
-    roots: &[PathBuf],
+    allowed: &[PathBuf],
     profile: ReadProfile,
     replaced: &[String],
     action: impl FnOnce(&Lua, Table) -> mlua::Result<T>,
 ) -> Result<T> {
-    let (manifest, source) = read_policy(game_id)?;
+    let (manifest, source) = read_policy(roots, game_id)?;
     if manifest.game_id != game_id {
         bail!("game module identity does not match requested game");
     }
-    let roots = AllowedRoots::validate(roots)?.hiding_replaced(replaced);
+    let roots = AllowedRoots::validate(allowed)?.hiding_replaced(replaced);
     runtime::evaluate(
         &source,
         &manifest.entrypoint,
@@ -62,8 +73,8 @@ fn evaluate_with_profile<T>(
     )
 }
 
-pub(crate) fn validate(game_id: &str, root: &Path) -> Result<(bool, String)> {
-    evaluate(game_id, &[root.to_path_buf()], |_, policy| {
+pub(crate) fn validate(roots: &ManagerRoots, game_id: &str, root: &Path) -> Result<(bool, String)> {
+    evaluate(roots, game_id, &[root.to_path_buf()], |_, policy| {
         let valid: bool = policy.get::<Function>("validate")?.call(())?;
         let marker: String = policy.get("marker")?;
         Ok((valid, marker))
@@ -180,25 +191,33 @@ fn decode_scan(
 }
 
 pub(crate) fn scan(
+    roots: &ManagerRoots,
     game_id: &str,
     root: &Path,
     content_root: Option<&Path>,
     limit: usize,
 ) -> Result<ScanReport> {
     let canonical = root.canonicalize()?;
-    let mut roots = vec![canonical.clone()];
+    let mut allowed = vec![canonical.clone()];
     if let Some(content_root) = content_root {
-        roots.push(content_root.to_path_buf());
+        allowed.push(content_root.to_path_buf());
     }
-    evaluate_with_profile(game_id, &roots, ReadProfile::Scan, &[], |_, policy| {
-        let scan: Function = policy.get("scan")?;
-        let report: Table = scan.call(limit.min(MAX_ITEMS))?;
-        decode_scan(&canonical, content_root, game_id, report)
-    })
+    evaluate_with_profile(
+        roots,
+        game_id,
+        &allowed,
+        ReadProfile::Scan,
+        &[],
+        |_, policy| {
+            let scan: Function = policy.get("scan")?;
+            let report: Table = scan.call(limit.min(MAX_ITEMS))?;
+            decode_scan(&canonical, content_root, game_id, report)
+        },
+    )
 }
 
-pub(crate) fn diagnose(report: &ScanReport) -> Result<Vec<Diagnostic>> {
-    evaluate(&report.game_id, &[], |lua, policy| {
+pub(crate) fn diagnose(roots: &ManagerRoots, report: &ScanReport) -> Result<Vec<Diagnostic>> {
+    evaluate(roots, &report.game_id, &[], |lua, policy| {
         let input = lua.create_table()?;
         input.set("incomplete", report.incomplete)?;
         let issues = lua.create_table()?;
@@ -281,6 +300,7 @@ fn plan_field(
 }
 
 pub(crate) fn plan(
+    roots: &ManagerRoots,
     game_id: &str,
     root: &Path,
     inspection: &crate::archive::Inspection,
@@ -289,7 +309,7 @@ pub(crate) fn plan(
 ) -> Result<RequestedPlan> {
     const MAX_PROPOSALS: usize = 2_048;
     let root = root.canonicalize()?;
-    let (manifest, _) = read_policy(game_id)?;
+    let (manifest, _) = read_policy(roots, game_id)?;
     let content_root = match &manifest.content_root {
         Some(spec) => {
             let base = appdata.context(
@@ -311,7 +331,7 @@ pub(crate) fn plan(
             content_root,
         });
     }
-    evaluate_hiding(game_id, &[root], replaced, |lua, policy| {
+    evaluate_hiding(roots, game_id, &[root], replaced, |lua, policy| {
         let input = lua.create_table()?;
         for (index, file) in inspection.files.iter().enumerate() {
             let entry = lua.create_table()?;

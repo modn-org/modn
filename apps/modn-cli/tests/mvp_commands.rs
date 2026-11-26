@@ -3,6 +3,7 @@ mod git_command;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 
+use modn_core::manager_roots::ManagerRoots;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -143,7 +144,8 @@ fn git_sync_reports_revision_and_preserves_catalog_on_invalid_update() {
         "invalid",
     ]);
     assert!(!cli(temp.path(), &args).status.success());
-    let store = modn_core::buckets::BucketStore::new(&temp.path().join("modn"));
+    let store =
+        modn_core::buckets::BucketStore::new(&ManagerRoots::new(&temp.path().join("modn"), None));
     assert_eq!(
         store.git_revision("community").unwrap().unwrap().commit,
         commit

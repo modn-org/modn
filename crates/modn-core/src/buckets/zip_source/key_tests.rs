@@ -5,6 +5,7 @@ use super::tests::{
     sign_bytes, signing_key, write_catalog, write_revocation_statement, write_rotation,
 };
 use crate::buckets::{catalog_statement, BucketStore, ZipCatalogSource};
+use modn_core::manager_roots::ManagerRoots;
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::Path;
@@ -20,7 +21,7 @@ fn first_sync_with_revocation_key(
     fs::write(catalog.join("revocation.pub"), &revocation.text).expect("revocation key");
     write_catalog(catalog, mirror, signer);
     let first = pack_catalog(catalog);
-    let store = BucketStore::new(state);
+    let store = BucketStore::new(&ManagerRoots::new(state, None));
     store
         .sync_zip_with_signer(
             "community",
@@ -65,7 +66,7 @@ fn mirror_revocation_with_a_swapped_catalog_public_key_is_refused() {
     .expect("replacement signature");
     let rotated = pack_catalog(catalog.path());
 
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let error = store
         .sync_zip_with_signer("community", None, move |source| {
             if source.url == primary {
@@ -92,7 +93,7 @@ fn ordinary_sync_with_a_swapped_catalog_public_key_is_refused() {
     let source = "https://primary.example/catalog.zip";
     write_catalog(catalog.path(), source, &pinned);
     let first = pack_catalog(catalog.path());
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_zip_with_signer(
             "community",
@@ -144,7 +145,7 @@ fn reformatted_catalog_public_key_with_the_same_bytes_is_accepted() {
     let source = "https://primary.example/catalog.zip";
     write_catalog(catalog.path(), source, &old);
     let first = pack_catalog(catalog.path());
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_zip_with_signer(
             "community",

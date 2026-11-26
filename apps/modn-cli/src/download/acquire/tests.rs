@@ -2,8 +2,8 @@ use super::download_into;
 use crate::download::{TEST_CALLS, TEST_RESPONSES};
 use modn_core::acquisition::{CacheUse, NexusApiKey, NexusFile, SourceAttempt};
 use modn_core::buckets::{BucketPackage, BucketStore};
-use modn_core::data_dir;
 use modn_core::error::{code_of, ErrorCode};
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::progress::{CancellationToken, OperationControl};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -57,7 +57,8 @@ fn package(root: &Path, digest: &str, sources: serde_json::Value) -> BucketPacka
         .expect("manifest JSON"),
     )
     .expect("manifest");
-    data_dir::with_data_directory(root, || BucketStore::new(root).packages(Some("test-game")))
+    BucketStore::new(&ManagerRoots::new(root, None))
+        .packages(Some("test-game"))
         .expect("packages")
         .into_iter()
         .next()
@@ -130,7 +131,7 @@ fn acquire_with_served(
     String,
     BTreeMap<String, modn_core::buckets::PackageSource>,
 ) {
-    let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
+    let cache = modn_core::acquisition::ArchiveCache::new(root.join("cache"));
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();
@@ -415,7 +416,7 @@ fn a_dry_run_cache_probe_reuses_a_secondary_nexus_archive() {
     let package = two_nexus_sources(&root, &digest);
     seed_cache(&root, &second_cache_url(), &bytes);
     TEST_CALLS.with(|calls| calls.borrow_mut().clear());
-    let cache = crate::download::cache_for(&root.join("state.sqlite")).expect("cache");
+    let cache = modn_core::acquisition::ArchiveCache::new(root.join("cache"));
     let mut archives = BTreeMap::new();
     let mut digests = BTreeMap::new();
     let mut served = BTreeMap::new();

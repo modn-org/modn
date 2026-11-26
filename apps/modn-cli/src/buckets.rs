@@ -1,48 +1,15 @@
 use crate::commands::BucketCommand;
-use crate::state_access::{validate_state_path, ManagerState};
+use crate::state_access::validate_write_targets;
 use anyhow::{bail, Context, Result};
 use modn_core::buckets::{
     local_bucket_module_refusal, BucketStore, CatalogKeyChange, CatalogModuleReport, CatalogSigner,
     CatalogSyncTrace, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason, ModuleTrustAck,
     ModuleTrustState, ZipCatalogSource, ZipCatalogSync,
 };
-use modn_core::state::Store;
+use modn_core::manager_roots::ManagerRoots;
 use serde_json::Value;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
-
-pub(super) fn validate_registry_write(
-    state_path: &Path,
-    root: &Path,
-    store: &BucketStore,
-    game: Option<&str>,
-) -> Result<()> {
-    let state = ManagerState::load_deferred(state_path)?;
-    let registered = state
-        .existing()
-        .map(Store::list)
-        .transpose()?
-        .unwrap_or_default();
-    let roots = registered
-        .into_iter()
-        .map(|game| game.path)
-        .collect::<Vec<_>>();
-    let mut games = store.official_games()?;
-    if let Some(game) = game {
-        games.push(game.to_owned());
-    }
-    games.sort();
-    games.dedup();
-    let registry_target = root.join("buckets/registrations/.bucket-entry.json");
-    if games.is_empty() {
-        validate_state_path(&registry_target, None, None, &roots)?;
-    }
-    for game in games {
-        validate_state_path(&registry_target, Some(&game), None, &roots)?;
-    }
-    Ok(())
-}
 
 pub(super) fn sync_catalog(
     store: &BucketStore,
@@ -336,14 +303,11 @@ fn untrust_modules(store: &BucketStore, bucket: &str, json_output: bool) -> Resu
 
 pub(super) fn run(
     command: BucketCommand,
-    state_path: &Path,
+    roots: &ManagerRoots,
     json_output: bool,
     game: Option<&str>,
 ) -> Result<()> {
-    let root = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    let store = BucketStore::new(root);
+    let store = BucketStore::new(roots);
     if matches!(
         &command,
         BucketCommand::Add { .. }
@@ -352,7 +316,7 @@ pub(super) fn run(
             | BucketCommand::TrustModules { .. }
             | BucketCommand::UntrustModules { .. }
     ) {
-        validate_registry_write(state_path, root, &store, game)?;
+        validate_write_targets(roots, game)?;
     }
     let value: Value = match command {
         BucketCommand::Sync {
@@ -386,7 +350,7 @@ pub(super) fn run(
             return untrust_modules(&store, &bucket, json_output);
         }
         BucketCommand::Update { name } => {
-            return crate::bucket_update::run(name.as_deref(), json_output);
+            return crate::bucket_update::run(name.as_deref(), roots, json_output);
         }
         BucketCommand::Add { name, path } => serde_json::to_value(store.add(&name, &path)?)?,
         BucketCommand::Remove { name } => {
@@ -463,14 +427,11 @@ fn command_description(value: &Value) -> Option<Vec<String>> {
 
 pub(super) fn search(
     query: Option<&str>,
-    state_path: &Path,
+    roots: &ManagerRoots,
     json_output: bool,
     game: Option<&str>,
 ) -> Result<()> {
-    let root = state_path
-        .parent()
-        .context("invalid manager state directory")?;
-    let catalog = BucketStore::new(root);
+    let catalog = BucketStore::new(roots);
     let needle = query.unwrap_or("").to_lowercase();
     let matches: Vec<_> = catalog
         .packages(game)?

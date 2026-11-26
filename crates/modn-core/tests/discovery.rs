@@ -15,7 +15,7 @@ fn game_at(path: &std::path::Path) {
 
 #[test]
 fn steam_library_and_manifest_are_detected() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
         let steam = temp.path().join("Steam");
         let library = temp.path().join("OtherLibrary");
@@ -39,7 +39,7 @@ fn steam_library_and_manifest_are_detected() {
         )
         .unwrap();
         let libraries = StoreLibraries::new(vec![steam], Vec::new(), Vec::new());
-        let detection = detect_installations(&libraries, &["cyberpunk-2077".to_owned()]);
+        let detection = detect_installations(roots, &libraries, &["cyberpunk-2077".to_owned()]);
         assert_eq!(detection.confirmed.len(), 1);
         assert_eq!(detection.confirmed[0].store, Storefront::Steam);
         assert_eq!(detection.confirmed[0].path, game.canonicalize().unwrap());
@@ -48,7 +48,7 @@ fn steam_library_and_manifest_are_detected() {
 
 #[test]
 fn epic_manifest_is_detected_and_deduplicated() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
         let manifests = temp.path().join("manifests");
         let game = temp.path().join("Cyberpunk 2077");
@@ -66,7 +66,7 @@ fn epic_manifest_is_detected_and_deduplicated() {
             .unwrap();
         }
         let libraries = StoreLibraries::new(Vec::new(), vec![manifests], Vec::new());
-        let detection = detect_installations(&libraries, &["cyberpunk-2077".to_owned()]);
+        let detection = detect_installations(roots, &libraries, &["cyberpunk-2077".to_owned()]);
         assert_eq!(detection.confirmed.len(), 1);
         assert_eq!(detection.confirmed[0].store, Storefront::Epic);
     });
@@ -74,26 +74,26 @@ fn epic_manifest_is_detected_and_deduplicated() {
 
 #[test]
 fn invalid_game_is_rejected() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
-        assert!(validate_installation_for("cyberpunk-2077", temp.path()).is_err());
+        assert!(validate_installation_for(roots, "cyberpunk-2077", temp.path()).is_err());
     });
 }
 
 #[test]
 fn registration_persists_without_touching_game() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
         let game = temp.path().join("game");
         game_at(&game);
         let state = temp.path().join("state/mod.sqlite");
-        let game_path = validate_installation_for("cyberpunk-2077", &game).unwrap();
+        let game_path = validate_installation_for(roots, "cyberpunk-2077", &game).unwrap();
         let store = Store::open(&state).unwrap();
         store
-            .add_game("cyberpunk-2077", &game_path, "manual")
+            .add_game(roots, "cyberpunk-2077", &game_path, "manual")
             .unwrap();
         store
-            .add_game("cyberpunk-2077", &game_path, "manual")
+            .add_game(roots, "cyberpunk-2077", &game_path, "manual")
             .unwrap();
         drop(store);
         let entries = Store::open(&state).unwrap().list().unwrap();

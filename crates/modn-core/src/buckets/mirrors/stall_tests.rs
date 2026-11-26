@@ -4,6 +4,7 @@ use super::CatalogHost;
 use crate::buckets::git::tests as fixtures;
 use crate::buckets::git::GitCatalogSource;
 use crate::buckets::BucketStore;
+use modn_core::manager_roots::ManagerRoots;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -97,7 +98,7 @@ fn registered() -> Registered {
     let mirror = fixtures::remote("1.0", key);
     let temp = tempfile::tempdir().expect("temp");
     let state = temp.path().join("state");
-    let store = BucketStore::new(&state);
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
     store
         .sync_git("community", Some(fixtures::source(&primary)))
         .expect("the first sync registers the primary");

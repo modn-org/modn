@@ -2,6 +2,7 @@ use super::{git, BucketStore, GitCatalogSource};
 use crate::buckets::{catalog_statement, CatalogPublicKey};
 use fs2::FileExt;
 use minisign::KeyPair;
+use modn_core::manager_roots::ManagerRoots;
 use std::fs::{self, OpenOptions};
 use std::io::Cursor;
 use std::path::Path;
@@ -126,7 +127,7 @@ fn signed_sync_pins_signer_and_tracks_later_pinned_revisions() {
     let remote = remote("1", test_key());
     let key_id = remote.key.public.key_id().to_string();
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let first_source = source(&remote);
 
     let first = store
@@ -191,7 +192,7 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
     let remote = remote("1", test_key());
     let new_key = test_key();
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let first = store
         .sync_git_with_signer("community", Some(source(&remote)))
         .unwrap();
@@ -243,7 +244,7 @@ fn unsigned_first_sync_is_refused_without_a_registration() {
     fs::remove_file(remote.directory.path().join("catalog.pub")).unwrap();
     commit(remote.directory.path(), "unsigned");
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let remote_source = source(&remote);
     let label = crate::buckets::CatalogHost::from(&remote_source).label();
     let error = store
@@ -266,7 +267,7 @@ fn first_sync_requires_both_signature_and_public_key() {
     fs::remove_file(remote.directory.path().join("catalog.sig")).unwrap();
     commit(remote.directory.path(), "public key only");
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let error = store
         .sync_git_with_signer("community", Some(source(&remote)))
         .unwrap_err()
@@ -295,7 +296,7 @@ fn invalid_signature_is_refused_at_first_and_later_sync() {
     .unwrap();
     commit(tampered.directory.path(), "tampered before first sync");
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let error = store
         .sync_git_with_signer("community", Some(source(&tampered)))
         .unwrap_err()
@@ -344,7 +345,7 @@ fn invalid_signature_is_refused_at_first_and_later_sync() {
 fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
     let remote = remote("1", test_key());
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let first = store
         .sync_git_with_signer("community", Some(source(&remote)))
         .unwrap();
@@ -393,7 +394,7 @@ fn unsigned_later_revision_is_refused_and_preserves_the_published_copy() {
 fn registration_without_a_signer_pin_is_refused() {
     let remote = remote("1", test_key());
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let first_source = source(&remote);
     store
         .sync_git_with_signer("community", Some(first_source.clone()))
@@ -428,7 +429,7 @@ fn registration_without_a_signer_pin_is_refused() {
 fn sync_waits_for_a_short_held_lock() {
     let remote = remote("1", test_key());
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     fs::create_dir_all(state.path().join("buckets")).unwrap();
     let lock = OpenOptions::new()
         .create(true)
@@ -452,7 +453,7 @@ fn sync_waits_for_a_short_held_lock() {
 fn sync_reports_already_running_while_the_lock_stays_held() {
     let remote = remote("1", test_key());
     let state = tempfile::tempdir().unwrap();
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     fs::create_dir_all(state.path().join("buckets")).unwrap();
     let lock = OpenOptions::new()
         .create(true)

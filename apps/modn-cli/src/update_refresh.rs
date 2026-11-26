@@ -2,10 +2,11 @@ use crate::bucket_update;
 use crate::buckets;
 use crate::commands::UpdateArgs;
 use crate::main_release::UnsupportedRelease;
+use crate::state_access::validate_write_targets;
 use anyhow::{bail, Result};
 use modn_core::buckets::{BucketStore, CatalogKeyChange, GitCatalogSync, ZipCatalogSync};
+use modn_core::manager_roots::ManagerRoots;
 use serde_json::{json, Value};
-use std::path::Path;
 
 const LOCAL_SKIP: &str = "local folder bucket has nothing to fetch";
 
@@ -170,8 +171,8 @@ fn refuse_target_options(args: &UpdateArgs, requested: Option<&str>) -> Result<(
     Ok(())
 }
 
-fn main_refresh() -> Refresh {
-    match bucket_update::refresh() {
+fn main_refresh(roots: &ManagerRoots) -> Refresh {
+    match bucket_update::refresh(roots) {
         Ok(refreshed) => Refresh::main(Ok(Detail::Main {
             changed: refreshed.changed,
             key_id: refreshed.key_id.to_string(),
@@ -234,18 +235,10 @@ fn zip_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
 fn key_change_suffix(change: Option<&CatalogKeyChange>) -> String {
     change.map_or_else(String::new, |change| format!(", {}", change.line()))
 }
-fn catalog_refreshes(state_path: &Path, json: bool) -> Vec<Refresh> {
-    let mut refreshes = vec![main_refresh()];
-    let Some(root) = state_path.parent() else {
-        refreshes.push(Refresh {
-            name: "registrations".into(),
-            kind: "registry",
-            outcome: Err("invalid manager state directory".into()),
-        });
-        return refreshes;
-    };
-    let store = BucketStore::new(root);
-    if let Err(error) = buckets::validate_registry_write(state_path, root, &store, None) {
+fn catalog_refreshes(roots: &ManagerRoots, json: bool) -> Vec<Refresh> {
+    let mut refreshes = vec![main_refresh(roots)];
+    let store = BucketStore::new(roots);
+    if let Err(error) = validate_write_targets(roots, None) {
         refreshes.push(Refresh {
             name: "registrations".into(),
             kind: "registry",
@@ -280,12 +273,12 @@ fn catalog_refreshes(state_path: &Path, json: bool) -> Vec<Refresh> {
 
 pub(super) fn run(
     args: &UpdateArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
 ) -> Result<()> {
     refuse_target_options(args, requested)?;
-    let refreshes = catalog_refreshes(state_path, json);
+    let refreshes = catalog_refreshes(roots, json);
     let failed = refreshes
         .iter()
         .filter(|refresh| refresh.outcome.is_err())

@@ -220,11 +220,17 @@ fn issue(issues: &mut Vec<PlanIssue>, code: &str, value: impl Into<String>) {
 }
 /// Resolve untrusted module mappings into a read-only preview. Tool
 /// executable permissions must come from a trusted caller, never from Lua.
-pub fn resolve(game_id: &str, inspection: &Inspection, game: &Path) -> anyhow::Result<InstallPlan> {
-    resolve_with_permissions(game_id, inspection, game, &[], &[], None)
+pub fn resolve(
+    roots: &crate::manager_roots::ManagerRoots,
+    game_id: &str,
+    inspection: &Inspection,
+    game: &Path,
+) -> anyhow::Result<InstallPlan> {
+    resolve_with_permissions(roots, game_id, inspection, game, &[], &[], None)
 }
 
 pub(crate) fn resolve_with_permissions(
+    roots: &crate::manager_roots::ManagerRoots,
     game_id: &str,
     inspection: &Inspection,
     game: &Path,
@@ -238,7 +244,7 @@ pub(crate) fn resolve_with_permissions(
     }
     let game = game.canonicalize()?;
     let proposed =
-        crate::game_modules::policy::plan(game_id, &game, inspection, replaced, appdata)?;
+        crate::game_modules::policy::plan(roots, game_id, &game, inspection, replaced, appdata)?;
     let (content_base, content_root) = proposed
         .content_root
         .as_ref()

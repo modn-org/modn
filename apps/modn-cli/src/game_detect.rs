@@ -2,10 +2,11 @@ use crate::state_access::{validate_state_path, ManagerState, ProtectedTarget};
 use anyhow::Result;
 use modn_core::detection::{detect_installations, DetectedInstallation, Detection};
 use modn_core::game_modules::available_games;
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use modn_core::stores::StoreLibraries;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Status {
@@ -25,17 +26,17 @@ impl Status {
 }
 
 pub(super) fn run(
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     register: bool,
     json: bool,
 ) -> Result<()> {
     let games = match requested {
         Some(game) => vec![game.to_owned()],
-        None => available_games()?,
+        None => available_games(roots)?,
     };
-    let detection = detect_installations(&StoreLibraries::system(), &games);
-    let state = ManagerState::load(state_path)?;
+    let detection = detect_installations(roots, &StoreLibraries::system(), &games);
+    let state = ManagerState::load(roots)?;
     let registered: Vec<PathBuf> = state
         .existing()
         .map(Store::list)
@@ -56,7 +57,7 @@ pub(super) fn run(
         })
         .collect();
     if register {
-        register_new(state, state_path, &registered, &detection, &mut statuses)?;
+        register_new(state, roots, &registered, &detection, &mut statuses)?;
     }
     if json {
         println!(
@@ -71,7 +72,7 @@ pub(super) fn run(
 
 fn register_new(
     state: ManagerState,
-    state_path: &Path,
+    roots: &ManagerRoots,
     registered: &[PathBuf],
     detection: &Detection,
     statuses: &mut [Status],
@@ -87,7 +88,8 @@ fn register_new(
     };
     for (_, found) in &new {
         validate_state_path(
-            state_path,
+            roots,
+            &roots.state_database(),
             Some(&found.game_id),
             Some(&found.path),
             registered,
@@ -98,7 +100,7 @@ fn register_new(
         root: Some(first.path.clone()),
     })?;
     for (index, found) in new {
-        store.add_game(&found.game_id, &found.path, found.store.as_str())?;
+        store.add_game(roots, &found.game_id, &found.path, found.store.as_str())?;
         statuses[index] = Status::Registered;
     }
     Ok(())

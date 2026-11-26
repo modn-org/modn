@@ -2,7 +2,7 @@ use super::{inspect, main_bucket, plan, setup_game, tempdir, zip_fixture, PlanSt
 
 #[test]
 fn redmod_package_requires_info_but_not_deployment_tools() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let dir = tempdir().unwrap();
         let game = dir.path().join("game");
         setup_game(&game, false);
@@ -17,7 +17,7 @@ fn redmod_package_requires_info_but_not_deployment_tools() {
         let inspection = inspect(&archive).unwrap();
         for tools_present in [false, true] {
             setup_game(&game, tools_present);
-            let report = plan(&inspection, &game);
+            let report = plan(roots, &inspection, &game);
             assert_eq!(
                 report.status,
                 PlanStatus::Reviewable,
@@ -63,7 +63,7 @@ fn redmod_package_requires_info_but_not_deployment_tools() {
 
         let missing = dir.path().join("missing-info.zip");
         zip_fixture(&missing, &[("mods/Sample/archives/test.archive", b"data")]);
-        let report = plan(&inspect(&missing).unwrap(), &game);
+        let report = plan(roots, &inspect(&missing).unwrap(), &game);
         assert_eq!(report.status, PlanStatus::Blocked);
         assert!(report
             .blockers

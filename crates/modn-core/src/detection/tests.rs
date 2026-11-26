@@ -1,5 +1,5 @@
 use super::detect_installations;
-use crate::game_modules::with_module_source;
+use crate::manager_roots::ManagerRoots;
 use crate::stores::{GogRecord, StoreLibraries, Storefront};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -63,9 +63,8 @@ fn confirms_each_store_folder_and_refuses_unrecognized_folders() {
         ],
     );
 
-    let detection = with_module_source(Some(&module), || {
-        detect_installations(&libraries, &["store-game".to_owned()])
-    });
+    let roots = ManagerRoots::new(temp.path(), None).with_development_modules(Some(module.clone()));
+    let detection = detect_installations(&roots, &libraries, &["store-game".to_owned()]);
 
     let confirmed: Vec<_> = detection
         .confirmed
@@ -98,12 +97,12 @@ fn reports_one_folder_once_and_skips_unreadable_modules() {
     };
     let libraries = StoreLibraries::new(Vec::new(), Vec::new(), vec![record.clone(), record]);
 
-    let detection = with_module_source(Some(&module), || {
-        detect_installations(
-            &libraries,
-            &["store-game".to_owned(), "other-game".to_owned()],
-        )
-    });
+    let roots = ManagerRoots::new(temp.path(), None).with_development_modules(Some(module.clone()));
+    let detection = detect_installations(
+        &roots,
+        &libraries,
+        &["store-game".to_owned(), "other-game".to_owned()],
+    );
 
     assert_eq!(detection.confirmed.len(), 1);
     assert_eq!(detection.confirmed[0].path, folder);

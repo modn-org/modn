@@ -239,7 +239,7 @@ impl BucketStore {
         name: &str,
         source: Option<GitCatalogSource>,
     ) -> Result<GitCatalogSync> {
-        self.check_registry_root()?;
+        Self::check_registry_root(&self.root)?;
         if !valid_id(name) || name == "main" {
             bail!("invalid or reserved Git catalog name");
         }
@@ -358,7 +358,7 @@ impl BucketStore {
         let registration_before = self.stored_registration_bytes(name)?;
         let staged = if trust == ModuleTrustState::Trusted {
             Some(stage_catalog_modules_at(
-                &crate::data_dir::profile_directory()?,
+                &self.roots,
                 name,
                 &revision.signer.key_id,
                 &catalog,

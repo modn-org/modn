@@ -8,7 +8,7 @@ use modn_core::buckets::{
     catalog_statement, key_statement_bytes, revocation_statement, rotation_statement, BucketStore,
     CatalogPublicKey, GitCatalogSource, KeyChangeKind, ModuleTrustAck,
 };
-use modn_core::data_dir;
+use modn_core::manager_roots::ManagerRoots;
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
@@ -195,24 +195,29 @@ fn next_key() -> (KeyPair, String, String) {
     (pair, public, key_id)
 }
 
-fn doctor_reports_untrusted() -> bool {
+fn doctor_reports_untrusted(roots: &ManagerRoots) -> bool {
     let root = tempfile::tempdir().expect("root");
     let installation = root.path().join("game");
     fs::create_dir_all(&installation).expect("installation");
     let store =
         modn_core::state::Store::open(&root.path().join("state/state.sqlite")).expect("state");
-    modn_core::inventory::doctor_with_ownership_appdata(&store, "fixture-game", &installation, None)
-        .expect("doctor")
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == "MODULE_SOURCE_UNTRUSTED")
+    modn_core::inventory::doctor_with_ownership_appdata(
+        roots,
+        &store,
+        "fixture-game",
+        &installation,
+        None,
+    )
+    .expect("doctor")
+    .diagnostics
+    .iter()
+    .any(|diagnostic| diagnostic.code == "MODULE_SOURCE_UNTRUSTED")
 }
 
 #[test]
 fn a_key_rotation_keeps_a_retained_module_release_usable() {
-    main_bucket::seeded(|| {
-        let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+    main_bucket::seeded_roots(|roots| {
+        let store = BucketStore::new(roots);
         let catalog = Catalog::new();
         catalog.write_module("1.0.0");
         catalog.publish("module");
@@ -220,7 +225,7 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
             .sync_git_with_signer("community", Some(catalog.source()))
             .expect("first sync");
         catalog.trust(&store, &catalog.key_id);
-        modn_core::game_modules::content_root_spec("fixture-game")
+        modn_core::game_modules::content_root_spec(roots, "fixture-game")
             .expect("module usable before rotation");
 
         let (next_pair, next_public, next_key_id) = next_key();
@@ -249,10 +254,10 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
             vec![catalog.key_id.clone()]
         );
 
-        modn_core::game_modules::content_root_spec("fixture-game")
+        modn_core::game_modules::content_root_spec(roots, "fixture-game")
             .expect("a rotation keeps the retained release usable");
         assert!(
-            !doctor_reports_untrusted(),
+            !doctor_reports_untrusted(roots),
             "doctor accepts a release kept under a previous signer"
         );
         let trusted = store.trusted_module_sources().expect("trusted sources");
@@ -264,9 +269,8 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
 
 #[test]
 fn a_revocation_keeps_the_revoked_release_untrusted() {
-    main_bucket::seeded(|| {
-        let data = data_dir::data_directory().expect("data");
-        let store = BucketStore::new(&data);
+    main_bucket::seeded_roots(|roots| {
+        let store = BucketStore::new(roots);
         let catalog = Catalog::new();
         let revocation = KeyPair::generate_unencrypted_keypair().expect("revocation key");
         catalog.pin_revocation_key(&revocation);
@@ -276,7 +280,7 @@ fn a_revocation_keeps_the_revoked_release_untrusted() {
             .sync_git_with_signer("community", Some(catalog.source()))
             .expect("first sync");
         catalog.trust(&store, &catalog.key_id);
-        modn_core::game_modules::content_root_spec("fixture-game")
+        modn_core::game_modules::content_root_spec(roots, "fixture-game")
             .expect("module usable before revocation");
 
         let (next_pair, next_public, next_key_id) = next_key();
@@ -312,18 +316,18 @@ fn a_revocation_keeps_the_revoked_release_untrusted() {
             revoked.key_change.expect("revocation").kind,
             KeyChangeKind::Revoked
         );
-        let error = modn_core::game_modules::content_root_spec("fixture-game")
+        let error = modn_core::game_modules::content_root_spec(roots, "fixture-game")
             .expect_err("a revocation clears module trust")
             .to_string();
         assert!(error.contains("not a trusted module source"), "{error}");
 
         catalog.trust(&store, &next_key_id);
-        let error = modn_core::game_modules::content_root_spec("fixture-game")
+        let error = modn_core::game_modules::content_root_spec(roots, "fixture-game")
             .expect_err("a release imported under the revoked key stays untrusted")
             .to_string();
         assert!(error.contains("not a trusted module source"), "{error}");
         assert!(
-            doctor_reports_untrusted(),
+            doctor_reports_untrusted(roots),
             "doctor refuses a release signed by the revoked key"
         );
 
@@ -335,7 +339,7 @@ fn a_revocation_keeps_the_revoked_release_untrusted() {
         store
             .sync_git_with_signer("community", None)
             .expect("the replacement key signs the new release");
-        modn_core::game_modules::content_root_spec("fixture-game")
+        modn_core::game_modules::content_root_spec(roots, "fixture-game")
             .expect("a release signed by the replacement key is usable");
     });
 }

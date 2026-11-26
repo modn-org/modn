@@ -1,8 +1,7 @@
 use crate::commands::Cli;
 use crate::download::{TEST_CALLS, TEST_RESPONSES};
 use clap::Parser;
-use modn_core::data_dir;
-use modn_core::game_modules::with_module_source;
+use modn_core::manager_roots::ManagerRoots;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs;
@@ -59,85 +58,77 @@ fn provider_commands_fetch_only_after_consent_and_reject_changed_evidence() {
     });
     TEST_CALLS.with(|calls| calls.borrow_mut().clear());
     let module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
-    data_dir::with_data_directory(root, || {
-        with_module_source(Some(&module), || {
-            let command = |args: &[&str]| {
-                let cli = Cli::try_parse_from(std::iter::once("modn").chain(args.iter().copied()))
-                    .unwrap();
-                crate::run_cli(
-                    cli,
-                    &root.join("state.sqlite"),
-                    &crate::progress::Progress::start(None),
-                )
-            };
-            command(&["bucket", "add", "fixture", catalog.to_str().unwrap()]).unwrap();
-            let preview = [
-                "--json",
-                "install",
-                "provider",
-                "--path",
-                game.to_str().unwrap(),
-                "--dry-run",
-            ];
-            command(&preview).unwrap();
-            assert!(!root.join("state.sqlite").exists());
-            assert!(!root.join("cache").exists());
-            assert!(TEST_CALLS.with(|calls| calls.borrow().is_empty()));
-            assert!(command(&["install", "provider", "--path", game.to_str().unwrap()]).is_err());
-            assert!(TEST_CALLS.with(|calls| calls.borrow().is_empty()));
-            for invalid in [
-                json!({"tag_name":"wrong","html_url":"https://github.com/fixture/project/releases/tag/v1","assets":[]}),
-                json!({"tag_name":"v1","html_url":"https://github.com/fixture/project/releases/tag/v1","assets":[{"name":"mod.zip","browser_download_url":"https://evil.invalid/mod.zip"}]}),
-            ] {
-                TEST_RESPONSES.with(|responses| {
-                    responses.borrow_mut().as_mut().unwrap().insert(
-                        metadata_url.to_owned(),
-                        serde_json::to_vec(&invalid).unwrap(),
-                    )
-                });
-                assert!(command(&[
-                    "install",
-                    "provider",
-                    "--path",
-                    game.to_str().unwrap(),
-                    "--yes"
-                ])
-                .is_err());
-                assert!(!game.join("addons").exists());
-            }
-            TEST_RESPONSES.with(|responses| {
-                responses.borrow_mut().as_mut().unwrap().insert(
-                    metadata_url.to_owned(),
-                    serde_json::to_vec(&metadata).unwrap(),
-                )
-            });
-            package["blake3"] = json!("0".repeat(64));
-            fs::write(&manifest, serde_json::to_vec(&package).unwrap()).unwrap();
-            assert!(command(&[
-                "install",
-                "provider",
-                "--path",
-                game.to_str().unwrap(),
-                "--yes"
-            ])
-            .is_err());
-            assert!(!game.join("addons").exists());
-            package["blake3"] = json!(hash);
-            fs::write(&manifest, serde_json::to_vec(&package).unwrap()).unwrap();
-            command(&[
-                "install",
-                "provider",
-                "--path",
-                game.to_str().unwrap(),
-                "--yes",
-            ])
-            .unwrap();
-            assert_eq!(
-                fs::read(game.join("addons/provider.plugin")).unwrap(),
-                b"verified fixture"
-            );
-            assert!(TEST_CALLS.with(|calls| calls.borrow().iter().any(|url| url == asset_url)));
-        })
+    let roots = ManagerRoots::new(root, None).with_development_modules(Some(module));
+    let command = |args: &[&str]| {
+        let cli = Cli::try_parse_from(std::iter::once("modn").chain(args.iter().copied())).unwrap();
+        crate::run_cli(cli, &roots, &crate::progress::Progress::start(None))
+    };
+    command(&["bucket", "add", "fixture", catalog.to_str().unwrap()]).unwrap();
+    let preview = [
+        "--json",
+        "install",
+        "provider",
+        "--path",
+        game.to_str().unwrap(),
+        "--dry-run",
+    ];
+    command(&preview).unwrap();
+    assert!(!root.join("state.sqlite").exists());
+    assert!(!root.join("cache").exists());
+    assert!(TEST_CALLS.with(|calls| calls.borrow().is_empty()));
+    assert!(command(&["install", "provider", "--path", game.to_str().unwrap()]).is_err());
+    assert!(TEST_CALLS.with(|calls| calls.borrow().is_empty()));
+    for invalid in [
+        json!({"tag_name":"wrong","html_url":"https://github.com/fixture/project/releases/tag/v1","assets":[]}),
+        json!({"tag_name":"v1","html_url":"https://github.com/fixture/project/releases/tag/v1","assets":[{"name":"mod.zip","browser_download_url":"https://evil.invalid/mod.zip"}]}),
+    ] {
+        TEST_RESPONSES.with(|responses| {
+            responses.borrow_mut().as_mut().unwrap().insert(
+                metadata_url.to_owned(),
+                serde_json::to_vec(&invalid).unwrap(),
+            )
+        });
+        assert!(command(&[
+            "install",
+            "provider",
+            "--path",
+            game.to_str().unwrap(),
+            "--yes"
+        ])
+        .is_err());
+        assert!(!game.join("addons").exists());
+    }
+    TEST_RESPONSES.with(|responses| {
+        responses.borrow_mut().as_mut().unwrap().insert(
+            metadata_url.to_owned(),
+            serde_json::to_vec(&metadata).unwrap(),
+        )
     });
+    package["blake3"] = json!("0".repeat(64));
+    fs::write(&manifest, serde_json::to_vec(&package).unwrap()).unwrap();
+    assert!(command(&[
+        "install",
+        "provider",
+        "--path",
+        game.to_str().unwrap(),
+        "--yes"
+    ])
+    .is_err());
+    assert!(!game.join("addons").exists());
+    package["blake3"] = json!(hash);
+    fs::write(&manifest, serde_json::to_vec(&package).unwrap()).unwrap();
+    command(&[
+        "install",
+        "provider",
+        "--path",
+        game.to_str().unwrap(),
+        "--yes",
+    ])
+    .unwrap();
+    assert_eq!(
+        fs::read(game.join("addons/provider.plugin")).unwrap(),
+        b"verified fixture"
+    );
+    assert!(TEST_CALLS.with(|calls| calls.borrow().iter().any(|url| url == asset_url)));
     TEST_RESPONSES.with(|responses| responses.replace(None));
 }

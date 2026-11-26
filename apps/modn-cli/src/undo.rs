@@ -12,6 +12,7 @@ use modn_core::error::{coded, ErrorCode};
 use modn_core::history::{
     HistoryContext, HistoryKind, HistoryOperation, HistoryPackage, HistoryRelease,
 };
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::planning::{
     preview_install_zip_with_permissions, preview_update_with_appdata,
     preview_update_with_permissions,
@@ -92,12 +93,12 @@ fn approval(
 
 fn restores(
     store: &modn_core::state::Store,
-    state_path: &Path,
+    roots: &ManagerRoots,
     target: &HistoryOperation,
     args: &UndoArgs,
     progress: &Progress,
 ) -> Result<Vec<UndoRestore>> {
-    let cache = download::cache_for(state_path)?;
+    let cache = roots.archive_cache();
     let mut restores = Vec::new();
     for package in &target.packages {
         let (release, declarations) = release_declarations(package)?;
@@ -174,9 +175,10 @@ fn restores(
                     .map(|file| file.destination.clone())
                     .collect();
                 replaced.extend(current.directories.iter().cloned());
-                let appdata = content_root_appdata(&target.game_id)?;
+                let appdata = content_root_appdata(roots, &target.game_id)?;
                 match &appdata {
                     Some(appdata) => preview_update_with_appdata(
+                        roots,
                         &target.game_id,
                         &target.installation,
                         &archive,
@@ -185,6 +187,7 @@ fn restores(
                         appdata,
                     )?,
                     None => preview_update_with_permissions(
+                        roots,
                         &target.game_id,
                         &target.installation,
                         &archive,
@@ -193,8 +196,9 @@ fn restores(
                     )?,
                 }
             }
-            HistoryKind::Uninstall => match content_root_appdata(&target.game_id)? {
+            HistoryKind::Uninstall => match content_root_appdata(roots, &target.game_id)? {
                 Some(appdata) => preview_update_with_appdata(
+                    roots,
                     &target.game_id,
                     &target.installation,
                     &archive,
@@ -203,6 +207,7 @@ fn restores(
                     &appdata,
                 )?,
                 None => preview_install_zip_with_permissions(
+                    roots,
                     &target.game_id,
                     &target.installation,
                     &archive,
@@ -288,18 +293,19 @@ fn print_plan(target: &HistoryOperation, json: bool, dry_run: bool) -> Result<()
 
 pub(super) fn run(
     args: &UndoArgs,
-    state_path: &Path,
+    roots: &ManagerRoots,
     requested: Option<&str>,
     json: bool,
     progress: &Progress,
 ) -> Result<()> {
     progress.begin()?;
-    let state = ManagerState::load(state_path)?
+    let state = ManagerState::load(roots)?
         .require_existing("no manager state database; there is no operation to undo")?;
     let read = state
         .existing()
         .context("existing manager state is readable")?;
-    let (game_id, installation) = selected_installation(Some(read), args.path.clone(), requested)?;
+    let (game_id, installation) =
+        selected_installation(roots, Some(read), args.path.clone(), requested)?;
     let operations = read.history(None)?;
     let belongs = |operation: &HistoryOperation| {
         operation.game_id == game_id && operation.installation == installation
@@ -364,7 +370,7 @@ pub(super) fn run(
     }
     if args.dry_run {
         let plan = if restore {
-            restores(read, state_path, &target, args, progress)?
+            restores(read, roots, &target, args, progress)?
         } else {
             Vec::new()
         };
@@ -397,7 +403,7 @@ pub(super) fn run(
             removed = store.uninstall_for_undo(&target.installation, &target)?;
         }
         HistoryKind::Update => {
-            let mut restored = restores(&store, state_path, &target, args, progress)?;
+            let mut restored = restores(&store, roots, &target, args, progress)?;
             for (package, restore) in target.packages.iter().zip(restored.drain(..)) {
                 let release = restore
                     .release
@@ -427,7 +433,7 @@ pub(super) fn run(
             }
         }
         HistoryKind::Uninstall => {
-            let archives = restores(&store, state_path, &target, args, progress)?;
+            let archives = restores(&store, roots, &target, args, progress)?;
             installed = store.restore_for_undo(&target.installation, &target, &archives)?;
         }
         _ => bail!("unknown history kind"),

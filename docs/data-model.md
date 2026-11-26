@@ -385,6 +385,13 @@ Adoption commits individual ownership without writing game bytes. Cleanup retain
 
 ### Trusted module registration and trust
 
+Manager-owned paths come from one manager roots value. It holds the shared data
+directory, the profile selected by `--state-dir`, the archive cache and the
+development module source. A command resolves it once and passes it to core
+functions. The official `main` copy follows the data directory; the state
+database, bucket registrations and module registry follow the profile. Code does
+not select a directory per thread.
+
 `module register <source> --trust` imports a validated third-party module release.
 The manager profile stores its identity, API version, exact content digest
 and source. The profile is the folder that holds `state.sqlite`, so `--state-dir`

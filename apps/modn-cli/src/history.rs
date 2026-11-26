@@ -1,7 +1,7 @@
 use crate::state_access::ManagerState;
 use anyhow::Result;
 use modn_core::history::HistoryOperation;
-use std::path::Path;
+use modn_core::manager_roots::ManagerRoots;
 
 fn games(operation: &HistoryOperation) -> String {
     operation
@@ -12,8 +12,8 @@ fn games(operation: &HistoryOperation) -> String {
         .join(", ")
 }
 
-pub(super) fn run(state_path: &Path, game_id: Option<&str>, json: bool) -> Result<()> {
-    let operations = ManagerState::load_deferred(state_path)?
+pub(super) fn run(roots: &ManagerRoots, game_id: Option<&str>, json: bool) -> Result<()> {
+    let operations = ManagerState::load_deferred(roots)?
         .into_existing()
         .map(|store| store.history(game_id))
         .transpose()?

@@ -354,6 +354,61 @@ fn contract_v1_main_bucket_is_refused_and_nothing_is_published() {
     assert!(!data.path().join("modn/buckets/.main-aside").exists());
 }
 
+fn run_with_state(data: &Path, state: &Path, source: &str, args: &[&str]) -> Output {
+    Command::new(main_bucket::modn_binary())
+        .env("LOCALAPPDATA", data)
+        .env("APPDATA", data)
+        .env("MODN_APPDATA", data)
+        .env("MODN_MAIN_BUCKET_SOURCE", source)
+        .env(
+            "MODN_TEST_MAIN_BUCKET_PUBLIC_KEY",
+            main_bucket::test_public_key(),
+        )
+        .env_remove("MODN_GAME_MODULES_DIR")
+        .arg("--state-dir")
+        .arg(state)
+        .args(args)
+        .output()
+        .expect("run fixture command")
+}
+
+#[test]
+fn state_dir_keeps_the_official_main_copy_in_the_shared_data_directory() {
+    let data = tempfile::tempdir().unwrap();
+    let profile = tempfile::tempdir().unwrap();
+    let zip = data.path().join("main.zip");
+    let tree = fixture_tree();
+    pack(tree.path(), &zip, None);
+    main_bucket::write_signature(tree.path(), &zip);
+    let source = zip.to_str().unwrap();
+    let shared_main = data.path().join("modn/buckets/main");
+    let profile_main = profile.path().join("buckets/main");
+
+    let output = success(run_with_state(
+        data.path(),
+        profile.path(),
+        source,
+        &["bucket", "update"],
+    ));
+    assert!(
+        output.contains("Verified main bucket signed by"),
+        "{output}"
+    );
+    assert!(shared_main.is_dir());
+    assert!(!profile_main.exists());
+
+    fs::remove_dir_all(&shared_main).unwrap();
+    let output = success(run_with_state(
+        data.path(),
+        profile.path(),
+        source,
+        &["update"],
+    ));
+    assert!(output.contains("changed: true"), "{output}");
+    assert!(shared_main.is_dir());
+    assert!(!profile_main.exists());
+}
+
 #[test]
 fn sidecar_only_release_is_refused() {
     let data = tempfile::tempdir().unwrap();

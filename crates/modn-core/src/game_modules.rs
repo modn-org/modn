@@ -10,6 +10,8 @@ mod runtime;
 mod store_data;
 mod visibility;
 
+use crate::manager_roots::ManagerRoots;
+
 #[cfg(test)]
 pub(crate) use import::FAIL_NEXT_CATALOG_COMMIT;
 pub(crate) use import::{ignored_catalog_modules, stage_catalog_modules_at};
@@ -26,21 +28,24 @@ pub use registry::{
     ImportReport, ModulePin, ModuleRegistry, ModuleSource, ModuleTrust, RegisteredModule,
     ReleaseOutcome,
 };
-pub use resolver::{available_games, with_module_source};
+pub use resolver::available_games;
 pub use store_data::StoreIdentities;
 pub use visibility::{hidden_modules, HiddenModule};
 
 /// Read the selected module's declared content root without executing it.
-pub fn content_root_spec(game_id: &str) -> anyhow::Result<Option<ContentRootSpec>> {
-    Ok(resolver::read_policy(game_id)?.0.content_root)
+pub fn content_root_spec(
+    roots: &ManagerRoots,
+    game_id: &str,
+) -> anyhow::Result<Option<ContentRootSpec>> {
+    Ok(resolver::read_policy(roots, game_id)?.0.content_root)
 }
 
 /// Read the selected module's declared store identities without executing it.
-pub fn store_identities(game_id: &str) -> anyhow::Result<StoreIdentities> {
-    Ok(resolver::read_policy(game_id)?.0.stores)
+pub fn store_identities(roots: &ManagerRoots, game_id: &str) -> anyhow::Result<StoreIdentities> {
+    Ok(resolver::read_policy(roots, game_id)?.0.stores)
 }
 
 /// Read the selected module's declared launch targets without executing it.
-pub fn launch_targets(game_id: &str) -> anyhow::Result<LaunchTargets> {
-    Ok(resolver::read_policy(game_id)?.0.launch)
+pub fn launch_targets(roots: &ManagerRoots, game_id: &str) -> anyhow::Result<LaunchTargets> {
+    Ok(resolver::read_policy(roots, game_id)?.0.launch)
 }

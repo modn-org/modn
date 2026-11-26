@@ -17,8 +17,6 @@ pub mod bucket_digest;
 pub mod buckets;
 /// Resolve module-declared content roots below a known folder.
 pub mod content_root;
-/// Resolve manager-owned data locations.
-pub mod data_dir;
 /// Find installed games by matching store libraries with module store identities.
 pub mod detection;
 /// Validate game installations with the selected game module.
@@ -33,6 +31,8 @@ mod integrity;
 pub mod inventory;
 /// Prepare and perform a validated game launch.
 pub mod launch;
+/// Resolve every manager-owned location once per command.
+pub mod manager_roots;
 pub mod planning;
 pub mod progress;
 /// Inventory detected game files and produce diagnostic findings.

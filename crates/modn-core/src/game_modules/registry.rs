@@ -7,6 +7,7 @@ use self::layout::RetainedRelease;
 pub use self::pin::ModulePin;
 use super::loader::{self, GameModuleInfo, VerifiedModule};
 use crate::buckets::BucketStore;
+use crate::manager_roots::ManagerRoots;
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -98,7 +99,7 @@ pub struct ImportReport {
     pub outcome: ReleaseOutcome,
 }
 
-/// Separate trusted module storage under Modn's data directory.
+/// Separate trusted module storage under Modn's manager profile.
 ///
 /// Each game keeps every retained release below `versions/<version>` and a
 /// single `current` pointer. Registration and import copy only the manifest and
@@ -107,20 +108,20 @@ pub struct ImportReport {
 /// guarantee or game-write approval.
 #[derive(Debug)]
 pub struct ModuleRegistry {
-    data: PathBuf,
+    roots: ManagerRoots,
 }
 
 impl ModuleRegistry {
-    /// Use the same data directory as `BucketStore` and normal policy resolution.
+    /// Use the same manager roots as `BucketStore` and normal policy resolution.
     #[must_use]
-    pub fn new(data_directory: &Path) -> Self {
+    pub fn new(roots: &ManagerRoots) -> Self {
         Self {
-            data: data_directory.to_owned(),
+            roots: roots.clone(),
         }
     }
 
     pub(super) fn root(&self) -> PathBuf {
-        self.data.join("game-modules")
+        self.roots.module_registry()
     }
 
     pub(super) fn directory(&self, game: &str) -> Result<PathBuf> {
@@ -183,7 +184,7 @@ impl ModuleRegistry {
     pub fn import_release(&self, source: &Path, origin: ModuleSource) -> Result<ImportReport> {
         validate_source(&origin)?;
         let (manifest, script) = loader::read_verified_module(source)?;
-        if BucketStore::new(&self.data)
+        if BucketStore::new(&self.roots)
             .official_games()?
             .contains(&manifest.game_id)
         {

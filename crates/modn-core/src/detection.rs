@@ -5,6 +5,7 @@
 //! Detection reads libraries and game folders; it writes nothing.
 
 use crate::game_modules::{policy, store_identities, StoreIdentities};
+use crate::manager_roots::ManagerRoots;
 use crate::stores::{StoreInstallation, StoreLibraries, Storefront};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -70,13 +71,17 @@ pub struct Detection {
 /// confirmed through the game module, limited to that folder. The same
 /// folder listed by two stores is reported once.
 #[must_use]
-pub fn detect_installations(libraries: &StoreLibraries, games: &[String]) -> Detection {
+pub fn detect_installations(
+    roots: &ManagerRoots,
+    libraries: &StoreLibraries,
+    games: &[String],
+) -> Detection {
     let installations = libraries.installations();
     let mut detection = Detection::default();
     for game in games {
-        match store_identities(game) {
+        match store_identities(roots, game) {
             Ok(identities) => {
-                confirm_matches(game, &identities, &installations, &mut detection);
+                confirm_matches(roots, game, &identities, &installations, &mut detection);
             }
             Err(error) => detection.skipped.push(SkippedGame {
                 game_id: game.clone(),
@@ -94,6 +99,7 @@ pub fn detect_installations(libraries: &StoreLibraries, games: &[String]) -> Det
 }
 
 fn confirm_matches(
+    roots: &ManagerRoots,
     game: &str,
     identities: &StoreIdentities,
     installations: &[StoreInstallation],
@@ -103,7 +109,7 @@ fn confirm_matches(
         if identities.get(installation.store) != Some(installation.store_id.as_str()) {
             continue;
         }
-        match confirm(game, installation) {
+        match confirm(roots, game, installation) {
             Ok(path) => detection.confirmed.push(DetectedInstallation {
                 game_id: game.to_owned(),
                 store: installation.store,
@@ -121,12 +127,16 @@ fn confirm_matches(
     }
 }
 
-fn confirm(game: &str, installation: &StoreInstallation) -> Result<PathBuf, String> {
+fn confirm(
+    roots: &ManagerRoots,
+    game: &str,
+    installation: &StoreInstallation,
+) -> Result<PathBuf, String> {
     let path = installation
         .path
         .canonicalize()
         .map_err(|error| format!("DETECT_FOLDER_UNREADABLE: cannot access the folder: {error}"))?;
-    match policy::validate(game, &path) {
+    match policy::validate(roots, game, &path) {
         Ok((true, _)) => Ok(path),
         Ok((false, marker)) => Err(format!(
             "DETECT_FOLDER_UNCONFIRMED: the folder does not contain {marker}"

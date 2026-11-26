@@ -39,16 +39,17 @@ fn selected_release_keeps_dependency_pins_when_bucket_changes() {
     let original = "a".repeat(64);
     manifest(&local, "base", &original, &[]);
     manifest(&local, "top", &"c".repeat(64), &["base"]);
-    modn_core::data_dir::with_data_directory(&data, || {
-        let store = BucketStore::new(&temp.path().join("state"));
-        store.add("local", &local).expect("register bucket");
-        let catalog = store.snapshot(None).expect("snapshot");
-        let selected = resolve("local/test-game/top", &catalog, true).expect("selection");
+    let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
+        &data,
+        Some(&temp.path().join("state")),
+    ));
+    store.add("local", &local).expect("register bucket");
+    let catalog = store.snapshot(None).expect("snapshot");
+    let selected = resolve("local/test-game/top", &catalog, true).expect("selection");
 
-        manifest(&local, "base", &"b".repeat(64), &[]);
-        let release = catalog.release(&selected).expect("release evidence");
+    manifest(&local, "base", &"b".repeat(64), &[]);
+    let release = catalog.release(&selected).expect("release evidence");
 
-        assert_eq!(release.dependencies.len(), 1);
-        assert_eq!(release.dependencies[0].archive_blake3, original);
-    });
+    assert_eq!(release.dependencies.len(), 1);
+    assert_eq!(release.dependencies[0].archive_blake3, original);
 }

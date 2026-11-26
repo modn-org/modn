@@ -4,6 +4,7 @@ use super::tests::{
     pack_catalog, published_snapshot, registration_bytes, signing_key, write_catalog, SigningKey,
 };
 use crate::buckets::{BucketStore, ModuleTrustAck, ZipCatalogSource};
+use modn_core::manager_roots::ManagerRoots;
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -63,7 +64,7 @@ pub(super) fn packed_revision(catalog: &Path, key: &SigningKey, marker: &str) ->
 pub(super) fn first_sync(state: &Path, catalog: &Path, key: &SigningKey) -> Vec<u8> {
     write_catalog(catalog, "https://mirror.example/catalog.zip", key);
     let bytes = pack_catalog(catalog);
-    let store = BucketStore::new(state);
+    let store = BucketStore::new(&ManagerRoots::new(state, None));
     store
         .sync_zip_with_signer("community", Some(source()), fetch(bytes.clone()))
         .expect("first sync");
@@ -79,7 +80,7 @@ fn an_unchanged_digest_reuses_the_published_snapshot() {
     let before = published_snapshot(state.path());
     let before_registration = registration_bytes(state.path());
 
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     sync(&store, bytes).expect("a repeated digest is accepted");
 
     assert_eq!(published_snapshot(state.path()), before);
@@ -94,7 +95,7 @@ fn a_changed_digest_retires_the_superseded_snapshot_until_the_grace_period_passe
     let _bytes = first_sync(state.path(), catalog.path(), &key);
     let old = published_snapshot(state.path()).0;
     let now = Arc::new(AtomicU64::new(1_000_000));
-    let mut store = BucketStore::new(state.path());
+    let mut store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     use_clock(&mut store, &now);
 
     let changed = packed_revision(catalog.path(), &key, "new revision");
@@ -136,7 +137,7 @@ fn a_malformed_retire_record_never_deletes_a_retired_tree() {
     let key = signing_key();
     let _bytes = first_sync(state.path(), catalog.path(), &key);
     let old = published_snapshot(state.path()).0;
-    let mut store = BucketStore::new(state.path());
+    let mut store = BucketStore::new(&ManagerRoots::new(state.path(), None));
 
     let changed = packed_revision(catalog.path(), &key, "second revision");
     sync(&store, changed).expect("a new digest is accepted");
@@ -175,7 +176,7 @@ fn a_retire_record_without_a_time_gets_a_fresh_time() {
         .to_string_lossy()
         .into_owned();
     let now = Arc::new(AtomicU64::new(1_000_000));
-    let mut store = BucketStore::new(state.path());
+    let mut store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     use_clock(&mut store, &now);
     let changed = packed_revision(catalog.path(), &key, "second revision");
     sync(&store, changed).expect("a new digest is accepted");
@@ -205,14 +206,14 @@ fn a_retired_snapshot_survives_two_syncs_while_a_reader_still_needs_it() {
     let _bytes = first_sync(state.path(), catalog.path(), &key);
     let old = published_snapshot(state.path()).0;
     let now = Arc::new(AtomicU64::new(1_000_000));
-    let mut store = BucketStore::new(state.path());
+    let mut store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     use_clock(&mut store, &now);
 
     let (loaded, loaded_reader) = std::sync::mpsc::channel();
     let (release, released_reader) = std::sync::mpsc::channel();
     let reader_state = state.path().to_path_buf();
     let reader = std::thread::spawn(move || {
-        let store = BucketStore::new(&reader_state);
+        let store = BucketStore::new(&ManagerRoots::new(&reader_state, None));
         let registration = store.registration("community").expect("registration");
         let path = registration.path.clone();
         loaded.send(()).expect("reader ready");
@@ -271,7 +272,7 @@ fn a_failed_registration_write_keeps_the_registered_snapshot() {
     fs::write(catalog.path().join("catalog.sig"), signature).expect("signature");
     let changed = pack_catalog(catalog.path());
 
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .fail_next_registration_write
         .store(true, Ordering::SeqCst);
@@ -322,24 +323,20 @@ fn sign_catalog(catalog: &Path, key: &SigningKey) {
 
 /// Give the store a local main bucket and trust `community` for modules.
 fn trust_modules(state: &Path, store: &BucketStore) {
-    crate::data_dir::with_data_directory(state, || {
-        crate::data_dir::with_profile_directory(state, || {
-            fs::create_dir_all(state.join("buckets/main")).expect("main bucket");
-            fs::write(
-                state.join("buckets/main/bucket.json"),
-                r#"{"schema_version":2,"name":"main","title":"Main"}"#,
-            )
-            .expect("main metadata");
-            store
-                .trust_modules(
-                    "community",
-                    ModuleTrustAck::Acknowledged {
-                        expected_fingerprint: None,
-                    },
-                )
-                .expect("trust modules");
-        });
-    });
+    fs::create_dir_all(state.join("buckets/main")).expect("main bucket");
+    fs::write(
+        state.join("buckets/main/bucket.json"),
+        r#"{"schema_version":2,"name":"main","title":"Main"}"#,
+    )
+    .expect("main metadata");
+    store
+        .trust_modules(
+            "community",
+            ModuleTrustAck::Acknowledged {
+                expected_fingerprint: None,
+            },
+        )
+        .expect("trust modules");
 }
 #[test]
 fn a_failed_module_commit_restores_the_previous_registration() {
@@ -348,7 +345,7 @@ fn a_failed_module_commit_restores_the_previous_registration() {
     let key = signing_key();
     write_module(catalog.path(), "1");
     let _bytes = first_sync(state.path(), catalog.path(), &key);
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     trust_modules(state.path(), &store);
     let before = published_snapshot(state.path());
     let before_registration = registration_bytes(state.path());
@@ -361,11 +358,9 @@ fn a_failed_module_commit_restores_the_previous_registration() {
         .lock()
         .expect("seam")
         .insert(state.path().join("game-modules"));
-    let error = crate::data_dir::with_data_directory(state.path(), || {
-        crate::data_dir::with_profile_directory(state.path(), || sync(&store, changed))
-    })
-    .expect_err("the module commit fails")
-    .to_string();
+    let error = sync(&store, changed)
+        .expect_err("the module commit fails")
+        .to_string();
     assert!(
         error.contains("injected catalog module commit failure"),
         "{error}"
@@ -384,7 +379,7 @@ fn a_failed_registration_restore_keeps_the_published_snapshot() {
     let key = signing_key();
     write_module(catalog.path(), "1");
     let _bytes = first_sync(state.path(), catalog.path(), &key);
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     trust_modules(state.path(), &store);
     let before = published_snapshot(state.path()).0;
 
@@ -396,15 +391,10 @@ fn a_failed_registration_restore_keeps_the_published_snapshot() {
         .lock()
         .expect("seam")
         .insert(state.path().join("game-modules"));
-    let error = crate::data_dir::with_data_directory(state.path(), || {
-        crate::data_dir::with_profile_directory(state.path(), || {
-            store
-                .fail_next_registration_restore
-                .store(true, Ordering::SeqCst);
-            sync(&store, changed)
-        })
-    })
-    .expect_err("the module commit and the restore fail");
+    store
+        .fail_next_registration_restore
+        .store(true, Ordering::SeqCst);
+    let error = sync(&store, changed).expect_err("the module commit and the restore fail");
     let error = format!("{error:#}");
     assert!(
         error.contains("injected catalog module commit failure"),
@@ -449,7 +439,7 @@ fn a_signer_rotation_with_unchanged_content_publishes_a_new_snapshot() {
     .expect("rotation signature");
     sign_catalog(catalog.path(), &old);
     let first = pack_catalog(catalog.path());
-    let store = BucketStore::new(state.path());
+    let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     store
         .sync_zip_with_signer("community", Some(source()), fetch(first))
         .expect("first sync pins the old key");

@@ -49,39 +49,40 @@ fn content_root_rollback_and_recovery_remove_only_created_state() {
     }
     zip.finish().unwrap();
     let mut store = Store::open(&temp.path().join("state/state.sqlite")).unwrap();
-    crate::game_modules::with_module_source(Some(&module), || {
-        let plan = crate::planning::preview_install_zip_with_appdata(
-            "content-game",
+    let roots = crate::manager_roots::ManagerRoots::new(temp.path(), None)
+        .with_development_modules(Some(module));
+    let plan = crate::planning::preview_install_zip_with_appdata(
+        &roots,
+        "content-game",
+        &game,
+        &archive_path,
+        &appdata,
+    )
+    .unwrap();
+    let error = store
+        .install_operations_inner(&game, &archive_path, &plan, Some(1))
+        .expect_err("injected failure");
+    assert!(
+        error.to_string().contains("injected interruption"),
+        "{error}"
+    );
+    assert!(!appdata.join("Fixture/Mods/a.lua").exists());
+    assert!(!appdata.join("Fixture/Mods/b.lua").exists());
+    assert!(!appdata.join("Fixture/Mods").exists());
+    store
+        .install_locked(
             &game,
             &archive_path,
-            &appdata,
+            &plan,
+            Some(Fault::CrashAfter(1)),
+            &[],
+            None,
+            NativeInjectorPolicy::Refuse,
+            None,
         )
-        .unwrap();
-        let error = store
-            .install_operations_inner(&game, &archive_path, &plan, Some(1))
-            .expect_err("injected failure");
-        assert!(
-            error.to_string().contains("injected interruption"),
-            "{error}"
-        );
-        assert!(!appdata.join("Fixture/Mods/a.lua").exists());
-        assert!(!appdata.join("Fixture/Mods/b.lua").exists());
-        assert!(!appdata.join("Fixture/Mods").exists());
-        store
-            .install_locked(
-                &game,
-                &archive_path,
-                &plan,
-                Some(Fault::CrashAfter(1)),
-                &[],
-                None,
-                NativeInjectorPolicy::Refuse,
-                None,
-            )
-            .expect_err("simulated crash");
-        assert!(appdata.join("Fixture/Mods/a.lua").exists());
-        store.recover().expect("recover");
-        assert!(!appdata.join("Fixture/Mods/a.lua").exists());
-        assert!(!appdata.join("Fixture/Mods").exists());
-    });
+        .expect_err("simulated crash");
+    assert!(appdata.join("Fixture/Mods/a.lua").exists());
+    store.recover().expect("recover");
+    assert!(!appdata.join("Fixture/Mods/a.lua").exists());
+    assert!(!appdata.join("Fixture/Mods").exists());
 }

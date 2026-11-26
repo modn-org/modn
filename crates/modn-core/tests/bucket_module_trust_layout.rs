@@ -10,7 +10,7 @@ use support::{package, registration, signed_remote, write_module_files};
 
 #[test]
 fn trust_refuses_an_invalid_trusted_games_layout_and_records_no_trust() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let invalid: [(&str, bool); 3] = [
             ("games/test-game/notes.md", false),
             ("games/loose.md", false),
@@ -28,7 +28,8 @@ fn trust_refuses_an_invalid_trusted_games_layout_and_records_no_trust() {
                 }
             });
             let state = tempfile::tempdir().expect("state");
-            let store = BucketStore::new(state.path());
+            let store =
+                BucketStore::new(&main_bucket::roots_with_profile(roots.data(), state.path()));
             store
                 .sync_git_with_signer("community", Some(remote.source()))
                 .expect("first sync ignores untrusted games");
@@ -70,10 +71,10 @@ fn trust_refuses_an_invalid_trusted_games_layout_and_records_no_trust() {
 
 #[test]
 fn trust_accepts_a_valid_games_layout() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let remote = signed_remote(|root| write_module_files(root, "test-game", 3));
         let state = tempfile::tempdir().expect("state");
-        let store = BucketStore::new(state.path());
+        let store = BucketStore::new(&main_bucket::roots_with_profile(roots.data(), state.path()));
         store
             .sync_git_with_signer("community", Some(remote.source()))
             .expect("first sync");
@@ -104,15 +105,14 @@ fn trust_accepts_a_valid_games_layout() {
 
 #[test]
 fn trusted_catalogs_refuse_a_package_manifest_under_games() {
-    main_bucket::isolated_profile(|profile| {
+    main_bucket::isolated_profile(|data, profile| {
         for (relative, contents) in [
             ("games/test-game/extra.json", package()),
             ("games/test-game/notes.txt", "notes".to_owned()),
             ("games/loose.json", package()),
         ] {
             let remote = signed_remote(|_| {});
-            let state = tempfile::tempdir().expect("state");
-            let store = BucketStore::new(state.path());
+            let store = BucketStore::new(&main_bucket::roots_with_profile(data, profile));
             store
                 .sync_git_with_signer("community", Some(remote.source()))
                 .expect("first sync");
@@ -134,11 +134,11 @@ fn trusted_catalogs_refuse_a_package_manifest_under_games() {
                 store.module_trust("community").expect("trust"),
                 ModuleTrustState::Trusted
             );
+            store.remove("community").expect("reset fixture");
         }
 
         let remote = signed_remote(|_| {});
-        let state = tempfile::tempdir().expect("state");
-        let store = BucketStore::new(state.path());
+        let store = BucketStore::new(&main_bucket::roots_with_profile(data, profile));
         store
             .sync_git_with_signer("community", Some(remote.source()))
             .expect("first sync");
@@ -169,7 +169,7 @@ fn trusted_catalogs_refuse_a_package_manifest_under_games() {
 
 #[test]
 fn untrusted_catalogs_ignore_games_and_stay_untrusted() {
-    main_bucket::seeded(|| {
+    main_bucket::seeded_roots(|roots| {
         let remote = signed_remote(|root| {
             fs::create_dir_all(root.join("games/test-game")).expect("games");
             fs::write(
@@ -181,7 +181,7 @@ fn untrusted_catalogs_ignore_games_and_stay_untrusted() {
             fs::write(root.join("games/loose.txt"), "ignored").expect("loose entry");
         });
         let state = tempfile::tempdir().expect("state");
-        let store = BucketStore::new(state.path());
+        let store = BucketStore::new(&main_bucket::roots_with_profile(roots.data(), state.path()));
         let synced = store
             .sync_git_with_signer("community", Some(remote.source()))
             .expect("untrusted games folder is not executed");

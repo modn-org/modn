@@ -91,20 +91,16 @@ struct MovedRelease {
 /// The catalog signature must already be verified by the caller. Each module is
 /// copied and executed only inside private staging storage.
 pub fn stage_catalog_modules(
+    roots: &crate::manager_roots::ManagerRoots,
     bucket: &str,
     signer_key_id: &str,
     catalog: &Path,
 ) -> Result<StagedCatalogImport> {
-    stage_catalog_modules_at(
-        &crate::data_dir::profile_directory()?,
-        bucket,
-        signer_key_id,
-        catalog,
-    )
+    stage_catalog_modules_at(roots, bucket, signer_key_id, catalog)
 }
 
 pub(crate) fn stage_catalog_modules_at(
-    data: &Path,
+    roots: &crate::manager_roots::ManagerRoots,
     bucket: &str,
     signer_key_id: &str,
     catalog: &Path,
@@ -112,7 +108,7 @@ pub(crate) fn stage_catalog_modules_at(
     if bucket.is_empty() || signer_key_id.is_empty() {
         bail!("catalog module source must name a bucket and signer");
     }
-    let registry = ModuleRegistry::new(data);
+    let registry = ModuleRegistry::new(roots);
     let lock = registry.lock()?;
     let staging = tempfile::Builder::new()
         .prefix(".staging-catalog-")
@@ -125,7 +121,7 @@ pub(crate) fn stage_catalog_modules_at(
     let official = if candidates.is_empty() {
         Vec::new()
     } else {
-        BucketStore::new(data).official_games()?
+        BucketStore::new(roots).official_games()?
     };
     for (game, directory) in candidates {
         if official.contains(&game) {

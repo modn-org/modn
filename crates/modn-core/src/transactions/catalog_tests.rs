@@ -4,7 +4,6 @@ use super::{
     NativeInjectorPolicy, StackMember,
 };
 use crate::archive::inspect;
-use crate::game_modules::with_module_source;
 use crate::planning::{InstallPlan, PlannedFile};
 use crate::state::Store;
 use std::fs::{self, File};
@@ -59,7 +58,7 @@ impl Fixture {
     ) -> anyhow::Result<ManagedPackage> {
         let proposal = plan(&self.game, archive);
         let game = self.game.clone();
-        with_module_source(Some(&module_source()), || {
+        {
             self.store.install_catalog_release(
                 &game,
                 archive,
@@ -67,14 +66,14 @@ impl Fixture {
                 &release,
                 NativeInjectorPolicy::Refuse,
             )
-        })
+        }
     }
 
     pub(super) fn uninstall(&mut self, package_id: &str) -> anyhow::Result<()> {
         let game = self.game.clone();
-        with_module_source(Some(&module_source()), || {
+        {
             self.store.uninstall(&game, package_id)
-        })
+        }
     }
 
     pub(super) fn state_path(&self) -> PathBuf {
@@ -213,11 +212,11 @@ fn plain_archive_installs_record_no_catalog_provenance() {
     let archive = fixture.archive("plain");
     let proposal = plan(&fixture.game, &archive);
     let game = fixture.game.clone();
-    let package = with_module_source(Some(&module_source()), || {
+    let package = {
         fixture
             .store
             .install_operations_zip(&game, &archive, &proposal)
-    })
+    }
     .unwrap();
     assert_eq!(fixture.count("catalog_provenance"), 0);
     fixture.uninstall(&package.id).unwrap();
@@ -342,7 +341,7 @@ impl Fixture {
         mut fail_on: Option<&str>,
     ) -> anyhow::Result<Vec<ManagedPackage>> {
         let game = self.game.clone();
-        with_module_source(Some(&module_source()), || {
+        {
             self.store.install_catalog_stack(
                 &game,
                 members,
@@ -355,7 +354,7 @@ impl Fixture {
                     Ok(plan(&game, &member.archive))
                 },
             )
-        })
+        }
     }
 
     pub(super) fn pending_stack_rows(&self) -> i64 {
@@ -373,7 +372,7 @@ fn stack_installs_members_in_order_as_separate_packages() {
         member(&base, "base", Vec::new()),
         member(&top, "top", vec![dependency_on(&base, "base")]),
     ];
-    let packages = with_module_source(Some(&module_source()), || {
+    let packages = {
         fixture.store.install_catalog_stack(
             &game,
             &members,
@@ -385,7 +384,7 @@ fn stack_installs_members_in_order_as_separate_packages() {
                 Ok(plan(&game, &member.archive))
             },
         )
-    })
+    }
     .unwrap();
     assert_eq!(packages.len(), 2);
     assert_eq!(fixture.store.installed(&fixture.game).unwrap().len(), 2);
@@ -442,7 +441,7 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
     let release = CatalogRelease::new(reference("base"), Vec::new());
     let proposal = plan(&game, &base);
     let stack_id = fixture.store.begin_stack(&game).unwrap();
-    with_module_source(Some(&module_source()), || {
+    {
         fixture.store.install_locked(
             &game,
             &base,
@@ -456,7 +455,7 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
             NativeInjectorPolicy::Refuse,
             Some(&stack_id),
         )
-    })
+    }
     .unwrap();
     assert!(game.join("addons/base.plugin").is_file());
     assert_eq!(fixture.count("pending_stack_packages"), 1);
@@ -476,7 +475,7 @@ fn interrupted_stack_blocks_writes_until_recovery_rolls_it_back() {
         "{blocked}"
     );
 
-    let recovered = with_module_source(Some(&module_source()), || fixture.store.recover()).unwrap();
+    let recovered = fixture.store.recover().unwrap();
     assert_eq!(recovered, 1);
     assert!(!game.join("addons/base.plugin").exists());
     assert!(fixture.store.installed(&game).unwrap().is_empty());

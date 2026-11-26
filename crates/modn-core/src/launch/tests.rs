@@ -1,6 +1,6 @@
 use super::{plan_launch, LaunchTarget};
 use crate::detection::DetectedInstallation;
-use crate::game_modules::with_module_source;
+use crate::manager_roots::ManagerRoots;
 use crate::state::Store;
 use crate::stores::Storefront;
 use std::fs;
@@ -53,10 +53,10 @@ fn prefers_the_store_uri_when_detection_matches_the_folder() {
     let installation = canonical(&game);
     let detected = steam_detection(&installation);
 
-    let plan = with_module_source(Some(module.path()), || {
-        plan_launch(None, "launch-game", &installation, &detected)
-    })
-    .expect("launch plan");
+    let roots = ManagerRoots::new(module.path(), None)
+        .with_development_modules(Some(module.path().to_path_buf()));
+    let plan =
+        plan_launch(&roots, None, "launch-game", &installation, &detected).expect("launch plan");
 
     assert_eq!(
         plan.target,
@@ -80,10 +80,9 @@ fn falls_back_to_the_executable_without_store_detection() {
     let game = game();
     let installation = canonical(&game);
 
-    let plan = with_module_source(Some(module.path()), || {
-        plan_launch(None, "launch-game", &installation, &[])
-    })
-    .expect("launch plan");
+    let roots = ManagerRoots::new(module.path(), None)
+        .with_development_modules(Some(module.path().to_path_buf()));
+    let plan = plan_launch(&roots, None, "launch-game", &installation, &[]).expect("launch plan");
 
     assert_eq!(
         plan.target,
@@ -103,10 +102,10 @@ fn refuses_when_no_declared_target_applies() {
     let game = game();
     let installation = canonical(&game);
 
-    let error = with_module_source(Some(module.path()), || {
-        plan_launch(None, "launch-game", &installation, &[])
-    })
-    .expect_err("no executable fallback");
+    let roots = ManagerRoots::new(module.path(), None)
+        .with_development_modules(Some(module.path().to_path_buf()));
+    let error = plan_launch(&roots, None, "launch-game", &installation, &[])
+        .expect_err("no executable fallback");
 
     assert!(
         format!("{error:#}").starts_with("LAUNCH_TARGET_UNAVAILABLE:"),
@@ -126,10 +125,10 @@ fn refuses_an_executable_that_resolves_outside_the_game() {
     }
     let installation = canonical(&game);
 
-    let error = with_module_source(Some(module.path()), || {
-        plan_launch(None, "launch-game", &installation, &[])
-    })
-    .expect_err("escaping executable");
+    let roots = ManagerRoots::new(module.path(), None)
+        .with_development_modules(Some(module.path().to_path_buf()));
+    let error = plan_launch(&roots, None, "launch-game", &installation, &[])
+        .expect_err("escaping executable");
 
     let message = format!("{error:#}");
     assert!(message.starts_with("LAUNCH_TARGET_UNSAFE:"), "{message}");
@@ -142,10 +141,10 @@ fn refuses_a_missing_executable() {
     let game = game();
     let installation = canonical(&game);
 
-    let error = with_module_source(Some(module.path()), || {
-        plan_launch(None, "launch-game", &installation, &[])
-    })
-    .expect_err("missing executable");
+    let roots = ManagerRoots::new(module.path(), None)
+        .with_development_modules(Some(module.path().to_path_buf()));
+    let error = plan_launch(&roots, None, "launch-game", &installation, &[])
+        .expect_err("missing executable");
 
     assert!(
         format!("{error:#}").starts_with("LAUNCH_TARGET_UNSAFE:"),
@@ -170,10 +169,10 @@ fn refuses_to_launch_while_recovery_is_pending() {
         )
         .expect("pending transaction");
 
-    let error = with_module_source(Some(module.path()), || {
-        plan_launch(Some(&store), "launch-game", &installation, &[])
-    })
-    .expect_err("pending recovery");
+    let roots = ManagerRoots::new(module.path(), None)
+        .with_development_modules(Some(module.path().to_path_buf()));
+    let error = plan_launch(&roots, Some(&store), "launch-game", &installation, &[])
+        .expect_err("pending recovery");
 
     assert!(
         format!("{error:#}").starts_with("LAUNCH_RECOVERY_PENDING:"),
@@ -208,10 +207,10 @@ fn warns_about_changed_managed_files_without_refusing() {
         .expect("managed file");
     fs::write(installation.join("Game.exe"), b"changed").expect("changed file");
 
-    let plan = with_module_source(Some(module.path()), || {
-        plan_launch(Some(&store), "launch-game", &installation, &[])
-    })
-    .expect("launch must continue with a warning");
+    let roots = ManagerRoots::new(module.path(), None)
+        .with_development_modules(Some(module.path().to_path_buf()));
+    let plan = plan_launch(&roots, Some(&store), "launch-game", &installation, &[])
+        .expect("launch must continue with a warning");
 
     assert_eq!(plan.warnings.len(), 1, "{plan:#?}");
     assert!(

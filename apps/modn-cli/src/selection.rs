@@ -1,18 +1,23 @@
 use anyhow::{bail, Result};
 use modn_core::detection::detect_installations;
 use modn_core::discovery::{validate_installation_for, Candidate};
+use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use modn_core::stores::StoreLibraries;
 use std::path::PathBuf;
 
-pub(crate) fn choose_candidate(game: &str, path: Option<PathBuf>) -> Result<Candidate> {
+pub(crate) fn choose_candidate(
+    roots: &ManagerRoots,
+    game: &str,
+    path: Option<PathBuf>,
+) -> Result<Candidate> {
     if let Some(path) = path {
         return Ok(Candidate {
-            path: validate_installation_for(game, &path)?,
+            path: validate_installation_for(roots, game, &path)?,
             source: "manual".into(),
         });
     }
-    let detection = detect_installations(&StoreLibraries::system(), &[game.to_owned()]);
+    let detection = detect_installations(roots, &StoreLibraries::system(), &[game.to_owned()]);
     match detection.confirmed.as_slice() {
         [detected] => Ok(Candidate {
             path: detected.path.clone(),
@@ -24,6 +29,7 @@ pub(crate) fn choose_candidate(game: &str, path: Option<PathBuf>) -> Result<Cand
 }
 
 pub(crate) fn selected_installation(
+    roots: &ManagerRoots,
     store: Option<&Store>,
     path: Option<PathBuf>,
     requested: Option<&str>,
@@ -51,7 +57,7 @@ pub(crate) fn selected_installation(
             (None, []) => bail!("unregistered installation; specify --game <game-id>"),
             (None, _) => bail!("installation is registered for multiple games; specify --game"),
         };
-        return Ok((id.into(), validate_installation_for(id, &canonical)?));
+        return Ok((id.into(), validate_installation_for(roots, id, &canonical)?));
     }
     let store = store.ok_or_else(|| anyhow::anyhow!("no registered game database for preview"))?;
     let registrations = store.list()?;
@@ -62,7 +68,7 @@ pub(crate) fn selected_installation(
     match matches.as_slice() {
         [entry] => Ok((
             entry.game_id.clone(),
-            validate_installation_for(&entry.game_id, &entry.path)?,
+            validate_installation_for(roots, &entry.game_id, &entry.path)?,
         )),
         [] => {
             bail!("no matching game registered; run 'modn game add <game-id> --path <directory>'")
