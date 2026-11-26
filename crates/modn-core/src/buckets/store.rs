@@ -136,11 +136,11 @@ impl BucketStore {
         }
     }
 
-    pub(super) fn check_registry_root(&self) -> Result<()> {
-        if self.root.components().any(|c| c == Component::ParentDir) {
+    pub(super) fn check_registry_root(root: &Path) -> Result<()> {
+        if root.components().any(|c| c == Component::ParentDir) {
             bail!("bucket registry path must not contain parent components");
         }
-        for ancestor in self.root.ancestors() {
+        for ancestor in root.ancestors() {
             match fs::symlink_metadata(ancestor) {
                 Ok(metadata) if metadata.file_type().is_symlink() => {
                     bail!(
@@ -157,7 +157,7 @@ impl BucketStore {
     }
 
     pub(super) fn registrations(&self) -> Result<BTreeMap<String, Registration>> {
-        self.check_registry_root()?;
+        Self::check_registry_root(&self.root)?;
         let root = self.root.join("registrations");
         match fs::symlink_metadata(&root) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -237,7 +237,7 @@ impl BucketStore {
 
     fn official(&self) -> Result<(BucketInfo, Releases)> {
         let path = self.roots.official_main();
-        self.check_registry_root()?;
+        Self::check_registry_root(&self.roots.official_bucket_root())?;
         self.load("main", &path, ModuleTrustState::Main)
             .with_context(|| {
                 format!(

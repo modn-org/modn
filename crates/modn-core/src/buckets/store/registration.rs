@@ -13,7 +13,7 @@ impl BucketStore {
         name: &str,
         registration: &Registration,
     ) -> Result<()> {
-        self.check_registry_root()?;
+        Self::check_registry_root(&self.root)?;
         #[cfg(test)]
         if self
             .fail_next_registration_write

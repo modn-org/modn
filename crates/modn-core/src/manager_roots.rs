@@ -108,10 +108,16 @@ impl ManagerRoots {
         ]
     }
 
+    /// The shared bucket root that holds the official `main` copy.
+    #[must_use]
+    pub fn official_bucket_root(&self) -> PathBuf {
+        self.data.join("buckets")
+    }
+
     /// The shared official `main` bucket copy, which every profile uses.
     #[must_use]
     pub fn official_main(&self) -> PathBuf {
-        self.data.join("buckets").join("main")
+        self.official_bucket_root().join("main")
     }
 
     /// The development module override, when one is selected.
@@ -168,6 +174,12 @@ mod tests {
             assert_eq!(roots.bucket_registrations(), case.profile.join("buckets"));
             assert_eq!(roots.module_registry(), case.profile.join("game-modules"));
             assert_eq!(roots.official_main(), case.official_main);
+            assert_eq!(
+                roots.official_bucket_root(),
+                case.official_main
+                    .parent()
+                    .expect("official main has a parent")
+            );
         }
     }
 
