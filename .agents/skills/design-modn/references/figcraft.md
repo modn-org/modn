@@ -14,7 +14,7 @@ After a FigCraft upgrade, run `python -I .agents/skills/design-modn/scripts/test
 
 ## Components and fonts
 
-- `instance.create` with a component set's id places its default variant; `instance.setProperties` then picks variants and texts. `component.exposeInstance` reports success but adds no parent property; change a nested layer through an exposed variant, text or boolean property.
+- `instance.create` with a component set's id places its default variant; `instance.setProperties` then picks variants and texts. `component.exposeInstance` reports success but adds no parent property; change a nested layer through an exposed variant, text or boolean property. Run `component.properties` before planning a component with interactive children; its description may omit nested layers.
 - An instance keeps its link to its component after an edit. `get_node` lists the edited properties in `overrides`.
 - `font.download` installs a missing Google Fonts family only after the owner turns downloading on in **Text ▸ Missing fonts**.
 
