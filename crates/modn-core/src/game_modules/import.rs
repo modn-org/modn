@@ -1,5 +1,5 @@
 use super::registry::layout;
-use super::registry::{ImportReport, ModuleRegistry, ReleaseOutcome};
+use super::registry::{ImportReport, ModuleRegistry, ModuleSource, ReleaseOutcome};
 use crate::buckets::BucketStore;
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -23,7 +23,7 @@ mod staging;
 pub(crate) use catalog::ignored_catalog_modules;
 
 use catalog::module_directories;
-use staging::stage_one;
+use staging::{stage_one, StagedRelease};
 
 /// Why one catalog module was not imported.
 #[expect(clippy::exhaustive_enums, reason = "Ignore reasons are a closed set")]
@@ -72,15 +72,6 @@ pub struct StagedCatalogImport {
     ignored: Vec<IgnoredModule>,
 }
 
-struct StagedRelease {
-    game_id: String,
-    version: String,
-    blake3: String,
-    directory: PathBuf,
-    newer: bool,
-    current: Option<String>,
-}
-
 struct MovedRelease {
     staged: PathBuf,
     target: PathBuf,
@@ -114,6 +105,10 @@ pub(crate) fn stage_catalog_modules_at(
         .prefix(".staging-catalog-")
         .tempdir_in(registry.root())?;
     let candidates = module_directories(catalog)?;
+    let source = ModuleSource {
+        bucket: Some(bucket.to_owned()),
+        signer_key_id: Some(signer_key_id.to_owned()),
+    };
     let mut staged = Vec::new();
     let mut reports = Vec::new();
     let mut ignored = Vec::new();
@@ -137,8 +132,7 @@ pub(crate) fn stage_catalog_modules_at(
         stage_one(
             &registry,
             staging.path(),
-            bucket,
-            signer_key_id,
+            &source,
             &game,
             &directory,
             &mut staged,
