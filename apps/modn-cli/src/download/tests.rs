@@ -16,11 +16,7 @@ const METADATA_URL: &str = "https://api.github.com/repos/fixture/project/release
 fn command(roots: &ManagerRoots, root: &Path, args: &[&str]) -> anyhow::Result<()> {
     let cli = Cli::try_parse_from(std::iter::once("modn").chain(args.iter().copied()))
         .expect("test command line");
-    crate::run_cli(
-        cli,
-        roots,
-        &crate::progress::Progress::start(None),
-    )
+    crate::run_cli(cli, roots, &crate::progress::Progress::start(None))
 }
 
 pub(super) fn archive(root: &Path) -> (Vec<u8>, String) {
