@@ -21,6 +21,7 @@ mod index;
 mod nexus;
 mod plan;
 mod provider;
+mod release;
 mod release_digest;
 mod sources;
 use digest::{copy_blake3, file_blake3, file_has_blake3};
@@ -32,6 +33,7 @@ pub use nexus::{
 };
 pub use plan::{plan_sources, source_cache_url, PlannedAction, PlannedSource};
 pub use provider::GithubReleaseAsset;
+pub use release::{ReleaseAcquired, ReleaseResolver};
 pub use release_digest::{ArchiveDigest, ReleaseDigest};
 pub use sources::{
     FetchError, SourceAttempt, SourceBody, SourceCandidate, SourceFailure, SourcePolicy,
