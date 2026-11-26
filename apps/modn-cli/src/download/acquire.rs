@@ -1,4 +1,4 @@
-use super::fallback::{self, Planned};
+use super::fallback;
 use super::key;
 use super::nexus_label;
 use crate::catalog_install::reference_of;
@@ -7,8 +7,8 @@ use crate::nexus_auth;
 use crate::nxm::NxmLink;
 use crate::progress::Progress;
 use modn_core::acquisition::{
-    ArchiveCache, CacheUse, FetchError, GitSource, NexusFile, SourceAttempt, SourceFailure,
-    SourcePolicy, SourcesError,
+    plan_sources, source_cache_url, ArchiveCache, CacheUse, FetchError, GitSource, NexusFile,
+    PlannedAction, SourceAttempt, SourceFailure, SourcePolicy, SourcesError,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::error::{code_of, ErrorCode};
@@ -84,10 +84,11 @@ pub(super) fn download_into(
         let first = attempts.len();
         let mut served_now = false;
         let mut specific: Option<anyhow::Error> = None;
-        for (planned, source) in fallback::plan(release) {
+        for planned in plan_sources(release) {
             control.checkpoint()?;
-            match planned {
-                Planned::Git { repository, commit } => {
+            let source = planned.source;
+            match planned.action {
+                PlannedAction::Git { repository, commit } => {
                     if text {
                         note(
                             report,
@@ -136,7 +137,7 @@ pub(super) fn download_into(
                         }
                     }
                 }
-                Planned::Nexus {
+                PlannedAction::Nexus {
                     game_domain,
                     mod_id,
                     file_id,
@@ -190,8 +191,8 @@ pub(super) fn download_into(
                         }
                     }
                 }
-                Planned::Fetch(fetch) => {
-                    let candidate = fetch.resolve();
+                action => {
+                    let candidate = fallback::resolve_candidate(action);
                     if text && text_announces(&candidate.target) {
                         note(
                             report,
@@ -269,7 +270,7 @@ pub(super) fn cached_archive(
                 }
             }
             _ => {
-                let Some(url) = fallback::cache_url(source)? else {
+                let Some(url) = source_cache_url(source)? else {
                     continue;
                 };
                 let key = key(release, &url);
@@ -286,7 +287,7 @@ pub(super) fn cached_archive(
         }
     }
     for source in &release.package.sources {
-        let Some(url) = fallback::cache_url(source)? else {
+        let Some(url) = source_cache_url(source)? else {
             continue;
         };
         let probe = key(release, &url);
@@ -298,7 +299,7 @@ pub(super) fn cached_archive(
             .sources
             .iter()
             .find(|candidate| {
-                fallback::cache_url(candidate)
+                source_cache_url(candidate)
                     .ok()
                     .flatten()
                     .is_some_and(|url| cache.path(&key(release, &url)) == path)

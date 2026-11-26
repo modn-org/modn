@@ -2,7 +2,7 @@ use crate::catalog_install::reference_of;
 use crate::download;
 use crate::install_consent::ApprovalCheck;
 use anyhow::Result;
-use modn_core::acquisition::SourceAttempt;
+use modn_core::acquisition::{GithubReleaseAsset, SourceAttempt};
 use modn_core::buckets::{BucketPackage, BucketSnapshot, PackageSource};
 use modn_core::planning::InstallPlan;
 use modn_core::state::Store;
@@ -171,7 +171,7 @@ pub(super) fn source_label(source: &PackageSource) -> String {
             repository,
             tag,
             asset,
-        } => format!("https://github.com/{repository}/releases/download/{tag}/{asset}"),
+        } => GithubReleaseAsset::new(repository.clone(), tag.clone(), asset.clone()).download_url(),
         PackageSource::Git { repository, commit } => format!("git {repository} commit {commit}"),
         _ => "unsupported source".to_owned(),
     }

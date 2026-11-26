@@ -171,6 +171,9 @@ Cancellation is checked before each source and after each failed attempt.
 A `manual` source is never started automatically.
 If only manual sources remain, Modn prints the manual step as before.
 A verified cache entry for the pin is used before any network attempt.
+`modn_core::acquisition::plan_sources` derives the ordered sources of a release.
+`modn_core::acquisition::source_cache_url` derives one source's cache identity.
+Both functions are pure, so install, update, stack install and undo share one order and one cache key per source.
 
 | Setting | Default | Applies to |
 | --- | --- | --- |
