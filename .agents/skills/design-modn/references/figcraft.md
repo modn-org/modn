@@ -14,7 +14,7 @@ After a FigCraft upgrade, run `python -I .agents/skills/design-modn/scripts/test
 
 ## Components and fonts
 
-- `instance.create` with a component set's id places its default variant; `instance.setProperties` then picks variants and texts. `component.exposeInstance` reports success but adds no parent property; change a nested layer through an exposed variant, text or boolean property. Run `component.properties` before planning a component with interactive children; its description may omit nested layers.
+- `instance.create` with a component set's id places its default variant; `instance.setProperties` then picks variants and texts. `component.exposeInstance` reports success but adds no parent property, so nested configurability needs variants. Run `component.properties` before planning a component with interactive children; its description may omit nested layers.
 - An instance keeps its link to its component after an edit. `get_node` lists the edited properties in `overrides`.
 - `font.download` installs a missing Google Fonts family only after the owner turns downloading on in **Text ▸ Missing fonts**.
 
@@ -24,7 +24,7 @@ After a FigCraft upgrade, run `python -I .agents/skills/design-modn/scripts/test
 - `fill` takes a color, `{"$var": "<variable>"}`, or `"none"`. Gradients go in `fills`: `{"type": "linearGradient", "stops": ["#hex", "#hex"], "from": [0, 0], "to": [1, 1]}`.
 - `strokeSides` takes four booleans in `[top, right, bottom, left]` order.
 - A drop shadow: `effect.add` with `{"ids": [<id>], "effect": {"type": "dropShadow", "color": "#00000040", "offset": [0, 2], "radius": 6, "spread": 0}}`. `offsetX` and `offsetY` are refused.
-- Text in a horizontal layout wraps when it gets a narrow width. Set `width`, or `sizingH: "hug"`. A frame's collection mode override reaches its descendants; place labels outside an overridden frame.
+- A new frame's `sizingH` and `sizingV` default to fixed 100×100, so set `"hug"` or `"fill"` on layout containers. Text in a horizontal layout wraps when it gets a narrow width; set `width` or `sizingH: "hug"`. A frame's collection mode override reaches its descendants; place labels outside an overridden frame.
 - `padding` takes a number or `[top, right, bottom, left]`.
 - `style.update` with `value` replaces the whole style. For a text style, pass every field: `{"fontFamily", "fontStyle", "fontSize", "lineHeight": <px>, "letterSpacing": "0%"}`. A left-out field resets to its default, such as 12 px and `auto` line height.
 - `variable.bind` accepts `gap`, `crossGap` and each padding side: `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`. `opacity` takes a percent.
