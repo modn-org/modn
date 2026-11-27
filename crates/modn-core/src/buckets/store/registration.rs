@@ -117,6 +117,7 @@ impl BucketStore {
     /// Atomically record the accepted signed sequence of the official `main` bucket.
     pub(in crate::buckets) fn write_main_sequence(&self, accepted: &StoredSequence) -> Result<()> {
         Self::check_registry_root(&self.root)?;
+        fs::create_dir_all(&self.root)?;
         let bytes = serde_json::to_vec(&MainSequenceRecord {
             schema_version: 1,
             accepted: Some(accepted.clone()),
