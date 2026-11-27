@@ -73,4 +73,12 @@ pub(crate) enum CatalogCommand {
         /// Archive file, such as a ZIP.
         archive: PathBuf,
     },
+    /// Report whether each catalog package has a newer upstream release.
+    Checkver {
+        /// Catalog directory to check.
+        dir: PathBuf,
+        /// One package: <mod-id> or <game-id>/<mod-id>.
+        #[arg(value_name = "MOD")]
+        mod_id: Option<String>,
+    },
 }

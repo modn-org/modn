@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, Cursor};
 use std::path::{Component, Path};
 
+mod checkver;
 mod keys;
 mod maintenance;
 
@@ -45,6 +46,9 @@ pub(super) fn run(command: &CatalogCommand, json_output: bool) -> Result<()> {
         ),
         CatalogCommand::Verify { dir, key } => verify(dir, key, json_output),
         CatalogCommand::Hash { archive } => hash(archive, json_output),
+        CatalogCommand::Checkver { dir, mod_id } => {
+            checkver::run(dir, mod_id.as_deref(), json_output)
+        }
         CatalogCommand::Rotate {
             dir,
             key,
