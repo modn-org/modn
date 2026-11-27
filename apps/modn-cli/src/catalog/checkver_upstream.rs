@@ -56,6 +56,7 @@ pub(super) fn check_upstream(
             let head = git_branch_commit(repository, branch)?;
             let latest = git_source_version(&head)?;
             let upstream = Upstream::Git {
+                repository: repository.clone(),
                 commit: head.clone(),
                 version: latest.clone(),
             };

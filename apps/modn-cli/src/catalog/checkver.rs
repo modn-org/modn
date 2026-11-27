@@ -68,6 +68,7 @@ pub(super) enum Upstream {
         version: String,
     },
     Git {
+        repository: String,
         commit: String,
         version: String,
     },

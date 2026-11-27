@@ -54,7 +54,9 @@ pub(super) fn apply(
                 rewrite_manifest(text, &update).context("cannot rewrite the package manifest")?;
             (version.clone(), new_text, Marker::Blake3(blake3), removed)
         }
-        Upstream::Git { commit, version } => {
+        Upstream::Git {
+            commit, version, ..
+        } => {
             let update = ManifestUpdate::new(version, index, SourceUpdate::git(commit));
             let new_text =
                 rewrite_manifest(text, &update).context("cannot rewrite the package manifest")?;
@@ -106,13 +108,24 @@ fn source_index(manifest: &PackageManifest, upstream: &Upstream) -> Result<usize
     manifest
         .sources
         .iter()
-        .position(|source| match upstream {
-            Upstream::GithubRelease { .. } => {
-                matches!(source, PackageSource::GithubRelease { .. })
-            }
-            Upstream::Git { .. } => matches!(source, PackageSource::Git { .. }),
+        .position(|source| match (upstream, source) {
+            (
+                Upstream::GithubRelease { repository, .. },
+                PackageSource::GithubRelease {
+                    repository: source_repository,
+                    ..
+                },
+            ) => source_repository == repository,
+            (
+                Upstream::Git { repository, .. },
+                PackageSource::Git {
+                    repository: source_repository,
+                    ..
+                },
+            ) => source_repository == repository,
+            _ => false,
         })
-        .context("checkver kind does not match any package source")
+        .context("the checkver repository does not match any package source")
 }
 
 fn download_and_hash(url: &str) -> Result<String> {
