@@ -13,6 +13,7 @@ mod git_source;
 mod history;
 mod install;
 mod install_consent;
+mod install_report;
 mod inventory;
 mod main_key;
 mod main_release;
