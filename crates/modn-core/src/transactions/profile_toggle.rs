@@ -261,12 +261,7 @@ impl Store {
     }
 }
 
-fn membership_not_found(
-    store: &Store,
-    game: &str,
-    profile: &str,
-    package: &str,
-) -> anyhow::Error {
+fn membership_not_found(store: &Store, game: &str, profile: &str, package: &str) -> anyhow::Error {
     let exists: bool = store
         .connection
         .query_row(

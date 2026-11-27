@@ -105,6 +105,12 @@ pub(crate) struct EnableArgs {
     /// Profile to change; defaults to the active profile.
     #[arg(long, value_name = "NAME")]
     pub(crate) profile: Option<String>,
+    /// Show the file changes without writing game files or manager state.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+    /// Confirm changing game files.
+    #[arg(long)]
+    pub(crate) yes: bool,
     /// Game installation directory; defaults to the selected installation.
     #[arg(long, value_name = "DIR")]
     pub(crate) path: Option<PathBuf>,

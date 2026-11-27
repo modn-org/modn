@@ -170,7 +170,10 @@ fn profile_toggle_disabled_package_is_skipped_by_uninstall_restore() {
     toggle(&mut fixture, &first.id, false).expect("disable shadowed first");
 
     let game = fixture.game.clone();
-    fixture.store.uninstall(&game, &third.id).expect("uninstall third");
+    fixture
+        .store
+        .uninstall(&game, &third.id)
+        .expect("uninstall third");
 
     assert_eq!(fixture.bytes(), b"second-bytes");
     assert_eq!(fixture.winner(), Some(second.id.clone()));
@@ -205,7 +208,11 @@ fn profile_toggle_archive_digest_mismatch_refuses() {
         .connection
         .execute(
             "UPDATE file_claims SET blake3=?1 WHERE relative_path=?2 AND package_id<>?3",
-            rusqlite::params![blake3::hash(b"wrong").to_hex().to_string(), SHARED, second.id],
+            rusqlite::params![
+                blake3::hash(b"wrong").to_hex().to_string(),
+                SHARED,
+                second.id
+            ],
         )
         .expect("tamper claim");
 

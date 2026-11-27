@@ -23,7 +23,9 @@ pub(super) fn execute_toggle(
     prepared: PreparedToggle,
     fault: Option<super::install::Fault>,
 ) -> Result<ProfileToggle> {
-    let staging = Builder::new().prefix("txn-").tempdir_in(&store.state_root)?;
+    let staging = Builder::new()
+        .prefix("txn-")
+        .tempdir_in(&store.state_root)?;
     let id = staging
         .path()
         .file_name()
@@ -41,13 +43,8 @@ pub(super) fn execute_toggle(
             .archive
             .as_deref()
             .context("planned profile toggle archive is missing")?;
-        let staged = restore::stage_member(
-            store,
-            archive,
-            candidate,
-            &restore_dir,
-            entry.file.ordinal,
-        )?;
+        let staged =
+            restore::stage_member(store, archive, candidate, &restore_dir, entry.file.ordinal)?;
         restores.insert(
             entry.file.ordinal,
             StagedRestore {
@@ -125,8 +122,13 @@ fn place_one(
     restores: &BTreeMap<usize, StagedRestore>,
     id: &str,
 ) -> Result<()> {
-    let target = prepared.roots.target(entry.file.root, &entry.file.destination)?;
+    let target = prepared
+        .roots
+        .target(entry.file.root, &entry.file.destination)?;
     if entry.file.blake3.is_empty() {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
         if fs::symlink_metadata(&target).is_ok() {
             return Err(anyhow::anyhow!(
                 "PROFILE_DRIFT: an unmanaged file appeared at {}; preserve it and run 'modn doctor'",
@@ -229,7 +231,10 @@ pub(super) fn commit_toggle(
                 params![file.game_path, file.root, file.path_key, package],
             )?;
             if deleted != 1 {
-                bail!("profile toggle winner row is missing for {}", file.relative_path);
+                bail!(
+                    "profile toggle winner row is missing for {}",
+                    file.relative_path
+                );
             }
         }
     }

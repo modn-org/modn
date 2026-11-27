@@ -10,6 +10,8 @@ use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
 mod snapshot;
+#[path = "toggle.rs"]
+mod toggle;
 use snapshot::{files, json, path_key, snapshot, stderr};
 
 const SHARED: &[&str] = &[
@@ -100,18 +102,17 @@ fn source(package: char, index: usize) -> String {
     format!("{package}/{index}.bin")
 }
 
-fn payload(package: char, index: usize) -> Vec<u8> {
+pub(crate) fn payload(package: char, index: usize) -> Vec<u8> {
     format!("{package}{index}-payload").into_bytes()
 }
 
-struct World {
+pub(crate) struct World {
     _temp: TempDir,
-    root: PathBuf,
+    pub(crate) root: PathBuf,
     game: PathBuf,
     state: PathBuf,
     modules: PathBuf,
 }
-
 impl World {
     fn new(case: &Case) -> Result<Self, TestCaseError> {
         let temp = tempdir()?;
@@ -232,6 +233,12 @@ impl World {
     fn uninstall(&self, id: &str) -> Result<Output, TestCaseError> {
         let game = self.game.to_string_lossy().into_owned();
         self.modn(&["uninstall", id, "--yes", "--path", &game])
+    }
+
+    pub(crate) fn toggle(&self, id: &str, enabled: bool) -> Result<Output, TestCaseError> {
+        let game = self.game.to_string_lossy().into_owned();
+        let command = if enabled { "enable" } else { "disable" };
+        self.modn(&["profile", command, id, "--yes", "--path", &game])
     }
 }
 
@@ -423,6 +430,7 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
         );
         return Ok(());
     };
+    toggle::check_toggle_round_trip(&world, &second_id, &second_owned, &case.first)?;
     let first_keys: BTreeSet<String> = first_owned.iter().map(|path| path_key(path)).collect();
     let second_keys: BTreeSet<String> = second_owned.iter().map(|path| path_key(path)).collect();
     let shared: BTreeSet<String> = first_keys.intersection(&second_keys).cloned().collect();

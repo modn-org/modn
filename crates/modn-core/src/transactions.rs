@@ -37,15 +37,15 @@ mod override_recovery;
 mod override_recovery_tests;
 #[cfg(test)]
 mod override_tests;
-#[cfg(test)]
-mod progress_tests;
 mod profile_toggle;
 mod profile_toggle_apply;
-mod profile_toggle_plan;
 #[cfg(test)]
 mod profile_toggle_crash_tests;
+mod profile_toggle_plan;
 #[cfg(test)]
 mod profile_toggle_tests;
+#[cfg(test)]
+mod progress_tests;
 mod recovery;
 mod restore;
 #[cfg(test)]
@@ -83,6 +83,7 @@ pub use native_injector::{
     NativeInjectorNotAllowed, NativeInjectorPolicy, NATIVE_INJECTOR_FLAG,
     NATIVE_INJECTOR_NOT_ALLOWED,
 };
+pub use profile_toggle::{ProfileToggle, ToggleAction, ToggleChange};
 pub use stack::StackMember;
 pub use uninstall_plan::{PlannedRemoval, PlannedRestore, UninstallScope};
 pub(crate) use validation::validate_transaction_root;

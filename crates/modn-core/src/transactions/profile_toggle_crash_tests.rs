@@ -43,13 +43,17 @@ fn profile_toggle_crash_before_commit_rolls_back_to_winner() {
 
     let id = crash_toggle(&mut fixture, &second.id, false);
     assert_eq!(fixture.bytes(), b"first-bytes");
-    assert!(restore_path(&fixture.path(), &id, 0).expect("restore").is_file());
+    assert!(restore_path(&fixture.path(), &id, 0)
+        .expect("restore")
+        .is_file());
 
     assert_eq!(fixture.store.recover().expect("recover"), 1);
     assert_eq!(fixture.bytes(), b"second-bytes");
     assert_eq!(fixture.winner(), Some(second.id.clone()));
     assert!(enabled(&fixture, &second.id));
-    assert!(!restore_path(&fixture.path(), &id, 0).expect("restore").exists());
+    assert!(!restore_path(&fixture.path(), &id, 0)
+        .expect("restore")
+        .exists());
     assert!(!temp_path(&fixture.path(), &id, 0).expect("temp").exists());
     assert_eq!(fixture.pending(), 0);
 }
@@ -68,7 +72,9 @@ fn profile_toggle_crash_after_commit_keeps_claimant() {
     assert_eq!(fixture.bytes(), b"first-bytes");
     assert_eq!(fixture.winner(), Some(first.id.clone()));
     assert!(!enabled(&fixture, &second.id));
-    assert!(!restore_path(&fixture.path(), &id, 0).expect("restore").exists());
+    assert!(!restore_path(&fixture.path(), &id, 0)
+        .expect("restore")
+        .exists());
     assert_eq!(fixture.pending(), 0);
 }
 
@@ -89,7 +95,9 @@ fn profile_toggle_crash_enable_create_rolls_back_to_absent() {
     assert!(!fixture.path().exists());
     assert!(!enabled(&fixture, &only.id));
     assert_eq!(fixture.pending(), 0);
-    assert!(!restore_path(&fixture.path(), &id, 0).expect("restore").exists());
+    assert!(!restore_path(&fixture.path(), &id, 0)
+        .expect("restore")
+        .exists());
 }
 
 #[test]
