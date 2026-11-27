@@ -40,14 +40,16 @@ pub(super) fn list(
         let mut entries = Vec::with_capacity(packages.len());
         for package in &packages {
             let mut value = serde_json::to_value(package)?;
-            let Some(entry) = value.as_object_mut() else {
-                bail!(
-                    "managed package {package_id} is not a JSON object",
-                    package_id = package.id
-                );
-            };
+            let entry = value
+                .as_object_mut()
+                .expect("a managed package serializes as a JSON object");
             let member = members.get(package.id.as_str());
-            entry.insert("profile".into(), name_value(profile_name.as_deref()));
+            entry.insert(
+                "profile".into(),
+                profile_name
+                    .as_deref()
+                    .map_or(serde_json::Value::Null, |name| name.into()),
+            );
             entry.insert(
                 "rank".into(),
                 ranks
@@ -116,10 +118,6 @@ pub(super) fn list(
         }
     }
     Ok(())
-}
-
-fn name_value(name: Option<&str>) -> serde_json::Value {
-    name.map_or(serde_json::Value::Null, |name| name.to_owned().into())
 }
 
 pub(super) fn uninstall(
