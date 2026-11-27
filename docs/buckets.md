@@ -2,7 +2,10 @@
 
 ## The official main bucket
 
-Modn reads the official bucket from `<data dir>/buckets/main/`. If it is missing,
+Modn reads the official bucket from `<state dir>/buckets/main/`. Without
+`--state-dir`, `<state dir>` is the shared data directory. With `--state-dir`,
+the selected manager profile holds its own copy, so the command writes nothing
+into the shared data directory. If the copy is missing,
 Modn tells the user to run `modn bucket update`. Modn never fetches it implicitly.
 The install script runs that command once. The local copy works offline.
 `MODN_MAIN_BUCKET_SOURCE` selects an HTTPS URL or local ZIP for an update and

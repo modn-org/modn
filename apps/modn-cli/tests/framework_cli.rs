@@ -13,7 +13,7 @@ fn fixture() -> (TempDir, PathBuf, PathBuf) {
     let game = temp.path().join("game");
     fs::create_dir_all(game.join("bin/x64")).expect("game directory");
     fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").expect("game marker");
-    let state = temp.path().join("state");
+    let state = main_bucket::seeded_state(&temp.path().join("state"));
     (temp, game, state)
 }
 
@@ -93,7 +93,8 @@ fn cet_nested_zip_is_managed_and_survives_conflicts_and_drift() {
         review["operations"].as_array().expect("operations").len(),
         2
     );
-    assert!(!state.exists(), "preview must remain read-only");
+    let state_database = state.join("state.sqlite");
+    assert!(!state_database.exists(), "preview must remain read-only");
     assert!(!game.join("bin/x64/plugins").exists());
 
     let owned = success(

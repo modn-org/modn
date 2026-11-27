@@ -51,6 +51,7 @@ fn keygen_sign_verify_round_trip_pins_the_fingerprint_at_sync() {
     copy_tree(&catalog, &repo);
     let commit = commit_all(&repo, "signed catalog");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let synced = run(&[
         "--state-dir",
         path_text(&state),
@@ -95,6 +96,7 @@ fn sign_and_verify_work_in_a_git_checkout_and_sync_accepts_it() {
 
     commit_all(&repo, "signed catalog in a checkout");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let synced = run(&[
         "--state-dir",
         path_text(&state),

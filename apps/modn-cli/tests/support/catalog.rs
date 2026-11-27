@@ -22,6 +22,7 @@ impl Fixture {
     pub fn new() -> Self {
         let temp = tempfile::tempdir().expect("fixture");
         let state = temp.path().join("manager");
+        main_bucket::seed_state(&state);
         let modules = temp.path().join("modules");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
         let module = modules.join("test-game");

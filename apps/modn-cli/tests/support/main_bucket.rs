@@ -123,6 +123,38 @@ pub fn seed(data: &Path) {
     );
 }
 
+/// Seed one valid official `main` bucket inside a selected `--state-dir`.
+pub fn seed_state(state: &Path) {
+    let main = state.join("buckets/main");
+    if main.exists() {
+        return;
+    }
+    copy_tree(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main"),
+        &main,
+    );
+}
+
+/// Seed the official `main` copy and return the profile path for chaining.
+pub fn seeded_state(state: &Path) -> PathBuf {
+    seed_state(state);
+    state.to_path_buf()
+}
+
+/// Seed an official `main` bucket with no packages, games or themes.
+pub fn seed_state_minimal(state: &Path) {
+    let main = state.join("buckets/main");
+    if main.exists() {
+        return;
+    }
+    fs::create_dir_all(&main).expect("main bucket directory");
+    fs::write(
+        main.join("bucket.json"),
+        r#"{"schema_version":2,"name":"main","title":"Main"}"#,
+    )
+    .expect("main bucket metadata");
+}
+
 pub struct SeededCommand {
     command: Command,
     _data: TempDir,

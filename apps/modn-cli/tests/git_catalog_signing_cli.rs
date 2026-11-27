@@ -135,6 +135,7 @@ fn signed_git_catalog_sync_pins_and_lists_the_signer() {
     replace_catalog(&repo, "v1");
     let commit = commit_all(&repo, "v1");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
 
     let synced = sync(&state, &repo, true);
     assert!(synced.status.success(), "{}", output(&synced));
@@ -176,6 +177,7 @@ fn later_revision_signed_by_the_pinned_key_succeeds() {
     replace_catalog(&repo, "v1");
     commit_all(&repo, "v1");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let first = sync(&state, &repo, true);
     assert!(first.status.success(), "{}", output(&first));
 
@@ -200,6 +202,7 @@ fn changed_signer_key_is_refused_and_preserves_the_published_copy() {
     replace_catalog(&repo, "v1");
     commit_all(&repo, "v1");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let synced = sync(&state, &repo, true);
     assert!(synced.status.success(), "{}", output(&synced));
     let registration = state.join("buckets/registrations/community.json");
@@ -236,6 +239,7 @@ fn unsigned_and_invalid_revisions_are_refused_at_first_and_later_sync() {
         .path()
         .join("state/buckets/registrations/community.json");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
 
     replace_catalog(&repo, "v1");
     fs::remove_file(repo.join("catalog.pub")).expect("remove public key");
@@ -322,6 +326,7 @@ fn registration_before_catalog_signing_is_refused_until_removed() {
     replace_catalog(&repo, "v1");
     commit_all(&repo, "v1");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let synced = sync(&state, &repo, true);
     assert!(synced.status.success(), "{}", output(&synced));
 

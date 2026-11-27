@@ -73,6 +73,7 @@ impl GitFixture {
         main_bucket::seed(&data);
         let repo = init_repo(temp.path());
         let state = temp.path().join("state");
+        main_bucket::seed_state(&state);
         Self {
             temp,
             state,

@@ -74,6 +74,7 @@ impl Fixture {
         fs::create_dir_all(game.join("bin")).expect("game directory");
         fs::write(game.join("bin/TestGame.exe"), b"game").expect("game marker");
         let state = temp.path().join("state");
+        main_bucket::seed_state(&state);
         let modules = temp.path().join("modules");
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         for (source, name) in [

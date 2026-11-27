@@ -35,7 +35,7 @@ impl Fixture {
     pub(super) fn new() -> Self {
         let data = tempfile::tempdir().expect("data directory");
         let profile = tempfile::tempdir().expect("profile directory");
-        let main = data.path().join("buckets/main");
+        let main = profile.path().join("buckets/main");
         fs::create_dir_all(&main).expect("main bucket");
         fs::write(
             main.join("bucket.json"),
@@ -55,7 +55,7 @@ impl Fixture {
 
     pub(super) fn add(&self, manifest: &PackageManifest) {
         let directory = self
-            .data
+            .profile
             .path()
             .join("buckets/main/mods")
             .join(&manifest.game);

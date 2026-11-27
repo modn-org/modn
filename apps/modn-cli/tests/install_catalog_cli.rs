@@ -13,7 +13,7 @@ fn adds_first_party_game_and_supports_development_source() {
     let fixture = Fixture::new();
     let missing = fixture.run(&["game", "install", "test-game", "--path", "not-a-game"]);
     assert!(!missing.status.success());
-    assert!(!fixture.state.exists());
+    assert!(!fixture.state.join("state.sqlite").exists());
 
     fixture.register();
     let entries = fixture.run(&["game", "list", "--json"]);

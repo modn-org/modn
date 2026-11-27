@@ -291,6 +291,7 @@ fn register_follows_the_selected_state_directory() {
     let cli = Cli::new();
     let profile = tempfile::tempdir().expect("profile");
     let state_dir = profile.path().join("profile");
+    main_bucket::seed_state(&state_dir);
     let state_dir_text = state_dir.to_str().expect("state dir");
 
     let report = cli.json(&[

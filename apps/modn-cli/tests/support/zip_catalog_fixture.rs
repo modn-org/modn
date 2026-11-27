@@ -32,6 +32,7 @@ impl Fixture {
         pack(&tree, &main_zip);
         main_bucket::write_signature(&tree, &main_zip);
         let state = temp.path().join("state");
+        main_bucket::seed_state(&state);
         Self {
             temp,
             data,

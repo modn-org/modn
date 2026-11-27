@@ -4,11 +4,18 @@ use serde_json::Value;
 use std::fs;
 use tempfile::tempdir;
 
+fn seeded_state(temp: &std::path::Path) -> std::path::PathBuf {
+    let state = temp.join("state");
+    main_bucket::seed_state(&state);
+    state
+}
+
 #[test]
 fn dense_cet_assets_produce_incomplete_inventory_without_vm_timeout() {
     let temp = tempdir().expect("fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("marker directory")).expect("game");
     fs::write(marker, b"marker").expect("game marker");
@@ -51,6 +58,7 @@ fn exact_framework_budget_does_not_report_truncation() {
     let temp = tempdir().expect("fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("marker directory")).expect("game");
     fs::write(marker, b"marker").expect("game marker");
@@ -96,6 +104,7 @@ fn dense_redscript_inventory_returns_incomplete_instead_of_vm_timeout() {
     let temp = tempdir().expect("fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("marker folder")).expect("game");
     fs::write(marker, b"game").expect("marker");
@@ -130,6 +139,7 @@ fn exact_redscript_budget_is_complete_when_no_other_framework_content_exists() {
     let temp = tempdir().expect("fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("game marker parent")).expect("game");
     fs::write(marker, b"marker").expect("marker");
@@ -164,6 +174,7 @@ fn exhausted_budget_checks_all_queued_directories_before_claiming_complete() {
     let temp = tempdir().expect("fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("marker parent")).expect("game");
     fs::write(marker, b"marker").expect("game marker");
@@ -231,6 +242,7 @@ fn generated_archivexl_log_link_does_not_hide_inventory() {
     let temp = tempdir().expect("fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("game marker parent")).expect("game");
     fs::write(marker, b"game").expect("game marker");
@@ -335,7 +347,7 @@ fn unknown_plugin_link_reports_unsafe_entry_not_limit() {
 
     let scan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
-        .arg(temp.path().join("state"))
+        .arg(seeded_state(temp.path()))
         .args(["scan", "--path"])
         .arg(&game)
         .output()
@@ -394,7 +406,7 @@ fn archivexl_log_directory_link_stays_unsafe() {
     }
     let scan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
-        .arg(temp.path().join("state"))
+        .arg(seeded_state(temp.path()))
         .args(["scan", "--path"])
         .arg(&game)
         .output()
@@ -442,7 +454,7 @@ fn exhausted_budget_preserves_unsafe_link_issue() {
     }
     let scan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
-        .arg(temp.path().join("state"))
+        .arg(seeded_state(temp.path()))
         .args(["scan", "--path"])
         .arg(&game)
         .output()

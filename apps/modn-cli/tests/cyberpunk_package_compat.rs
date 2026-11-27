@@ -14,6 +14,7 @@ fn game() -> (TempDir, PathBuf, PathBuf) {
     fs::create_dir_all(root.join("bin/x64")).expect("game");
     fs::write(root.join("bin/x64/Cyberpunk2077.exe"), b"marker").expect("marker");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     (temp, root, state)
 }
 

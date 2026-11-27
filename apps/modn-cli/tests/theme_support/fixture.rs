@@ -27,6 +27,7 @@ impl Fixture {
         let sources = temp.path().join("sources");
         fs::create_dir_all(&data).expect("appdata");
         fs::create_dir_all(&sources).expect("sources");
+        main_bucket::seed_state_minimal(&state);
         Self {
             temp,
             data,
@@ -40,7 +41,7 @@ impl Fixture {
     }
 
     pub fn main_themes(&self) -> PathBuf {
-        self.data_dir().join("buckets").join("main").join("themes")
+        self.state.join("buckets").join("main").join("themes")
     }
 
     pub fn command(&self) -> Command {

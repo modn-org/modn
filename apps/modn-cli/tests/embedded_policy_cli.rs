@@ -32,6 +32,7 @@ fn policy_beside_the_executable_is_ignored() {
 
     let game = root.path().join("not-a-game");
     fs::create_dir_all(&game).expect("game directory");
+    main_bucket::seed_state(&root.path().join("state"));
     let output = main_bucket::command(&copied)
         .env_remove("MODN_GAME_MODULES_DIR")
         .current_dir(root.path())

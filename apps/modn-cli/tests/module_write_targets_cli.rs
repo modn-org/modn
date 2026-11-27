@@ -32,6 +32,7 @@ fn module_registry_destination_inside_game_root_is_refused() {
     fs::write(&marker, b"original marker").expect("fixture game marker");
     let state = game.join("profile");
     fs::create_dir_all(&state).expect("fixture profile");
+    main_bucket::seed_state(&state);
     let appdata = temp.path().join("appdata");
     fs::create_dir_all(&appdata).expect("fixture appdata");
 

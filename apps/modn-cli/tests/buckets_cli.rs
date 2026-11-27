@@ -69,15 +69,17 @@ fn output(result: &Output) -> String {
 }
 
 #[test]
-fn bundled_main_is_available_without_mutating_state() {
+fn official_main_is_read_from_the_selected_state_without_creating_a_database() {
     let temp = TempDir::new().expect("test fixture invariant");
+    main_bucket::seed_state(temp.path());
     let result = run(temp.path(), &["list"]);
     assert!(result.status.success(), "{}", output(&result));
     let entries: serde_json::Value =
         serde_json::from_slice(&result.stdout).expect("test fixture invariant");
     assert_eq!(entries.as_array().expect("test fixture invariant").len(), 1);
     assert_eq!(entries[0]["name"], "main");
-    assert!(!temp.path().join("buckets").exists());
+    assert!(temp.path().join("buckets/main").is_dir());
+    assert!(!temp.path().join("buckets/registrations").exists());
     assert!(!temp.path().join("state.sqlite").exists());
     let result = run(temp.path(), &["show", "main/cyberpunk-2077/red4ext"]);
     assert!(result.status.success(), "{}", output(&result));
@@ -94,6 +96,7 @@ fn local_registration_resolves_and_rejects_duplicate_registration() {
     let bucket = temp.path().join("source");
     seed(&bucket, &valid_manifest());
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let add = run(
         &state,
         &[
@@ -162,6 +165,7 @@ fn bucket_json_contract_v1_is_refused_before_registration() {
     )
     .expect("v1 metadata");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let result = run(
         &state,
         &["add", "community", bucket.to_str().expect("path")],
@@ -171,7 +175,7 @@ fn bucket_json_contract_v1_is_refused_before_registration() {
     assert!(message.contains("schema_version 1"), "{message}");
     assert!(message.contains("bucket contract v2"), "{message}");
     assert!(
-        !state.join("buckets").exists(),
+        !state.join("buckets/registrations").exists(),
         "a refused registration must not write the registry"
     );
     assert!(!state.join("state.sqlite").exists());
@@ -182,6 +186,7 @@ fn malformed_packages_are_rejected_before_registration() {
     let temp = TempDir::new().expect("test fixture invariant");
     let bucket = temp.path().join("source");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let mut manifest: serde_json::Value =
         serde_json::from_str(&valid_manifest()).expect("test fixture invariant");
     for (field, value) in [
@@ -207,7 +212,7 @@ fn malformed_packages_are_rejected_before_registration() {
             ],
         );
         assert!(!result.status.success(), "{field}");
-        assert!(!state.join("buckets").exists(), "{field}");
+        assert!(!state.join("buckets/registrations").exists(), "{field}");
         manifest[field] = original;
     }
 }
@@ -217,6 +222,7 @@ fn registered_bucket_corruption_never_silently_falls_back() {
     let temp = TempDir::new().expect("test fixture invariant");
     let bucket = temp.path().join("source");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     seed(&bucket, &valid_manifest());
     assert!(run(
         &state,
@@ -263,6 +269,7 @@ fn leftover_temp_files_outside_registry_do_not_block_reads() {
     let temp = TempDir::new().expect("test fixture invariant");
     let bucket = temp.path().join("source");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     seed(&bucket, &valid_manifest());
     assert!(run(
         &state,
@@ -389,6 +396,7 @@ fn bucket_registration_does_not_write_into_detected_game_root() {
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("marker parent")).expect("game");
     fs::write(&marker, b"unmodified game marker").expect("marker");
+    main_bucket::seed_state(&game);
     let result = run(&game, &["add", "community", bucket.to_str().expect("path")]);
     assert!(
         !result.status.success(),
@@ -400,7 +408,7 @@ fn bucket_registration_does_not_write_into_detected_game_root() {
         "{}",
         output(&result)
     );
-    assert!(!game.join("buckets").exists());
+    assert!(!game.join("buckets/registrations").exists());
     assert_eq!(
         fs::read(&marker).expect("marker"),
         b"unmodified game marker"
@@ -418,6 +426,7 @@ fn bucket_title_control_characters_are_rejected() {
     )
     .expect("metadata");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let result = run(
         &state,
         &["add", "community", bucket.to_str().expect("path")],
@@ -427,7 +436,7 @@ fn bucket_title_control_characters_are_rejected() {
         "{}",
         String::from_utf8_lossy(&result.stdout)
     );
-    assert!(!state.join("buckets").exists());
+    assert!(!state.join("buckets/registrations").exists());
 }
 
 #[test]
@@ -436,6 +445,7 @@ fn bucket_registry_destination_inside_game_root_is_refused() {
     let source = temp.path().join("source");
     seed(&source, &valid_manifest());
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let game = state.join("buckets");
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("marker parent")).expect("fixture game");
@@ -460,6 +470,7 @@ fn obsolete_module_directory_is_not_a_valid_bucket() {
     let temp = TempDir::new().expect("fixture");
     let bucket = temp.path().join("source");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     seed(&bucket, &valid_manifest());
     fs::create_dir_all(bucket.join("modules/test-game")).expect("fixture");
     let result = run(
@@ -468,7 +479,7 @@ fn obsolete_module_directory_is_not_a_valid_bucket() {
     );
     assert!(!result.status.success());
     assert!(output(&result).contains("bucket module directories are unsupported"));
-    assert!(!state.join("buckets").exists());
+    assert!(!state.join("buckets/registrations").exists());
     assert!(!run(&state, &["modules"]).status.success());
 }
 
@@ -476,11 +487,12 @@ fn obsolete_module_directory_is_not_a_valid_bucket() {
 fn package_catalog_remains_independent_of_game_module_source() {
     let temp = TempDir::new().expect("fixture");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let result = run(&state, &["show", "main/cyberpunk-2077/cet"]);
     assert!(result.status.success(), "{}", output(&result));
     let entry: serde_json::Value = serde_json::from_slice(&result.stdout).expect("json");
     assert_eq!(entry["id"], "cet");
-    assert!(!state.exists());
+    assert!(!state.join("state.sqlite").exists());
 }
 
 #[path = "support/bucket_safety.rs"]

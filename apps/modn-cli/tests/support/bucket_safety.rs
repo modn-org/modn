@@ -9,6 +9,7 @@ fn invalid_development_source_cannot_redirect_bucket_registry_into_game() {
     let marker = game.join("bin/x64/Cyberpunk2077.exe");
     fs::create_dir_all(marker.parent().expect("parent")).expect("fixture");
     fs::write(&marker, b"unchanged").expect("marker");
+    main_bucket::seed_state(&game);
     let invalid = temp.path().join("missing-module");
     let mismatched = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/test-game");
 
@@ -45,7 +46,7 @@ fn invalid_development_source_cannot_redirect_bucket_registry_into_game() {
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
-        assert!(!game.join("buckets").exists());
+        assert!(!game.join("buckets/registrations").exists());
         assert!(!game.join("state.sqlite").exists());
         assert_eq!(fs::read(&marker).expect("marker"), b"unchanged");
     }
@@ -55,5 +56,5 @@ fn invalid_development_source_cannot_redirect_bucket_registry_into_game() {
     );
     assert!(!normal.status.success());
     assert!(output(&normal).contains("outside a game installation"));
-    assert!(!game.join("buckets").exists());
+    assert!(!game.join("buckets/registrations").exists());
 }

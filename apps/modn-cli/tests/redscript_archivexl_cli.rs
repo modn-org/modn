@@ -68,6 +68,7 @@ fn preview(state: &Path, game: &Path, archive: &Path) -> Value {
 fn roundtrip(entries: &[(&str, &[u8])], dependencies: &[&str]) {
     let (temp, game) = fixture();
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let package = temp.path().join("fixture.zip");
     for dependency in dependencies {
         framework(&game, dependency);
@@ -81,7 +82,8 @@ fn roundtrip(entries: &[(&str, &[u8])], dependencies: &[&str]) {
         proposal["operations"].as_array().expect("operations").len(),
         entries.len()
     );
-    assert!(!state.exists(), "preview modified manager state");
+    let state_database = state.join("state.sqlite");
+    assert!(!state_database.exists(), "preview modified manager state");
     for &(name, _) in entries {
         assert!(!game.join(name).exists(), "preview wrote {name}");
     }
@@ -210,6 +212,7 @@ fn mixed_supported_layouts_roundtrip() {
 fn dependency_and_layout_failures_block_entire_package() {
     let (temp, game) = fixture();
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let archive = temp.path().join("blocked.zip");
     let safe = ("archive/pc/mod/Safe.archive", b"safe".as_slice());
     for (member, expected) in [
@@ -261,6 +264,7 @@ fn dependency_and_layout_failures_block_entire_package() {
 fn manual_conflicts_and_drift_are_not_adopted_or_destroyed() {
     let (temp, game) = fixture();
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let archive = temp.path().join("drift.zip");
     let script = "r6/scripts/Fixture/Fixture.reds";
     framework(&game, "engine/tools/scc.exe");
@@ -317,6 +321,7 @@ fn manual_conflicts_and_drift_are_not_adopted_or_destroyed() {
 fn wrapper_docs_and_archive_xl_are_accounted_for_without_installing_docs() {
     let (temp, game) = fixture();
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let package = temp.path().join("wrapper.zip");
     framework(&game, "engine/tools/scc.exe");
     framework(&game, "red4ext/plugins/ArchiveXL/ArchiveXL.dll");
@@ -371,6 +376,7 @@ fn wrapper_docs_and_archive_xl_are_accounted_for_without_installing_docs() {
 fn doctor_warns_on_missing_runtime_markers_without_adopting_manual_content() {
     let (_temp, game) = fixture();
     let state = game.parent().expect("parent").join("state");
+    main_bucket::seed_state(&state);
     for path in [
         "r6/scripts/Manual/script.reds",
         "archive/pc/mod/Manual.archive.xl",
@@ -409,6 +415,7 @@ fn doctor_warns_on_missing_runtime_markers_without_adopting_manual_content() {
 fn directory_ownership_removes_runtime_contents_but_shared_fallback_protects_files() {
     let (temp, game) = fixture();
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let archive = temp.path().join("directory.zip");
     framework(&game, "engine/tools/scc.exe");
     fs::create_dir_all(game.join("r6/scripts")).expect("shared parent");

@@ -390,9 +390,11 @@ Adoption commits individual ownership without writing game bytes. Cleanup retain
 Manager-owned paths come from one manager roots value. It holds the shared data
 directory, the profile selected by `--state-dir`, the archive cache and the
 development module source. A command resolves it once and passes it to core
-functions. The official `main` copy follows the data directory; the state
-database, bucket registrations and module registry follow the profile. Code does
-not select a directory per thread.
+functions. The official `main` copy, the state database, bucket registrations
+and module registry follow the profile. Without `--state-dir` the profile is the
+shared data directory, so the locations are unchanged. With `--state-dir`, the
+profile is self-contained and holds its own `main` copy. Code does not select a
+directory per thread.
 
 `module register <source> --trust` imports a validated third-party module release.
 The manager profile stores its identity, API version, exact content digest

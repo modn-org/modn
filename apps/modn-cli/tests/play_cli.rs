@@ -22,6 +22,7 @@ fn cyberpunk(temp: &TempDir) -> PathBuf {
 }
 
 fn run(state: &Path, args: &[&str]) -> Output {
+    main_bucket::seed_state(state);
     main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .env_remove("MODN_GAME_MODULES_DIR")
         .env_remove("MODN_STORE_LIBRARIES")

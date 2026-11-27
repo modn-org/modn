@@ -43,7 +43,7 @@ impl CommitFixture {
         let data = tempfile::tempdir().expect("data directory");
         let profile = tempfile::tempdir().expect("profile directory");
         let module = tempfile::tempdir().expect("module directory");
-        let main = data.path().join("buckets/main");
+        let main = profile.path().join("buckets/main");
         fs::create_dir_all(&main).expect("main bucket");
         fs::write(
             main.join("bucket.json"),
@@ -85,8 +85,8 @@ impl CommitFixture {
 
     pub(super) fn add(&self, manifest: &PackageManifest) {
         let directory = self
-            .data
-            .path()
+            .roots
+            .profile()
             .join("buckets/main/mods")
             .join(&manifest.game);
         fs::create_dir_all(&directory).expect("mods directory");

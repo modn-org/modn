@@ -35,6 +35,7 @@ impl Fixture {
         fs::create_dir_all(game.join("bin/x64")).expect("game directories");
         fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").expect("game marker");
         let state = temp.path().join("state");
+        main_bucket::seed_state(&state);
         Self {
             temp,
             game,

@@ -17,6 +17,7 @@ fn fixture() -> (TempDir, PathBuf, PathBuf) {
     fs::create_dir_all(compiler.parent().expect("parent")).expect("tool directory");
     fs::write(compiler, b"compiler marker").expect("compiler fixture");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     (temp, game, state)
 }
 
@@ -106,7 +107,10 @@ fn browser_extension_7z_installs_uninstalls_and_preserves_unmanaged_files() {
     let plan = preview(&game, &state, &archive);
     assert_eq!(plan["status"], "reviewable", "{plan}");
     assert_eq!(plan["operations"].as_array().expect("operations").len(), 7);
-    assert!(!state.exists(), "preview created manager state");
+    assert!(
+        !state.join("state.sqlite").exists(),
+        "preview created manager state"
+    );
     for &(path, _) in BROWSER {
         assert!(!game.join(path).exists(), "preview wrote into game");
     }

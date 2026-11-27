@@ -10,6 +10,7 @@ use zip::write::SimpleFileOptions;
 
 #[expect(clippy::unwrap_used, reason = "Fixture setup may fail fast in tests")]
 fn cli(state: &Path, args: &[&str]) -> Output {
+    main_bucket::seed_state(state);
     let mut cmd = main_bucket::command(env!("CARGO_BIN_EXE_modn"));
     cmd.args(["--game", "cyberpunk-2077"]);
     cmd.args(["--state-dir", state.to_str().unwrap(), "--json"]);
