@@ -40,6 +40,12 @@ mod override_tests;
 #[cfg(test)]
 mod progress_tests;
 mod recovery;
+mod restore;
+#[cfg(test)]
+mod restore_crash_tests;
+mod restore_recovery;
+#[cfg(test)]
+mod restore_tests;
 #[cfg(test)]
 mod roots_tests;
 mod stack;
@@ -71,7 +77,7 @@ pub use native_injector::{
     NATIVE_INJECTOR_NOT_ALLOWED,
 };
 pub use stack::StackMember;
-pub use uninstall_plan::{PlannedRemoval, UninstallScope};
+pub use uninstall_plan::{PlannedRemoval, PlannedRestore, UninstallScope};
 pub(crate) use validation::validate_transaction_root;
 
 pub mod undo;

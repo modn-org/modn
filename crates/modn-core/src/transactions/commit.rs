@@ -187,6 +187,7 @@ impl Store {
             (None, _) => None,
         };
         for (journal_id, package_id) in removals {
+            super::restore_recovery::move_winners(&tx, journal_id, package_id)?;
             crate::state::profiles::delete_package_records(&tx, package_id)?;
             tx.execute("DELETE FROM managed_packages WHERE id=?1", [package_id])?;
             let committed = tx.execute(

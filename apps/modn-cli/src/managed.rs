@@ -115,6 +115,12 @@ pub(super) fn uninstall(
                     }
                     None => println!("  {} ({} owned files)", step.id, step.files),
                 }
+                for restore in &step.restores {
+                    println!(
+                        "  restores {} from {}",
+                        restore.destination, restore.package_id
+                    );
+                }
             }
         }
         return Ok(());

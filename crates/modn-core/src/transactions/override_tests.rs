@@ -1,4 +1,4 @@
-//! Installing over a lower-priority managed file, and the interim refusals.
+//! Installing over a lower-priority managed file, and the claim records.
 
 use super::catalog::{CatalogReference, CatalogRelease};
 use super::{ManagedPackage, NativeInjectorPolicy};
@@ -315,7 +315,7 @@ fn override_membership_priorities_append_in_install_order() {
 }
 
 #[test]
-fn override_uninstall_winner_with_shadowed_claim_is_refused() {
+fn restore_uninstall_without_cached_archive_is_refused() {
     let mut fixture = Fixture::new();
     let first = fixture.archive("first", b"first-bytes");
     let second = fixture.archive("second", b"second-bytes");
@@ -327,9 +327,8 @@ fn override_uninstall_winner_with_shadowed_claim_is_refused() {
         .store
         .uninstall(&game, &second.id)
         .expect_err("refuse");
-    assert!(error.to_string().contains(SHARED), "{error}");
     assert!(
-        error.to_string().contains("lower-priority package first"),
+        error.to_string().contains("PROFILE_ARCHIVE_MISSING"),
         "{error}"
     );
     assert_eq!(fs::read(fixture.path()).expect("bytes"), b"second-bytes");
