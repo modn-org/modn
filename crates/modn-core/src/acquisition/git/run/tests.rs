@@ -56,7 +56,9 @@ fn the_second_low_speed_marker_is_found_in_any_case() {
 #[test]
 fn a_marker_before_a_flood_is_remembered_outside_the_tail() {
     let mut scan = LowSpeedScan::new();
-    scan.feed(b"fatal: Operation too slow. Less than 1 bytes/sec transferred the last 90 seconds\n");
+    scan.feed(
+        b"fatal: Operation too slow. Less than 1 bytes/sec transferred the last 90 seconds\n",
+    );
     let flood = vec![b'x'; READ_CHUNK];
     for _ in 0..(20 * 1024 * 1024 / READ_CHUNK) {
         scan.feed(&flood);

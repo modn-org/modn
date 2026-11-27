@@ -35,7 +35,8 @@ impl Drop for Program {
 /// `remote:` messages to its error stream, then one last line, and exits 1.
 fn flooding_program(root: &Path, preamble: &[&str], megabytes: usize) -> std::path::PathBuf {
     let flood = root.join("flood.txt");
-    let line = "remote: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let line =
+        "remote: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     let mut text = String::with_capacity(1024 * 1024 + line.len());
     while text.len() < 1024 * 1024 {
         text.push_str(line);
