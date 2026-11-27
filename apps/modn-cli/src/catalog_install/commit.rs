@@ -12,8 +12,8 @@ use modn_core::acquisition::{ArchiveCache, CacheUse, SourceAttempt, SourcePolicy
 use modn_core::approval::Capabilities;
 use modn_core::buckets::{BucketPackage, BucketSnapshot};
 use modn_core::catalog_pipeline::{
-    commit_plan, plan_digest, preview_catalog_install, CatalogPlan, CommitRequest, Consent,
-    ExecutableApproval, PlannedRelease,
+    commit_plan, plan_digest, preview_catalog_install, CatalogPlan, CommitRequest, ConfirmedStack,
+    Consent, ExecutableApproval, PlannedRelease,
 };
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::transactions::{CatalogReference, ManagedPackage, NativeInjectorPolicy};
@@ -195,6 +195,7 @@ pub(super) fn install_stack(
 ) -> Result<()> {
     let members = plan.members()?;
     let checks = stack_checks(&members, flags);
+    let confirmed = ConfirmedStack::of(plan)?;
     if let Some(check) = checks.iter().find(|check| check.uncovered.native_injector) {
         return check.ensure_approved();
     }
@@ -235,8 +236,13 @@ pub(super) fn install_stack(
         progress,
         json,
     )?;
+    confirmed.verify(plan)?;
     let members = plan.members()?;
-    let approvals = stack_approvals(&members, &checks, interactive);
+    let references: Vec<CatalogReference> = members
+        .iter()
+        .map(|planned| planned.package.reference())
+        .collect();
+    let approvals = stack_approvals(&references, &checks, interactive)?;
     let archives = plan_data::archives(members.iter().copied());
     let previews = preview_catalog_install(roots, plan, &archives, &approvals)?;
     let digest = plan_digest(plan, &approvals, &previews);
@@ -308,20 +314,27 @@ fn stack_packages(members: &[&PlannedRelease]) -> Vec<String> {
 }
 
 /// The executable paths that one stack consent grants for every member.
+///
+/// The approvals pair with their member by release reference, never by
+/// position, so a re-planned order cannot move one release's approvals to
+/// another release.
 fn stack_approvals(
-    members: &[&PlannedRelease],
+    references: &[CatalogReference],
     checks: &[install_consent::ApprovalCheck],
     interactive: bool,
-) -> Vec<ExecutableApproval> {
-    members
+) -> Result<Vec<ExecutableApproval>> {
+    references
         .iter()
-        .zip(checks)
-        .map(|(planned, check)| {
+        .map(|reference| {
+            let check = checks
+                .iter()
+                .find(|check| check.reference == *reference)
+                .with_context(|| format!("{reference}: the confirmation has no approval check"))?;
             let mut approved = check.approved_executables();
             if interactive {
                 approved.extend(check.uncovered.executables.iter().cloned());
             }
-            ExecutableApproval::new(planned.package.reference(), approved)
+            Ok(ExecutableApproval::new(reference.clone(), approved))
         })
         .collect()
 }
@@ -368,6 +381,76 @@ fn print_stack(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn reference(id: &str) -> CatalogReference {
+        CatalogReference::new("main".to_owned(), "test-game".to_owned(), id.to_owned())
+    }
+
+    fn check(id: &str, needed: &[&str], stored: &[&str]) -> install_consent::ApprovalCheck {
+        let needed = Capabilities::new(false, needed.iter().copied());
+        let stored = (!stored.is_empty()).then(|| Capabilities::new(false, stored.iter().copied()));
+        install_consent::ApprovalCheck::new(reference(id), needed, stored, &Capabilities::default())
+    }
+
+    fn approval<'a>(
+        approvals: &'a [ExecutableApproval],
+        reference: &CatalogReference,
+    ) -> &'a ExecutableApproval {
+        approvals
+            .iter()
+            .find(|approval| approval.reference == *reference)
+            .expect("one approval per release")
+    }
+
+    #[test]
+    fn stack_approvals_pair_by_reference_not_by_position() {
+        let base = reference("base");
+        let top = reference("top");
+        let checks = [
+            check("top", &["tools/top.exe"], &["tools/top.exe"]),
+            check("base", &["tools/base.exe"], &["tools/base.exe"]),
+        ];
+
+        let approved =
+            stack_approvals(&[base.clone(), top.clone()], &checks, false).expect("approvals");
+
+        assert_eq!(
+            approval(&approved, &base).executables,
+            BTreeSet::from(["tools/base.exe".to_owned()])
+        );
+        assert_eq!(
+            approval(&approved, &top).executables,
+            BTreeSet::from(["tools/top.exe".to_owned()])
+        );
+    }
+
+    #[test]
+    fn stack_approvals_add_the_uncovered_paths_of_the_same_release() {
+        let base = reference("base");
+        let top = reference("top");
+        let checks = [
+            check("base", &["tools/base.exe"], &["tools/base.exe"]),
+            check("top", &["tools/top.exe"], &[]),
+        ];
+
+        let approved =
+            stack_approvals(&[top.clone(), base.clone()], &checks, true).expect("approvals");
+
+        assert_eq!(
+            approval(&approved, &top).executables,
+            BTreeSet::from(["tools/top.exe".to_owned()])
+        );
+        assert_eq!(
+            approval(&approved, &base).executables,
+            BTreeSet::from(["tools/base.exe".to_owned()])
+        );
+    }
 }
 
 /// Print one release result.

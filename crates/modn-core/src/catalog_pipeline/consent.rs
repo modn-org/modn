@@ -11,8 +11,10 @@
 use super::digest::{plan_digest, PlanDigest, ReleasePreview};
 use super::plan::{CatalogPlan, PlannedRelease};
 use crate::approval::{ApprovalRefusal, Capabilities, Uncovered};
-use crate::error::ErrorCode;
-use crate::transactions::{CatalogReference, DependencyState, NativeInjectorNotAllowed};
+use crate::error::{coded, ErrorCode};
+use crate::transactions::{
+    CatalogReference, DependencyState, NativeInjectorNotAllowed, NativeInjectorPolicy,
+};
 use anyhow::Result;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -121,6 +123,138 @@ impl Consent {
             .flat_map(|approval| approval.executables.iter().cloned())
             .collect();
         Capabilities::new(self.native_injector, executables)
+    }
+}
+
+/// The stack facts that one confirmation covers.
+///
+/// A stack prompt names the member references, versions and install order, the
+/// plan's native-injector policy and the executable coverage evidence of each
+/// member. The caller records them before the archive acquisition and checks
+/// them again after the re-plan; a difference is a stale plan and writes
+/// nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ConfirmedStack {
+    /// The plan-wide native-injector policy the user confirmed.
+    pub native_injector: NativeInjectorPolicy,
+    /// One entry per member, in install order.
+    pub members: Vec<ConfirmedMember>,
+}
+
+/// The facts of one confirmed stack member.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ConfirmedMember {
+    /// The catalog identity that the prompt named.
+    pub reference: CatalogReference,
+    /// The release version that the prompt named.
+    pub version: String,
+    /// The release archive digest the plan pins, when one is known.
+    ///
+    /// Acquisition may learn the digest of a Git release after the prompt, so
+    /// a missing confirmed digest is not compared.
+    pub digest: Option<String>,
+    /// The capabilities that the member needs.
+    pub needed: Capabilities,
+    /// The stored approval that covered part of `needed` at confirmation time.
+    pub stored: Option<Capabilities>,
+}
+
+impl ConfirmedStack {
+    /// Record the stack facts of `plan`.
+    ///
+    /// The result is plain data. A caller that calls this again after a
+    /// re-plan gets an equal value only when the stack did not change.
+    ///
+    /// # Errors
+    ///
+    /// Returns the refusal of a shared archive that cannot be merged.
+    pub fn of(plan: &CatalogPlan) -> Result<Self> {
+        let members = plan.members()?;
+        Ok(Self {
+            native_injector: plan.native_injector,
+            members: members
+                .iter()
+                .map(|planned| ConfirmedMember::of(planned))
+                .collect(),
+        })
+    }
+
+    /// Refuse `plan` when its stack facts differ from this confirmation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PLAN_STALE` refusal that names the first difference and
+    /// tells the user to run the command again.
+    pub fn verify(&self, plan: &CatalogPlan) -> Result<()> {
+        let found = Self::of(plan)?;
+        let Some(difference) = self.difference(&found) else {
+            return Ok(());
+        };
+        Err(coded(
+            ErrorCode::PlanStale,
+            format!(
+                "the plan changed after you confirmed it; run the command again ({difference})"
+            ),
+        ))
+    }
+
+    /// The first difference between this confirmation and a fresh plan.
+    fn difference(&self, found: &Self) -> Option<String> {
+        if self.native_injector != found.native_injector {
+            return Some("the native-injector policy changed".to_owned());
+        }
+        if self.members.len() != found.members.len() {
+            return Some(format!(
+                "the confirmed stack has {} member(s); the fresh plan has {}",
+                self.members.len(),
+                found.members.len()
+            ));
+        }
+        for (index, (expected, actual)) in self.members.iter().zip(&found.members).enumerate() {
+            if expected.reference != actual.reference {
+                return Some(format!(
+                    "member {} is {} in the fresh plan, not {}",
+                    index + 1,
+                    actual.reference,
+                    expected.reference
+                ));
+            }
+            let reference = &expected.reference;
+            if expected.version != actual.version {
+                return Some(format!(
+                    "{reference}: the release version changed from {} to {}",
+                    expected.version, actual.version
+                ));
+            }
+            if expected
+                .digest
+                .as_ref()
+                .is_some_and(|digest| actual.digest.as_deref() != Some(digest.as_str()))
+            {
+                return Some(format!("{reference}: the release archive changed"));
+            }
+            if expected.needed != actual.needed {
+                return Some(format!("{reference}: the executable coverage changed"));
+            }
+            if expected.stored != actual.stored {
+                return Some(format!("{reference}: the stored approval changed"));
+            }
+        }
+        None
+    }
+}
+
+impl ConfirmedMember {
+    fn of(planned: &PlannedRelease) -> Self {
+        Self {
+            reference: planned.package.reference(),
+            version: planned.package.package.version.clone(),
+            digest: planned.digest.as_str().map(str::to_owned),
+            needed: planned.needed.clone(),
+            stored: planned.stored.clone(),
+        }
     }
 }
 

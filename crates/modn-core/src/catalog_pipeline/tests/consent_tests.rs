@@ -1,8 +1,9 @@
 //! Consent checks: stale plans and repeated capability coverage.
 
-use super::synthetic::{approval, base_plan, consent_for, dependency_plan, preview};
+use super::synthetic::{approval, base_plan, consent_for, dependency_plan, pin, preview};
+use crate::acquisition::ReleaseDigest;
 use crate::approval::{ApprovalRefusal, Capabilities};
-use crate::catalog_pipeline::{plan_digest, StalePlan};
+use crate::catalog_pipeline::{plan_digest, CatalogPlan, ConfirmedStack, StalePlan};
 use crate::error::{code_of, ErrorCode};
 use crate::transactions::{DependencyState, NativeInjectorNotAllowed, NativeInjectorPolicy};
 
@@ -103,4 +104,108 @@ fn a_ready_dependency_needs_no_capabilities() {
     consent
         .check(&plan, &[])
         .expect("a ready dependency is not placed again");
+}
+
+fn assert_stale(confirmed: &ConfirmedStack, plan: &CatalogPlan) {
+    let error = confirmed
+        .verify(plan)
+        .expect_err("a changed stack is stale");
+    assert_eq!(code_of(&error), Some(ErrorCode::PlanStale));
+    assert!(
+        error.to_string().contains("run the command again"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_confirmed_stack_accepts_an_unchanged_plan() {
+    let plan = dependency_plan();
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+
+    confirmed.verify(&plan).expect("the same stack");
+}
+
+#[test]
+fn a_dependency_installed_after_confirmation_makes_the_stack_stale() {
+    let plan = dependency_plan();
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+    let mut changed = dependency_plan();
+    changed.order[0].state = Some(DependencyState::Ready {
+        package_ids: Vec::new(),
+    });
+
+    assert_stale(&confirmed, &changed);
+}
+
+#[test]
+fn a_reordered_stack_is_stale() {
+    let plan = dependency_plan();
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+    let mut changed = dependency_plan();
+    changed.order.swap(0, 1);
+
+    assert_stale(&confirmed, &changed);
+}
+
+#[test]
+fn a_changed_release_version_makes_the_confirmed_stack_stale() {
+    let plan = dependency_plan();
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+    let mut changed = dependency_plan();
+    changed.order[0].package.package.version = "2.0".to_owned();
+
+    assert_stale(&confirmed, &changed);
+}
+
+#[test]
+fn a_changed_release_digest_makes_the_confirmed_stack_stale() {
+    let plan = dependency_plan();
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+    let mut changed = dependency_plan();
+    changed.order[0].digest = ReleaseDigest::pinned(&pin('c')).expect("digest");
+
+    assert_stale(&confirmed, &changed);
+}
+
+#[test]
+fn a_digest_learned_after_confirmation_does_not_make_the_stack_stale() {
+    let mut plan = dependency_plan();
+    plan.order[0].digest = ReleaseDigest::Unknown;
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+    let mut changed = dependency_plan();
+    changed.order[0].digest = ReleaseDigest::computed(&pin('c')).expect("digest");
+
+    confirmed
+        .verify(&changed)
+        .expect("acquisition learned the digest");
+}
+
+#[test]
+fn a_changed_native_injector_policy_makes_the_confirmed_stack_stale() {
+    let plan = dependency_plan();
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+    let mut changed = dependency_plan();
+    changed.native_injector = NativeInjectorPolicy::Allow;
+
+    assert_stale(&confirmed, &changed);
+}
+
+#[test]
+fn changed_executable_coverage_makes_the_confirmed_stack_stale() {
+    let plan = dependency_plan();
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+    let mut changed = dependency_plan();
+    changed.order[0].needed = Capabilities::new(false, ["tools/helper.exe"]);
+
+    assert_stale(&confirmed, &changed);
+}
+
+#[test]
+fn a_changed_stored_approval_makes_the_confirmed_stack_stale() {
+    let plan = dependency_plan();
+    let confirmed = ConfirmedStack::of(&plan).expect("confirmed stack");
+    let mut changed = dependency_plan();
+    changed.order[0].stored = Some(Capabilities::new(false, ["tools/helper.exe"]));
+
+    assert_stale(&confirmed, &changed);
 }
