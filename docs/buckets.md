@@ -40,9 +40,13 @@ main release v2026.12.01 needs Modn 0.8.0; keeping v2026.11.24. Update Modn to g
 ```
 
 JSON output adds `release` and `newer_release_needs_modn`. The latter is null
-when no newer release was skipped. If no release is supported, the command
-names the required Modn version, fails and leaves the installed bucket
-unchanged.
+when no newer release was skipped. It also adds `sequence` and `warnings`.
+If no release is supported, the command names the required Modn version, fails
+and leaves the installed bucket unchanged. A numbered release prints
+`sequence <N> accepted`, and an expired one prints the warning from
+[signed sequence numbers](#signed-sequence-numbers) and still exits 0. A rollback
+or sequence conflict reports `CATALOG_ROLLBACK` or `CATALOG_SEQUENCE_CONFLICT`
+and keeps the installed copy.
 
 `modn update` with no target refreshes the official bucket and every registered
 Git or ZIP catalog in one run. It uses the same signed-release path as
@@ -190,7 +194,8 @@ A signed catalog may publish a root `sequence.json`:
 The catalog digest covers the file, so `catalog.sig` binds the number and the
 optional expiry. `sequence` is at least 1, `expires` is an optional UTC
 timestamp in `YYYY-MM-DDTHH:MM:SSZ` form, and unknown fields are refused.
-A catalog without the file is unnumbered.
+A catalog without the file is unnumbered. Publish the file with
+`modn catalog sign --sequence next`; see [signing a catalog](#signing-a-catalog).
 
 Modn stores the highest accepted `{sequence, digest}` per bucket in
 `<profile>/buckets/registrations/<bucket>.json`. The official `main` bucket has
@@ -199,13 +204,34 @@ higher number and stores it, and accepts the same number with the same digest as
 an idempotent re-sync. A lower number, a dropped number or an unnumbered
 revision after a numbered one is refused with `CATALOG_ROLLBACK`. The same
 number with a different digest is refused with `CATALOG_SEQUENCE_CONFLICT`.
-A first sync, numbered or unnumbered, always works.
+Both refusals leave the previous registration, catalog files and stored number
+unchanged. A first sync, numbered or unnumbered, always works, so a publisher
+can adopt numbering at any release.
+
+An expiry in the past never refuses a sync. It prints this warning and the
+command exits 0:
+
+```text
+warning: catalog <name> expired on <time>; its publisher asks users not to rely on it. The sync completed.
+```
+
+The expiry is freeze protection: it tells users that the publisher stopped
+signing new revisions. Modn has no newer document to fetch, so it still syncs
+the expired one. Renew the expiry by signing the catalog again with
+`--sequence next --expires <new time>`.
 
 A `relocation.json` or key statement may carry a `sequence`, which must equal the
 revision's number; a lower number is a replay and is refused as a rollback.
-An expired catalog still syncs and reports a warning. A deliberate rollback is
-possible only by removing the bucket and syncing it again; for `main`, delete
-`<profile>/buckets/main.json` by hand.
+`modn catalog rotate` and `modn catalog revoke` copy the number from
+`sequence.json` when the file exists.
+
+To accept a deliberate rollback, remove the stored number. For a community
+catalog run `modn bucket remove <name>` and sync it again; removal deletes the
+registration and with it the stored number. `main` cannot be removed, so delete
+`<profile>/buckets/main.json` by hand and run `modn bucket update`. Both actions
+are explicit trust resets, so the next sync is a genuine first sync. Do not
+delete the record to work around a suspected attack; report the publisher
+instead.
 
 ### Main catalog signature
 
@@ -370,16 +396,24 @@ the catalog path.
 
 ```powershell
 modn catalog keygen --out ../author-keys
-modn catalog sign . --key ../author-keys/catalog.key
+modn catalog sign . --key ../author-keys/catalog.key --sequence next
 modn catalog verify . --key catalog.pub
 ```
 
 `modn catalog sign` writes `catalog.sig` and the matching `catalog.pub` at the
-catalog root. `modn catalog hash` prints the BLAKE3 pin of an archive for a
-package record. `modn catalog rotate` and `modn catalog revoke` write the signed
-key statements described above. A password-protected key takes
-`--password-env <VAR>`. Every command needs no manager state and registers
-nothing. See [catalog authoring](catalog-authoring.md) for the full workflow.
+catalog root. `--sequence next` also writes `sequence.json` with the next number,
+and `--sequence <N>` writes a number you choose. `--expires <time>` adds a UTC
+expiry and needs a number from the flag or from an existing `sequence.json`.
+A number lower than the one already signed is refused and writes nothing.
+Without those flags the directory is signed as before; the output then points
+out that a numbered catalog protects users against rollback. `modn catalog hash`
+prints the BLAKE3 pin of an archive for a package record. `modn catalog rotate`
+and `modn catalog revoke` write the signed key statements described above and
+copy the catalog number into each statement. `modn catalog verify` prints
+`sequence: <N>` and `expires: <time>`, or `sequence: unnumbered`.
+A password-protected key takes `--password-env <VAR>`. Every command needs no
+manager state and registers nothing. See
+[catalog authoring](catalog-authoring.md) for the full workflow.
 
 Sign the tree that you ship. Any change to a catalog file changes the digest and
 invalidates the signature. A Git catalog publishes `catalog.sig` and `catalog.pub`

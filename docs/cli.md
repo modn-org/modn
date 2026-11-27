@@ -121,8 +121,13 @@ buckets are skipped because they have nothing to fetch.
 
 Each catalog is independent. A failing catalog is reported, the remaining
 catalogs still refresh, and the command exits with a nonzero status. Human
-output prints one line per bucket. `--json` prints one value with a `buckets`
-array; each entry has `name`, `kind`, and `changed`, `skipped` or `error`.
+output prints one line per bucket, then `sequence <N> accepted` for a numbered
+catalog. An expired catalog adds the warning from
+[signed sequence numbers](buckets.md#signed-sequence-numbers) and does not fail
+the run. A refused rollback or sequence conflict names the stable code in its
+line. `--json` prints one value with a `buckets` array; each entry has `name`,
+`kind`, and `changed`, `skipped` or `error`, plus `sequence` and `warnings`.
+A refused entry also has `code`.
 
 The options for one installed mod need a target and are refused without one:
 `--version`, `--file`, `--path`, `--game`, `--nxm`, `--dry-run`, `--no-cache`,
@@ -139,9 +144,9 @@ that an author distributes. It needs no manager state and registers nothing.
 ```sh
 modn catalog init <dir> --name <name> --title <title>
 modn catalog keygen [--out <dir>] [--name <name>] [--password-env <VAR>]
-modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>] [--revocation-public-key <file>]
-modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--password-env <VAR>]
-modn catalog revoke <dir> --revocation-key <secret-key-file> --revoked <key-id> --replacement-public-key <file> [--password-env <VAR>]
+modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>] [--revocation-public-key <file>] [--sequence <N|next>] [--expires <time>]
+modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--password-env <VAR>] [--sequence <N>]
+modn catalog revoke <dir> --revocation-key <secret-key-file> --revoked <key-id> --replacement-public-key <file> [--password-env <VAR>] [--sequence <N>]
 modn catalog verify <dir> --key <public-key-file>
 modn catalog hash <archive> [--json]
 modn catalog checkver <dir> [<mod-id>] [--update] [--keep-previous] [--json]
@@ -175,17 +180,34 @@ keeps the previous signature. It refuses a secret key inside the catalog, a path
 that is not a directory, an encrypted key without `--password-env`, and a wrong
 password. A refusal writes nothing. `--revocation-public-key` copies the named
 public key to `revocation.pub` before signing, so the digest covers it.
+
+`--sequence <N>` writes `sequence.json` with a number of at least 1 before the
+digest is computed. `--sequence next` writes the number in the existing
+`sequence.json` plus one, or 1 when the file is absent. The file is rewritten
+completely from the flags, so `expires` appears only with `--expires`. A number
+lower than the one already in the file is refused and writes nothing; an equal
+number is allowed. `--expires <time>` takes a strict UTC timestamp such as
+`2027-12-31T00:00:00Z` in the future, and needs `--sequence` or an existing
+`sequence.json`. Without both flags the directory is signed as before and
+`sequence.json` stays untouched. Text output then ends with a one-line hint that
+a numbered catalog protects users against rollback. `--json` adds `sequence`
+and, when set, `expires`.
 `rotate` writes `rotation.json` and `rotation.sig` with the current signing key.
 `revoke` writes `revocation.json` and `revocation.sig` with the offline
 revocation key. Both refuse a secret key inside the catalog and write nothing on
-refusal. After either command, run `modn catalog sign` with the successor key.
+refusal. Each statement copies the number from `sequence.json` when it exists;
+`--sequence <N>` sets it explicitly and is refused when it differs from that
+file. After either command, run `modn catalog sign` with the successor key.
 Sync prints both fingerprints and explains how trust changes. See
 [catalog authoring](catalog-authoring.md#rotate-or-revoke-a-signing-key).
 
 `verify` checks a catalog against a public key and registers nothing. It exits 0
-and prints the fingerprint on success. A wrong key names the signature key and
-the expected key. A missing signature, a changed file, an added file and a
-deleted file each exit nonzero.
+and prints the fingerprint on success. A numbered catalog also prints
+`sequence: <N>` and `expires: <time>`; an unnumbered catalog prints
+`sequence: unnumbered`. `--json` adds `sequence` and `expires`. A malformed
+`sequence.json` is refused with `BUCKET_FAILED`. A wrong key names the signature
+key and the expected key. A missing signature, a changed file, an added file and
+a deleted file each exit nonzero.
 
 `hash` prints the 64 lowercase hexadecimal characters of the archive's BLAKE3
 digest, which is the value of the `blake3` field in a package record. `--json`
@@ -285,8 +307,13 @@ only future plans; it never changes installed files or game files. It refuses
 while the module is pinned.
 
 `bucket sync <name>` reports the modules it found. Text output prints each
-imported release and each ignored module. `--json` adds a `modules` value with
-two arrays:
+imported release and each ignored module. It also prints `sequence <N> accepted`
+for a numbered catalog and the expiry warning when the signed expiry passed; both
+exit 0. A lower or dropped number is refused with `CATALOG_ROLLBACK`, and a reuse
+of an accepted number with another digest with `CATALOG_SEQUENCE_CONFLICT`. Both
+refusals change nothing on disk. `--json` adds `sequence` when the catalog is
+numbered and `warnings` when a warning was raised, and keeps the existing keys.
+`--json` adds a `modules` value with two arrays:
 
 - `imported`: each entry has `game_id`, `version`, `blake3` and `outcome`.
 - `ignored`: each entry has `game_id` and `reason`, either `untrusted_source` or
