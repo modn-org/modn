@@ -161,6 +161,31 @@ impl Store {
             .map_err(Into::into)
     }
 
+    /// Whether `game` holds a managed package installed from `reference`.
+    pub(crate) fn installed_from(
+        &self,
+        game: &Path,
+        reference: &crate::transactions::CatalogReference,
+    ) -> Result<bool> {
+        if !self.has_table("catalog_provenance")? {
+            return Ok(false);
+        }
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM managed_packages package
+                 JOIN catalog_provenance provenance ON provenance.package_id = package.id
+                 WHERE package.game_path=?1 AND provenance.bucket=?2
+                   AND provenance.game_id=?3 AND provenance.mod_id=?4)",
+            params![
+                game.to_string_lossy().as_ref(),
+                reference.bucket,
+                reference.game_id,
+                reference.mod_id
+            ],
+            |row| row.get(0),
+        )?)
+    }
+
     /// Whether `package_id` belongs to the active profile of `game`.
     pub(crate) fn claims_in_active_profile(&self, game: &Path, package_id: &str) -> Result<bool> {
         Ok(self

@@ -10,7 +10,7 @@ use super::super::validation::{
 };
 use super::Fault;
 use crate::archive::inspect;
-use crate::error::coded;
+use crate::error::{coded, ErrorCode};
 use crate::planning::InstallPlan;
 use crate::progress::ProgressEvent;
 use crate::state::Store;
@@ -82,6 +82,19 @@ impl Store {
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories, replaced_package)?;
         let release = catalog.map(|catalog| catalog.release);
+        if replacing.is_none() {
+            if let Some(release) = &release {
+                if self.installed_from(&game, &release.reference)? {
+                    return Err(coded(
+                        ErrorCode::AlreadyInstalled,
+                        format!(
+                            "{} is already installed; uninstall it before installing it again",
+                            release.reference
+                        ),
+                    ));
+                }
+            }
+        }
         let mut conflicts = self.conflicting_packages(&game, release, &inspection.blake3)?;
         if let Some(replaced) = replaced_package {
             conflicts.retain(|label| label.split(' ').next() != Some(replaced));
