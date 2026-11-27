@@ -26,7 +26,7 @@ tempfile = "3"
 ureq = "3"
 
 [dev-dependencies]
-modn-core = { path = "../../crates/modn-core", features = ["test-instruction-budget", "test-main-bucket-releases", "test-main-key"] }
+modn-core = { path = "../../crates/modn-core", features = ["test-checkver-endpoints", "test-instruction-budget", "test-main-bucket-releases", "test-main-key"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }

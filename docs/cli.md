@@ -143,6 +143,7 @@ modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--pas
 modn catalog revoke <dir> --revocation-key <secret-key-file> --revoked <key-id> --replacement-public-key <file> [--password-env <VAR>]
 modn catalog verify <dir> --key <public-key-file>
 modn catalog hash <archive> [--json]
+modn catalog checkver <dir> [<mod-id>] [--json]
 ```
 
 `keygen` writes `<name>.key` and `<name>.pub` and prints the 16-digit key
@@ -174,6 +175,26 @@ deleted file each exit nonzero.
 digest, which is the value of the `blake3` field in a package record. `--json`
 prints `{"blake3":"<hex>"}`. It streams the file and refuses a missing file or a
 directory.
+
+`checkver <dir>` reads every `mods/<game-id>/<mod-id>.json` record in a catalog
+directory and reports whether the upstream selected by its
+[`checkver` block](catalog-authoring.md#check-for-a-newer-upstream-release) has
+a newer release. It is stateless: it creates no manager state and writes no file
+in the catalog. It checks every package even when one fails, and exits nonzero
+when any package reports `error`. The statuses are `up_to_date`,
+`update_available`, `skipped` (no `checkver` block) and `error`. Human output
+prints one line per package and a summary. `--json` prints exactly one object
+with `packages` and `summary`; each package has `game`, `id`, `status`, `kind`
+(null when skipped), `current_version`, `latest_version` (null when unknown) and
+`error` (null unless the status is `error`).
+
+A `github-release` check reads the GitHub releases API. Set `GITHUB_TOKEN` to
+raise the rate limit; Modn sends it only to `api.github.com`. A `nexus` check
+reads the Nexus file list and needs an API key from `modn auth nexus set`, from
+the OS credential store or from `MODN_NEXUS_API_KEY`; a missing key is an
+`error` for that package. Give `<mod-id>` or `<game-id>/<mod-id>` to check one
+package; an ID that exists in several games needs the qualified form.
+`--update` and `--keep-previous` are not part of this command.
 
 `sign` and `verify` ignore a root `.git` entry, so both run in a Git checkout.
 Under `--json` a failure carries the `BUCKET_FAILED` error code.

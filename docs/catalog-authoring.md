@@ -146,6 +146,59 @@ exactly `owner/repo`. The patterns are 1 to 200 characters, where only `*` and
 block fails validation with an error that names the package and the field, such
 as `checkver.repository`.
 
+## Check for a newer upstream release
+
+`modn catalog checkver <dir>` reads every current package record in the catalog
+and reports whether the upstream named by its `checkver` block has a newer
+release. It needs no manager state, registers nothing, and never writes a file
+in the catalog. A later release adds `--update`; that flag is not part of this
+command.
+
+```sh
+modn catalog checkver .
+modn catalog checkver . my-mod
+modn catalog checkver . my-game/my-mod --json
+```
+
+The command reads `mods/<game-id>/<mod-id>.json` only. It ignores the
+`<mod-id>@<version>.json` release files. It checks every package even when one
+fails. One line per package reports the status:
+
+- `up_to_date`: the manifest already records the newest upstream release.
+- `update_available`: a newer upstream release exists.
+- `skipped`: the record has no `checkver` block.
+- `error`: the record or its upstream could not be checked. The message follows
+  `error:` and never includes a secret.
+
+The exit status is 0 when no package reports `error`, and nonzero otherwise.
+`--json` prints one object with the packages in game and ID order, plus counts:
+
+```json
+{"packages":[{"game":"my-game","id":"my-mod","status":"update_available",
+"kind":"github-release","current_version":"1.0.0","latest_version":"1.1.0",
+"error":null}],"summary":{"up_to_date":0,"update_available":1,"skipped":0,"error":0}}
+```
+
+`kind` is null for a skipped package. `latest_version` is null when the check
+cannot name a version. A `github-release` check reports the newest eligible
+release tag with one leading `v` removed, and compares it with the manifest
+version as semantic versions when both parse. A lower upstream version is
+`up_to_date`. Set `GITHUB_TOKEN` to raise the GitHub rate limit; Modn sends it
+only to `api.github.com`.
+
+A `git` check resolves the head commit of the named branch. A different commit
+is `update_available`, and the reported version is `git.<40 lowercase hex
+characters>`, for example `git.0123456789abcdef0123456789abcdef01234567`.
+
+A `nexus` check reads the mod's file list and chooses the newest file whose name
+matches `file_pattern`. A different file ID is `update_available`. The check
+needs an API key from `modn auth nexus set` or `MODN_NEXUS_API_KEY`; without one
+the package reports the missing-key `error`. Modn sends the key only to
+`api.nexusmods.com`.
+
+A `checkver` block whose kind does not match any package source, such as a
+`git` check on an archive-only record, is an `error` for that package.
+
 ## Sign the catalog
 
 Sign after every change to a catalog file. The signature covers a canonical

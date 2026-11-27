@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [features]
+test-checkver-endpoints = []
 test-instruction-budget = []
 test-main-bucket-releases = []
 test-main-key = []
