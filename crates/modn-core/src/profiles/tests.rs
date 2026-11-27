@@ -426,6 +426,38 @@ fn update_keeps_the_package_membership_and_priority() {
 }
 
 #[test]
+fn profiles_carry_the_creation_time_sqlite_stored_for_their_own_row() {
+    let mut fixture = Fixture::new();
+    fixture.install("one", "one.plugin");
+    let default = fixture.profile("default");
+    assert!(!default.created_at.is_empty(), "{default:?}");
+    fixture
+        .store
+        .connection
+        .execute(
+            "UPDATE profiles SET created_at='2000-01-01 00:00:00' WHERE id=?1",
+            [&default.id],
+        )
+        .expect("backdate the source profile");
+    let cloned =
+        create(&mut fixture.store, &fixture.game, "spare", Some("default")).expect("clone");
+    assert_ne!(cloned.created_at, "2000-01-01 00:00:00");
+    let stored: String = fixture
+        .store
+        .connection
+        .query_row(
+            "SELECT created_at FROM profiles WHERE id=?1",
+            [&cloned.id],
+            |row| row.get(0),
+        )
+        .expect("stored creation time");
+    assert_eq!(cloned.created_at, stored);
+    for profile in list(&fixture.store, &fixture.game).expect("list") {
+        assert!(!profile.created_at.is_empty(), "{profile:?}");
+    }
+}
+
+#[test]
 fn managed_files_record_the_active_profile_id() {
     let mut fixture = Fixture::new();
     fixture.install("one", "one.plugin");

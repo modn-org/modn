@@ -582,6 +582,7 @@ otherwise the command's default code is used. No command reports a generic
 | `PROFILE_ARCHIVE_MISSING` | A needed verified archive is not in the cache; the message names the package and `modn cache show`. |
 | `PROFILE_DRIFT` | A managed winner changed on disk; run `modn doctor`. |
 | `PROFILE_EXISTS` | `profile create` names an existing profile. |
+| `PROFILE_LAST` | The only profile of an installation cannot be deleted. |
 | `PROFILE_NOT_FOUND` | The named profile does not exist. |
 | `STATE_ERROR` | Manager state cannot be read or written. |
 | `UNDO_CONFLICT` | A later operation changed a package or file that the undo target owns. |

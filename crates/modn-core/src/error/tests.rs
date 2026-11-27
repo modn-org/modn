@@ -101,6 +101,14 @@ fn cancellation_wins_over_other_codes() {
 }
 
 #[test]
+fn a_profile_last_prefix_maps_to_its_own_code() {
+    let error = anyhow::anyhow!("PROFILE_LAST: profile \"default\" is the only profile for game");
+    assert_eq!(code_of(&error), Some(ErrorCode::ProfileLast));
+    assert!(ErrorCode::ALL.contains(&ErrorCode::ProfileLast));
+    assert_eq!(ErrorCode::ProfileLast.as_str(), "PROFILE_LAST");
+}
+
+#[test]
 fn with_code_keeps_an_existing_specific_code() {
     let inner = coded(ErrorCode::DependencyMissing, "needs cet");
     let error = with_code(inner, ErrorCode::InstallFailed);
