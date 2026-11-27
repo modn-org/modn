@@ -205,7 +205,7 @@ impl Fixture {
             .expect("tamper claim");
     }
 
-    fn tree(&self) -> BTreeMap<String, Vec<u8>> {
+    pub(super) fn tree(&self) -> BTreeMap<String, Vec<u8>> {
         fn walk(root: &Path, base: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
             for entry in fs::read_dir(base).expect("read dir") {
                 let entry = entry.expect("entry");
@@ -227,7 +227,7 @@ impl Fixture {
         out
     }
 
-    fn state_rows(&self) -> Vec<(String, i64)> {
+    pub(super) fn state_rows(&self) -> Vec<(String, i64)> {
         [
             "profiles",
             "profile_packages",

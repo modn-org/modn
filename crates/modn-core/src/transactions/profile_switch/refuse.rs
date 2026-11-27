@@ -9,9 +9,9 @@ use rusqlite::{params, OptionalExtension};
 use std::path::{Path, PathBuf};
 
 /// The identity of one profile of an installation.
-pub(super) struct ProfileRef {
-    pub(super) id: String,
-    pub(super) name: String,
+pub(crate) struct ProfileRef {
+    pub(crate) id: String,
+    pub(crate) name: String,
 }
 
 /// The facts every later phase of a switch reuses.

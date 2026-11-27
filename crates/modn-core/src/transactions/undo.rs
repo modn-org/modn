@@ -17,12 +17,35 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// What undoing an operation of `kind` does.
+///
+/// A profile switch has no inverse: switching back is a new switch, and
+/// [`conflict`] refuses it before any undo runs.
 #[must_use]
 pub const fn inverse(kind: HistoryKind) -> HistoryKind {
     match kind {
         HistoryKind::Install => HistoryKind::Uninstall,
         HistoryKind::Update | HistoryKind::Uninstall => HistoryKind::Install,
+        HistoryKind::ProfileSwitch => HistoryKind::ProfileSwitch,
     }
+}
+
+/// Refuse to undo an operation that has no inverse.
+///
+/// # Errors
+///
+/// Returns [`ErrorCode::UndoConflict`] for a profile switch, because reversing
+/// a switch is a new switch, not an undo.
+pub fn ensure_undo_target(target: &HistoryOperation) -> Result<()> {
+    if target.kind == HistoryKind::ProfileSwitch {
+        return Err(coded(
+            ErrorCode::UndoConflict,
+            format!(
+                "UNDO_CONFLICT: operation {} is a profile switch; reversing a switch is a new switch, not an undo",
+                target.id
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// A later operation that makes the target unsafe to undo.
@@ -48,6 +71,13 @@ pub fn conflict(
     let position = operations
         .iter()
         .position(|operation| operation.id == target.id)?;
+    if target.kind == HistoryKind::ProfileSwitch {
+        return Some(UndoConflict {
+            operation_id: target.id.clone(),
+            kind: HistoryKind::ProfileSwitch,
+            reason: "reversing a profile switch is a new switch, not an undo".to_owned(),
+        });
+    }
     let mut paths = BTreeMap::new();
     let mut packages = BTreeMap::new();
     for package in &target.packages {
