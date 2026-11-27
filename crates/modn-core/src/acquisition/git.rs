@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod pack;
+mod run;
 use pack::pack_commit;
 
 /// A package source pinned to one full lowercase Git commit on GitHub.
