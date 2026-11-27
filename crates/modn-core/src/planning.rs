@@ -210,6 +210,9 @@ pub fn resolve_with_claims(
     replaced_package: Option<&str>,
     appdata: Option<&Path>,
 ) -> anyhow::Result<InstallPlan> {
+    if !fs::symlink_metadata(game)?.file_type().is_dir() {
+        anyhow::bail!("installation root must be a real directory, not a link");
+    }
     let game = game.canonicalize()?;
     let managed = store.managed_claim_keys(&game, replaced_package)?;
     let mut plan = resolve_inner(
