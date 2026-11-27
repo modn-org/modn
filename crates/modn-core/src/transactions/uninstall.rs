@@ -165,6 +165,14 @@ impl Store {
             .into_iter()
             .find(|p| p.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
+        if let Some(path) = self.shadowing_claim_path(&package.id)? {
+            return Err(coded(
+                ErrorCode::Conflict,
+                format!(
+                    "managed package {package_id} wins a shared file; uninstall the lower-priority package first: {path}"
+                ),
+            ));
+        }
         let needed_by = super::catalog::dependents(self, &package.id)?;
         if matches!(dependents, Dependents::Refuse)
             && needed_by
@@ -189,6 +197,7 @@ impl Store {
                 ordinal,
                 root: RootKind::from_label(&f.root).unwrap_or(RootKind::Game),
                 destination: f.destination.clone(),
+                archive_entry: String::new(),
                 blake3: f.blake3.clone(),
                 bytes: f.bytes,
             })

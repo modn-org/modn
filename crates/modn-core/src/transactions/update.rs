@@ -214,6 +214,17 @@ impl Store {
             ));
         }
         self.check_pinned_dependents(game, &old, release)?;
+        if let Some(path) = self
+            .shadowed_claim_path(package_id)?
+            .or(self.shadowing_claim_path(package_id)?)
+        {
+            return Err(coded(
+                ErrorCode::Conflict,
+                format!(
+                    "cannot update {package_id}: it shares a file with another managed package; uninstall and reinstall the overlapping package first: {path}"
+                ),
+            ));
+        }
         if old.catalog.as_ref() != Some(&release.reference) {
             bail!(
                 "managed package {package_id} was not installed from {}",

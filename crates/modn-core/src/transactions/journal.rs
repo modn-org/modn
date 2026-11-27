@@ -55,6 +55,7 @@ pub(super) struct JournalFile {
     pub(super) ordinal: usize,
     pub(super) root: RootKind,
     pub(super) destination: String,
+    pub(super) archive_entry: String,
     pub(super) blake3: String,
     pub(super) bytes: u64,
 }
@@ -150,6 +151,14 @@ pub(super) fn temp_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> {
         .parent()
         .context("target has no parent")?
         .join(format!(".modn-txn-{id}-{n}.tmp")))
+}
+
+/// Witness that keeps the bytes an override replaced, next to the destination.
+pub(super) fn backup_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> {
+    Ok(target
+        .parent()
+        .context("target has no parent")?
+        .join(format!(".modn-txn-{id}-{n}.old")))
 }
 
 impl Store {

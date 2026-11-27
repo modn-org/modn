@@ -112,7 +112,14 @@ impl Store {
             game: game.clone(),
             content,
         };
-        validate_plan(&inspection, &roots, &proposal, &[], ExistingTargets::Adopt)?;
+        validate_plan(
+            &inspection,
+            &roots,
+            &proposal,
+            &[],
+            ExistingTargets::Adopt,
+            &[],
+        )?;
         validate_ownership(self, &game, &proposal, None)?;
         let conflicts = self.conflicting_packages(&game, None, &inspection.blake3)?;
         if !conflicts.is_empty() {
@@ -158,6 +165,7 @@ impl Store {
                     root: crate::state::RootKind::from_label(&operation.root)
                         .context("adoption operation has an unknown root")?,
                     destination: operation.destination.clone(),
+                    archive_entry: operation.source.clone(),
                     blake3: digest(&path)?,
                     bytes,
                 });

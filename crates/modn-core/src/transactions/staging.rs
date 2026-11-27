@@ -127,6 +127,7 @@ pub(super) fn stage_7z(
                 root: crate::state::RootKind::from_label(&op.root)
                     .unwrap_or(crate::state::RootKind::Game),
                 destination: op.destination.clone(),
+                archive_entry: op.source.clone(),
                 blake3,
                 bytes: copied,
             })

@@ -120,6 +120,47 @@ impl Store {
             .collect())
     }
 
+    /// A path where `package_id` holds a claim that another package wins.
+    ///
+    /// Uninstalling such a package would leave the winner's file on disk, so an
+    /// interim refusal names the path until restore is implemented.
+    pub(crate) fn shadowed_claim_path(&self, package_id: &str) -> Result<Option<String>> {
+        self.connection
+            .query_row(
+                "SELECT claim.relative_path
+                 FROM file_claims claim
+                 JOIN managed_files winner
+                   ON winner.game_path=claim.game_path
+                  AND winner.root=claim.root
+                  AND winner.path_key=claim.path_key
+                 WHERE claim.package_id=?1 AND winner.package_id<>?1
+                 ORDER BY claim.relative_path LIMIT 1",
+                [package_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// A path where `package_id` wins while another package keeps a claim.
+    pub(crate) fn shadowing_claim_path(&self, package_id: &str) -> Result<Option<String>> {
+        self.connection
+            .query_row(
+                "SELECT claim.relative_path
+                 FROM file_claims claim
+                 JOIN managed_files winner
+                   ON winner.game_path=claim.game_path
+                  AND winner.root=claim.root
+                  AND winner.path_key=claim.path_key
+                 WHERE winner.package_id=?1 AND claim.package_id<>?1
+                 ORDER BY claim.relative_path LIMIT 1",
+                [package_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// Whether `package_id` belongs to the active profile of `game`.
     pub(crate) fn claims_in_active_profile(&self, game: &Path, package_id: &str) -> Result<bool> {
         Ok(self

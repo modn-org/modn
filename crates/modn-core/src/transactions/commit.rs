@@ -8,7 +8,7 @@ use std::path::Path;
 impl Store {
     #[expect(
         clippy::too_many_arguments,
-        reason = "the commit names the root and catalog context separately"
+        reason = "the commit names the root, catalog and stack context separately"
     )]
     pub(super) fn commit_install(
         &mut self,
@@ -87,11 +87,37 @@ impl Store {
             crate::history::record_metadata(&tx, id, metadata)?;
         }
         for f in files {
-            tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,blake3,bytes,profile_id)
-                VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            let path_key = super::ownership_key(&f.destination);
+            tx.execute(
+                "DELETE FROM managed_files
+                 WHERE game_path=?1 AND root=?2 AND path_key=?3 AND package_id<>?4",
+                params![
+                    game.to_string_lossy().as_ref(),
+                    f.root.label(),
+                    path_key,
+                    id
+                ],
+            )?;
+            tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,blake3,bytes,profile_id,archive_entry)
+                VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![game.to_string_lossy().as_ref(), f.root.label(),
-                    super::ownership_key(&f.destination),
-                    f.destination, id, f.blake3, f.bytes as i64, profile.id])?;
+                    path_key,
+                    f.destination, id, f.blake3, f.bytes as i64, profile.id, f.archive_entry])?;
+            tx.execute(
+                "INSERT OR REPLACE INTO file_claims
+                 (package_id,game_path,root,path_key,relative_path,archive_entry,blake3,bytes)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![
+                    id,
+                    game.to_string_lossy().as_ref(),
+                    f.root.label(),
+                    path_key,
+                    f.destination,
+                    f.archive_entry,
+                    f.blake3,
+                    f.bytes as i64
+                ],
+            )?;
         }
         for directory in directories {
             let identity: String = tx.query_row(

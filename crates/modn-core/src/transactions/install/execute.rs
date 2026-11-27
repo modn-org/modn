@@ -10,6 +10,7 @@ use super::super::validation::{
 };
 use super::Fault;
 use crate::archive::inspect;
+use crate::error::coded;
 use crate::planning::InstallPlan;
 use crate::progress::ProgressEvent;
 use crate::state::Store;
@@ -76,8 +77,8 @@ impl Store {
             .history
             .is_some()
             .then(|| format!("blake3:{}", inspection.blake3));
-        validate_execution_plan(&inspection, &roots, proposal, approved)?;
-        validate_ownership(self, &game, proposal, replaced_package)?;
+        let overrides = validate_ownership(self, &game, proposal, replaced_package)?;
+        validate_execution_plan(&inspection, &roots, proposal, approved, &overrides)?;
         let directories = exclusive_roots(&game, proposal)?;
         validate_directory_reservations(self, &game, &directories, replaced_package)?;
         let release = catalog.map(|catalog| catalog.release);
@@ -171,6 +172,7 @@ impl Store {
                     root: crate::state::RootKind::from_label(&op.root)
                         .context("plan operation has an unknown root")?,
                     destination: op.destination.clone(),
+                    archive_entry: op.source.clone(),
                     blake3: digest(&stage)?,
                     bytes: copied,
                 });
@@ -231,6 +233,20 @@ impl Store {
             return Err(err);
         }
         let stage_path = staging.keep();
+        let by_destination: HashMap<String, &crate::transactions::claim::PlanOverride> = overrides
+            .iter()
+            .map(|entry| {
+                (
+                    format!(
+                        "{}:{}",
+                        entry.root,
+                        super::super::ownership_key(&entry.destination)
+                    ),
+                    entry,
+                )
+            })
+            .collect();
+        let mut backups = Vec::new();
         let attempt = (|| -> Result<()> {
             for (ordinal, root) in directories.iter().enumerate() {
                 let identity = super::super::directory::prepare_install(&game, root, &id, ordinal)?;
@@ -240,7 +256,66 @@ impl Store {
             for f in &files {
                 self.create_parents(&id, &roots, f.root, &f.destination)?;
                 let dest = roots.target(f.root, &f.destination)?;
-                if fs::symlink_metadata(&dest).is_ok() {
+                let key = format!(
+                    "{}:{}",
+                    f.root.label(),
+                    super::super::ownership_key(&f.destination)
+                );
+                if let Some(entry) = by_destination.get(&key) {
+                    let metadata = fs::symlink_metadata(&dest).with_context(|| {
+                        format!(
+                            "CONFLICT: owned file is missing; run 'modn doctor': {}",
+                            dest.display()
+                        )
+                    })?;
+                    if !metadata.is_file() || metadata.file_type().is_symlink() {
+                        return Err(coded(
+                            crate::error::ErrorCode::Conflict,
+                            format!(
+                                "CONFLICT: owned destination is not a regular file: {}",
+                                dest.display()
+                            ),
+                        ));
+                    }
+                    if digest(&dest)? != entry.replaced_blake3 {
+                        return Err(coded(
+                            crate::error::ErrorCode::Conflict,
+                            format!(
+                                "CONFLICT: owned file changed; run 'modn doctor': {}",
+                                dest.display()
+                            ),
+                        ));
+                    }
+                    let backup = super::super::journal::backup_path(&dest, &id, f.ordinal)?;
+                    fs::hard_link(&dest, &backup)?;
+                    if !same_file::is_same_file(&dest, &backup)?
+                        || digest(&backup)? != entry.replaced_blake3
+                    {
+                        return Err(coded(
+                            crate::error::ErrorCode::Conflict,
+                            format!(
+                                "CONFLICT: owned file changed while backing it up: {}",
+                                dest.display()
+                            ),
+                        ));
+                    }
+                    self.connection.execute(
+                        "INSERT INTO pending_overrides
+                         (transaction_id,ord,root,relative_path,package_id,blake3,bytes)
+                         VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                        rusqlite::params![
+                            id,
+                            f.ordinal as i64,
+                            f.root.label(),
+                            f.destination,
+                            entry.replaced_package,
+                            entry.replaced_blake3,
+                            f.bytes as i64
+                        ],
+                    )?;
+                    backups.push(backup);
+                    fs::remove_file(&dest)?;
+                } else if fs::symlink_metadata(&dest).is_ok() {
                     bail!("existing unmanaged destination: {}", dest.display());
                 }
                 let temp = temp_path(&dest, &id, f.ordinal)?;
@@ -294,6 +369,20 @@ impl Store {
                 );
             }
             return Err(err);
+        }
+        for backup in backups {
+            match fs::remove_file(&backup) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "installed; cannot remove recovery witness {}; run 'modn recover'",
+                            backup.display()
+                        )
+                    });
+                }
+            }
         }
         self.recover_locked()?;
         let metadata = self.history.as_ref().map(|context| {

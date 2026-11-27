@@ -33,6 +33,8 @@ mod journal;
 mod lifecycle_tests;
 mod native_injector;
 #[cfg(test)]
+mod override_tests;
+#[cfg(test)]
 mod progress_tests;
 mod recovery;
 #[cfg(test)]
