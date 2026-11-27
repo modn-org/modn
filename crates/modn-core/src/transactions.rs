@@ -14,6 +14,7 @@ mod directory;
 pub(crate) use directory::case_key as directory_candidate_key;
 pub(crate) use directory::ownership_key;
 mod cleanup;
+mod commit;
 mod directory_ledger;
 #[cfg(test)]
 mod generic_tests;
