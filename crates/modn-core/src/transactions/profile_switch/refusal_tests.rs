@@ -136,6 +136,32 @@ fn profile_switch_unmanaged_collision_refuses() {
 }
 
 #[test]
+fn profile_switch_profile_refusal_precedes_drift() {
+    let mut fixture = Fixture::new();
+    fixture.profile("target", false);
+    fixture.install("first", "default", 0, &[(SHARED, b"current")]);
+    fs::write(fixture.game.join(SHARED), b"user-edit").expect("edit");
+
+    let error = fixture.plan("missing").expect_err("refuse");
+
+    assert_eq!(code_of(&error), Some(ErrorCode::ProfileNotFound));
+}
+
+#[test]
+fn profile_switch_drift_refusal_precedes_archives() {
+    let mut fixture = Fixture::new();
+    fixture.profile("target", false);
+    fixture.install("first", "default", 0, &[(SHARED, b"current")]);
+    fixture.package("second", "target", 0, true, &[(SHARED, b"second-bytes")]);
+    fixture.remove_cache();
+    fs::write(fixture.game.join(SHARED), b"user-edit").expect("edit");
+
+    let error = fixture.plan("target").expect_err("refuse");
+
+    assert_eq!(code_of(&error), Some(ErrorCode::ProfileDrift));
+}
+
+#[test]
 fn profile_switch_refusal_order_pending_before_profile() {
     let fixture = Fixture::new();
     fixture
