@@ -31,7 +31,7 @@ pub use signature::{
     CatalogStatement, VerifiedCatalog,
 };
 pub use snapshot::BucketSnapshot;
-pub use store::{BucketInfo, BucketPackage, BucketStore};
+pub use store::{validate_bucket_metadata, BucketInfo, BucketPackage, BucketStore};
 pub use test_hooks::main_release_list_override;
 pub use trust::{
     local_bucket_module_refusal, ModuleSourceTrust, ModuleTrustAck, ModuleTrustState,

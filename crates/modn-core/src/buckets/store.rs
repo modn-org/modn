@@ -82,6 +82,29 @@ struct Metadata {
     title: String,
 }
 
+/// Validate the bucket name and title that `bucket.json` may hold.
+///
+/// The rules are the ones `BucketStore` applies when it registers or syncs a
+/// bucket, so a catalog author can check a value before writing the file.
+pub fn validate_bucket_metadata(name: &str, title: &str) -> Result<()> {
+    if !valid_id(name) || name == "main" {
+        bail!(
+            "invalid bucket name: {name}; use lowercase ASCII letters, digits and dashes, at most 64 characters, starting with a letter, and not the reserved name main"
+        );
+    }
+    if !valid_title(title) {
+        bail!(
+            "invalid bucket title; the title must be non-empty, at most 128 bytes and free of control characters"
+        );
+    }
+    Ok(())
+}
+
+/// Whether a registered bucket accepts this title.
+fn valid_title(title: &str) -> bool {
+    !title.trim().is_empty() && title.len() <= 128 && !title.chars().any(char::is_control)
+}
+
 /// Catalog registry, separate from game registrations and ownership state.
 pub struct BucketStore {
     pub(super) root: PathBuf,
@@ -186,11 +209,7 @@ impl BucketStore {
                 metadata.schema_version
             );
         }
-        if metadata.name != name
-            || metadata.title.trim().is_empty()
-            || metadata.title.len() > 128
-            || metadata.title.chars().any(char::is_control)
-        {
+        if metadata.name != name || !valid_title(&metadata.title) {
             bail!("bucket name or metadata mismatch: {name}");
         }
         match fs::symlink_metadata(path.join("modules")) {

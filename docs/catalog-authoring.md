@@ -25,6 +25,74 @@ The `name` must be unique among the catalogs that a user registers.
 
 To move an existing contract v1 `main` checkout to contract v2, see [Rehash main for contract v2](releasing.md#rehash-main-for-contract-v2).
 
+## Start a new bucket
+
+`modn catalog init` writes a bucket repository that is ready to sign and to
+validate in continuous integration.
+
+```sh
+modn catalog init ./my-bucket --name my-bucket --title "My Bucket"
+```
+
+The target directory must be missing or empty. A directory with any entry,
+including a hidden file, is refused and nothing is written. The command checks
+the name and title with the same rules that a registered bucket applies to
+`bucket.json`: the name uses lowercase letters, digits and dashes, has at most
+64 characters, and is not `main`; the title is non-empty, at most 128 bytes and
+free of control characters. A refusal writes nothing.
+
+The scaffold layout is:
+
+```text
+bucket.json                          # contract v2 name and title
+mods/                                # empty; add one directory per game
+PROVENANCE.md                        # record the evidence for every package
+templates/package.example.json       # sample record with fake placeholders
+.gitignore                           # keeps *.key and key backups out of Git
+.github/workflows/validate.yml       # pull request validation
+.github/workflows/autoupdate.yml     # scheduled checkver pull requests
+```
+
+Git does not track an empty directory. The scaffold keeps `mods/` in the
+checkout, and a repository without it is still a valid bucket. Create
+`mods/<game-id>/` when you add the first package.
+
+The sample manifest stays outside `mods/`, so the scaffold contains no real
+package. Copy it to `mods/<game-id>/<package-id>.json`, replace every
+placeholder, and set `blake3` to the value that `modn catalog hash` prints.
+The sample uses a `github-release` source and a matching
+[`checkver` block](#check-for-and-update-a-newer-upstream-release).
+
+### Validate a pull request
+
+`.github/workflows/validate.yml` runs on every pull request. It installs the
+released `modn` of the same version, refreshes the official `main` bucket into a
+throwaway state directory, registers the checkout as a local bucket, prints
+`modn search --json`, and runs `modn install <bucket>/<game>/<id> --download
+--dry-run` for every `mods/<game-id>/*.json` record. The dry run resolves each
+dependency, verifies the archive pin in the temporary cache, and never writes
+to a game. The workflow builds a small temporary game directory
+for the games that Modn supports; add the marker of another game to its
+`prepare_game` function when your catalog targets it.
+
+Pull request validation cannot sign, because the secret key never enters
+continuous integration. It never runs `modn catalog verify`.
+
+### Refresh manifests on a schedule
+
+`.github/workflows/autoupdate.yml` runs weekly and on demand. It runs
+`modn catalog checkver . --update`, and when that rewrites a manifest it creates
+`checkver/update-<run id>`, commits the manifests, pushes only that branch and
+opens a pull request with `gh pr create`. It has no access to a signing key and
+never signs. The pull request body says that `catalog.sig` is not updated:
+review the manifest changes, run `modn catalog sign` and `modn catalog verify`,
+then commit the new signature before a release.
+
+Both workflows install Modn with
+`cargo install --locked --git https://github.com/modn-org/modn --tag v<version> modn-cli`,
+because Modn publishes a Windows executable only. The scaffold substitutes the
+version of the Modn release that ran `modn catalog init`.
+
 ## Create a signing key
 
 Run `modn catalog keygen` once per author identity. Pass a directory outside the

@@ -1,0 +1,42 @@
+name: Check for upstream updates
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  checkver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install modn
+        run: cargo install --locked --git https://github.com/modn-org/modn --tag v{{VERSION}} modn-cli
+      - name: Refresh package manifests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: modn catalog checkver . --update
+      - name: Open a pull request for changed manifests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain mods)" ]; then
+            echo "No upstream updates."
+            exit 0
+          fi
+          branch="checkver/update-${GITHUB_RUN_ID}"
+          git switch -c "$branch"
+          git add mods
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Refresh package manifests with modn catalog checkver"
+          git push origin "$branch"
+          gh pr create --base "${{ github.event.repository.default_branch }}" --head "$branch" \
+            --title "checkver: refresh package manifests" \
+            --body "modn catalog checkver rewrote the package manifests that have a newer upstream release. catalog.sig was not updated by this workflow. A maintainer must review the changes, run \`modn catalog sign\` and \`modn catalog verify\`, and commit the new signature before a release."

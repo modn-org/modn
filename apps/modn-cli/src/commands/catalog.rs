@@ -73,6 +73,17 @@ pub(crate) enum CatalogCommand {
         /// Archive file, such as a ZIP.
         archive: PathBuf,
     },
+    /// Scaffold a contract v2 bucket repository with a sample manifest and CI.
+    Init {
+        /// Empty or missing directory that receives the bucket.
+        dir: PathBuf,
+        /// Bucket name, lowercase letters, digits and dashes; not "main".
+        #[arg(long)]
+        name: String,
+        /// Human-readable bucket title, at most 128 bytes without control characters.
+        #[arg(long)]
+        title: String,
+    },
     /// Report whether each catalog package has a newer upstream release.
     Checkver {
         /// Catalog directory to check.
