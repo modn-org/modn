@@ -23,6 +23,8 @@ mod recover;
 #[cfg(test)]
 mod refusal_tests;
 mod refuse;
+#[cfg(test)]
+mod sevenz_tests;
 
 pub use execute::{profile_switch, ProfileSwitchOptions, ProfileSwitchOutcome};
 pub(crate) use plan::{PreparedSwitch, Remove, Write};
