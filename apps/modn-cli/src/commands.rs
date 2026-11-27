@@ -1,4 +1,6 @@
+use crate::conflicts::ConflictsArgs;
 use crate::nxm::NxmLink;
+use crate::profile::ProfileCommand;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -70,6 +72,13 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: ThemeCommand,
     },
+    /// List and manage named profiles and the priority of their packages.
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommand,
+    },
+    /// Report overlapping file claims between managed packages.
+    Conflicts(ConflictsArgs),
     /// List manager-owned packages (unmanaged mods are never included).
     List {
         #[arg(long)]

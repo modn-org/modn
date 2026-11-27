@@ -578,6 +578,11 @@ otherwise the command's default code is used. No command reports a generic
 | `PENDING_TRANSACTION` | An interrupted transaction must be recovered first. |
 | `PLAN_BLOCKED` | The installation plan has blockers. |
 | `PLAN_STALE` | The plan changed since it was made; run the command again. |
+| `PROFILE_ACTIVE` | The profile is active and cannot be deleted or switched to. |
+| `PROFILE_ARCHIVE_MISSING` | A needed verified archive is not in the cache; the message names the package and `modn cache show`. |
+| `PROFILE_DRIFT` | A managed winner changed on disk; run `modn doctor`. |
+| `PROFILE_EXISTS` | `profile create` names an existing profile. |
+| `PROFILE_NOT_FOUND` | The named profile does not exist. |
 | `STATE_ERROR` | Manager state cannot be read or written. |
 | `UNDO_CONFLICT` | A later operation changed a package or file that the undo target owns. |
 | `UNDO_FAILED` | Default code of `modn undo`. |
@@ -588,6 +593,7 @@ otherwise the command's default code is used. No command reports a generic
 | `AUTH_FAILED` | Default code of `modn auth`. |
 | `BUCKET_FAILED` | Default code of `modn bucket`. |
 | `CACHE_FAILED` | Default code of `modn cache`. |
+| `CONFLICTS_FAILED` | Default code of `modn conflicts`. |
 | `DOCTOR_FAILED` | Default code of `modn doctor`. |
 | `GAME_FAILED` | Default code of `modn game`. |
 | `INSPECT_FAILED` | Default code of `modn inspect`. |
@@ -596,6 +602,7 @@ otherwise the command's default code is used. No command reports a generic
 | `MODULE_FAILED` | Default code of `modn module`. |
 | `PIN_FAILED` | Default code of `modn pin` and `modn unpin`. |
 | `PLAY_FAILED` | Default code of `modn play`. |
+| `PROFILE_FAILED` | Default code of `modn profile`. |
 | `RECOVER_FAILED` | Default code of `modn recover`. |
 | `SCAN_FAILED` | Default code of `modn scan`. |
 | `SEARCH_FAILED` | Default code of `modn search`. |
