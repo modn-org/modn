@@ -187,7 +187,7 @@ fn profile_priority(store: &Store, profile_id: &str, package: &str) -> Result<i6
     )?)
 }
 
-fn require_current(target: &Path, expected: &str) -> Result<()> {
+pub(super) fn require_current(target: &Path, expected: &str) -> Result<()> {
     match fs::symlink_metadata(target) {
         Ok(metadata)
             if metadata.is_file()
@@ -202,7 +202,7 @@ fn require_current(target: &Path, expected: &str) -> Result<()> {
     }
 }
 
-fn require_absent(target: &Path) -> Result<()> {
+pub(super) fn require_absent(target: &Path) -> Result<()> {
     match fs::symlink_metadata(target) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Ok(_) => Err(coded(

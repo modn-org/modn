@@ -92,6 +92,15 @@ pub(crate) struct PriorityArgs {
     /// Profile to change; defaults to the active profile.
     #[arg(long, value_name = "NAME")]
     pub(crate) profile: Option<String>,
+    /// Also write the new priority order to the game files.
+    #[arg(long)]
+    pub(crate) apply: bool,
+    /// Show the rank and file changes without writing.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+    /// Confirm changing game files with --apply.
+    #[arg(long)]
+    pub(crate) yes: bool,
     /// Game installation directory; defaults to the selected installation.
     #[arg(long, value_name = "DIR")]
     pub(crate) path: Option<PathBuf>,
@@ -138,6 +147,9 @@ pub(crate) struct ApplyArgs {
     /// Profile to apply; defaults to the active profile.
     #[arg(long, value_name = "NAME")]
     pub(crate) profile: Option<String>,
+    /// Show the file changes without writing game files or manager state.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
     /// Confirm changing game files.
     #[arg(long)]
     pub(crate) yes: bool,

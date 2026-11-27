@@ -299,13 +299,14 @@ pub(super) struct CommitFile {
     pub(super) path_key: String,
     pub(super) relative_path: String,
     pub(super) game_path: String,
+    pub(super) blake3: String,
 }
 
 impl Store {
     /// The journal files of `id`, in ordinal order.
     pub(super) fn toggle_journal_files(&self, id: &str) -> Result<Vec<CommitFile>> {
         let mut statement = self.connection.prepare(
-            "SELECT file.ord, file.root, file.relative_path, journal.game_path
+            "SELECT file.ord, file.root, file.relative_path, journal.game_path, file.blake3
              FROM pending_files file
              JOIN pending_transactions journal ON journal.id = file.transaction_id
              WHERE file.transaction_id=?1 ORDER BY file.ord",
@@ -319,6 +320,7 @@ impl Store {
                     path_key: super::ownership_key(&destination),
                     relative_path: destination,
                     game_path: row.get(3)?,
+                    blake3: row.get(4)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
