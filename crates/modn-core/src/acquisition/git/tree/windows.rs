@@ -59,8 +59,12 @@ impl Tree {
         let tree = Self { job };
         // SAFETY: `job` is a live job handle. The information struct is fully
         // initialized and its size is passed with the pointer.
+        // SAFETY: A zeroed extended-limit struct is a valid value; its fields
+        // are integers and the limit flags are set before it is passed on.
         let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // SAFETY: `job` is a live job handle. The information struct is fully
+        // initialized and its size is passed with the pointer.
         let configured = unsafe {
             SetInformationJobObject(
                 tree.job,
@@ -118,7 +122,11 @@ impl Tree {
     fn active_processes(&self) -> io::Result<u32> {
         // SAFETY: `self.job` is live, and the accounting struct is fully
         // initialized before the call fills it.
+        // SAFETY: A zeroed accounting struct is a valid value; the call fills
+        // it before any field is read.
         let mut accounting: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = unsafe { std::mem::zeroed() };
+        // SAFETY: `self.job` is live, the pointer is writable, and the size
+        // matches the accounting struct.
         let queried = unsafe {
             QueryInformationJobObject(
                 self.job,

@@ -115,6 +115,10 @@ fn record_pid(pids: &Path) {
     writeln!(file, "{}", std::process::id()).expect("stub pid write");
 }
 
+#[expect(
+    clippy::zombie_processes,
+    reason = "the stub child blocks until the runner stops the whole tree; this process never reaps it"
+)]
 fn spawn_stub(role: &str, pids: &Path) {
     let program = std::env::current_exe().expect("the test binary path");
     Command::new(program)
