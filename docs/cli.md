@@ -143,7 +143,7 @@ modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--pas
 modn catalog revoke <dir> --revocation-key <secret-key-file> --revoked <key-id> --replacement-public-key <file> [--password-env <VAR>]
 modn catalog verify <dir> --key <public-key-file>
 modn catalog hash <archive> [--json]
-modn catalog checkver <dir> [<mod-id>] [--json]
+modn catalog checkver <dir> [<mod-id>] [--update] [--keep-previous] [--json]
 ```
 
 `keygen` writes `<name>.key` and `<name>.pub` and prints the 16-digit key
@@ -178,15 +178,39 @@ directory.
 
 `checkver <dir>` reads every `mods/<game-id>/<mod-id>.json` record in a catalog
 directory and reports whether the upstream selected by its
-[`checkver` block](catalog-authoring.md#check-for-a-newer-upstream-release) has
-a newer release. It is stateless: it creates no manager state and writes no file
-in the catalog. It checks every package even when one fails, and exits nonzero
-when any package reports `error`. The statuses are `up_to_date`,
+[`checkver` block](catalog-authoring.md#check-for-and-update-a-newer-upstream-release)
+has a newer release. It is stateless: it creates no manager state and writes no
+file in the catalog. It checks every package even when one fails, and exits
+nonzero when any package reports `error`. The statuses are `up_to_date`,
 `update_available`, `skipped` (no `checkver` block) and `error`. Human output
 prints one line per package and a summary. `--json` prints exactly one object
 with `packages` and `summary`; each package has `game`, `id`, `status`, `kind`
 (null when skipped), `current_version`, `latest_version` (null when unknown) and
 `error` (null unless the status is `error`).
+
+`--update` rewrites each `update_available` record, or the one package you name.
+For a `github-release` package it downloads the selected asset, computes the
+BLAKE3 pin and writes the new `version`, source `tag` and `asset`,
+`archive_format` and `blake3`. It removes `upstream_sha256`, which described the
+old artifact, and warns when the record lists other sources that were not
+updated. For a `git` package it writes the new commit and the `git.<commit>`
+version; a git record has no `blake3`. A Nexus package with an available update
+reports `error` under `--update`, because a Nexus download needs your own
+authorization; check-only still works. Modn validates the new record, writes it
+through a temporary file in the same directory, renames it over the old record
+and re-validates it. The rewrite is minimal: key order, indentation and the
+trailing newline stay as they were. A failed package leaves its record
+byte-identical and does not stop the others. `--update` never reads or writes
+`catalog.sig`, `catalog.pub` or any key, and prints
+`Run 'modn catalog sign' and 'modn catalog verify' before you publish; checkver never changes catalog.sig.`
+after it writes a record.
+
+`--keep-previous` requires `--update`. Before replacing a record, Modn writes its
+exact old bytes to `mods/<game-id>/<mod-id>@<old-version>.json`. A different file
+at that path is an `error` and nothing is written for the package; identical
+bytes are accepted. With `--update`, `--json` adds `updated` and `kept_previous`
+to each package, `updated` to the summary, and the top-level `reminder` only when
+a record was written. Without `--update`, the JSON object is unchanged.
 
 A `github-release` check reads the GitHub releases API. Set `GITHUB_TOKEN` to
 raise the rate limit; Modn sends it only to `api.github.com`. A `nexus` check
@@ -194,7 +218,6 @@ reads the Nexus file list and needs an API key from `modn auth nexus set`, from
 the OS credential store or from `MODN_NEXUS_API_KEY`; a missing key is an
 `error` for that package. Give `<mod-id>` or `<game-id>/<mod-id>` to check one
 package; an ID that exists in several games needs the qualified form.
-`--update` and `--keep-previous` are not part of this command.
 
 `sign` and `verify` ignore a root `.git` entry, so both run in a Git checkout.
 Under `--json` a failure carries the `BUCKET_FAILED` error code.

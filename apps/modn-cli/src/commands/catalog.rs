@@ -80,5 +80,11 @@ pub(crate) enum CatalogCommand {
         /// One package: <mod-id> or <game-id>/<mod-id>.
         #[arg(value_name = "MOD")]
         mod_id: Option<String>,
+        /// Download each newer upstream release and rewrite its package manifest.
+        #[arg(long)]
+        update: bool,
+        /// Save the replaced manifest as <mod-id>@<old-version>.json.
+        #[arg(long, requires = "update")]
+        keep_previous: bool,
     },
 }

@@ -13,6 +13,7 @@ mod endpoints;
 mod git;
 mod github;
 mod glob;
+mod manifest_edit;
 mod nexus;
 mod version;
 
@@ -23,6 +24,7 @@ pub use endpoints::{
 pub use git::{git_branch_commit, git_source_version};
 pub use github::{select_github_release, SelectedGithubRelease};
 pub use glob::glob_matches;
+pub use manifest_edit::{archive_format_for_asset, rewrite_manifest, ManifestUpdate, SourceUpdate};
 pub use nexus::{select_nexus_file, SelectedNexusFile};
 pub use version::{github_tag_version, upstream_is_newer};
 

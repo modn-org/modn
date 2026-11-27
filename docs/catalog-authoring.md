@@ -146,13 +146,12 @@ exactly `owner/repo`. The patterns are 1 to 200 characters, where only `*` and
 block fails validation with an error that names the package and the field, such
 as `checkver.repository`.
 
-## Check for a newer upstream release
+## Check for and update a newer upstream release
 
 `modn catalog checkver <dir>` reads every current package record in the catalog
 and reports whether the upstream named by its `checkver` block has a newer
 release. It needs no manager state, registers nothing, and never writes a file
-in the catalog. A later release adds `--update`; that flag is not part of this
-command.
+in the catalog.
 
 ```sh
 modn catalog checkver .
@@ -198,6 +197,62 @@ the package reports the missing-key `error`. Modn sends the key only to
 
 A `checkver` block whose kind does not match any package source, such as a
 `git` check on an archive-only record, is an `error` for that package.
+
+## Update a package record from upstream
+
+`--update` also refreshes every package whose status is `update_available`, or
+the one package you name. It stays stateless and changes only
+`mods/<game-id>/<mod-id>.json`. It never reads or writes `catalog.sig`,
+`catalog.pub`, `*.key`, `rotation.*` or `revocation.*`.
+
+```sh
+modn catalog checkver . --update
+modn catalog checkver . my-game/my-mod --update --keep-previous
+```
+
+For a `github-release` package, Modn downloads the selected asset to a temporary
+file, refuses a download URL that is not the canonical
+`https://github.com/<repo>/releases/download/<tag>/<asset>`, and bounds the
+download to the 4 GiB archive limit. It hashes the bytes as they stream and
+writes the new `version` (the tag without one leading `v`), the source `tag` and
+`asset`, the `archive_format` from the asset extension (`.zip` or `.7z`; any
+other extension is an error) and the new `blake3` pin. The pin equals what
+`modn catalog hash` prints for the same bytes. Modn removes `upstream_sha256`,
+which described the replaced artifact, and says so in the output.
+
+For a `git` package, Modn sets the source `commit` to the resolved branch head
+and the version to `git.<40 lowercase hex characters>`. A git record carries no
+`blake3`; the commit is its pin.
+
+A `nexus` package whose update is available reports the error
+`nexus checkver update is not supported: update the manifest by hand` under
+`--update`, because a Nexus download needs your own authorization. Check-only
+still works for it.
+
+Modn updates only the source that the checkver kind selects. Other fetchable
+sources stay unchanged, and the output warns that they no longer match the new
+pin. A failed download, hash, validation or write makes that package an
+`error`, leaves its record byte-identical, continues with the other packages,
+and makes the exit status nonzero.
+
+The rewrite is atomic and minimal. Modn validates the new document, writes it
+through a temporary file in the same directory, renames it over the record, and
+re-reads and re-validates it. Key order, indentation (two or four spaces) and the
+trailing newline stay as they were, so the diff touches only the changed values.
+No temporary file remains in `mods/`.
+
+`--keep-previous` requires `--update`. Before replacing a record, Modn writes
+its exact old bytes to `mods/<game-id>/<mod-id>@<old-version>.json`. If that file
+already exists with different bytes, the package is an `error` and Modn writes
+nothing for it; identical bytes are accepted.
+
+After writing at least one record, the command prints the reminder:
+`Run 'modn catalog sign' and 'modn catalog verify' before you publish; checkver never changes catalog.sig.`
+
+With `--update`, `--json` keeps the check-only object and adds `updated` (a
+boolean) and `kept_previous` (the relative release path or null) to each
+package, `updated` (a count) to the summary, and the top-level `reminder` only
+when a record was written.
 
 ## Sign the catalog
 
