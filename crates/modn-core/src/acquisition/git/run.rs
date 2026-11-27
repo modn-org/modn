@@ -6,14 +6,14 @@
 //! each. The low-speed marker is detected while draining, because a flood of
 //! later messages can push it out of the kept tail.
 //!
-//! The wait loop observes the operation's cancellation token and the hard
-//! deadline, so a cancelled or stalled fetch or clone stops at once instead of
-//! waiting for Git to return. Every Git child starts inside its own
-//! [`tree`] confinement; a stop terminates the whole tree and confirms that it
-//! is empty before this module returns.
+//! The wait loop observes the operation's cancellation token, the process-wide
+//! interrupt token and the hard deadline, so a cancelled or interrupted fetch
+//! or clone stops at once instead of waiting for Git to return. Every Git child
+//! starts inside its own [`tree`] confinement; a stop terminates the whole tree
+//! and confirms that it is empty before this module returns.
 
 use super::tree::{self, TreeError, TreeGuard};
-use crate::progress::CancellationToken;
+use crate::progress::{interrupt_token, CancellationToken};
 use std::io::{self, Read};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
@@ -94,10 +94,11 @@ impl GitOutput {
 ///
 /// Both readers run on their own threads, so neither pipe fills while the
 /// child runs. The caller's own stdio settings are replaced. The child starts
-/// inside its own process tree. The wait loop checks `token` every
-/// [`CHILD_POLL_INTERVAL`] and stops the tree when the token is cancelled or
-/// the `deadline` passes. A child that exits on its own still has its tree
-/// stopped and confirmed, because a helper can outlive Git and keep writing.
+/// inside its own process tree. The wait loop checks `token` and
+/// [`interrupt_token`] every [`CHILD_POLL_INTERVAL`] and stops the tree when
+/// either is cancelled, or when the `deadline` passes. A child that exits on
+/// its own still has its tree stopped and confirmed, because a helper can
+/// outlive Git and keep writing.
 /// Both readers are joined before this returns, unless the tree cannot be
 /// confirmed stopped; then the readers are detached so the error can return.
 pub(crate) fn run(
@@ -105,7 +106,7 @@ pub(crate) fn run(
     token: &CancellationToken,
     deadline: Duration,
 ) -> Result<GitOutput, RunError> {
-    if token.is_cancelled() {
+    if cancelled(token) {
         return Err(RunError::Cancelled);
     }
     tree::confine(&mut command).map_err(RunError::Tree)?;
@@ -155,6 +156,11 @@ pub(crate) fn run(
     })
 }
 
+/// Whether the operation or the process-wide interrupt asks to stop.
+fn cancelled(token: &CancellationToken) -> bool {
+    token.is_cancelled() || interrupt_token().is_cancelled()
+}
+
 /// Wait for the child, and stop its tree on a cancel, the deadline or a poll
 /// error. A normal exit still stops and confirms the tree.
 fn wait_for_child(
@@ -165,7 +171,7 @@ fn wait_for_child(
     guard: &mut TreeGuard,
 ) -> Result<ExitStatus, RunError> {
     loop {
-        if token.is_cancelled() {
+        if cancelled(token) {
             return Err(stop(guard, child, RunError::Cancelled));
         }
         match child.try_wait() {

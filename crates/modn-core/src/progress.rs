@@ -29,7 +29,7 @@ use serde::Serialize;
 use std::fmt;
 use std::io::{self, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// A shared flag that asks an operation to stop before its commit point.
 ///
@@ -54,6 +54,19 @@ impl CancellationToken {
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
+}
+
+static INTERRUPT: OnceLock<CancellationToken> = OnceLock::new();
+
+/// The process-wide token that a front end cancels on an interrupt.
+///
+/// The CLI cancels it from its Ctrl-C handler. The Git runner treats it like
+/// the operation token, so an interrupt stops Git and its helpers on the
+/// operation path and on a catalog clone, which has no operation control.
+/// The CLI never resets it, so a cancelled interrupt ends the process.
+#[must_use]
+pub fn interrupt_token() -> &'static CancellationToken {
+    INTERRUPT.get_or_init(CancellationToken::new)
 }
 
 /// How an operation ended.
