@@ -221,9 +221,9 @@ fn conflict(id: &str, dest: &Path, backup: &Path) -> anyhow::Error {
     coded(
         ErrorCode::Conflict,
         format!(
-            "CONFLICT: transaction {id} has no override witness for {}; preserve it and {} and repair manually",
+            "CONFLICT: transaction {id} has no override witness {backup} for {}; preserve the destination and repair manually",
             dest.display(),
-            backup.display()
+            backup = backup.display()
         ),
     )
 }
