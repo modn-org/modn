@@ -49,7 +49,7 @@ pub(super) fn acquire(
         total: None,
     })?;
     let previous = entry_names(cache, key)?;
-    let acquired = source.acquire(cache, key, cache_use)?;
+    let acquired = source.acquire_with_control(cache, key, cache_use, control)?;
     if let Err(cancelled) = control.checkpoint() {
         if acquired.origin == Origin::Download {
             let replaced = acquired.path.file_name().is_some_and(|name| {
