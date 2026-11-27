@@ -205,11 +205,10 @@ fn stop_unattached(child: &mut Child) {
 
 /// Spawn the confined Git child.
 ///
-/// Unit tests write executable stub programs while sibling test threads fork.
-/// A child that inherits the stub's write descriptor makes the next exec fail
-/// with [`io::ErrorKind::ExecutableFileBusy`] until that child execs or exits.
-/// A test build retries that transient condition; a release build spawns once.
-#[cfg(test)]
+/// A test build on Unix retries [`io::ErrorKind::ExecutableFileBusy`]: sibling
+/// test threads write executable stubs while other threads fork, and a child
+/// that inherits the stub's write descriptor keeps the file busy until it execs.
+#[cfg(all(test, unix))]
 fn spawn_git(command: &mut Command) -> io::Result<Child> {
     const RETRIES: u32 = 50;
     const RETRY_DELAY: Duration = Duration::from_millis(10);
@@ -228,7 +227,7 @@ fn spawn_git(command: &mut Command) -> io::Result<Child> {
 }
 
 /// Spawn the confined Git child.
-#[cfg(not(test))]
+#[cfg(not(all(test, unix)))]
 fn spawn_git(command: &mut Command) -> io::Result<Child> {
     command.spawn()
 }
