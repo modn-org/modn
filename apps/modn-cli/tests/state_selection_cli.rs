@@ -43,7 +43,7 @@ fn missing_database_and_empty_registration_errors_keep_their_precedence() {
             "{args:?}: {}",
             error(&output)
         );
-        assert!(!fixture.state.exists());
+        assert!(!fixture.state.join("state.sqlite").exists());
     }
     fixture.register();
     let removed = fixture.run(&["game", "remove", "test-game"]);
@@ -74,7 +74,7 @@ fn explicit_archive_preview_needs_identity_and_never_creates_state() {
         "{}",
         error(&denied)
     );
-    assert!(!fixture.state.exists());
+    assert!(!fixture.state.join("state.sqlite").exists());
 
     let allowed = fixture.run(&[
         "--game",
@@ -89,7 +89,7 @@ fn explicit_archive_preview_needs_identity_and_never_creates_state() {
     assert!(allowed.status.success(), "{}", error(&allowed));
     let report: Value = serde_json::from_slice(&allowed.stdout).expect("preview JSON");
     assert_eq!(report["status"], "reviewable");
-    assert!(!fixture.state.exists());
+    assert!(!fixture.state.join("state.sqlite").exists());
     assert!(!fixture.game.join("addons").exists());
 }
 
@@ -128,7 +128,7 @@ fn protected_state_error_precedes_explicit_game_selection() {
             "{command}: {}",
             error(&output)
         );
-        assert!(!fixture.state.exists());
+        assert!(!fixture.state.join("state.sqlite").exists());
     }
 }
 

@@ -130,7 +130,7 @@ fn extract(path: &Path, stage: &Path) -> Result<()> {
 }
 
 impl BucketStore {
-    /// Verify and install a signed main bucket ZIP into the shared official
+    /// Verify and install a signed main bucket ZIP into the profile's official
     /// bucket root. Recover an interrupted swap before updating.
     /// Return the installed tree digest, whether its contents changed, and the signer key.
     pub fn update_main<R: Read, S: Read>(

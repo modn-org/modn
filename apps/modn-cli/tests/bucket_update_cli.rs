@@ -373,7 +373,7 @@ fn run_with_state(data: &Path, state: &Path, source: &str, args: &[&str]) -> Out
 }
 
 #[test]
-fn state_dir_keeps_the_official_main_copy_in_the_shared_data_directory() {
+fn state_dir_keeps_the_official_main_copy_inside_its_profile() {
     let data = tempfile::tempdir().unwrap();
     let profile = tempfile::tempdir().unwrap();
     let zip = data.path().join("main.zip");
@@ -381,7 +381,7 @@ fn state_dir_keeps_the_official_main_copy_in_the_shared_data_directory() {
     pack(tree.path(), &zip, None);
     main_bucket::write_signature(tree.path(), &zip);
     let source = zip.to_str().unwrap();
-    let shared_main = data.path().join("modn/buckets/main");
+    let shared_root = data.path().join("modn");
     let profile_main = profile.path().join("buckets/main");
 
     let output = success(run_with_state(
@@ -394,10 +394,13 @@ fn state_dir_keeps_the_official_main_copy_in_the_shared_data_directory() {
         output.contains("Verified main bucket signed by"),
         "{output}"
     );
-    assert!(shared_main.is_dir());
-    assert!(!profile_main.exists());
+    assert!(profile_main.is_dir());
+    assert!(
+        !shared_root.exists(),
+        "shared data directory stays untouched"
+    );
 
-    fs::remove_dir_all(&shared_main).unwrap();
+    fs::remove_dir_all(&profile_main).unwrap();
     let output = success(run_with_state(
         data.path(),
         profile.path(),
@@ -405,8 +408,45 @@ fn state_dir_keeps_the_official_main_copy_in_the_shared_data_directory() {
         &["update"],
     ));
     assert!(output.contains("changed: true"), "{output}");
-    assert!(shared_main.is_dir());
-    assert!(!profile_main.exists());
+    assert!(profile_main.is_dir());
+    assert!(
+        !shared_root.exists(),
+        "shared data directory stays untouched"
+    );
+}
+
+#[test]
+fn state_dir_reads_the_official_main_copy_from_inside_its_profile() {
+    let data = tempfile::tempdir().unwrap();
+    let profile = tempfile::tempdir().unwrap();
+    let tree = fixture_tree();
+    let profile_main = profile.path().join("buckets/main");
+    copy_tree(tree.path(), &profile_main);
+
+    let output = run_with_state(
+        data.path(),
+        profile.path(),
+        tree.path().to_str().unwrap(),
+        &["--json", "bucket", "list"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let entries: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("bucket list JSON");
+    let main = entries
+        .as_array()
+        .expect("bucket list array")
+        .iter()
+        .find(|entry| entry["name"] == "main")
+        .expect("official main entry");
+    assert_eq!(
+        main["path"].as_str().map(Path::new),
+        Some(profile_main.as_path())
+    );
+    assert!(!data.path().join("modn").exists());
 }
 
 #[test]

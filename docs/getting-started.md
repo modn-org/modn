@@ -28,7 +28,7 @@ at the same time.
 
 On Windows, `modn game detect` finds installed games in the Steam, GOG and Epic libraries, and `modn game detect --register` registers them. `modn game add <game-id>` without `--path` registers the one detected installation. A copy that no store lists needs an explicit `--path`. See [cli.md](cli.md#game-detection). Registration writes **only manager-owned state** outside the game directory; `scan` and `doctor` never modify game files.
 
-Use `--state-dir <directory>` for an isolated state database. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not claim or authorize uninstalling detected files. Only Modn-installed archives become newly managed.
+Use `--state-dir <directory>` for an isolated manager profile. The profile holds the state database, the bucket registrations and the official `main` bucket copy, so a command with `--state-dir` writes nothing into the shared data directory. Multiple registered installations require an explicit `--path` for scanning and diagnostics. Only files explicitly recorded in the manager's SQLite ownership table can be reported as managed. Scanning does not claim or authorize uninstalling detected files. Only Modn-installed archives become newly managed.
 
 The CLI has **no default game**. Use `modn game add <game-id> --path <directory>`
 to register an installation with its ordinary Lua module; use `--game <game-id>`

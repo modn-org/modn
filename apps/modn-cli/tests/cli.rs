@@ -15,6 +15,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
     fs::write(&game_exe, b"game unchanged").unwrap();
     fs::write(&archive, b"mod unchanged").unwrap();
     let state = temp.path().join("outside-game-state");
+    main_bucket::seed_state(&state);
     let state_str = state.to_str().unwrap();
     let game_str = game.to_str().unwrap();
 
@@ -79,6 +80,7 @@ fn registration_scan_and_diagnostics_are_read_only_for_game() {
 fn refuses_to_register_a_non_game_directory() {
     let temp = tempdir().unwrap();
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let candidate = temp.path().join("not-a-game");
     fs::create_dir_all(&candidate).unwrap();
     let result = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
@@ -106,8 +108,12 @@ fn refuses_state_database_inside_game_directory() {
     fs::create_dir_all(executable.parent().unwrap()).unwrap();
     fs::write(&executable, b"original").unwrap();
     let state = game.join("private/manager-state");
+    let module = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../buckets/main/games/cyberpunk-2077");
     let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
+        .arg("--src")
+        .arg(&module)
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -221,6 +227,7 @@ fn cyberpunk_lua_policy_changes_without_rebuilding_executable() {
     fs::write(game.join("bin/x64/AlternateGame.exe"), b"fixture").expect("marker");
     fs::write(game.join("archive/pc/mod/example.archive"), b"manual").expect("mod");
     let state = root.path().join("state");
+    main_bucket::seed_state(&state);
     let add = || {
         main_bucket::command(env!("CARGO_BIN_EXE_modn"))
             .args(["--game", "cyberpunk-2077"])

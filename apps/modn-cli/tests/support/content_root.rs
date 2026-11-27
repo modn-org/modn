@@ -77,6 +77,7 @@ impl Fixture {
         let game = temp.path().join("game");
         let appdata = temp.path().join("appdata");
         let state = temp.path().join("manager");
+        main_bucket::seed_state(&state);
         let modules = temp.path().join("modules");
         fs::create_dir_all(&game).expect("game");
         fs::write(game.join("ContentGame.exe"), b"marker").expect("marker");

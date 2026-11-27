@@ -121,13 +121,19 @@ impl ManagerRoots {
         ]
     }
 
-    /// The shared bucket root that holds the official `main` copy.
+    /// The bucket root inside the manager profile that holds the official
+    /// `main` copy.
+    ///
+    /// Without `--state-dir` this is the shared data bucket root.
     #[must_use]
     pub fn official_bucket_root(&self) -> PathBuf {
-        self.data.join("buckets")
+        self.profile.join("buckets")
     }
 
-    /// The shared official `main` bucket copy, which every profile uses.
+    /// The official `main` bucket copy inside the manager profile.
+    ///
+    /// A selected `--state-dir` keeps the copy under that directory, so the
+    /// profile is self-contained.
     #[must_use]
     pub fn official_main(&self) -> PathBuf {
         self.official_bucket_root().join("main")
@@ -181,7 +187,9 @@ mod tests {
             Case {
                 state_dir: Some(PathBuf::from("/manager-roots/profile")),
                 profile: PathBuf::from("/manager-roots/profile"),
-                official_main: data.join("buckets").join("main"),
+                official_main: PathBuf::from("/manager-roots/profile")
+                    .join("buckets")
+                    .join("main"),
             },
         ];
 
@@ -245,7 +253,12 @@ mod tests {
             Some(Path::new("/manager-roots/dev-modules"))
         );
         assert_eq!(roots.profile(), Path::new("/manager-roots/profile"));
-        assert_eq!(roots.official_main(), data.join("buckets").join("main"));
+        assert_eq!(
+            roots.official_main(),
+            Path::new("/manager-roots/profile")
+                .join("buckets")
+                .join("main")
+        );
 
         let cleared = roots.with_development_modules(None);
         assert_eq!(cleared.development_modules(), None);
@@ -272,12 +285,21 @@ mod tests {
         assert_eq!(roots.data(), temp.path().join("modn").as_path());
         assert_eq!(roots.profile(), state.as_path());
         assert_eq!(roots.state_database(), state.join("state.sqlite"));
+        assert_eq!(
+            roots.official_main(),
+            state.join("buckets").join("main"),
+            "the selected profile holds its own official main copy"
+        );
 
         assert_eq!(default.data(), temp.path().join("modn").as_path());
         assert_eq!(default.profile(), temp.path().join("modn").as_path());
         assert_eq!(
             default.state_database(),
             temp.path().join("modn").join("state.sqlite")
+        );
+        assert_eq!(
+            default.official_main(),
+            temp.path().join("modn").join("buckets").join("main")
         );
     }
 }

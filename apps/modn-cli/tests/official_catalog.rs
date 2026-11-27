@@ -54,6 +54,7 @@ fn checkout_copy(destination: &Path) -> PathBuf {
 }
 
 fn modn(state: &Path, args: &[&str]) -> Value {
+    main_bucket::seed_state(state);
     let appdata = state.parent().expect("state parent").join("appdata");
     fs::create_dir_all(&appdata).expect("appdata");
     let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))

@@ -38,8 +38,9 @@ _Avoid_: Bucket installation, mod installation
 **Manager roots**:
 The one value that holds the shared data directory, the manager profile selected
 by `--state-dir`, the archive cache and the development module source. A command
-resolves it once. The official `main` copy follows the data directory; every other
-manager-owned location follows the profile.
+resolves it once. The official `main` copy and every other manager-owned location
+follow the profile, so `--state-dir` is self-contained. Without `--state-dir` the
+profile is the shared data directory.
 _Avoid_: Ambient root, per-call directory, thread-local state
 
 **Bucket snapshot**:

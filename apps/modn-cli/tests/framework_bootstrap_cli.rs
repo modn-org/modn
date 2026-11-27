@@ -14,6 +14,7 @@ fn fixture() -> (TempDir, PathBuf, PathBuf) {
     fs::create_dir_all(game.join("bin/x64")).expect("game directories");
     fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").expect("game marker");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     (temp, game, state)
 }
 
@@ -78,7 +79,10 @@ fn roundtrip(files: &[(&str, &[u8])], kind: &str, wrapper: &str) {
         assert_eq!(operation["kind"], kind, "{operation}");
         assert!(operation.get("owned_directory").is_none(), "{operation}");
     }
-    assert!(!state.exists(), "dry run created manager state");
+    assert!(
+        !state.join("state.sqlite").exists(),
+        "dry run created manager state"
+    );
     let mut install_args = vec!["install", zip_path, "--yes", "--path", game_path];
     install_args.extend(permission);
     let owned = json(&state, &install_args);
@@ -320,7 +324,10 @@ fn incomplete_frameworks_missing_nonmarker_payload_are_blocked() {
                     .any(|issue| issue["code"] == "INCOMPLETE_FRAMEWORK"),
                 "Missing {missing} was not rejected as incomplete: {result}"
             );
-            assert!(!state.exists(), "preview created manager state");
+            assert!(
+                !state.join("state.sqlite").exists(),
+                "preview created manager state"
+            );
         }
     }
 }

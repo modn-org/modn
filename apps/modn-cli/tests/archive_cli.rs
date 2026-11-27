@@ -22,7 +22,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
     fs::create_dir_all(game.join("bin/x64")).unwrap();
     fs::write(game.join("bin/x64/Cyberpunk2077.exe"), "game").unwrap();
     let state = temp.path().join("state");
-
+    main_bucket::seed_state(&state);
     let inspect = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
@@ -42,7 +42,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
     let inventory: Value = serde_json::from_slice(&inspect.stdout).unwrap();
     assert_eq!(inventory["format"], "zip");
     assert_eq!(inventory["metadata_only"], true);
-    assert!(!state.exists());
+    assert!(!state.join("state.sqlite").exists());
 
     let plan = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
@@ -71,7 +71,7 @@ fn inspect_and_dry_run_json_do_not_write_game_files() {
         "archive/pc/mod/weather.archive"
     );
     assert!(!game.join("archive").exists());
-    assert!(!state.exists(), "dry-run must not initialize manager state");
+    assert!(!state.join("state.sqlite").exists());
 
     fs::create_dir_all(game.join("archive/pc/mod")).unwrap();
     fs::write(game.join("archive/pc/mod/weather.archive"), "unmanaged").unwrap();
@@ -116,6 +116,7 @@ fn registered_install_dry_run_reads_existing_db_without_changes() {
     writer.finish().unwrap();
 
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let registered = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([

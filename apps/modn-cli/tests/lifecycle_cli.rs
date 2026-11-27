@@ -17,6 +17,7 @@ fn fixture() -> (TempDir, PathBuf, PathBuf) {
     let temp = tempdir().expect("temporary fixture");
     let game = temp.path().join("game");
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     write(&game, "bin/x64/Cyberpunk2077.exe", b"disposable marker");
     write(&game, "mods/Manual/info.json", br#"{"name":"manual"}"#);
     (temp, game, state)
@@ -82,13 +83,13 @@ fn adoption_requires_both_approvals_and_commits_exact_file_claims() {
         blake3::hash(&fs::read(&zip).unwrap()).to_hex().to_string()
     );
     assert_eq!(preview["plan"]["operations"].as_array().unwrap().len(), 2);
-    assert!(!state.exists());
+    assert!(!state.join("state.sqlite").exists());
     assert_eq!(tree::snapshot(&game), before);
     for approvals in [vec![], vec!["--yes"], vec!["--acknowledge"]] {
         let mut args = vec!["adopt", path];
         args.extend(approvals);
         assert!(!cli(&state, &game, &args).status.success());
-        assert!(!state.exists());
+        assert!(!state.join("state.sqlite").exists());
         assert_eq!(tree::snapshot(&game), before);
     }
     assert!(!cli(&state, &game, &["install", path, "--yes"])
@@ -368,7 +369,7 @@ fn redmod_real_cli_lifecycle_preserves_manual_content_and_refuses_bad_layouts() 
     let before = tree::snapshot(&game);
     let preview = ok(&state, &game, &["install", path, "--dry-run"]);
     assert_eq!(preview["status"], "reviewable");
-    assert!(!state.exists());
+    assert!(!state.join("state.sqlite").exists());
     assert_eq!(tree::snapshot(&game), before);
     let package = ok(&state, &game, &["install", path, "--yes"]);
     let id = package["id"].as_str().unwrap();

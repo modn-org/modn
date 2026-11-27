@@ -53,7 +53,7 @@ fn write_module_source(root: &Path, game: &str, version: &str) -> PathBuf {
 }
 
 #[test]
-fn table_official_main_follows_data_and_module_state_follows_profile() {
+fn table_official_main_and_module_state_follow_profile() {
     struct Case {
         name: &'static str,
         official_version: &'static str,
@@ -79,7 +79,7 @@ fn table_official_main_follows_data_and_module_state_follows_profile() {
     for case in cases {
         let data = temp.path().join(case.name).join("data");
         let profile = temp.path().join(case.name).join("profile");
-        let main = data.join("buckets").join("main");
+        let main = profile.join("buckets").join("main");
         crate::test_support::copy_tree(&fixture, &main);
         let manifest_path = main.join("games/cyberpunk-2077/module.json");
         let mut manifest: serde_json::Value =
@@ -117,6 +117,7 @@ fn table_official_main_follows_data_and_module_state_follows_profile() {
         assert_eq!(module.version, case.module_version);
         assert!(profile.join("game-modules/fixture-game").is_dir());
         assert!(!data.join("game-modules").exists());
+        assert!(!data.join("buckets/main").exists());
         assert!(super::super::resolver::available_games(&roots)
             .expect("available games")
             .contains(&"fixture-game".to_owned()));

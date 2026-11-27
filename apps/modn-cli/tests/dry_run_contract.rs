@@ -26,6 +26,7 @@ fn fixture(entries: &[&str]) -> (TempDir, PathBuf, PathBuf, PathBuf) {
     }
     zip.finish().unwrap();
     let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     (temp, game, archive, state)
 }
 
@@ -228,7 +229,7 @@ fn changed_module_mapping_is_the_actual_install_mapping() {
         "r6/scripts/different.reds"
     );
     assert!(!game.join("r6").exists());
-    assert!(!state.exists());
+    assert!(!state.join("state.sqlite").exists());
     let output = main_bucket::command(env!("CARGO_BIN_EXE_modn"))
         .args(["--game", "cyberpunk-2077"])
         .args([
@@ -280,7 +281,7 @@ fn preview_blocks_non_installable_formats_and_layouts() {
             .any(|issue| issue["code"] == "NOT_INSTALLABLE"),
         "{report}"
     );
-    assert!(!state.exists());
+    assert!(!state.join("state.sqlite").exists());
     assert!(!game.join("r6").exists());
 }
 
@@ -296,7 +297,7 @@ fn repeated_shared_lua_strings_respect_host_allocation_budget() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(!state.exists());
+    assert!(!state.join("state.sqlite").exists());
     assert!(!game.join("archive").exists());
 }
 
@@ -312,7 +313,7 @@ fn oversized_lua_blocker_messages_are_denied_before_copying() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(!state.exists());
+    assert!(!state.join("state.sqlite").exists());
 }
 
 #[test]

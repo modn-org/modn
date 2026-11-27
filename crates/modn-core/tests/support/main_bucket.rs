@@ -41,6 +41,11 @@ pub fn roots_with_profile(
     data: &std::path::Path,
     profile: &std::path::Path,
 ) -> modn_core::manager_roots::ManagerRoots {
+    let selected = profile.join("buckets/main");
+    let shared = data.join("buckets/main");
+    if !selected.exists() && shared.is_dir() {
+        copy_tree(&shared, &selected);
+    }
     modn_core::manager_roots::ManagerRoots::new(data, Some(profile))
 }
 

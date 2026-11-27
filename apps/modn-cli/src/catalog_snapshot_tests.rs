@@ -22,7 +22,8 @@ fn manifest(root: &Path, id: &str, digest: &str, dependencies: &[&str]) {
 fn selected_release_keeps_dependency_pins_when_bucket_changes() {
     let temp = tempfile::tempdir().expect("fixture");
     let data = temp.path().join("data");
-    let official = data.join("buckets/main");
+    let state = temp.path().join("state");
+    let official = state.join("buckets/main");
     let local = temp.path().join("local");
     fs::create_dir_all(&official).expect("official bucket");
     fs::create_dir_all(local.join("mods/test-game")).expect("local bucket");
@@ -41,7 +42,7 @@ fn selected_release_keeps_dependency_pins_when_bucket_changes() {
     manifest(&local, "top", &"c".repeat(64), &["base"]);
     let store = BucketStore::new(&modn_core::manager_roots::ManagerRoots::new(
         &data,
-        Some(&temp.path().join("state")),
+        Some(&state),
     ));
     store.add("local", &local).expect("register bucket");
     let catalog = store.snapshot(None).expect("snapshot");

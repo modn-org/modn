@@ -25,6 +25,13 @@ def require(condition, message):
         raise AssertionError(message)
 
 
+def state_untouched(root):
+    """True when the selected state holds only the seeded official main copy."""
+    state = root / "state"
+    return (sorted(p.name for p in state.iterdir()) == ["buckets"]
+            and sorted(p.name for p in (state / "buckets").iterdir()) == ["main"])
+
+
 def snapshot(folder):
     return {
         path.relative_to(folder).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -111,11 +118,13 @@ def verify(driver):
     bucket_fixture.sign_tree(fixture_bucket, fixture_bucket / "catalog.sig",
                              fixture_bucket / "catalog.pub")
     shutil.copytree(fixture_bucket, root / "data/modn/buckets/main")
+    # A selected --state-dir holds its own official main copy.
+    shutil.copytree(fixture_bucket, root / "state/buckets/main")
     before = snapshot(game)
     manual_mtime = unmanaged.stat().st_mtime_ns
     driver.run("adoption-command-unavailable",
                ["adopt", "--dry-run", "--path", game], success=False)
-    require(snapshot(game) == before and not (root / "state").exists(),
+    require(snapshot(game) == before and state_untouched(root),
             "removed command touched state or game files")
     require(unmanaged.stat().st_mtime_ns == manual_mtime,
             "removed command touched unmanaged file")
@@ -127,7 +136,7 @@ def verify(driver):
     driver.json("inspect-test-archive", ["inspect", test_zip])
     driver.json("no-default-game", ["install", test_zip, "--dry-run", "--path", game],
                 success=False)
-    require(not (root / "state").exists(), "unselected dry run created state")
+    require(state_untouched(root), "unselected dry run created state")
     driver.run("selectorless-list-no-state",
                ["--state-dir", game / "selectorless-state", "game", "list"])
     require(not (game / "selectorless-state").exists(),
@@ -139,7 +148,7 @@ def verify(driver):
     driver.json("conflicting-game-ids-rejected",
                 ["--game", "cyberpunk-2077", "game", "add", "test-game",
                  "--path", game], success=False)
-    require(not (root / "state").exists(), "rejected registration created state")
+    require(state_untouched(root), "rejected registration created state")
     report = driver.json("test-game-dry-run",
                          ["--game", "test-game", "install", test_zip, "--dry-run",
                           "--path", game])
@@ -148,7 +157,7 @@ def verify(driver):
             [("Demo/package/plugins/example.plugin", "addons/example.plugin")],
             "Lua mapping ignored")
     require(snapshot(game) == before, "preview modified game")
-    require(not (root / "state").exists(), "preview created state")
+    require(state_untouched(root), "preview created state")
 
     module_file = modules / "test-game/main.lua"
     original_policy = module_file.read_text(encoding="utf-8")
@@ -164,7 +173,7 @@ def verify(driver):
             changed["operations"][0]["destination"] == "other-addons/example.plugin",
             "Lua changes require an unexpected Rust rebuild")
     module_file.write_text(original_policy, encoding="utf-8")
-    require(snapshot(game) == before and not (root / "state").exists(),
+    require(snapshot(game) == before and state_untouched(root),
             "runtime policy preview modified game or state")
 
     registered = driver.json("register-test-game",

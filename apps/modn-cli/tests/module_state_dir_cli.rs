@@ -82,6 +82,7 @@ fn state_dir_keeps_module_trust_and_releases_in_its_profile() {
     fs::create_dir_all(&profile_a).expect("default profile");
     fs::create_dir_all(&profile_b).expect("selected profile");
     main_bucket::seed(&profile_a);
+    main_bucket::seed_state(&profile_b);
 
     let local = root.path().join("local-module");
     write_module(&local, "fixture-game", "1.0.0", "Game.exe");
