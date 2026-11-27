@@ -1,5 +1,6 @@
 //! The typed result of catalog install planning.
 
+use super::consent::installs;
 use crate::acquisition::{PlannedSource, ReleaseDigest};
 use crate::approval::{ApprovalRefusal, Capabilities};
 use crate::buckets::{BucketPackage, PackageSource};
@@ -7,6 +8,8 @@ use crate::planning::PlanIssue;
 use crate::transactions::{
     CatalogReference, CatalogRelease, DependencyState, NativeInjectorPolicy,
 };
+use anyhow::{bail, Result};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 /// One catalog install plan.
@@ -169,4 +172,74 @@ pub enum PlanRefusal {
         /// The blockers that the preview reported.
         blockers: Vec<PlanIssue>,
     },
+}
+
+impl CatalogPlan {
+    /// The releases this plan would place, dependencies first, selected last.
+    ///
+    /// A dependency that is ready, damaged or installed as another release is
+    /// not placed. Releases that share one archive digest are placed once when
+    /// they declare the same dependencies and conflicts; two that differ, and
+    /// a selected release that shares its digest with a dependency, are
+    /// refused. A release without a digest is never combined with another.
+    ///
+    /// # Errors
+    ///
+    /// Returns the refusal of a shared archive that cannot be merged.
+    pub fn members(&self) -> Result<Vec<&PlannedRelease>> {
+        let Some((selected, dependencies)) = self.order.split_last() else {
+            bail!("the plan has no selected release");
+        };
+        let mut by_digest: BTreeMap<&str, &PlannedRelease> = BTreeMap::new();
+        let mut members = Vec::new();
+        for planned in dependencies.iter().filter(|planned| installs(planned)) {
+            let Some(digest) = planned.digest.as_str() else {
+                members.push(planned);
+                continue;
+            };
+            let Some(first) = by_digest.get(digest) else {
+                by_digest.insert(digest, planned);
+                members.push(planned);
+                continue;
+            };
+            if declared(&first.package) != declared(&planned.package) {
+                bail!(
+                    "{} and {} share one archive but declare different dependencies or conflicts; install them separately",
+                    first.package.reference(),
+                    planned.package.reference()
+                );
+            }
+        }
+        if selected
+            .package
+            .package
+            .pin()
+            .is_some_and(|pin| by_digest.contains_key(pin))
+        {
+            bail!(
+                "{}: its archive is also the archive of a missing dependency; install that dependency first",
+                selected.package.reference()
+            );
+        }
+        members.push(selected);
+        Ok(members)
+    }
+}
+
+/// The dependency and conflict IDs that a package declares.
+fn declared(package: &BucketPackage) -> (BTreeSet<&str>, BTreeSet<&str>) {
+    (
+        package
+            .package
+            .dependencies
+            .iter()
+            .map(String::as_str)
+            .collect(),
+        package
+            .package
+            .conflicts
+            .iter()
+            .map(String::as_str)
+            .collect(),
+    )
 }

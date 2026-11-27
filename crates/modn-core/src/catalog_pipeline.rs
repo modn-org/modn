@@ -15,6 +15,7 @@ use crate::buckets::PackageSource;
 use crate::transactions::DependencyState;
 use anyhow::Result;
 
+mod acquire;
 #[cfg_attr(
     not(test),
     allow(
@@ -23,18 +24,29 @@ use anyhow::Result;
     )
 )]
 mod archives;
+mod commit;
 mod conflicts;
+mod consent;
 mod dependencies;
+mod digest;
 mod input;
 mod order;
+mod outcome;
 mod plan;
+mod preview;
 mod requirements;
 
+pub use acquire::{acquire_pending, AcquiredArchive, AcquiredArchives};
+pub use commit::{commit_plan, CommitRequest};
+pub use consent::{Consent, ExecutableApproval, StalePlan};
+pub use digest::{plan_digest, PlanDigest, ReleasePreview};
 pub use input::{ConsentInputs, InstallInput, InstallTarget};
+pub use outcome::CommitOutcome;
 pub use plan::{
     CatalogPlan, PendingDownload, PlanConflict, PlanKind, PlanRefusal, PlannedRelease,
     ServedArchive, ServedOrigin,
 };
+pub use preview::{preview_catalog_install, preview_catalog_release};
 
 use archives::ResolvedArchives;
 use order::OrderedRelease;

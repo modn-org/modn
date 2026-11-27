@@ -2,7 +2,9 @@
 
 use super::fixtures::{self, plan_for, readonly_store, reference_of, release, tree, Fixture, GAME};
 use crate::approval::Capabilities;
-use crate::catalog_pipeline::{PlanKind, PlanRefusal};
+use crate::catalog_pipeline::{
+    preview_catalog_install, preview_catalog_release, PlanKind, PlanRefusal,
+};
 use crate::state::Store;
 use crate::transactions::{DependencyState, NativeInjectorPolicy};
 use std::fs;
@@ -254,4 +256,153 @@ fn planning_writes_no_manager_state() {
     assert!(plan.refusals.is_empty());
     assert_eq!(tree(fixture.data()), data_before);
     assert_eq!(tree(fixture.roots().profile()), profile_before);
+}
+
+#[test]
+fn releases_that_share_one_archive_are_members_once() {
+    let fixture = Fixture::new();
+    let game = fixture.game();
+    let shared = fixture.zip("shared");
+    let pin = fixtures::digest(&shared);
+    let mut top = fixtures::manifest("top", Some(&fixtures::digest(&fixture.zip("top"))));
+    top.dependencies = vec!["a".to_owned(), "b".to_owned()];
+    fixture.add(&fixtures::manifest("a", Some(&pin)));
+    fixture.add(&fixtures::manifest("b", Some(&pin)));
+    fixture.add(&top);
+    let snapshot = fixture.snapshot();
+    let plan = plan_for(
+        &fixture,
+        &snapshot,
+        &game,
+        "top",
+        None,
+        std::slice::from_ref(&shared),
+        Capabilities::default(),
+    );
+
+    let members = plan.members().expect("members");
+
+    assert_eq!(
+        members
+            .iter()
+            .map(|planned| planned.package.package.id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "top"]
+    );
+}
+
+#[test]
+fn releases_that_share_one_archive_must_declare_the_same_requirements() {
+    let fixture = Fixture::new();
+    let game = fixture.game();
+    let shared = fixture.zip("shared");
+    let pin = fixtures::digest(&shared);
+    let mut a = fixtures::manifest("a", Some(&pin));
+    a.conflicts = vec!["rival".to_owned()];
+    let mut top = fixtures::manifest("top", Some(&fixtures::digest(&fixture.zip("top"))));
+    top.dependencies = vec!["a".to_owned(), "b".to_owned()];
+    fixture.add(&a);
+    fixture.add(&fixtures::manifest("b", Some(&pin)));
+    fixture.add(&top);
+    let snapshot = fixture.snapshot();
+    let plan = plan_for(
+        &fixture,
+        &snapshot,
+        &game,
+        "top",
+        None,
+        std::slice::from_ref(&shared),
+        Capabilities::default(),
+    );
+
+    let error = plan.members().expect_err("different declarations");
+
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "main/{GAME}/a and main/{GAME}/b share one archive but declare different dependencies or conflicts; install them separately"
+        )
+    );
+}
+
+#[test]
+fn the_selected_release_cannot_share_an_archive_with_a_dependency() {
+    let fixture = Fixture::new();
+    let game = fixture.game();
+    let shared = fixture.zip("shared");
+    let pin = fixtures::digest(&shared);
+    let mut top = fixtures::manifest("top", Some(&pin));
+    top.dependencies = vec!["a".to_owned()];
+    fixture.add(&fixtures::manifest("a", Some(&pin)));
+    fixture.add(&top);
+    let snapshot = fixture.snapshot();
+    let plan = plan_for(
+        &fixture,
+        &snapshot,
+        &game,
+        "top",
+        None,
+        std::slice::from_ref(&shared),
+        Capabilities::default(),
+    );
+
+    let error = plan.members().expect_err("shared selected archive");
+
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "main/{GAME}/top: its archive is also the archive of a missing dependency; install that dependency first"
+        )
+    );
+}
+
+#[test]
+fn a_preview_skips_members_without_an_archive() {
+    let fixture = Fixture::new();
+    let game = fixture.game();
+    let archive = fixture.zip("top");
+    fixture.add(&fixtures::manifest(
+        "top",
+        Some(&fixtures::digest(&archive)),
+    ));
+    let snapshot = fixture.snapshot();
+    let plan = plan_for(
+        &fixture,
+        &snapshot,
+        &game,
+        "top",
+        None,
+        &[],
+        Capabilities::default(),
+    );
+
+    let previews = preview_catalog_install(
+        &fixture.roots(),
+        &plan,
+        &std::collections::BTreeMap::new(),
+        &[],
+    )
+    .expect("previews");
+
+    assert!(previews.is_empty());
+}
+
+#[test]
+fn a_selected_preview_does_not_need_the_dependency_archives() {
+    use super::commit_support::{digest, manifest, CommitFixture};
+
+    let fixture = CommitFixture::new();
+    let top = fixture.plugin_zip("top");
+    let mut top_manifest = manifest("top", Some(&digest(&top)));
+    top_manifest.dependencies = vec!["base".to_owned()];
+    fixture.add(&manifest("base", Some(&"a".repeat(64))));
+    fixture.add(&top_manifest);
+    let snapshot = fixture.snapshot();
+    let plan = fixture.plan(&snapshot, "top", None, std::slice::from_ref(&top));
+
+    let preview = preview_catalog_release(fixture.roots(), &plan, &plan.selected, &top, &[])
+        .expect("selected preview");
+
+    assert_eq!(preview.reference, plan.selected);
+    assert!(preview.plan.status == crate::planning::PlanStatus::Reviewable);
 }

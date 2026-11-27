@@ -11,11 +11,10 @@ use crate::install_consent::ApprovalCheck;
 use anyhow::{Context, Result};
 use modn_core::acquisition::SourceAttempt;
 use modn_core::buckets::PackageSource;
-use modn_core::catalog_pipeline::CatalogPlan;
-use modn_core::planning::InstallPlan;
+use modn_core::catalog_pipeline::{CatalogPlan, ReleasePreview};
 
 pub(super) struct ArchivePreview<'a> {
-    pub(super) plan: &'a InstallPlan,
+    pub(super) preview: &'a ReleasePreview,
     pub(super) unapproved_declared_executables: &'a [String],
 }
 
@@ -100,7 +99,7 @@ fn report_json(
         "version": report.version,
         "source": planned_source(report.sources, report.primary).clone(),
         "sources": source_labels(report.sources),
-        "plan": archive.as_ref().map(|preview| preview.plan),
+        "plan": archive.as_ref().map(|archive| &archive.preview.plan),
         "archive_needed": archive
             .is_none()
             .then(|| acquisition(planned_source(report.sources, report.primary))),
@@ -155,12 +154,12 @@ fn report_text(
     let _ = writeln!(
         out,
         "Dry run for {}: {}",
-        report.reference, preview.plan.status
+        report.reference, preview.preview.plan.status
     );
-    for operation in &preview.plan.operations {
+    for operation in &preview.preview.plan.operations {
         let _ = writeln!(out, "{} => {}", operation.source, operation.destination);
     }
-    for issue in &preview.plan.blockers {
+    for issue in &preview.preview.plan.blockers {
         let _ = writeln!(out, "BLOCKER {}: {}", issue.code, issue.message);
     }
     for path in preview.unapproved_declared_executables {
