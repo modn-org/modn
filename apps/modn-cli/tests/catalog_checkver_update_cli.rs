@@ -12,7 +12,7 @@ use checkver_fixture::{
     MockServer,
 };
 use checkver_update_fixture::{
-    add_release, directory_entries, manifest_text, server_env, zeros, REMINDER,
+    add_release, directory_entries, manifest_text, server_env, sign_and_verify, zeros, REMINDER,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -45,6 +45,19 @@ fn checkver_update_rewrites_a_github_release_and_keeps_unrelated_bytes() {
     let signature = fs::read(fixture.catalog.join("catalog.sig")).expect("signature");
     let public_key = fs::read(fixture.catalog.join("catalog.pub")).expect("public key");
     let env = server_env(&server);
+    let before = snapshot(&fixture.catalog);
+    let check_only = fixture.run(&env, &["catalog", "checkver"]);
+    assert!(check_only.status.success(), "{}", stderr(&check_only));
+    assert!(
+        stdout(&check_only).contains("test-game/alpha: update_available 1.0.0 -> 1.2.0"),
+        "{}",
+        stdout(&check_only)
+    );
+    assert_eq!(
+        before,
+        snapshot(&fixture.catalog),
+        "check-only wrote a catalog file"
+    );
 
     let output = fixture.run(&env, &["catalog", "checkver", "--update"]);
     assert!(
@@ -54,6 +67,18 @@ fn checkver_update_rewrites_a_github_release_and_keeps_unrelated_bytes() {
         stdout(&output)
     );
     let hash = blake3::hash(bytes).to_hex().to_string();
+    let downloaded = fixture.temp.path().join("downloaded.zip");
+    fs::write(&downloaded, bytes).expect("downloaded bytes");
+    let hashed = fixture.run_plain(
+        &[],
+        &[
+            "catalog",
+            "hash",
+            downloaded.to_str().expect("download path"),
+        ],
+    );
+    assert!(hashed.status.success(), "{}", stderr(&hashed));
+    assert_eq!(stdout(&hashed).trim(), hash);
     let expected = manifest_text("alpha", "1.2.0", "v1.2.0", "Alpha-1.2.0.zip", &hash, None);
     assert_eq!(
         fs::read_to_string(fixture.manifest_path("test-game", "alpha")).expect("manifest"),
@@ -101,39 +126,7 @@ fn checkver_update_rewrites_a_github_release_and_keeps_unrelated_bytes() {
         stdout(&check)
     );
 
-    let keys = fixture.temp.path().join("keys");
-    let keygen = fixture.run_plain(
-        &[],
-        &[
-            "catalog",
-            "keygen",
-            "--out",
-            keys.to_str().expect("keys path"),
-        ],
-    );
-    assert!(keygen.status.success(), "{}", stderr(&keygen));
-    let key = keys.join("catalog.key");
-    let public = keys.join("catalog.pub");
-    let sign = fixture.run(
-        &[],
-        &[
-            "catalog",
-            "sign",
-            "--key",
-            key.to_str().expect("secret key path"),
-        ],
-    );
-    assert!(sign.status.success(), "{}", stderr(&sign));
-    let verify = fixture.run(
-        &[],
-        &[
-            "catalog",
-            "verify",
-            "--key",
-            public.to_str().expect("public key path"),
-        ],
-    );
-    assert!(verify.status.success(), "{}", stderr(&verify));
+    sign_and_verify(&fixture);
 }
 
 #[test]

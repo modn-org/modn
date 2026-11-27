@@ -160,7 +160,7 @@ fn object_mut<'a>(node: &'a mut Node, what: &str) -> Result<&'a mut Vec<(String,
     }
 }
 
-fn set_string(fields: &mut Vec<(String, Node)>, key: &str, value: String) -> Result<()> {
+fn set_string(fields: &mut [(String, Node)], key: &str, value: String) -> Result<()> {
     match fields.iter_mut().find(|(name, _)| name == key) {
         Some((_, field)) => {
             *field = Node::String(value);

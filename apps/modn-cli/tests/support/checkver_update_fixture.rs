@@ -3,7 +3,7 @@
     reason = "shared fixture exposes helpers for different test crates"
 )]
 
-use crate::checkver_fixture::{github_route, MockServer};
+use crate::checkver_fixture::{github_route, stderr, Fixture, MockServer};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs;
@@ -71,4 +71,40 @@ pub fn directory_entries(path: &Path) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+pub fn sign_and_verify(fixture: &Fixture) {
+    let keys = fixture.temp.path().join("keys");
+    let keygen = fixture.run_plain(
+        &[],
+        &[
+            "catalog",
+            "keygen",
+            "--out",
+            keys.to_str().expect("keys path"),
+        ],
+    );
+    assert!(keygen.status.success(), "{}", stderr(&keygen));
+    let key = keys.join("catalog.key");
+    let public = keys.join("catalog.pub");
+    let sign = fixture.run(
+        &[],
+        &[
+            "catalog",
+            "sign",
+            "--key",
+            key.to_str().expect("secret key path"),
+        ],
+    );
+    assert!(sign.status.success(), "{}", stderr(&sign));
+    let verify = fixture.run(
+        &[],
+        &[
+            "catalog",
+            "verify",
+            "--key",
+            public.to_str().expect("public key path"),
+        ],
+    );
+    assert!(verify.status.success(), "{}", stderr(&verify));
 }
