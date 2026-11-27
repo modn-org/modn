@@ -220,10 +220,7 @@ struct SequenceCheck<'a> {
 }
 
 impl SequenceCheck<'_> {
-    fn accept(
-        &self,
-        root: &Path,
-    ) -> Result<(Option<StoredSequence>, Vec<CatalogWarning>)> {
+    fn accept(&self, root: &Path) -> Result<(Option<StoredSequence>, Vec<CatalogWarning>)> {
         let digest = catalog_digest(root)?;
         accept_sequence(
             self.name,

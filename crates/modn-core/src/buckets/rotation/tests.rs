@@ -1,8 +1,7 @@
 use super::{
     apply_key_statements, check_revocation_key, key_statement_bytes, revocation_statement,
     revocation_statement_with_sequence, rotation_statement, rotation_statement_with_sequence,
-    PinnedKeys, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE, ROTATION_FILE,
-    ROTATION_SIGNATURE_FILE,
+    PinnedKeys, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE, ROTATION_FILE, ROTATION_SIGNATURE_FILE,
 };
 use crate::buckets::signature::CatalogPublicKey;
 use minisign::KeyPair;
@@ -410,12 +409,9 @@ fn rotation_statement_sequence_must_equal_the_revision_sequence() {
     let directory = catalog();
     let signer = test_key();
     let successor = test_key();
-    let body = rotation_statement_with_sequence(
-        &signer.public.key_id().to_string(),
-        &successor.text,
-        2,
-    )
-    .expect("rotation body");
+    let body =
+        rotation_statement_with_sequence(&signer.public.key_id().to_string(), &successor.text, 2)
+            .expect("rotation body");
     assert!(String::from_utf8(body.clone())
         .expect("UTF-8")
         .contains("\"sequence\":2"));

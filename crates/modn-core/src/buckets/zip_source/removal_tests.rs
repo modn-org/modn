@@ -54,25 +54,32 @@ fn sequence_remove_clears_the_record_so_a_readd_accepts_an_older_number() {
     let store = BucketStore::new(&ManagerRoots::new(state.path(), None));
     let source = ZipCatalogSource::new("https://primary.example/one.zip".to_owned());
     store
-        .sync_zip_with_signer("community", Some(source.clone()), fetch(pack_catalog(
-            catalog.path(),
-        )))
+        .sync_zip_with_signer(
+            "community",
+            Some(source.clone()),
+            fetch(pack_catalog(catalog.path())),
+        )
         .expect("numbered first sync");
 
     store.remove("community").expect("remove clears the record");
-    assert!(!state.path().join("buckets/registrations/community.json").exists());
+    assert!(!state
+        .path()
+        .join("buckets/registrations/community.json")
+        .exists());
 
     write_sequence(catalog.path(), &key, 1);
     let synced = store
-        .sync_zip_with_signer("community", Some(source), fetch(pack_catalog(
-            catalog.path(),
-        )))
+        .sync_zip_with_signer(
+            "community",
+            Some(source),
+            fetch(pack_catalog(catalog.path())),
+        )
         .expect("a re-add is a first sync and accepts a lower number");
     assert_eq!(synced.revision.digest.len(), 71);
-    let registration: serde_json::Value =
-        serde_json::from_slice(&fs::read(state.path().join("buckets/registrations/community.json"))
-            .expect("registration"))
-        .expect("JSON");
+    let registration: serde_json::Value = serde_json::from_slice(
+        &fs::read(state.path().join("buckets/registrations/community.json")).expect("registration"),
+    )
+    .expect("JSON");
     assert_eq!(registration["accepted"]["sequence"], 1);
 }
 

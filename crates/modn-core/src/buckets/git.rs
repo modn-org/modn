@@ -380,8 +380,8 @@ impl BucketStore {
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         check_mirror_kinds(name, &served_by, &mirrors)
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
-        let revision_sequence = super::sequence::read_sequence(&catalog)?
-            .map(|sequence| sequence.sequence());
+        let revision_sequence =
+            super::sequence::read_sequence(&catalog)?.map(|sequence| sequence.sequence());
         let relocation = read_relocation(&catalog, &served_by, revision_sequence)
             .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let moved_to = relocation.filter(|primary_host| primary_host != &primary);

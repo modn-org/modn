@@ -41,14 +41,9 @@ fn sequence_higher_number_is_accepted_and_stored() {
     let directory = temp();
     let signed = signed(directory.path(), r#"{"schema_version":1,"sequence":4}"#);
     let stored = record(3, "blake3:aa");
-    let (accepted, _) = accept_sequence(
-        "community",
-        Some(&stored),
-        signed.as_ref(),
-        "blake3:bb",
-        0,
-    )
-    .expect("higher number");
+    let (accepted, _) =
+        accept_sequence("community", Some(&stored), signed.as_ref(), "blake3:bb", 0)
+            .expect("higher number");
     assert_eq!(accepted, Some(record(4, "blake3:bb")));
 }
 
@@ -57,14 +52,8 @@ fn sequence_lower_number_is_a_rollback() {
     let directory = temp();
     let signed = signed(directory.path(), r#"{"schema_version":1,"sequence":2}"#);
     let stored = record(3, "blake3:aa");
-    let error = accept_sequence(
-        "community",
-        Some(&stored),
-        signed.as_ref(),
-        "blake3:bb",
-        0,
-    )
-    .expect_err("lower number");
+    let error = accept_sequence("community", Some(&stored), signed.as_ref(), "blake3:bb", 0)
+        .expect_err("lower number");
     assert_eq!(code_of(&error), Some(ErrorCode::CatalogRollback));
     let message = format!("{error:#}");
     assert!(message.contains("community"), "{message}");
@@ -98,14 +87,9 @@ fn sequence_equal_number_and_digest_is_idempotent() {
     let directory = temp();
     let signed = signed(directory.path(), r#"{"schema_version":1,"sequence":3}"#);
     let stored = record(3, "blake3:aa");
-    let (accepted, _) = accept_sequence(
-        "community",
-        Some(&stored),
-        signed.as_ref(),
-        "blake3:aa",
-        0,
-    )
-    .expect("re-sync");
+    let (accepted, _) =
+        accept_sequence("community", Some(&stored), signed.as_ref(), "blake3:aa", 0)
+            .expect("re-sync");
     assert_eq!(accepted, Some(record(3, "blake3:aa")));
 }
 
@@ -114,14 +98,8 @@ fn sequence_equal_number_with_another_digest_is_a_conflict() {
     let directory = temp();
     let signed = signed(directory.path(), r#"{"schema_version":1,"sequence":3}"#);
     let stored = record(3, "blake3:aa");
-    let error = accept_sequence(
-        "community",
-        Some(&stored),
-        signed.as_ref(),
-        "blake3:bb",
-        0,
-    )
-    .expect_err("republished number");
+    let error = accept_sequence("community", Some(&stored), signed.as_ref(), "blake3:bb", 0)
+        .expect_err("republished number");
     assert_eq!(code_of(&error), Some(ErrorCode::CatalogSequenceConflict));
     let message = format!("{error:#}");
     assert!(message.contains("blake3:aa"), "{message}");
@@ -161,10 +139,7 @@ fn sequence_parser_refuses_unknown_fields_and_bad_values() {
     ] {
         let directory = temp();
         fs::write(directory.path().join(SEQUENCE_FILE), body).expect("sequence file");
-        assert!(
-            read_sequence(directory.path()).is_err(),
-            "accepted {body}"
-        );
+        assert!(read_sequence(directory.path()).is_err(), "accepted {body}");
     }
 }
 
@@ -185,7 +160,9 @@ fn sequence_expiry_parser_accepts_the_utc_form_and_leap_days() {
 fn registration_without_accepted_still_parses_and_keeps_its_bytes() {
     let directory = temp();
     let store = BucketStore::new(&ManagerRoots::new(directory.path(), None));
-    let path = directory.path().join("buckets/registrations/community.json");
+    let path = directory
+        .path()
+        .join("buckets/registrations/community.json");
     fs::create_dir_all(path.parent().expect("parent")).expect("registry");
     let legacy = br#"{"path":"/catalogs/community"}"#;
     fs::write(&path, legacy).expect("legacy registration");

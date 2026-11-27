@@ -194,10 +194,7 @@ pub(in crate::buckets) fn accept_sequence(
             });
         }
     }
-    Ok((
-        Some(StoredSequence::new(signed.sequence, digest)),
-        warnings,
-    ))
+    Ok((Some(StoredSequence::new(signed.sequence, digest)), warnings))
 }
 
 /// Parse `<YYYY-MM-DDTHH:MM:SSZ>` into seconds since the Unix epoch.
@@ -241,7 +238,8 @@ fn parse_expiry(text: &str) -> Result<u64> {
         bail!("timestamp is outside the calendar: {text}");
     }
     let days = days_from_civil(i64::from(year), month, day);
-    let seconds = days * 86_400 + i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second);
+    let seconds =
+        days * 86_400 + i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second);
     u64::try_from(seconds).context("timestamp is before the Unix epoch")
 }
 
@@ -249,7 +247,9 @@ fn days_in_month(year: u32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) => {
+            29
+        }
         2 => 28,
         _ => 0,
     }
@@ -262,8 +262,7 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let year_of_era = year - era * 400;
     let shifted_month = i64::from((month + 9) % 12);
     let day_of_year = (153 * shifted_month + 2) / 5 + i64::from(day) - 1;
-    let day_of_era =
-        year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     era * 146_097 + day_of_era - 719_468
 }
 
