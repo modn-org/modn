@@ -37,6 +37,12 @@ mod override_recovery;
 mod override_recovery_tests;
 #[cfg(test)]
 mod override_tests;
+mod profile_apply;
+#[cfg(test)]
+mod profile_apply_crash_tests;
+mod profile_apply_plan;
+#[cfg(test)]
+mod profile_apply_tests;
 mod profile_toggle;
 mod profile_toggle_apply;
 #[cfg(test)]
@@ -83,6 +89,7 @@ pub use native_injector::{
     NativeInjectorNotAllowed, NativeInjectorPolicy, NATIVE_INJECTOR_FLAG,
     NATIVE_INJECTOR_NOT_ALLOWED,
 };
+pub use profile_apply::{PriorityReport, ProfileApply};
 pub use profile_toggle::{ProfileToggle, ToggleAction, ToggleChange};
 pub use stack::StackMember;
 pub use uninstall_plan::{PlannedRemoval, PlannedRestore, UninstallScope};

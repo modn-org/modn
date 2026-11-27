@@ -23,6 +23,29 @@ pub(super) fn execute_toggle(
     prepared: PreparedToggle,
     fault: Option<super::install::Fault>,
 ) -> Result<ProfileToggle> {
+    let package = prepared.toggle.package.clone();
+    let committed_package = package.clone();
+    let profile_id = prepared.profile_id.clone();
+    let enabled = prepared.toggle.enabled;
+    execute_prepared(store, &prepared, &package, fault, move |store, id| {
+        commit_toggle(store, id, &profile_id, &committed_package, enabled)
+    })?;
+    Ok(prepared.toggle)
+}
+
+/// Stage, place and commit one checked set of changes with a caller-chosen
+/// journal action and commit step. The witnesses and recovery rules are shared
+/// by profile toggles and profile applies.
+pub(super) fn execute_prepared<F>(
+    store: &mut Store,
+    prepared: &PreparedToggle,
+    package: &str,
+    fault: Option<super::install::Fault>,
+    commit: F,
+) -> Result<()>
+where
+    F: FnOnce(&mut Store, &str) -> Result<()>,
+{
     let staging = Builder::new()
         .prefix("txn-")
         .tempdir_in(&store.state_root)?;
@@ -42,7 +65,7 @@ pub(super) fn execute_toggle(
         let archive = entry
             .archive
             .as_deref()
-            .context("planned profile toggle archive is missing")?;
+            .context("planned profile change archive is missing")?;
         let staged =
             restore::stage_member(store, archive, candidate, &restore_dir, entry.file.ordinal)?;
         restores.insert(
@@ -58,47 +81,46 @@ pub(super) fn execute_toggle(
         .iter()
         .map(|entry| entry.file.clone())
         .collect();
+    let action = if package.is_empty() {
+        "profile_apply"
+    } else {
+        "profile_toggle"
+    };
     store.insert_journal(
         &id,
-        "profile_toggle",
+        action,
         &prepared.roots.game,
-        &prepared.toggle.package,
+        package,
         None,
         &files,
         &[],
     )?;
     restore::record_restores(store, &id, &restores)?;
     let _ = staging.keep();
-    let attempt = place(&prepared, &restores, &id, fault);
+    let attempt = place(prepared, &restores, &id, fault);
     if let Err(err) = attempt {
         if matches!(fault, Some(super::install::Fault::CrashAfter(_))) {
             return Err(err);
         }
         if let Err(recovery_error) = store.recover_locked() {
             bail!(
-                "{err:#}; profile toggle recovery incomplete: {recovery_error:#}; run 'modn recover'"
+                "{err:#}; profile change recovery incomplete: {recovery_error:#}; run 'modn recover'"
             );
         }
         return Err(err);
     }
-    if let Err(err) = commit_toggle(
-        store,
-        &id,
-        &prepared.profile_id,
-        &prepared.toggle.package,
-        prepared.toggle.enabled,
-    ) {
+    if let Err(err) = commit(store, &id) {
         if let Err(recovery_error) = store.recover_locked() {
             bail!(
-                "{err:#}; profile toggle recovery incomplete: {recovery_error:#}; run 'modn recover'"
+                "{err:#}; profile change recovery incomplete: {recovery_error:#}; run 'modn recover'"
             );
         }
         return Err(err);
     }
     store
         .recover_locked()
-        .context("profile toggle committed; cleanup incomplete, run 'modn recover'")?;
-    Ok(prepared.toggle)
+        .context("profile change committed; cleanup incomplete, run 'modn recover'")?;
+    Ok(())
 }
 
 fn place(
@@ -190,7 +212,61 @@ pub(super) fn commit_toggle(
     let game = store_game(store, id)?;
     let active = active_profile_id(store, &game)?;
     let tx = store.connection.transaction()?;
-    for file in &files {
+    apply_winners(&tx, &files, &restores, &active, Some(package))?;
+    let updated = tx.execute(
+        "UPDATE profile_packages SET enabled=?1 WHERE profile_id=?2 AND package_id=?3",
+        params![enabled, profile_id, package],
+    )?;
+    if updated != 1 {
+        bail!("profile membership changed while the toggle committed; run 'modn doctor'");
+    }
+    let committed = tx.execute(
+        "UPDATE pending_transactions SET status='committed' WHERE id=?1 AND status='pending'",
+        [id],
+    )?;
+    if committed != 1 {
+        bail!("profile toggle journal {id} is no longer pending; run 'modn recover'");
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Commit a profile apply journal: its winner rows and, when given, the new
+/// ranks, in one SQLite transaction.
+pub(super) fn commit_apply(
+    store: &mut Store,
+    id: &str,
+    profile_id: &str,
+    ranks: Option<&[String]>,
+) -> Result<()> {
+    let files = store.toggle_journal_files(id)?;
+    let restores = restore::pending_restores(store, id)?;
+    let game = store_game(store, id)?;
+    let active = active_profile_id(store, &game)?;
+    let tx = store.connection.transaction()?;
+    apply_winners(&tx, &files, &restores, &active, None)?;
+    if let Some(ranks) = ranks {
+        write_ranks(&tx, profile_id, ranks)?;
+    }
+    let committed = tx.execute(
+        "UPDATE pending_transactions SET status='committed' WHERE id=?1 AND status='pending'",
+        [id],
+    )?;
+    if committed != 1 {
+        bail!("profile apply journal {id} is no longer pending; run 'modn recover'");
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn apply_winners(
+    tx: &rusqlite::Transaction<'_>,
+    files: &[super::profile_toggle::CommitFile],
+    restores: &BTreeMap<usize, super::restore::PendingRestore>,
+    active: &str,
+    removing: Option<&str>,
+) -> Result<()> {
+    for file in files {
         if let Some(restore) = restores.get(&file.ordinal) {
             let updated = tx.execute(
                 "UPDATE managed_files
@@ -225,34 +301,51 @@ pub(super) fn commit_toggle(
                 )?;
             }
         } else {
-            let deleted = tx.execute(
-                "DELETE FROM managed_files
-                 WHERE game_path=?1 AND root=?2 AND path_key=?3 AND package_id=?4",
-                params![file.game_path, file.root, file.path_key, package],
-            )?;
+            let deleted = match removing {
+                Some(package) => tx.execute(
+                    "DELETE FROM managed_files
+                     WHERE game_path=?1 AND root=?2 AND path_key=?3 AND package_id=?4",
+                    params![file.game_path, file.root, file.path_key, package],
+                )?,
+                None => tx.execute(
+                    "DELETE FROM managed_files
+                     WHERE game_path=?1 AND root=?2 AND path_key=?3 AND blake3=?4",
+                    params![file.game_path, file.root, file.path_key, file.blake3],
+                )?,
+            };
             if deleted != 1 {
                 bail!(
-                    "profile toggle winner row is missing for {}",
+                    "profile change winner row is missing for {}",
                     file.relative_path
                 );
             }
         }
     }
-    let updated = tx.execute(
-        "UPDATE profile_packages SET enabled=?1 WHERE profile_id=?2 AND package_id=?3",
-        params![enabled, profile_id, package],
+    Ok(())
+}
+
+/// Write a contiguous rank order; rank 1 is the winner.
+pub(super) fn write_ranks(
+    tx: &rusqlite::Transaction<'_>,
+    profile_id: &str,
+    order: &[String],
+) -> Result<()> {
+    tx.execute(
+        "UPDATE profile_packages SET priority=priority+1000000 WHERE profile_id=?1",
+        [profile_id],
     )?;
-    if updated != 1 {
-        bail!("profile membership changed while the toggle committed; run 'modn doctor'");
+    let count = i64::try_from(order.len()).context("profile has too many packages to rank")?;
+    for (index, member) in order.iter().enumerate() {
+        let index = i64::try_from(index).context("profile has too many packages to rank")?;
+        let updated = tx.execute(
+            "UPDATE profile_packages SET priority=?1
+             WHERE profile_id=?2 AND package_id=?3",
+            params![count - 1 - index, profile_id, member],
+        )?;
+        if updated != 1 {
+            bail!("profile membership changed while reordering; retry");
+        }
     }
-    let committed = tx.execute(
-        "UPDATE pending_transactions SET status='committed' WHERE id=?1 AND status='pending'",
-        [id],
-    )?;
-    if committed != 1 {
-        bail!("profile toggle journal {id} is no longer pending; run 'modn recover'");
-    }
-    tx.commit()?;
     Ok(())
 }
 

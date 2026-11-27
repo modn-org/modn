@@ -122,7 +122,7 @@ impl Store {
             None
         };
         let roots = Roots { game, content };
-        if journal.action == "profile_toggle" {
+        if matches!(journal.action.as_str(), "profile_toggle" | "profile_apply") {
             super::profile_toggle_apply::recover_toggle(self, journal, &roots)?;
             return self.finish_journal(&journal.id);
         }

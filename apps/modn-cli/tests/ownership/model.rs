@@ -9,6 +9,8 @@ use std::process::{Command, Output};
 use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
 
+#[path = "priority.rs"]
+mod priority;
 mod snapshot;
 #[path = "toggle.rs"]
 mod toggle;
@@ -240,6 +242,29 @@ impl World {
         let command = if enabled { "enable" } else { "disable" };
         self.modn(&["profile", command, id, "--yes", "--path", &game])
     }
+
+    pub(crate) fn priority(
+        &self,
+        id: &str,
+        rank: u32,
+        apply: bool,
+    ) -> Result<Output, TestCaseError> {
+        let game = self.game.to_string_lossy().into_owned();
+        let rank = rank.to_string();
+        let mut args = vec![
+            "profile",
+            "priority",
+            id,
+            "--rank",
+            rank.as_str(),
+            "--path",
+            &game,
+        ];
+        if apply {
+            args.extend(["--apply", "--yes"]);
+        }
+        self.modn(&args)
+    }
 }
 
 #[derive(Default)]
@@ -431,6 +456,7 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
         return Ok(());
     };
     toggle::check_toggle_round_trip(&world, &second_id, &second_owned, &case.first)?;
+    priority::check_priority_round_trip(&world, &first_id, &second_id, &case.first)?;
     let first_keys: BTreeSet<String> = first_owned.iter().map(|path| path_key(path)).collect();
     let second_keys: BTreeSet<String> = second_owned.iter().map(|path| path_key(path)).collect();
     let shared: BTreeSet<String> = first_keys.intersection(&second_keys).cloned().collect();
