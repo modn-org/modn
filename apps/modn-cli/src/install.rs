@@ -107,7 +107,10 @@ fn install_archive(
         } else {
             println!("Dry run: {} (metadata only)", report.status);
             for entry in &report.overrides {
-                println!("replaces {} at {}", entry.replaced_package, entry.destination);
+                println!(
+                    "replaces {} at {}",
+                    entry.replaced_package, entry.destination
+                );
             }
             for file in report.operations {
                 println!("{} => {}", file.source, file.destination);

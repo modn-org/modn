@@ -136,7 +136,10 @@ fn override_second_install_replaces_first_bytes_and_keeps_first_package() {
 
     assert_eq!(fs::read(fixture.path()).expect("bytes"), b"second-bytes");
     assert_ne!(first.id, second.id);
-    assert_eq!(fixture.store.installed(&fixture.game).expect("list").len(), 2);
+    assert_eq!(
+        fixture.store.installed(&fixture.game).expect("list").len(),
+        2
+    );
     assert_eq!(fixture.winner().as_deref(), Some(second.id.as_str()));
 }
 
@@ -167,9 +170,15 @@ fn override_tampered_owned_file_is_refused_without_change() {
 
     let error = fixture.install(&second).expect_err("refuse");
     assert!(error.to_string().contains("CONFLICT"), "{error:#}");
-    assert!(error.to_string().contains("owned file changed"), "{error:#}");
+    assert!(
+        error.to_string().contains("owned file changed"),
+        "{error:#}"
+    );
     assert_eq!(fs::read(fixture.path()).expect("bytes"), b"user-change");
-    assert_eq!(fixture.store.installed(&fixture.game).expect("list").len(), 1);
+    assert_eq!(
+        fixture.store.installed(&fixture.game).expect("list").len(),
+        1
+    );
     assert_eq!(fixture.count("SELECT COUNT(*) FROM file_claims"), 1);
     assert!(fixture.store.pending().expect("pending").is_empty());
 }
@@ -206,7 +215,10 @@ fn override_symlink_destination_is_refused() {
     }
     let second = fixture.archive("second", b"second-bytes");
     let error = fixture.install(&second).expect_err("refuse");
-    assert!(error.to_string().contains("LINKED_DESTINATION"), "{error:#}");
+    assert!(
+        error.to_string().contains("LINKED_DESTINATION"),
+        "{error:#}"
+    );
     assert_eq!(fs::read(&outside).expect("bytes"), b"game-exe");
 }
 
@@ -276,7 +288,10 @@ fn override_three_packages_share_one_path() {
     assert_eq!(fs::read(fixture.path()).expect("bytes"), b"third-bytes");
     assert_eq!(fixture.count("SELECT COUNT(*) FROM file_claims"), 3);
     assert_eq!(fixture.winner().as_deref(), Some(third.id.as_str()));
-    assert_eq!(fixture.store.installed(&fixture.game).expect("list").len(), 3);
+    assert_eq!(
+        fixture.store.installed(&fixture.game).expect("list").len(),
+        3
+    );
 }
 
 #[test]
@@ -308,7 +323,10 @@ fn override_uninstall_winner_with_shadowed_claim_is_refused() {
     let second = fixture.install(&second).expect("second");
     let game = fixture.game.clone();
 
-    let error = fixture.store.uninstall(&game, &second.id).expect_err("refuse");
+    let error = fixture
+        .store
+        .uninstall(&game, &second.id)
+        .expect_err("refuse");
     assert!(error.to_string().contains(SHARED), "{error}");
     assert!(
         error.to_string().contains("lower-priority package first"),
@@ -326,13 +344,13 @@ fn override_uninstall_shadowed_package_leaves_winner_bytes() {
     let second = fixture.install(&second).expect("second");
     let game = fixture.game.clone();
 
-    fixture.store.uninstall(&game, &first.id).expect("uninstall");
+    fixture
+        .store
+        .uninstall(&game, &first.id)
+        .expect("uninstall");
     assert_eq!(fs::read(fixture.path()).expect("bytes"), b"second-bytes");
     assert_eq!(fixture.winner().as_deref(), Some(second.id.as_str()));
-    assert_eq!(
-        fixture.count("SELECT COUNT(*) FROM file_claims"),
-        1
-    );
+    assert_eq!(fixture.count("SELECT COUNT(*) FROM file_claims"), 1);
     assert_eq!(fixture.store.installed(&game).expect("list").len(), 1);
 }
 

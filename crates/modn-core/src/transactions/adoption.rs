@@ -1,10 +1,10 @@
 use super::journal::{digest, lock_store, JournalFile, ManagedPackage, Roots};
 use super::validation::{validate_ownership, validate_plan, ExistingTargets};
 use crate::archive::inspect;
+use crate::error::coded;
 use crate::planning::preview_adoption_with_appdata;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
-use crate::error::coded;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -121,12 +121,8 @@ impl Store {
             ExistingTargets::Adopt,
             &[],
         )?;
-        validate_ownership(self, &game, &proposal, None)?;
-        if self
-            .claim_overrides(&game, &proposal, None)?
-            .first()
-            .is_some()
-        {
+        let overrides = validate_ownership(self, &game, &proposal, None)?;
+        if !overrides.is_empty() {
             return Err(coded(
                 crate::error::ErrorCode::Conflict,
                 "adopted files are owned by another managed package; uninstall that package first",

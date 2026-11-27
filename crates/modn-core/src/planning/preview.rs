@@ -7,10 +7,6 @@ use std::path::Path;
 ///
 /// The returned plan lists every managed destination it would take from a
 /// lower-priority package in `overrides`. Reading claims never writes.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the claim-aware preview names the same inputs as the plain preview plus the store"
-)]
 pub fn preview_install_zip_with_claims(
     store: &Store,
     roots: &ManagerRoots,
@@ -22,7 +18,15 @@ pub fn preview_install_zip_with_claims(
 ) -> anyhow::Result<InstallPlan> {
     let inspection = crate::archive::inspect(archive)?;
     let mut proposal = resolve_with_claims(
-        store, roots, game_id, &inspection, game, approved, &[], None, appdata,
+        store,
+        roots,
+        game_id,
+        &inspection,
+        game,
+        approved,
+        &[],
+        None,
+        appdata,
     )?;
     if !inspection.format.is_installable() {
         proposal.status = PlanStatus::Blocked;

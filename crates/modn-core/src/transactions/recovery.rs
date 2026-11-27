@@ -100,10 +100,7 @@ impl Store {
             "DELETE FROM pending_overrides WHERE transaction_id=?1",
             [id],
         )?;
-        tx.execute(
-            "DELETE FROM pending_restores WHERE transaction_id=?1",
-            [id],
-        )?;
+        tx.execute("DELETE FROM pending_restores WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;

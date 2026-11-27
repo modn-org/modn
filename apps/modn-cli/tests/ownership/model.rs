@@ -281,12 +281,14 @@ pub(crate) struct Observed {
     pub(crate) installs: usize,
 }
 
+type Installed = (String, BTreeSet<PathBuf>, BTreeSet<PathBuf>);
+
 fn check_install(
     world: &World,
     package: char,
     count: usize,
     observed: &mut Observed,
-) -> Result<Option<(String, BTreeSet<PathBuf>, BTreeSet<PathBuf>)>, TestCaseError> {
+) -> Result<Option<Installed>, TestCaseError> {
     let before = snapshot(&world.root)?;
     let state_before = (world.state.exists(), snapshot(&world.state)?);
     let dry = world.dry_run(package)?;
@@ -442,8 +444,10 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
         check_install(&world, 'b', case.second.len(), observed)?
     };
     if let Some((_, _, second_destinations)) = &second {
-        let second_keys: BTreeSet<String> =
-            second_destinations.iter().map(|path| path_key(path)).collect();
+        let second_keys: BTreeSet<String> = second_destinations
+            .iter()
+            .map(|path| path_key(path))
+            .collect();
         first_owned.retain(|path| !second_keys.contains(&path_key(path)));
     }
     check_uninstall(&world, &first_id, &first_owned)?;
