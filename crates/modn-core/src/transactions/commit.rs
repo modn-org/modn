@@ -73,15 +73,25 @@ impl Store {
             "INSERT INTO managed_packages(id,game_path,archive_blake3) VALUES (?1,?2,?3)",
             params![id, game.to_string_lossy().as_ref(), hash],
         )?;
+        let profile = crate::state::profiles::ensure_profile(&tx, game)?;
+        let moved = match replaced {
+            Some(replaced) => {
+                crate::state::profiles::transfer_memberships(&tx, replaced.package_id, id)?
+            }
+            None => 0,
+        };
+        if moved == 0 {
+            crate::state::profiles::append_package(&tx, &profile.id, id)?;
+        }
         if let Some(metadata) = &metadata {
             crate::history::record_metadata(&tx, id, metadata)?;
         }
         for f in files {
-            tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,blake3,bytes)
-                VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            tx.execute("INSERT INTO managed_files(game_path,root,path_key,relative_path,package_id,blake3,bytes,profile_id)
+                VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                 params![game.to_string_lossy().as_ref(), f.root.label(),
                     super::ownership_key(&f.destination),
-                    f.destination, id, f.blake3, f.bytes as i64])?;
+                    f.destination, id, f.blake3, f.bytes as i64, profile.id])?;
         }
         for directory in directories {
             let identity: String = tx.query_row(
@@ -150,26 +160,8 @@ impl Store {
             }
             (None, _) => None,
         };
-        for (_, package_id) in removals {
-            tx.execute(
-                "DELETE FROM package_dependencies WHERE dependency_id=?1",
-                [package_id],
-            )?;
-        }
         for (journal_id, package_id) in removals {
-            tx.execute(
-                "DELETE FROM managed_directories WHERE package_id=?1",
-                [package_id],
-            )?;
-            tx.execute(
-                "DELETE FROM managed_files WHERE package_id=?1",
-                [package_id],
-            )?;
-            super::catalog::forget(&tx, package_id)?;
-            tx.execute(
-                "DELETE FROM managed_package_releases WHERE package_id=?1",
-                [package_id],
-            )?;
+            crate::state::profiles::delete_package_records(&tx, package_id)?;
             tx.execute("DELETE FROM managed_packages WHERE id=?1", [package_id])?;
             let committed = tx.execute(
                 "UPDATE pending_transactions SET status='committed' WHERE id=?1 AND status='pending'",
