@@ -10,6 +10,7 @@ use std::path::{Component, Path};
 mod checkver;
 mod checkver_output;
 mod checkver_update;
+mod checkver_upstream;
 mod keys;
 mod maintenance;
 
