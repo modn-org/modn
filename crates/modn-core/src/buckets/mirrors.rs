@@ -156,6 +156,8 @@ struct MirrorsFile {
 struct RelocationFile {
     schema_version: u32,
     primary: CatalogHost,
+    #[serde(default)]
+    sequence: Option<u64>,
 }
 
 fn read_declared<T: DeserializeOwned>(root: &Path, file: &str) -> Result<Option<T>> {
@@ -198,7 +200,15 @@ pub(super) fn read_mirrors(root: &Path) -> Result<Vec<CatalogHost>> {
 }
 
 /// Read and validate `relocation.json` from one verified catalog root.
-pub(super) fn read_relocation(root: &Path, current: &CatalogHost) -> Result<Option<CatalogHost>> {
+///
+/// A relocation may carry the revision's sequence number. It may not name a
+/// lower number than the revision, because that would move the bucket back
+/// beside a catalog the sequence check already refused.
+pub(super) fn read_relocation(
+    root: &Path,
+    current: &CatalogHost,
+    revision_sequence: Option<u64>,
+) -> Result<Option<CatalogHost>> {
     let Some(file): Option<RelocationFile> = read_declared(root, RELOCATION_FILE)? else {
         return Ok(None);
     };
@@ -207,6 +217,25 @@ pub(super) fn read_relocation(root: &Path, current: &CatalogHost) -> Result<Opti
             "{RELOCATION_FILE} uses schema_version {}; Modn supports {SCHEMA_VERSION}",
             file.schema_version
         );
+    }
+    if let Some(sequence) = file.sequence {
+        match revision_sequence {
+            Some(revision) if sequence == revision => {}
+            Some(revision) if sequence < revision => {
+                return Err(crate::error::coded(
+                    crate::error::ErrorCode::CatalogRollback,
+                    format!(
+                        "{RELOCATION_FILE} names sequence {sequence}, but the catalog revision is sequence {revision}. A relocation may not lower the sequence; the rollback refused the sync and nothing was written."
+                    ),
+                ))
+            }
+            Some(revision) => bail!(
+                "{RELOCATION_FILE} names sequence {sequence}, which is newer than the catalog revision's sequence {revision}"
+            ),
+            None => bail!(
+                "{RELOCATION_FILE} names sequence {sequence}, but the catalog revision is unnumbered"
+            ),
+        }
     }
     file.primary
         .validate_declared()

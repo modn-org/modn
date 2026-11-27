@@ -1,6 +1,10 @@
 //! Pinned signer verification and key transitions for catalog revisions.
 
+use crate::bucket_digest::catalog_digest;
 use crate::buckets::rotation::CatalogKeyChange;
+use crate::buckets::sequence::{
+    accept_sequence, read_sequence, CatalogWarning, SignedSequence, StoredSequence,
+};
 use crate::buckets::signature::{verify_catalog_directory, CatalogKeyId, CatalogPublicKey};
 use crate::error::{coded, ErrorCode};
 use anyhow::{anyhow, bail, Context, Result};
@@ -201,6 +205,34 @@ pub(in crate::buckets) struct CatalogVerification {
     pub(in crate::buckets) key_change: Option<CatalogKeyChange>,
     /// Published key statements that added no trust to this pin.
     pub(in crate::buckets) ignored_key_statements: Vec<String>,
+    /// Highest signed sequence to store, when this revision carries one.
+    pub(in crate::buckets) accepted: Option<StoredSequence>,
+    /// Non-fatal warnings, such as an expired signed catalog.
+    pub(in crate::buckets) warnings: Vec<CatalogWarning>,
+}
+
+/// The revision-level sequence state shared by every verification branch.
+struct SequenceCheck<'a> {
+    name: &'a str,
+    signed: Option<&'a SignedSequence>,
+    stored: Option<&'a StoredSequence>,
+    now: u64,
+}
+
+impl SequenceCheck<'_> {
+    fn accept(
+        &self,
+        root: &Path,
+    ) -> Result<(Option<StoredSequence>, Vec<CatalogWarning>)> {
+        let digest = catalog_digest(root)?;
+        accept_sequence(
+            self.name,
+            self.stored,
+            self.signed,
+            digest.as_str(),
+            self.now,
+        )
+    }
 }
 
 /// Verify one staged catalog tree and return the signer to publish.
@@ -214,10 +246,19 @@ pub(in crate::buckets) fn verify_catalog_tree(
     label: &str,
     previous: Option<&CatalogSigner>,
     expected_fingerprint: Option<&CatalogKeyId>,
+    stored_sequence: Option<&StoredSequence>,
+    now: u64,
 ) -> Result<CatalogVerification> {
     if !has_signature(root)? {
         return Err(unsigned(label));
     }
+    let signed_sequence = read_sequence(root)?;
+    let sequence = SequenceCheck {
+        name,
+        signed: signed_sequence.as_ref(),
+        stored: stored_sequence,
+        now,
+    };
     let revision_public = read_public_key(root)?;
     if let (Some(expected), Some((key, _))) = (expected_fingerprint, revision_public.as_ref()) {
         let actual = key.key_id();
@@ -235,13 +276,20 @@ pub(in crate::buckets) fn verify_catalog_tree(
         let Some((key, text)) = revision_public else {
             return Err(unsigned(label));
         };
-        let ignored = crate::buckets::rotation::validate_historical_statements(root, name)?;
+        let ignored = crate::buckets::rotation::validate_historical_statements(
+            root,
+            name,
+            signed_sequence.as_ref().map(SignedSequence::sequence),
+        )?;
         verify_catalog_directory(root, &key)?;
+        let (accepted, warnings) = sequence.accept(root)?;
         return Ok(CatalogVerification {
             signer: CatalogSigner::pin(&key, text, revocation_public),
             pinned: true,
             key_change: None,
             ignored_key_statements: ignored,
+            accepted,
+            warnings,
         });
     };
     let pinned = previous.pinned_key()?;
@@ -278,20 +326,25 @@ pub(in crate::buckets) fn verify_catalog_tree(
         &catalog_name,
         &keys,
         revision_public.as_ref().map(|(key, _)| key),
+        signed_sequence.as_ref().map(SignedSequence::sequence),
     )?;
     let Some(change) = outcome.change else {
         if let Some((present, _)) = &revision_public {
             refuse_retired_signer(name, previous, present)?;
         }
         verify_catalog_directory(root, &pinned)?;
+        let (accepted, warnings) = sequence.accept(root)?;
         return Ok(CatalogVerification {
             signer: previous.clone(),
             pinned: false,
             key_change: None,
             ignored_key_statements: outcome.ignored,
+            accepted,
+            warnings,
         });
     };
     verify_catalog_directory(root, &change.new_key)?;
+    let (accepted, warnings) = sequence.accept(root)?;
     let signer = match change.kind {
         crate::buckets::rotation::KeyChangeKind::Rotated => {
             if previous
@@ -315,6 +368,8 @@ pub(in crate::buckets) fn verify_catalog_tree(
         pinned: false,
         key_change: Some(change.report()),
         ignored_key_statements: outcome.ignored,
+        accepted,
+        warnings,
     })
 }
 

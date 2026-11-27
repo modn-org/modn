@@ -60,11 +60,12 @@ pub(super) fn refresh(roots: &modn_core::manager_roots::ManagerRoots) -> Result<
         }
     };
     let store = BucketStore::new(roots);
-    let (digest, changed, key_id) = store.update_main(
+    let updated = store.update_main(
         crate::main_key::MAIN_BUCKET_PUBLIC_KEY,
         || source_reader(&source),
         || signature_reader(&source, &signature),
     )?;
+    let (digest, changed, key_id) = (updated.digest, updated.changed, updated.key_id);
     let (release, newer) = match selection {
         Some(selection) => (Some(selection.tag), selection.newer),
         None => (None, None),

@@ -73,6 +73,7 @@ fn accepted(
         CATALOG_NAME,
         &pinned(signer, revocation),
         Some(&revision.public),
+        None,
     )
     .expect("statement evaluation")
 }
@@ -137,6 +138,7 @@ fn rotation_signed_by_an_unrelated_key_is_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
+        None,
     )
     .expect_err("forged rotation")
     .to_string();
@@ -172,6 +174,7 @@ fn rotation_signed_by_the_revocation_key_is_refused() {
         CATALOG_NAME,
         &pinned(&signer, Some(&revocation)),
         Some(&successor.public),
+        None,
     )
     .expect_err("revocation key cannot rotate")
     .to_string();
@@ -204,6 +207,7 @@ fn revocation_signed_by_the_signer_key_is_refused() {
         CATALOG_NAME,
         &pinned(&signer, Some(&revocation)),
         Some(&replacement.public),
+        None,
     )
     .expect_err("signer cannot revoke")
     .to_string();
@@ -236,6 +240,7 @@ fn a_statement_cannot_be_replayed_as_another_kind_or_catalog() {
         CATALOG_NAME,
         &pinned(&signer, Some(&revocation)),
         Some(&replacement.public),
+        None,
     )
     .expect_err("cross-kind replay")
     .to_string();
@@ -256,6 +261,7 @@ fn a_statement_cannot_be_replayed_as_another_kind_or_catalog() {
         CATALOG_NAME,
         &pinned(&signer, Some(&revocation)),
         Some(&replacement.public),
+        None,
     )
     .expect_err("cross-catalog replay")
     .to_string();
@@ -298,6 +304,7 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
+        None,
     )
     .expect_err("both statements")
     .to_string();
@@ -324,6 +331,7 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
+        None,
     )
     .expect("a statement that names another key is history");
     assert!(historical.change.is_none());
@@ -336,6 +344,7 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
+        None,
     )
     .expect_err("unknown version")
     .to_string();
@@ -364,6 +373,7 @@ fn a_to_key_that_does_not_match_catalog_pub_is_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&other.public),
+        None,
     )
     .expect_err("revision key mismatch")
     .to_string();

@@ -1,10 +1,14 @@
 //! Registration file reads and the atomic registration write.
 use super::BucketStore;
+use crate::buckets::sequence::StoredSequence;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+
+/// Profile file that records the accepted sequence of the official `main` bucket.
+const MAIN_SEQUENCE_FILE: &str = "main.json";
 
 impl BucketStore {
     /// Atomically replace one bucket registration file.
@@ -82,6 +86,55 @@ impl BucketStore {
         }
     }
 
+    /// The accepted signed sequence of one registered bucket, when it has one.
+    pub(in crate::buckets) fn stored_sequence(&self, name: &str) -> Result<Option<StoredSequence>> {
+        let path = self.root.join("registrations").join(format!("{name}.json"));
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+            Ok(_) => Ok(bounded_json::<Registration>(&path)?.accepted),
+        }
+    }
+
+    /// The accepted signed sequence of the official `main` bucket.
+    pub(in crate::buckets) fn main_sequence(&self) -> Result<Option<StoredSequence>> {
+        let path = self.root.join(MAIN_SEQUENCE_FILE);
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+            Ok(_) => {}
+        }
+        let record: MainSequenceRecord = bounded_json(&path)?;
+        if record.schema_version != 1 {
+            bail!(
+                "{MAIN_SEQUENCE_FILE} uses schema_version {}; Modn supports 1",
+                record.schema_version
+            );
+        }
+        Ok(record.accepted)
+    }
+
+    /// Atomically record the accepted signed sequence of the official `main` bucket.
+    pub(in crate::buckets) fn write_main_sequence(&self, accepted: &StoredSequence) -> Result<()> {
+        Self::check_registry_root(&self.root)?;
+        let bytes = serde_json::to_vec(&MainSequenceRecord {
+            schema_version: 1,
+            accepted: Some(accepted.clone()),
+        })?;
+        if bytes.len() as u64 > MAX_JSON {
+            bail!("main sequence record exceeds size limit");
+        }
+        self.write_bytes(&self.root.join(MAIN_SEQUENCE_FILE), &bytes)
+    }
+
+    fn write_bytes(&self, target: &Path, bytes: &[u8]) -> Result<()> {
+        let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
+        temp.as_file_mut().write_all(bytes)?;
+        temp.as_file().sync_all()?;
+        temp.persist(target)?;
+        Ok(())
+    }
+
     pub(in crate::buckets) fn registered_git(
         &self,
         name: &str,
@@ -113,6 +166,18 @@ pub(in crate::buckets) struct Registration {
     /// Mirrors listed by the latest verified revision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::buckets) mirrors: Option<Vec<crate::buckets::mirrors::CatalogHost>>,
+    /// Highest signed sequence number accepted for this bucket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::buckets) accepted: Option<StoredSequence>,
+}
+
+/// Profile record beside `buckets/main/` for the official bucket.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MainSequenceRecord {
+    schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    accepted: Option<StoredSequence>,
 }
 
 impl Registration {
@@ -166,6 +231,7 @@ mod tests {
             zip: None,
             module_trust: None,
             mirrors: None,
+            accepted: None,
         }
     }
 
