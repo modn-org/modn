@@ -211,7 +211,23 @@ catalog with an extra entry is refused and stays untrusted. The refusal names
 the offending path. Package manifests live in `mods/<game-id>/`, so a mod whose ID is `module`
 is a normal package. See [buckets.md](buckets.md#module-sources-and-trust).
 
-Modn refuses a module whose bucket is no longer trusted. The refusal names the bucket and the recovery command. Run `modn bucket trust-modules <bucket>` to trust the bucket again, or `modn module remove <game-id>` to remove the module. `modn doctor` reports the same condition, with the same signer rule, as `MODULE_SOURCE_UNTRUSTED`: a retained release stays authorized under a previous signer after a rotation, and a release signed by a revoked key stays untrusted even when the bucket is trusted again.
+Modn refuses a module whose bucket is no longer trusted. The refusal names the
+bucket, the reason and the recovery commands, and `modn module list` prints the
+same reason and commands as a warning. The commands depend on the reason:
+
+- **Signer key change.** Re-trusting the bucket alone keeps the retained release
+  recorded under the previous signer. Run `modn module remove <game-id>` first,
+  then `modn bucket trust-modules <bucket>`, which trusts the bucket's current
+  signer and imports the module again.
+- **Unregistered bucket.** The bucket does not exist locally, so
+  `trust-modules` cannot work. Run `modn module remove <game-id>` to remove the
+  module, or register the bucket again with
+  `modn bucket sync <bucket> --source <remote> --revision <reference>` and then
+  trust its modules.
+- **Any other refusal.** Run `modn bucket trust-modules <bucket>` to trust the
+  bucket again, or `modn module remove <game-id>` to remove the module.
+
+`modn doctor` reports the same condition, with the same signer rule, as `MODULE_SOURCE_UNTRUSTED`: a retained release stays authorized under a previous signer after a rotation, and a release signed by a revoked key stays untrusted even when the bucket is trusted again.
 
 ## Store identities and detection
 

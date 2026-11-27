@@ -147,6 +147,43 @@ fn module_update_refuses_a_release_signer_the_bucket_no_longer_authorizes() {
         message.contains("modn module remove fixture-game"),
         "refusal must name the remove command: {message}"
     );
+    assert!(
+        message.contains("is not authorized by the trusted signer"),
+        "refusal must name the signer change: {message}"
+    );
+    let remove_at = message
+        .find("modn module remove fixture-game")
+        .expect("refusal names the remove command");
+    let trust_at = message
+        .find("modn bucket trust-modules third")
+        .expect("refusal names the trust command");
+    assert!(
+        remove_at < trust_at,
+        "after a signer change the refusal must remove the module first: {message}"
+    );
+
+    // `module list` carries the same reason, order and commands as a warning.
+    let listed_text = fixture.run(&["module", "list"]);
+    let warning = String::from_utf8_lossy(&listed_text.stdout);
+    assert!(
+        listed_text.status.success(),
+        "module list failed: {}",
+        String::from_utf8_lossy(&listed_text.stderr)
+    );
+    assert!(
+        warning.contains("warning: bucket third is not a trusted module source"),
+        "list warning must name the untrusted bucket: {warning}"
+    );
+    assert!(
+        warning.contains("is not authorized by the trusted signer"),
+        "list warning must name the signer change: {warning}"
+    );
+    assert!(
+        warning.contains(
+            "Run `modn module remove fixture-game` first, then `modn bucket trust-modules third`"
+        ),
+        "list warning must remove the module before trusting the bucket: {warning}"
+    );
 
     // The recovery the refusal names: remove the retained release, then trust
     // the bucket again so the catalog module is imported under the new signer.
@@ -163,4 +200,56 @@ fn module_update_refuses_a_release_signer_the_bucket_no_longer_authorizes() {
     let updated = fixture.success(&["--json", "module", "update", "fixture-game"]);
     assert_eq!(updated["from"], "1.0.0");
     assert_eq!(updated["to"], "1.0.0");
+}
+
+#[test]
+fn module_update_and_list_never_trust_an_unregistered_bucket() {
+    let fixture = Fixture::new();
+    let catalog = ModuleCatalog::new("third");
+    catalog.write_module("fixture-game", "1.0.0", &identity_lua("fixture-game"));
+    catalog.sign_and_commit("module before the bucket removal");
+    fixture.sync(&catalog);
+    fixture.trust(catalog.key_id());
+
+    // The retained release keeps naming bucket third after the bucket is gone.
+    fixture.success(&["--json", "bucket", "remove", "third"]);
+
+    let listed_text = fixture.run(&["module", "list"]);
+    let warning = String::from_utf8_lossy(&listed_text.stdout);
+    assert!(
+        listed_text.status.success(),
+        "module list failed: {}",
+        String::from_utf8_lossy(&listed_text.stderr)
+    );
+    assert!(
+        warning.contains("bucket third is not registered"),
+        "list warning must name the unregistered bucket: {warning}"
+    );
+    assert!(
+        warning.contains("modn module remove fixture-game"),
+        "list warning must name the remove command: {warning}"
+    );
+    assert!(
+        !warning.contains("trust-modules"),
+        "an unregistered bucket cannot be trusted with trust-modules: {warning}"
+    );
+
+    let refused = fixture.run(&["module", "update", "fixture-game"]);
+    let message = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        !refused.status.success(),
+        "module update must refuse a release from an unregistered bucket: {message}"
+    );
+    assert!(
+        message.contains("bucket third is not registered"),
+        "refusal must name the unregistered bucket: {message}"
+    );
+    assert!(
+        message.contains("modn module remove fixture-game"),
+        "refusal must name the remove command: {message}"
+    );
+    assert!(
+        !message.contains("trust-modules"),
+        "an unregistered bucket cannot be trusted with trust-modules: {message}"
+    );
 }
