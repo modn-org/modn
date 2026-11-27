@@ -10,6 +10,7 @@ use super::mirrors::{
     check_mirror_kinds, read_mirrors, read_relocation, CatalogHost, CatalogSyncTrace,
 };
 use super::rotation::{CatalogKeyChange, KeyChangeKind};
+use super::signature::CatalogKeyId;
 use super::store::{bounded_json, BucketStore, Registration};
 use super::trust::ModuleTrustState;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
@@ -214,6 +215,26 @@ impl BucketStore {
         &self,
         name: &str,
         source: Option<ZipCatalogSource>,
+        open: impl FnMut(&ZipCatalogSource) -> Result<Box<dyn Read>>,
+    ) -> Result<ZipCatalogSync> {
+        self.sync_zip_with_expected_fingerprint(name, source, None, open)
+    }
+
+    /// Same as [`Self::sync_zip_with_signer`], and refuses a catalog whose
+    /// `catalog.pub` key ID differs from `expected_fingerprint`.
+    ///
+    /// The check runs before signature verification and before any
+    /// registration, snapshot, cache or retired-key file is written.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::ErrorCode::BucketFingerprintMismatch`] when the
+    /// key ID differs.
+    pub fn sync_zip_with_expected_fingerprint(
+        &self,
+        name: &str,
+        source: Option<ZipCatalogSource>,
+        expected_fingerprint: Option<&CatalogKeyId>,
         mut open: impl FnMut(&ZipCatalogSource) -> Result<Box<dyn Read>>,
     ) -> Result<ZipCatalogSync> {
         Self::check_registry_root(&self.root)?;
@@ -246,6 +267,9 @@ impl BucketStore {
                 bail!("provide a source for registration; changing a registered source is refused")
             }
         };
+        let source = expected_fingerprint
+            .and_then(|_| super::test_hooks::known_source_redirect(&source.url))
+            .map_or(source.clone(), ZipCatalogSource::new);
         source.validate()?;
         let primary = CatalogHost::from(&source);
         let mut candidates = vec![source.clone()];
@@ -300,8 +324,9 @@ impl BucketStore {
             name,
             &label,
             previous.as_ref().map(|revision| &revision.signer),
+            expected_fingerprint,
         )
-        .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        .with_context(|| format!("catalog source {} failed", served_by.label()))?;
         let trust = match verification.key_change.as_ref().map(|change| change.kind) {
             Some(KeyChangeKind::Revoked) => ModuleTrustState::Untrusted,
             _ => trust,

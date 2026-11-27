@@ -189,7 +189,7 @@ fn git_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
         .ok()
         .flatten()
         .map(|revision| revision.commit);
-    let outcome = buckets::sync_catalog(store, name, None, json).map_or_else(
+    let outcome = buckets::sync_catalog(store, name, None, None, json).map_or_else(
         |error| Err(format!("{error:#}")),
         |synced: GitCatalogSync| {
             let commit = synced.revision.commit.clone();
@@ -214,7 +214,7 @@ fn zip_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
         .ok()
         .flatten()
         .map(|revision| revision.digest);
-    let outcome = buckets::sync_zip_catalog(store, name, None, json).map_or_else(
+    let outcome = buckets::sync_zip_catalog(store, name, None, None, json).map_or_else(
         |error| Err(format!("{error:#}")),
         |synced: ZipCatalogSync| {
             let digest = synced.revision.digest.clone();

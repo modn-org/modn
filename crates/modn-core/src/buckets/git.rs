@@ -4,6 +4,7 @@ use super::mirrors::{
     check_mirror_kinds, read_mirrors, read_relocation, CatalogHost, CatalogSyncTrace,
 };
 use super::rotation::{CatalogKeyChange, KeyChangeKind};
+use super::signature::CatalogKeyId;
 use super::store::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use super::trust::ModuleTrustState;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
@@ -163,12 +164,14 @@ fn verify_revision(
     name: &str,
     reference: &str,
     previous: Option<&GitCatalogRevision>,
+    expected_fingerprint: Option<&CatalogKeyId>,
 ) -> Result<CatalogVerification> {
     verify_catalog_tree(
         root,
         name,
         &format!("Git catalog {name} at {reference}"),
         previous.map(|revision| &revision.signer),
+        expected_fingerprint,
     )
 }
 
@@ -231,13 +234,33 @@ impl BucketStore {
         name: &str,
         source: Option<GitCatalogSource>,
     ) -> Result<GitCatalogSync> {
-        self.sync_git_bounded(name, source)
+        self.sync_git_bounded(name, source, None)
+    }
+
+    /// Same as [`Self::sync_git_with_signer`], and refuses a catalog whose
+    /// `catalog.pub` key ID differs from `expected_fingerprint`.
+    ///
+    /// The check runs before signature verification and before any
+    /// registration, snapshot, cache or retired-key file is written.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::ErrorCode::BucketFingerprintMismatch`] when the
+    /// key ID differs.
+    pub fn sync_git_with_expected_fingerprint(
+        &self,
+        name: &str,
+        source: Option<GitCatalogSource>,
+        expected_fingerprint: Option<&CatalogKeyId>,
+    ) -> Result<GitCatalogSync> {
+        self.sync_git_bounded(name, source, expected_fingerprint)
     }
 
     fn sync_git_bounded(
         &self,
         name: &str,
         source: Option<GitCatalogSource>,
+        expected_fingerprint: Option<&CatalogKeyId>,
     ) -> Result<GitCatalogSync> {
         Self::check_registry_root(&self.root)?;
         if !valid_id(name) || name == "main" {
@@ -264,6 +287,12 @@ impl BucketStore {
                 bail!("provide a source for registration; changing a registered source is refused")
             }
         };
+        let source = expected_fingerprint
+            .and_then(|_| super::test_hooks::known_source_redirect(&source.remote))
+            .map_or(source.clone(), |remote| GitCatalogSource::new(
+                remote,
+                source.reference.clone(),
+            ));
         source.validate()?;
         let primary = CatalogHost::from(&source);
         let mut candidates = vec![source.clone()];
@@ -307,10 +336,14 @@ impl BucketStore {
             );
         };
         let served_by = CatalogHost::from(&served_source);
-        let verification =
-            verify_revision(&catalog, name, &served_source.reference, previous.as_ref()).map_err(
-                |error| anyhow!("catalog source {} failed: {error:#}", served_by.label()),
-            )?;
+        let verification = verify_revision(
+            &catalog,
+            name,
+            &served_source.reference,
+            previous.as_ref(),
+            expected_fingerprint,
+        )
+        .with_context(|| format!("catalog source {} failed", served_by.label()))?;
         let trust = match verification.key_change.as_ref().map(|change| change.kind) {
             Some(KeyChangeKind::Revoked) => ModuleTrustState::Untrusted,
             _ => trust,
@@ -428,6 +461,8 @@ pub(super) fn same_signing_files(published: &Path, staged: &Path) -> bool {
     })
 }
 
+#[cfg(test)]
+mod expected_fingerprint_tests;
 #[cfg(test)]
 mod publish_order_tests;
 #[cfg(test)]

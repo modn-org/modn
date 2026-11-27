@@ -1,7 +1,8 @@
 //! Pinned signer verification and key transitions for catalog revisions.
 
 use crate::buckets::rotation::CatalogKeyChange;
-use crate::buckets::signature::{verify_catalog_directory, CatalogPublicKey};
+use crate::buckets::signature::{verify_catalog_directory, CatalogKeyId, CatalogPublicKey};
+use crate::error::{coded, ErrorCode};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -212,11 +213,23 @@ pub(in crate::buckets) fn verify_catalog_tree(
     name: &str,
     label: &str,
     previous: Option<&CatalogSigner>,
+    expected_fingerprint: Option<&CatalogKeyId>,
 ) -> Result<CatalogVerification> {
     if !has_signature(root)? {
         return Err(unsigned(label));
     }
     let revision_public = read_public_key(root)?;
+    if let (Some(expected), Some((key, _))) = (expected_fingerprint, revision_public.as_ref()) {
+        let actual = key.key_id();
+        if actual != *expected {
+            return Err(coded(
+                ErrorCode::BucketFingerprintMismatch,
+                format!(
+                    "Catalog for known bucket {name} publishes signer key {actual}, but the official main bucket lists {expected}; the fingerprint mismatch refused the sync and nothing was written."
+                ),
+            ));
+        }
+    }
     let revocation_public = crate::buckets::rotation::read_revocation_public_key(root)?;
     let Some(previous) = previous else {
         let Some((key, text)) = revision_public else {
