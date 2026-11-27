@@ -10,6 +10,12 @@ fn packages(report: &Value) -> &[Value] {
         .expect("packages")
 }
 
+fn created_at(profile: &Value) -> &str {
+    profile["created_at"]
+        .as_str()
+        .expect("created_at is a string")
+}
+
 fn refused(fixture: &ProfileFixture, args: &[&str], code: &str) {
     let before = fixture.profile_list();
     let (actual, message) = fixture.error(args);
@@ -32,7 +38,7 @@ fn a_registered_installation_lists_one_active_default_profile() {
     assert_eq!(profiles.len(), 1);
     assert_eq!(profiles[0]["name"], "default");
     assert_eq!(profiles[0]["active"], true);
-    assert!(profiles[0].get("created_at").is_some());
+    assert!(!created_at(&profiles[0]).is_empty());
     assert_eq!(profiles[0]["packages"], json!([]));
 }
 
@@ -61,7 +67,7 @@ fn create_adds_an_inactive_profile() {
     let created = fixture.json(&["profile", "create", "spare"]);
     assert_eq!(created["name"], "spare");
     assert_eq!(created["active"], false);
-    assert!(created.get("created_at").is_some());
+    assert!(!created_at(&created).is_empty());
     assert_eq!(created["packages"], json!([]));
     let report = fixture.profile_list();
     let names = report["profiles"]
@@ -97,6 +103,43 @@ fn clone_copies_packages_ranks_and_enabled_flags() {
     assert_eq!(packages[1]["package"], first["id"]);
     assert_eq!(packages[1]["rank"], 2);
     assert_eq!(packages[1]["enabled"], true);
+}
+
+#[test]
+fn create_json_prints_each_profiles_own_creation_time() {
+    let fixture = ProfileFixture::new();
+    let connection =
+        rusqlite::Connection::open(fixture.state().join("state.sqlite")).expect("state database");
+    connection
+        .execute(
+            "UPDATE profiles SET created_at='2000-01-01 00:00:00' WHERE name='default'",
+            [],
+        )
+        .expect("backdate the source profile");
+    drop(connection);
+
+    let created = fixture.json(&["profile", "create", "spare", "--clone", "default"]);
+    let created_time = created_at(&created).to_owned();
+    assert!(!created_time.is_empty());
+    assert_ne!(created_time, "2000-01-01 00:00:00");
+
+    let listed = fixture.profile_list();
+    let spare = listed["profiles"]
+        .as_array()
+        .expect("profiles")
+        .iter()
+        .find(|profile| profile["name"] == "spare")
+        .expect("spare profile");
+    assert_eq!(created_at(spare), created_time);
+    let stored = rusqlite::Connection::open(fixture.state().join("state.sqlite"))
+        .expect("state database")
+        .query_row(
+            "SELECT created_at FROM profiles WHERE name='spare'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("stored creation time");
+    assert_eq!(stored, created_time);
 }
 
 #[test]

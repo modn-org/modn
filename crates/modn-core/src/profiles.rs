@@ -20,6 +20,8 @@ pub struct Profile {
     pub id: String,
     /// User-facing name, unique within the installation.
     pub name: String,
+    /// Stored creation time, exactly as SQLite wrote it.
+    pub created_at: String,
     /// Whether this profile decides the files on disk.
     pub active: bool,
     /// Memberships ordered from the winner to the lowest priority.
@@ -311,11 +313,18 @@ fn profile_row_by_name(
 }
 
 fn read_profile(connection: &Connection, id: &str) -> Result<Profile> {
-    let (id, name, active) = connection
+    let (id, name, created_at, active) = connection
         .query_row(
-            "SELECT id, name, active FROM profiles WHERE id=?1",
+            "SELECT id, name, created_at, active FROM profiles WHERE id=?1",
             [id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get::<_, i64>(3)? != 0,
+                ))
+            },
         )
         .optional()?
         .context("profile disappeared while it was read")?;
@@ -353,6 +362,7 @@ fn read_profile(connection: &Connection, id: &str) -> Result<Profile> {
     Ok(Profile {
         id,
         name,
+        created_at,
         active,
         packages,
     })

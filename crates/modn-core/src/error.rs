@@ -107,6 +107,8 @@ pub enum ErrorCode {
     ProfileDrift,
     /// `profile create` names an existing profile.
     ProfileExists,
+    /// The only profile of an installation cannot be deleted.
+    ProfileLast,
     /// The named profile does not exist.
     ProfileNotFound,
     /// Manager state cannot be read or written.
@@ -209,6 +211,7 @@ impl ErrorCode {
         Self::ProfileArchiveMissing,
         Self::ProfileDrift,
         Self::ProfileExists,
+        Self::ProfileLast,
         Self::ProfileNotFound,
         Self::StateError,
         Self::AdoptFailed,
@@ -286,6 +289,7 @@ impl ErrorCode {
             Self::ProfileArchiveMissing => "PROFILE_ARCHIVE_MISSING",
             Self::ProfileDrift => "PROFILE_DRIFT",
             Self::ProfileExists => "PROFILE_EXISTS",
+            Self::ProfileLast => "PROFILE_LAST",
             Self::ProfileNotFound => "PROFILE_NOT_FOUND",
             Self::StateError => "STATE_ERROR",
             Self::AdoptFailed => "ADOPT_FAILED",

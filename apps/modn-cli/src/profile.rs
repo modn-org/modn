@@ -204,8 +204,8 @@ pub(super) struct ProfileView<'a> {
     pub(super) name: &'a str,
     /// Whether this profile decides the files on disk.
     pub(super) active: bool,
-    /// Stored creation time, once the core profile type exposes it.
-    pub(super) created_at: Option<&'a str>,
+    /// Stored creation time, as SQLite wrote it.
+    pub(super) created_at: &'a str,
     /// Memberships in rank order.
     pub(super) packages: Vec<PackageView<'a>>,
 }
@@ -215,7 +215,7 @@ impl<'a> ProfileView<'a> {
         Self {
             name: &profile.name,
             active: profile.active,
-            created_at: None,
+            created_at: &profile.created_at,
             packages: profile
                 .packages
                 .iter()
