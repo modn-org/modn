@@ -158,7 +158,7 @@ click. Catalog install, update and uninstall pass `--yes`, and the CLI builds
 and checks its plan inside that call. A stale screen cannot force a write.
 
 A blocked plan shows its reason on the button and disables it. A write starts
-on the click. Blocked codes include `PLAN_BLOCKED`, `CONFLICT`,
+on the click. Blocked codes include `PLAN_BLOCKED`, `PLAN_STALE`, `CONFLICT`,
 `DEPENDENCY_MISSING`, `ALREADY_INSTALLED`, `DIGEST_MISMATCH`,
 `PENDING_TRANSACTION` and `ARCHIVE_INVALID`.
 

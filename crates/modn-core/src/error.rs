@@ -6,6 +6,8 @@
 //! [`ErrorCode::InstallFailed`]. Codes are stable: a released code keeps its
 //! spelling and meaning.
 
+use crate::approval::ApprovalRefusal;
+use crate::catalog_pipeline::StalePlan;
 use crate::progress::Cancelled;
 use crate::transactions::NativeInjectorNotAllowed;
 use serde::{Serialize, Serializer};
@@ -95,6 +97,8 @@ pub enum ErrorCode {
     PendingTransaction,
     /// The installation plan has blockers.
     PlanBlocked,
+    /// The plan changed since it was made.
+    PlanStale,
     /// Manager state cannot be read or written.
     StateError,
     /// Default code of `modn adopt`.
@@ -186,6 +190,7 @@ impl ErrorCode {
         Self::PackagePinned,
         Self::PendingTransaction,
         Self::PlanBlocked,
+        Self::PlanStale,
         Self::StateError,
         Self::AdoptFailed,
         Self::AssetFailed,
@@ -255,6 +260,7 @@ impl ErrorCode {
             Self::PackagePinned => "PACKAGE_PINNED",
             Self::PendingTransaction => "PENDING_TRANSACTION",
             Self::PlanBlocked => "PLAN_BLOCKED",
+            Self::PlanStale => "PLAN_STALE",
             Self::StateError => "STATE_ERROR",
             Self::AdoptFailed => "ADOPT_FAILED",
             Self::AssetFailed => "ASSET_FAILED",
@@ -378,6 +384,12 @@ pub fn code_of(error: &anyhow::Error) -> Option<ErrorCode> {
     }
     if error.downcast_ref::<NativeInjectorNotAllowed>().is_some() {
         return Some(ErrorCode::NativeInjectorNotAllowed);
+    }
+    if let Some(refusal) = error.downcast_ref::<ApprovalRefusal>() {
+        return Some(refusal.code());
+    }
+    if error.downcast_ref::<StalePlan>().is_some() {
+        return Some(ErrorCode::PlanStale);
     }
     if error
         .downcast_ref::<crate::acquisition::SourcesError>()

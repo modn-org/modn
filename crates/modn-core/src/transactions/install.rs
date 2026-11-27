@@ -18,6 +18,11 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use tempfile::Builder;
 
+mod planned;
+
+#[cfg(test)]
+mod planned_tests;
+
 #[derive(Clone, Copy)]
 pub(super) enum Fault {
     FailAfter(usize),

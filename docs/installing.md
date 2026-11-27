@@ -24,6 +24,28 @@ dependency while a dependent managed package remains; uninstall the dependent
 first. Standalone archive installs and packages installed before this record
 existed carry no dependency links.
 
+## Plan, consent and commit
+
+A catalog install runs in three steps. The core planner builds a typed plan
+that lists the order, the archives, the dependency and conflict facts and any
+refusal. The plan is data: it writes nothing and it authorizes nothing. A dry
+run stops before the commit and previews the selected archive when one is
+already available.
+
+After its prompts, the command builds a separate consent value. The consent
+records the plan digest the user reviewed, the native-injector allowance and
+the approved executable paths. No plan converts into a consent, and a consent
+for another plan is refused.
+
+`commit_plan` checks the consent and refuses a blocking plan. It acquires every
+missing archive through the verified cache before it takes the transaction
+lock. It then runs the game module preview again under the lock and compares a
+fresh plan digest with the consent. A mismatch returns `PLAN_STALE` and writes
+nothing. A single release uses the re-planning install entry point. Several
+releases use one stack transaction and install in dependency order. A stale
+stack plan is refused before any member is written. Stored approvals are
+recorded only after the transaction returns.
+
 ## Dependency plan
 
 `modn install <mod> --dry-run` also reports a read-only dependency plan.

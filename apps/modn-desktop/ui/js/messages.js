@@ -5,6 +5,7 @@ const MESSAGES = {
   BACKEND_TIMEOUT: 'The operation took too long. Check diagnostics before trying again.',
   BACKEND_OUTPUT_TRUNCATED_AFTER_COMMIT: 'Done. Refresh to see the result.',
   PLAN_BLOCKED: 'Modn blocked this operation. Open details for the reason.',
+  PLAN_STALE: 'The plan changed since it was made. Run the operation again.',
   CONFLICT: 'Another package owns these files.',
   PACKAGE_NEEDED: 'Another mod depends on this package.',
   PACKAGE_PINNED: 'This package is pinned and cannot change.',

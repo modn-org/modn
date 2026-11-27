@@ -417,7 +417,7 @@ mod tests {
             ensure_review_unchanged(&plan, &reviewed("first", "blocked"))
                 .expect_err("a changed plan is refused")
                 .code,
-            "PLAN_BLOCKED"
+            "PLAN_STALE"
         );
     }
 
@@ -429,7 +429,7 @@ mod tests {
             ensure_plan_unchanged(&plan, &reviewed("second", "reviewable"))
                 .expect_err("a changed approved plan is refused")
                 .code,
-            "PLAN_BLOCKED"
+            "PLAN_STALE"
         );
     }
 }
