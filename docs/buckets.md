@@ -416,7 +416,8 @@ refuses a `main` update without changing the installed copy.
 `modn bucket sync <name>` without `--source` reads the installed list. An
 already registered `<name>` keeps its usual sync. Otherwise Modn uses the
 listed `kind`, `source` and `revision` exactly as a manual `--source` sync
-would, and refuses `--revision` because the list supplies it. The fetched
+would, and refuses `--revision` because the list supplies it. A `git` entry
+without `revision` fetches the remote's default branch. The fetched
 `catalog.pub` key ID must equal the listed `fingerprint`. Modn checks the key
 ID before it verifies the signature against it and before it writes a
 registration, a catalog snapshot, a cache entry or a retired-key file. A
