@@ -272,31 +272,23 @@ pub fn doctor_with_ownership_appdata(
 
 fn module_source_diagnostics(roots: &ManagerRoots, game_id: &str) -> Result<Vec<Diagnostic>> {
     let buckets = BucketStore::new(roots);
-    let trusted = buckets.trusted_module_sources()?;
     let mut diagnostics = Vec::new();
     if let Some(release) = ModuleRegistry::new(roots).active(game_id)? {
-        if let Some(bucket) = release.source.bucket.as_deref() {
-            let trusted = bucket == "main"
-                || trusted.iter().any(|source| {
-                    source.bucket == bucket
-                        && release
-                            .source
-                            .signer_key_id
-                            .as_deref()
-                            .is_some_and(|signer| source.authorizes(signer))
-                });
-            if !trusted {
-                diagnostics.push(Diagnostic {
-                    code: "MODULE_SOURCE_UNTRUSTED".into(),
-                    severity: "warning".into(),
-                    message: format!(
-                        "game module {game_id} comes from bucket {bucket}, which is not a trusted module source."
-                    ),
-                    action: Some(format!(
-                        "Run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game_id}` to remove the module."
-                    )),
-                });
-            }
+        let decision = buckets.module_source_trust(&release.source)?;
+        if let Some(remedy) = decision.remedy() {
+            let bucket = remedy.bucket();
+            diagnostics.push(Diagnostic {
+                code: "MODULE_SOURCE_UNTRUSTED".into(),
+                severity: "warning".into(),
+                message: format!(
+                    "game module {game_id} comes from bucket {bucket}, which is not a trusted module source."
+                ),
+                action: Some(format!(
+                    "Run `{}` to trust it again, or `{}` to remove the module.",
+                    remedy.trust_modules_command(),
+                    remedy.remove_module_command(game_id)
+                )),
+            });
         }
     }
     for hidden in hidden_modules(roots, game_id)? {

@@ -1,6 +1,6 @@
 use super::loader::{self, VerifiedModule};
 use super::official::read_official;
-use super::registry::{ModuleRegistry, ModuleSource};
+use super::registry::ModuleRegistry;
 use crate::buckets::BucketStore;
 use crate::manager_roots::ManagerRoots;
 use anyhow::{bail, Result};
@@ -40,7 +40,19 @@ pub(crate) fn read_policy(roots: &ManagerRoots, game: &str) -> Result<(VerifiedM
             } else if let Some((manifest, script, registered)) =
                 ModuleRegistry::new(roots).read(game)?
             {
-                ensure_source_trusted(&store, game, &registered.source)?;
+                if let Some(bucket) = registered.source.bucket.as_deref() {
+                    let decision = store.module_source_trust(&registered.source)?;
+                    if !decision.is_trusted() {
+                        let remedy = decision
+                            .remedy()
+                            .expect("a refused module source always names a remedy");
+                        bail!(
+                            "game module {game} comes from bucket {bucket}, which is not a trusted module source; run `{}` to trust it again, or `{}` to remove the module",
+                            remedy.trust_modules_command(),
+                            remedy.remove_module_command(game)
+                        );
+                    }
+                }
                 (manifest, script)
             } else {
                 read_official(roots, game)?
@@ -51,26 +63,4 @@ pub(crate) fn read_policy(roots: &ManagerRoots, game: &str) -> Result<(VerifiedM
         bail!("game module identity does not match requested game");
     }
     Ok((manifest, source))
-}
-
-fn ensure_source_trusted(store: &BucketStore, game: &str, source: &ModuleSource) -> Result<()> {
-    let Some(bucket) = source.bucket.as_deref() else {
-        return Ok(());
-    };
-    if bucket == "main" {
-        return Ok(());
-    }
-    let trusted = store.trusted_module_sources()?.into_iter().any(|trusted| {
-        trusted.bucket == bucket
-            && source
-                .signer_key_id
-                .as_deref()
-                .is_some_and(|signer| trusted.authorizes(signer))
-    });
-    if !trusted {
-        bail!(
-            "game module {game} comes from bucket {bucket}, which is not a trusted module source; run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game}` to remove the module"
-        );
-    }
-    Ok(())
 }

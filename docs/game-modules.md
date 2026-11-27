@@ -146,7 +146,7 @@ modn module rollback <game-id> --to <version>
 
 `module rollback` switches the `current` pointer to the previous retained release, or to the version named by `--to`. It changes only future plans. It never changes installed files, game files or ownership records.
 
-`module list` verifies and lists every retained release, with its digest, source, trust state and `active` or `pinned` marker.
+`module list` verifies and lists every retained release, with its digest, source, trust state and `active` or `pinned` marker. A release is a trusted module source only when its recorded signer is authorized by the signer the bucket's trust record currently names. `main` is always a trusted module source.
 
 ### Trusted module sources
 

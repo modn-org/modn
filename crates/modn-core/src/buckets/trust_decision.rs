@@ -1,7 +1,7 @@
 //! One decision for whether a module release source may supply executable code.
 
 use super::store::Registration;
-use super::trust::{local_bucket_module_refusal, TrustedModuleSource};
+use super::trust::{local_bucket_module_refusal, ModuleTrustState, TrustedModuleSource};
 use super::BucketStore;
 use crate::game_modules::ModuleSource;
 use anyhow::Result;
@@ -62,6 +62,58 @@ impl ModuleSourceRegistrationFacts {
                 .map(|signer| signer.revoked_signers.clone())
                 .unwrap_or_default(),
         }
+    }
+
+    /// Bucket-level trust state from these facts.
+    ///
+    /// This answers the bucket half of [`decide_module_source_trust`] for
+    /// callers that list or sync a bucket instead of deciding one release. It
+    /// uses the same trust-record comparison as the full decision.
+    pub(super) fn bucket_trust_state(&self) -> ModuleTrustState {
+        match self.kind {
+            ModuleSourceBucketKind::LocalFolder => ModuleTrustState::Local,
+            ModuleSourceBucketKind::Catalog => {
+                let matches = match (
+                    self.trust_record_signer.as_deref(),
+                    self.pinned_signer.as_deref(),
+                ) {
+                    (Some(trust_record_signer), Some(pinned_signer)) => {
+                        trust_record_matches_pinned_signer(trust_record_signer, pinned_signer)
+                    }
+                    _ => false,
+                };
+                if matches {
+                    ModuleTrustState::Trusted
+                } else {
+                    ModuleTrustState::Untrusted
+                }
+            }
+        }
+    }
+}
+
+/// The single comparison of the trust record signer with the pinned signer.
+fn trust_record_matches_pinned_signer(trust_record_signer: &str, pinned_signer: &str) -> bool {
+    trust_record_signer == pinned_signer
+}
+
+impl TrustedModuleSource {
+    /// True when a retained module release signed by `key_id` stays authorized.
+    ///
+    /// A rotation carries trust from the old key to the new one, so a release
+    /// imported under an earlier signer stays usable. A revoked key never does:
+    /// only a release signed by the replacement key is accepted.
+    #[must_use]
+    pub fn authorizes(&self, key_id: &str) -> bool {
+        self.signer_key_id.eq_ignore_ascii_case(key_id)
+            || (self
+                .previous_signers
+                .iter()
+                .any(|previous| previous.eq_ignore_ascii_case(key_id))
+                && !self
+                    .revoked_signers
+                    .iter()
+                    .any(|revoked| revoked.eq_ignore_ascii_case(key_id)))
     }
 }
 
@@ -323,7 +375,7 @@ fn decide_catalog_trust(
             bucket,
         );
     };
-    if trust_record_signer != pinned_signer {
+    if !trust_record_matches_pinned_signer(trust_record_signer, pinned_signer) {
         return ModuleSourceTrustDecision::refused(
             ModuleSourceTrustReason::SignerKeyChanged {
                 bucket: bucket.to_owned(),
