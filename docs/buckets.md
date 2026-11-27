@@ -453,7 +453,7 @@ has schema_version: 2, id, game, name, version, sources (`manual` with filename,
 `https` with URL, `github-release`, `git` with repository and commit, or `nexus`
 with game_domain, mod_id, file_id and file_name), optional redistributable,
 upstream_sha256, dependencies (same-game IDs), dependency_versions, conflicts,
-executables, native_injector and homepage.
+executables, native_injector, homepage and checkver.
 `sources` is an ordered, non-empty list. Modn tries each fetchable source in
 order and uses the first one whose bytes match the `blake3` pin. It moves on
 after a timeout, a network or HTTP failure, or a digest mismatch. A `manual`
@@ -495,6 +495,69 @@ Bucket registration, listing, searching and manifest inspection are
 installed from a supplied, BLAKE3-verified ZIP/7z with an explicit approval;
 standalone local archives use the same managed transaction engine. A checksum
 proves the bytes match a catalog record, not publisher trust.
+
+## checkver metadata
+
+A contract v2 package manifest may carry an optional `checkver` object. The
+object names the upstream release that catalog authoring tools check. User
+commands (`search`, `install`, `update` and `bucket sync`) never read it to
+choose a source, plan an install or make a network call. They do parse and
+validate the block, so a malformed block is still refused. The block is part of
+the signed catalog content, because the catalog digest covers every file.
+
+The object has one `kind` and exactly the fields for that kind. Unknown kinds,
+unknown fields, missing fields, wrong JSON types and empty strings are refused.
+Every refusal names the package and the offending field, such as
+`checkver.repository`.
+
+`github-release` selects an asset of a GitHub release:
+
+```json
+{
+  "kind": "github-release",
+  "repository": "owner/repo",
+  "asset_pattern": "Mod-*.zip",
+  "prerelease": false
+}
+```
+
+`prerelease` is optional and defaults to `false`. When it is `false`, a
+prerelease does not satisfy the check.
+
+`git` selects a branch of a Git repository:
+
+```json
+{"kind": "git", "repository": "owner/repo", "branch": "main"}
+```
+
+`nexus` selects a file in a Nexus Mods game domain. It uses the same game
+domain and mod ID rules as a `nexus` package source:
+
+```json
+{
+  "kind": "nexus",
+  "game_domain": "cyberpunk2077",
+  "mod_id": 6945,
+  "file_pattern": "Mod-*.7z"
+}
+```
+
+The fields follow these rules:
+
+- `repository` is exactly `owner/repo`: two non-empty segments of ASCII
+  letters, digits, `.`, `_` and `-`. Neither segment may be `.` or `..`.
+- `asset_pattern` and `file_pattern` are 1 to 200 characters with no `/`, `\`,
+  control characters or NUL. Only `*` and `?` are glob metacharacters. A value
+  with neither wildcard is an exact file name.
+- `branch` is 1 to 255 characters. It holds no whitespace, control characters,
+  `~`, `^`, `:`, `?`, `*`, `[` or `\`, no `..` and no `@{`. It does not start
+  with `-` or `/`, and it does not end with `/`, `.` or `.lock`.
+- `game_domain` follows the Nexus game domain rule, and `mod_id` is a Nexus
+  mod ID from 1 to 9999999999.
+
+A manifest without `checkver` is valid and behaves exactly as before. The
+block records metadata only: it does not change the selected source, the
+archive pin or any user command.
 
 ## Themes in buckets
 
