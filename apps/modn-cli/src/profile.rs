@@ -7,10 +7,13 @@ mod list;
 mod priority;
 mod switch;
 
+use crate::state_access::{InstallationAccess, ManagerState, SelectedState};
 use anyhow::Result;
 use clap::{ArgGroup, Args, Subcommand};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::manager_roots::ManagerRoots;
+use modn_core::profiles::Profile;
+use serde::Serialize;
 use std::path::PathBuf;
 
 #[derive(Subcommand)]
@@ -161,4 +164,76 @@ pub(super) fn not_implemented(command: &str) -> anyhow::Error {
         ErrorCode::ProfileFailed,
         format!("not implemented yet: {command}"),
     )
+}
+
+/// Opens the selected game installation through the shared state access path.
+///
+/// `access` decides whether the command may write manager state. The writable
+/// path is the same store opener that other commands use, including its schema
+/// validation.
+pub(super) fn open_installation(
+    roots: &ManagerRoots,
+    path: Option<PathBuf>,
+    game: Option<&str>,
+    access: InstallationAccess,
+) -> Result<SelectedState> {
+    ManagerState::load(roots)?
+        .for_installation(roots, path, game)?
+        .open(access)
+}
+
+/// One package in a profile, in rank order.
+#[derive(Serialize)]
+pub(super) struct PackageView<'a> {
+    /// Managed package identifier.
+    pub(super) package: &'a str,
+    /// One-based position in priority order; rank 1 wins.
+    pub(super) rank: usize,
+    /// Stored priority; a higher value wins.
+    pub(super) priority: i64,
+    /// Whether the profile considers the package.
+    pub(super) enabled: bool,
+    /// Claimed files that another member wins.
+    pub(super) shadowed_files: usize,
+}
+
+/// One profile as `--json` prints it.
+#[derive(Serialize)]
+pub(super) struct ProfileView<'a> {
+    /// User-facing profile name.
+    pub(super) name: &'a str,
+    /// Whether this profile decides the files on disk.
+    pub(super) active: bool,
+    /// Stored creation time, once the core profile type exposes it.
+    pub(super) created_at: Option<&'a str>,
+    /// Memberships in rank order.
+    pub(super) packages: Vec<PackageView<'a>>,
+}
+
+impl<'a> ProfileView<'a> {
+    pub(super) fn new(profile: &'a Profile) -> Self {
+        Self {
+            name: &profile.name,
+            active: profile.active,
+            created_at: None,
+            packages: profile
+                .packages
+                .iter()
+                .enumerate()
+                .map(|(index, package)| PackageView {
+                    package: &package.package_id,
+                    rank: index + 1,
+                    priority: package.priority,
+                    enabled: package.enabled,
+                    shadowed_files: package.shadowed_files,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Prints `value` as one pretty JSON document.
+pub(super) fn print_json(value: &impl Serialize) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(value)?);
+    Ok(())
 }
