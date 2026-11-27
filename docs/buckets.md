@@ -363,8 +363,9 @@ statement format. See [releasing](releasing.md).
 ## Known community buckets
 
 The official `main` bucket may hold an optional `known-buckets.json` at its
-root. The file lists community buckets that Modn can offer by short name. Modn
-does not yet have a command that prints the list.
+root. The file lists community buckets that Modn can offer by short name.
+`modn bucket known` prints the list from the installed `main` copy, in name
+order, without network access.
 
 The `main` catalog signature covers the file, because the
 [catalog digest](#catalog-digest) covers every root file except `catalog.sig`
@@ -411,6 +412,20 @@ trust its game modules. Registering and syncing a listed bucket stays an
 explicit step. Modn parses the file only in the official `main` copy; a
 `known-buckets.json` in another bucket is never read, and a malformed file
 refuses a `main` update without changing the installed copy.
+
+`modn bucket sync <name>` without `--source` reads the installed list. An
+already registered `<name>` keeps its usual sync. Otherwise Modn uses the
+listed `kind`, `source` and `revision` exactly as a manual `--source` sync
+would, and refuses `--revision` because the list supplies it. A `git` entry
+without `revision` fetches the remote's default branch. The fetched
+`catalog.pub` key ID must equal the listed `fingerprint`. Modn checks the key
+ID before it verifies the signature against it and before it writes a
+registration, a catalog snapshot, a cache entry or a retired-key file. A
+mismatch reports `BUCKET_FINGERPRINT_MISMATCH` and writes nothing. The sync
+registers an ordinary community bucket and never grants module trust; run
+`modn bucket trust-modules <name> --yes` to trust its game modules. A name
+that is neither registered nor listed is refused with a hint to run
+`modn bucket known`.
 
 ## Module sources and trust
 
