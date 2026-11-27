@@ -31,37 +31,28 @@ fn fetch_with(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Resu
 }
 
 fn fetch_with_command(mut command: Command, url: &str, commit: &str) -> Result<()> {
-    command
-        .args([
-            "fetch",
-            "--progress",
-            "--depth",
-            "1",
-            "--no-tags",
-            "--",
-            url,
-            commit,
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    let output = command
-        .output()
+    command.args([
+        "fetch",
+        "--progress",
+        "--depth",
+        "1",
+        "--no-tags",
+        "--",
+        url,
+        commit,
+    ]);
+    let output = super::run::run(command)
         .context("GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH")?;
-    if output.status.success() {
+    if output.success() {
         return Ok(());
     }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if low_speed_abort(&stderr) {
+    let details = output.error_text();
+    if output.low_speed {
         return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
-            "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} stopped below the Git low-speed limit: {}",
-            stderr.trim()
+            "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} stopped below the Git low-speed limit: {details}"
         )));
     }
-    bail!(
-        "GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} failed: {}",
-        stderr.trim()
-    )
+    bail!("GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} failed: {details}")
 }
 
 pub(super) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
@@ -71,42 +62,29 @@ pub(super) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
         hooks: hooks.path(),
         allow_file: true,
     };
-    let output = git::command(&environment)
-        .args([
-            "clone",
-            "--progress",
-            "--no-local",
-            "--no-checkout",
-            "--",
-            remote,
-            "catalog",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .context(
-            "GIT_CATALOG_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
-        )?;
-    if output.status.success() {
+    let mut command = git::command(&environment);
+    command.args([
+        "clone",
+        "--progress",
+        "--no-local",
+        "--no-checkout",
+        "--",
+        remote,
+        "catalog",
+    ]);
+    let output = super::run::run(command).context(
+        "GIT_CATALOG_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
+    )?;
+    if output.success() {
         return Ok(());
     }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if low_speed_abort(&stderr) {
+    let details = output.error_text();
+    if output.low_speed {
         return Err(anyhow::Error::new(FetchError::Timeout).context(format!(
-            "GIT_CATALOG_FETCH_FAILED: cloning {remote} timed out below the Git low-speed limit: {}",
-            stderr.trim()
+            "GIT_CATALOG_FETCH_FAILED: cloning {remote} timed out below the Git low-speed limit: {details}"
         )));
     }
-    bail!(
-        "GIT_CATALOG_FETCH_FAILED: cloning {remote} failed: {}",
-        stderr.trim()
-    )
-}
-
-fn low_speed_abort(stderr: &str) -> bool {
-    let text = stderr.to_ascii_lowercase();
-    text.contains("operation too slow") || text.contains("bytes/sec transferred")
+    bail!("GIT_CATALOG_FETCH_FAILED: cloning {remote} failed: {details}")
 }
 
 pub(super) fn pack_commit(

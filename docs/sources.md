@@ -76,6 +76,7 @@ Ctrl-C forwarding are not part of this release; they are tracked in issue
 for the first to finish, then fails with the already running error. It does not
 coordinate concurrent local registration edits.
 Catalog metadata does not approve executable installation or grant game writes.
+Modn drains Git's standard output and standard error while Git runs and keeps only the last 64 KiB of each, so a remote that keeps sending messages cannot grow memory without a bound; a low-speed abort stays a `timeout` even when its output was truncated.
 
 ## Verified archive reuse
 
