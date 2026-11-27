@@ -1,3 +1,4 @@
+mod checkver;
 mod dependencies;
 mod git;
 mod lock;
@@ -17,6 +18,7 @@ mod zip_source;
 
 pub use crate::bucket_digest::CatalogDigest;
 pub use crate::game_modules::{CatalogModuleReport, IgnoredModule, ModuleIgnoreReason};
+pub use checkver::Checkver;
 pub use dependencies::install_order;
 pub use git::{CatalogSigner, GitCatalogRevision, GitCatalogSource, GitCatalogSync};
 pub use manifest::{ArchiveFormat, PackageManifest, PackageSource};

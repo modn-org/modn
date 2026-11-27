@@ -103,6 +103,49 @@ that pin before it installs anything.
 archive that does not match the pin.
 See [buckets](../buckets/README.md) for every field.
 
+### Record where to check for a new release
+
+A record may also carry an optional `checkver` object. Catalog authoring tools
+read this block to look for a newer upstream release. Modn does not use it when
+it searches, installs, updates or syncs a bucket. The block is part of the
+signed catalog content, so sign again after you change it.
+
+Use one of three kinds. `github-release` selects a GitHub release asset, and
+`prerelease` is optional and defaults to `false`:
+
+```json
+{
+  "kind": "github-release",
+  "repository": "owner/repo",
+  "asset_pattern": "Mod-*.zip",
+  "prerelease": false
+}
+```
+
+`git` selects a branch:
+
+```json
+{"kind": "git", "repository": "owner/repo", "branch": "main"}
+```
+
+`nexus` selects a file in a Nexus Mods game domain:
+
+```json
+{
+  "kind": "nexus",
+  "game_domain": "cyberpunk2077",
+  "mod_id": 6945,
+  "file_pattern": "Mod-*.7z"
+}
+```
+
+The field rules and validation rules are in
+[bucket checkver metadata](buckets.md#checkver-metadata). `repository` is
+exactly `owner/repo`. The patterns are 1 to 200 characters, where only `*` and
+`?` are wildcards and a value without either is an exact file name. An invalid
+block fails validation with an error that names the package and the field, such
+as `checkver.repository`.
+
 ## Sign the catalog
 
 Sign after every change to a catalog file. The signature covers a canonical

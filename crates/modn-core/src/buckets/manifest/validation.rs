@@ -222,6 +222,9 @@ impl PackageManifest {
                 bail!("invalid, self-referential, duplicate or depended-on conflict: {conflict}");
             }
         }
+        if let Some(checkver) = &self.checkver {
+            checkver.validate(game, id)?;
+        }
         Ok(())
     }
 }
