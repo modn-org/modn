@@ -5,6 +5,7 @@ mod catalog;
 mod catalog_approval;
 mod catalog_install;
 mod commands;
+mod conflicts;
 mod dependency_plan;
 mod download;
 mod game_detect;
@@ -25,6 +26,7 @@ mod nexus_auth;
 mod nexus_fixture_tests;
 mod nxm;
 mod play;
+mod profile;
 mod progress;
 #[cfg(test)]
 mod provider_fixture_tests;
@@ -124,6 +126,8 @@ fn run_cli(cli: Cli, roots: &ManagerRoots, progress: &Progress) -> Result<()> {
         Command::Scan { path } => inventory::scan(path, roots, requested, json),
         Command::Doctor { path } => inventory::doctor(path, roots, requested, json),
         Command::Catalog { command } => catalog::run(&command, json),
+        Command::Profile { command } => profile::run(&command, roots, requested, json),
+        Command::Conflicts(args) => conflicts::run(&args, roots, requested, json),
         Command::Theme { .. } => bail!("theme commands run before manager state is opened"),
     }
 }
@@ -156,6 +160,8 @@ fn default_code(command: &Command) -> ErrorCode {
         Command::Cache { .. } => ErrorCode::CacheFailed,
         Command::Bucket { .. } => ErrorCode::BucketFailed,
         Command::Catalog { .. } => ErrorCode::BucketFailed,
+        Command::Profile { .. } => ErrorCode::ProfileFailed,
+        Command::Conflicts(_) => ErrorCode::ConflictsFailed,
         Command::Theme { .. } => ErrorCode::InvalidArguments,
         Command::List { .. } => ErrorCode::ListFailed,
         Command::History => ErrorCode::HistoryFailed,
