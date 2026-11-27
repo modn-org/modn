@@ -156,6 +156,11 @@ impl Fixture {
         let data = tempfile::tempdir().expect("data directory");
         let catalog = temp.path().join("catalog");
         fs::create_dir_all(catalog.join("mods")).expect("catalog");
+        fs::write(
+            catalog.join("bucket.json"),
+            br#"{"schema_version":2,"name":"fixture","title":"Fixture"}"#,
+        )
+        .expect("bucket metadata");
         fs::write(catalog.join("catalog.sig"), b"untouched signature bytes")
             .expect("signature fixture");
         Self {
@@ -173,6 +178,23 @@ impl Fixture {
             serde_json::to_vec(manifest).expect("manifest JSON"),
         )
         .expect("manifest");
+    }
+
+    pub fn write_text(&self, game: &str, id: &str, text: &str) {
+        let path = self.manifest_path(game, id);
+        fs::create_dir_all(path.parent().expect("manifest parent")).expect("game directory");
+        fs::write(path, text).expect("manifest");
+    }
+
+    pub fn manifest_path(&self, game: &str, id: &str) -> PathBuf {
+        self.catalog
+            .join("mods")
+            .join(game)
+            .join(format!("{id}.json"))
+    }
+
+    pub fn run_plain(&self, env: &[(&str, &str)], args: &[&str]) -> Output {
+        self.command(env).args(args).output().expect("run CLI")
     }
 
     pub fn run(&self, env: &[(&str, &str)], args: &[&str]) -> Output {

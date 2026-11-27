@@ -1,5 +1,7 @@
 //! `modn catalog checkver`: stateless upstream checks for catalog packages.
 
+use super::checkver_output as output;
+use super::checkver_update;
 use super::keys::require_directory;
 use crate::nexus_auth;
 use anyhow::{anyhow, bail, Context, Result};
@@ -10,11 +12,10 @@ use modn_core::checkver::{
     NexusKeyOverride,
 };
 use modn_core::error::{coded, ErrorCode};
-use serde_json::{json, Value};
 use std::env;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
@@ -23,7 +24,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Status {
+pub(super) enum Status {
     UpToDate,
     UpdateAvailable,
     Skipped,
@@ -31,7 +32,7 @@ enum Status {
 }
 
 impl Status {
-    fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::UpToDate => "up_to_date",
             Self::UpdateAvailable => "update_available",
@@ -44,45 +45,141 @@ impl Status {
 struct Package {
     game: String,
     id: String,
+    path: PathBuf,
     manifest: Option<PackageManifest>,
     load_error: Option<String>,
 }
 
-struct Report {
-    game: String,
-    id: String,
-    status: Status,
-    kind: Option<&'static str>,
-    current_version: Option<String>,
-    latest_version: Option<String>,
-    error: Option<String>,
+pub(super) struct Report {
+    pub(super) game: String,
+    pub(super) id: String,
+    pub(super) status: Status,
+    pub(super) kind: Option<&'static str>,
+    pub(super) current_version: Option<String>,
+    pub(super) latest_version: Option<String>,
+    pub(super) error: Option<String>,
+    pub(super) applied: Option<UpdateResult>,
 }
 
 #[derive(Default)]
-struct Summary {
-    up_to_date: usize,
-    update_available: usize,
-    skipped: usize,
-    error: usize,
+pub(super) struct Summary {
+    pub(super) up_to_date: usize,
+    pub(super) update_available: usize,
+    pub(super) skipped: usize,
+    pub(super) error: usize,
+    pub(super) updated: usize,
 }
 
-pub(super) fn run(dir: &Path, target: Option<&str>, json_output: bool) -> Result<()> {
+/// The upstream values one update writes into a package manifest.
+pub(super) enum Upstream {
+    GithubRelease {
+        repository: String,
+        tag: String,
+        asset: String,
+        version: String,
+    },
+    Git {
+        commit: String,
+        version: String,
+    },
+}
+
+/// What one successful manifest update did.
+pub(super) struct UpdateResult {
+    pub(super) old_version: String,
+    pub(super) new_version: String,
+    pub(super) marker: Marker,
+    pub(super) kept_previous: Option<String>,
+    pub(super) removed_upstream_sha256: bool,
+    pub(super) other_sources: usize,
+}
+
+/// The stable marker of a rewritten manifest pin.
+pub(super) enum Marker {
+    Blake3(String),
+    Commit(String),
+}
+
+#[derive(Clone, Copy)]
+enum Mode {
+    Check,
+    Update { keep_previous: bool },
+}
+
+struct Checked {
+    report: Report,
+    upstream: Option<Upstream>,
+}
+
+pub(super) fn run(
+    dir: &Path,
+    target: Option<&str>,
+    json_output: bool,
+    update: bool,
+    keep_previous: bool,
+) -> Result<()> {
     require_directory(dir, "catalog directory")?;
+    let mode = if update {
+        Mode::Update { keep_previous }
+    } else {
+        Mode::Check
+    };
     let packages = select(discover(dir)?, target)?;
-    let reports: Vec<Report> = packages.iter().map(check).collect();
+    let mut reports = Vec::with_capacity(packages.len());
+    for package in &packages {
+        let mut checked = check(package);
+        if let Mode::Update { keep_previous } = mode {
+            if checked.report.status == Status::UpdateAvailable {
+                apply(package, &mut checked, keep_previous);
+            }
+        }
+        reports.push(checked.report);
+    }
     let summary = summarize(&reports);
     if json_output {
-        print_json(&reports, &summary);
+        output::print_json(&reports, &summary, update);
     } else {
-        print_human(&reports, &summary);
+        output::print_human(&reports, &summary, update);
     }
     if summary.error > 0 {
+        let what = if update {
+            "package check or update step"
+        } else {
+            "package check"
+        };
         return Err(coded(
             ErrorCode::BucketFailed,
-            format!("{} package check(s) failed", summary.error),
+            format!("{} {what}(s) failed", summary.error),
         ));
     }
     Ok(())
+}
+
+fn apply(package: &Package, checked: &mut Checked, keep_previous: bool) {
+    let Some(manifest) = &package.manifest else {
+        return;
+    };
+    let Some(upstream) = &checked.upstream else {
+        if checked.report.kind == Some("nexus") {
+            checked.report.status = Status::Error;
+            checked.report.error = Some(output::NEXUS_UPDATE_UNSUPPORTED.to_owned());
+        }
+        return;
+    };
+    match checkver_update::apply(
+        &package.game,
+        &package.id,
+        &package.path,
+        manifest,
+        upstream,
+        keep_previous,
+    ) {
+        Ok(result) => checked.report.applied = Some(result),
+        Err(error) => {
+            checked.report.status = Status::Error;
+            checked.report.error = Some(format!("{error:#}"));
+        }
+    }
 }
 
 fn discover(dir: &Path) -> Result<Vec<Package>> {
@@ -134,12 +231,14 @@ fn read_package(game: &str, id: &str, path: &Path) -> Package {
         Ok(manifest) => Package {
             game: game.to_owned(),
             id: id.to_owned(),
+            path: path.to_owned(),
             manifest: Some(manifest),
             load_error: None,
         },
         Err(error) => Package {
             game: game.to_owned(),
             id: id.to_owned(),
+            path: path.to_owned(),
             manifest: None,
             load_error: Some(format!("{error:#}")),
         },
@@ -197,52 +296,68 @@ fn select(packages: Vec<Package>, target: Option<&str>) -> Result<Vec<Package>> 
     }
 }
 
-fn check(package: &Package) -> Report {
+fn check(package: &Package) -> Checked {
     let Some(manifest) = &package.manifest else {
-        return Report {
-            game: package.game.clone(),
-            id: package.id.clone(),
-            status: Status::Error,
-            kind: None,
-            current_version: None,
-            latest_version: None,
-            error: package.load_error.clone(),
+        return Checked {
+            report: Report {
+                game: package.game.clone(),
+                id: package.id.clone(),
+                status: Status::Error,
+                kind: None,
+                current_version: None,
+                latest_version: None,
+                error: package.load_error.clone(),
+                applied: None,
+            },
+            upstream: None,
         };
     };
     let Some(checkver) = &manifest.checkver else {
-        return Report {
-            game: package.game.clone(),
-            id: package.id.clone(),
-            status: Status::Skipped,
-            kind: None,
-            current_version: Some(manifest.version.clone()),
-            latest_version: None,
-            error: None,
+        return Checked {
+            report: Report {
+                game: package.game.clone(),
+                id: package.id.clone(),
+                status: Status::Skipped,
+                kind: None,
+                current_version: Some(manifest.version.clone()),
+                latest_version: None,
+                error: None,
+                applied: None,
+            },
+            upstream: None,
         };
     };
     let kind = Some(kind_of(checkver));
     match check_upstream(manifest, checkver) {
-        Ok((latest, update)) => Report {
-            game: package.game.clone(),
-            id: package.id.clone(),
-            status: if update {
-                Status::UpdateAvailable
-            } else {
-                Status::UpToDate
+        Ok((latest, update, upstream)) => Checked {
+            report: Report {
+                game: package.game.clone(),
+                id: package.id.clone(),
+                status: if update {
+                    Status::UpdateAvailable
+                } else {
+                    Status::UpToDate
+                },
+                kind,
+                current_version: Some(manifest.version.clone()),
+                latest_version: latest,
+                error: None,
+                applied: None,
             },
-            kind,
-            current_version: Some(manifest.version.clone()),
-            latest_version: latest,
-            error: None,
+            upstream,
         },
-        Err(error) => Report {
-            game: package.game.clone(),
-            id: package.id.clone(),
-            status: Status::Error,
-            kind,
-            current_version: Some(manifest.version.clone()),
-            latest_version: None,
-            error: Some(format!("{error:#}")),
+        Err(error) => Checked {
+            report: Report {
+                game: package.game.clone(),
+                id: package.id.clone(),
+                status: Status::Error,
+                kind,
+                current_version: Some(manifest.version.clone()),
+                latest_version: None,
+                error: Some(format!("{error:#}")),
+                applied: None,
+            },
+            upstream: None,
         },
     }
 }
@@ -259,7 +374,7 @@ fn kind_of(checkver: &Checkver) -> &'static str {
 fn check_upstream(
     manifest: &PackageManifest,
     checkver: &Checkver,
-) -> Result<(Option<String>, bool)> {
+) -> Result<(Option<String>, bool, Option<Upstream>)> {
     match checkver {
         Checkver::GithubRelease {
             repository,
@@ -274,7 +389,13 @@ fn check_upstream(
             let body = fetch(&url, &github_headers(&url))?;
             let selected = select_github_release(&body, *prerelease, asset_pattern)?;
             let update = upstream_is_newer(&manifest.version, &selected.version);
-            Ok((Some(selected.version), update))
+            let upstream = Upstream::GithubRelease {
+                repository: repository.clone(),
+                tag: selected.tag,
+                asset: selected.asset,
+                version: selected.version.clone(),
+            };
+            Ok((Some(selected.version), update, Some(upstream)))
         }
         Checkver::Git {
             repository, branch, ..
@@ -288,7 +409,11 @@ fn check_upstream(
             )?;
             let head = git_branch_commit(repository, branch)?;
             let latest = git_source_version(&head)?;
-            Ok((Some(latest), head != commit))
+            let upstream = Upstream::Git {
+                commit: head.clone(),
+                version: latest.clone(),
+            };
+            Ok((Some(latest), head != commit, Some(upstream)))
         }
         Checkver::Nexus {
             game_domain,
@@ -315,7 +440,7 @@ fn check_upstream(
                 ],
             )?;
             let selected = select_nexus_file(&body, file_pattern)?;
-            Ok((None, selected.file_id != file_id))
+            Ok((None, selected.file_id != file_id, None))
         }
         _ => bail!("unsupported checkver kind"),
     }
@@ -392,6 +517,9 @@ fn fetch(url: &str, headers: &[(&str, String)]) -> Result<Vec<u8>> {
 fn summarize(reports: &[Report]) -> Summary {
     let mut summary = Summary::default();
     for report in reports {
+        if report.applied.is_some() {
+            summary.updated += 1;
+        }
         match report.status {
             Status::UpToDate => summary.up_to_date += 1,
             Status::UpdateAvailable => summary.update_available += 1,
@@ -400,57 +528,4 @@ fn summarize(reports: &[Report]) -> Summary {
         }
     }
     summary
-}
-
-fn print_json(reports: &[Report], summary: &Summary) {
-    let packages: Vec<Value> = reports
-        .iter()
-        .map(|report| {
-            json!({
-                "game": report.game,
-                "id": report.id,
-                "status": report.status.as_str(),
-                "kind": report.kind,
-                "current_version": report.current_version,
-                "latest_version": report.latest_version,
-                "error": report.error,
-            })
-        })
-        .collect();
-    let value = json!({
-        "packages": packages,
-        "summary": {
-            "up_to_date": summary.up_to_date,
-            "update_available": summary.update_available,
-            "skipped": summary.skipped,
-            "error": summary.error,
-        },
-    });
-    println!("{value}");
-}
-
-fn print_human(reports: &[Report], summary: &Summary) {
-    for report in reports {
-        let name = format!("{}/{}", report.game, report.id);
-        match report.status {
-            Status::Error => println!(
-                "{name}: error: {}",
-                report.error.as_deref().unwrap_or("unknown error")
-            ),
-            Status::Skipped => println!(
-                "{name}: skipped {}",
-                report.current_version.as_deref().unwrap_or("?")
-            ),
-            status => println!(
-                "{name}: {} {} -> {}",
-                status.as_str(),
-                report.current_version.as_deref().unwrap_or("?"),
-                report.latest_version.as_deref().unwrap_or("unknown")
-            ),
-        }
-    }
-    println!(
-        "Summary: {} up_to_date, {} update_available, {} skipped, {} error",
-        summary.up_to_date, summary.update_available, summary.skipped, summary.error
-    );
 }
