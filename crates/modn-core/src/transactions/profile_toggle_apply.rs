@@ -282,6 +282,8 @@ pub(super) fn recover_toggle(store: &Store, journal: &Journal, roots: &Roots) ->
                     &dest,
                 )?;
             }
+        } else if file.blake3.is_empty() {
+            remove_witness(&restore_path(&dest, &journal.id, file.ordinal)?)?;
         } else {
             recover_removed(&journal.id, &journal.status, file, &dest)?;
         }
