@@ -6,7 +6,7 @@
 //! equal needs no write, whatever package owns the row.
 
 use super::super::restore::{self, RestoreCandidate};
-use super::refuse;
+use super::refuse::{self, ProfileRef};
 use super::{PathAction, PlannedPath, ProfileSwitchPlan, UnchangedPath};
 use crate::archive::{ArchiveFile, ArchiveFormat, Inspection};
 use crate::error::{coded, ErrorCode};
@@ -33,19 +33,63 @@ struct TargetRow {
     bytes: u64,
 }
 
-/// One write that a later execution stages from the package archive.
-struct Write {
-    root: RootKind,
-    relative_path: String,
-    package_id: String,
-    archive_entry: String,
-    blake3: String,
-    bytes: u64,
-    replaces: Option<String>,
-    target: PathBuf,
+/// A checked switch: the public plan plus the rows execution needs.
+pub(crate) struct PreparedSwitch {
+    pub(crate) plan: ProfileSwitchPlan,
+    pub(crate) game: PathBuf,
+    pub(crate) from: ProfileRef,
+    pub(crate) to: ProfileRef,
+    /// Writes in execution order; ordinals are `0..writes.len()`.
+    pub(crate) writes: Vec<Write>,
+    /// Removals in execution order; ordinals continue after the writes.
+    pub(crate) removes: Vec<Remove>,
+    /// One row for every path the target profile wins, unchanged paths included.
+    pub(crate) winners: Vec<Winner>,
 }
 
-pub(super) fn plan(store: &Store, game: &Path, target: &str) -> Result<ProfileSwitchPlan> {
+/// One write that execution stages from the package archive.
+pub(crate) struct Write {
+    pub(crate) ordinal: usize,
+    pub(crate) root: RootKind,
+    pub(crate) relative_path: String,
+    pub(crate) package_id: String,
+    pub(crate) archive_entry: String,
+    pub(crate) blake3: String,
+    pub(crate) bytes: u64,
+    /// Current owner whose bytes this write replaces.
+    pub(crate) replaces: Option<String>,
+    pub(crate) replaces_blake3: Option<String>,
+    pub(crate) replaces_bytes: Option<u64>,
+    pub(crate) target: PathBuf,
+}
+
+/// One managed path that the target profile does not claim.
+pub(crate) struct Remove {
+    pub(crate) ordinal: usize,
+    pub(crate) root: RootKind,
+    pub(crate) relative_path: String,
+    pub(crate) package_id: String,
+    pub(crate) blake3: String,
+    pub(crate) bytes: u64,
+    pub(crate) target: PathBuf,
+}
+
+/// One managed row the commit records for the target profile.
+pub(crate) struct Winner {
+    pub(crate) root: RootKind,
+    pub(crate) path_key: String,
+    pub(crate) relative_path: String,
+    pub(crate) package_id: String,
+    pub(crate) archive_entry: String,
+    pub(crate) blake3: String,
+    pub(crate) bytes: u64,
+}
+
+pub(crate) fn plan(store: &Store, game: &Path, target: &str) -> Result<ProfileSwitchPlan> {
+    Ok(prepare(store, game, target)?.plan)
+}
+
+pub(crate) fn prepare(store: &Store, game: &Path, target: &str) -> Result<PreparedSwitch> {
     let context = refuse::switchable(store, game, target)?;
     let game_path = context.game.to_string_lossy().into_owned();
     let game_id = game_id(store, &game_path)?;
@@ -54,6 +98,7 @@ pub(super) fn plan(store: &Store, game: &Path, target: &str) -> Result<ProfileSw
     let mut remove = Vec::new();
     let mut writes = Vec::new();
     let mut unchanged = Vec::new();
+    let mut rows = Vec::new();
     let keys: BTreeSet<(String, String)> = current.keys().chain(winners.keys()).cloned().collect();
     for key in keys {
         let root = RootKind::from_label(&key.0).unwrap_or(RootKind::Game);
@@ -63,10 +108,12 @@ pub(super) fn plan(store: &Store, game: &Path, target: &str) -> Result<ProfileSw
                     root: key.0.clone(),
                     path: row.relative_path.clone(),
                 });
+                rows.push(winner_row(&key.0, &key.1, winner));
             }
             (Some(winner), row) => {
                 let target = context.roots.target(root, &winner.relative_path)?;
                 writes.push(Write {
+                    ordinal: writes.len(),
                     root,
                     relative_path: winner.relative_path.clone(),
                     package_id: winner.package_id.clone(),
@@ -74,18 +121,24 @@ pub(super) fn plan(store: &Store, game: &Path, target: &str) -> Result<ProfileSw
                     blake3: winner.blake3.clone(),
                     bytes: winner.bytes,
                     replaces: row.map(|row| row.package_id.clone()),
+                    replaces_blake3: row.map(|row| row.blake3.clone()),
+                    replaces_bytes: row.map(|row| row.bytes),
+                    target,
+                });
+                rows.push(winner_row(&key.0, &key.1, winner));
+            }
+            (None, Some(row)) => {
+                let target = context.roots.target(root, &row.relative_path)?;
+                remove.push(Remove {
+                    ordinal: remove.len(),
+                    root,
+                    relative_path: row.relative_path.clone(),
+                    package_id: row.package_id.clone(),
+                    blake3: row.blake3.clone(),
+                    bytes: row.bytes,
                     target,
                 });
             }
-            (None, Some(row)) => remove.push(PlannedPath {
-                root: key.0.clone(),
-                path: row.relative_path.clone(),
-                action: PathAction::Remove,
-                package: Some(row.package_id.clone()),
-                replaces: None,
-                blake3: Some(row.blake3.clone()),
-                bytes: Some(row.bytes),
-            }),
             (None, None) => {}
         }
     }
@@ -96,9 +149,9 @@ pub(super) fn plan(store: &Store, game: &Path, target: &str) -> Result<ProfileSw
     let plan = ProfileSwitchPlan {
         game: game_id,
         path: game_path,
-        from: context.from.name,
-        to: context.to.name,
-        remove,
+        from: context.from.name.clone(),
+        to: context.to.name.clone(),
+        remove: remove.iter().map(planned_remove).collect(),
         write: writes.iter().map(planned_write).collect(),
         unchanged: unchanged.len(),
         unchanged_paths: unchanged,
@@ -106,7 +159,42 @@ pub(super) fn plan(store: &Store, game: &Path, target: &str) -> Result<ProfileSw
         leaving: from_members.difference(&to_members).cloned().collect(),
         bytes_to_write: writes.iter().map(|write| write.bytes).sum(),
     };
-    Ok(plan)
+    for (index, remove) in remove.iter_mut().enumerate() {
+        remove.ordinal = writes.len() + index;
+    }
+    Ok(PreparedSwitch {
+        plan,
+        game: context.game,
+        from: context.from,
+        to: context.to,
+        writes,
+        removes: remove,
+        winners: rows,
+    })
+}
+
+fn winner_row(root: &str, path_key: &str, row: &TargetRow) -> Winner {
+    Winner {
+        root: RootKind::from_label(root).unwrap_or(RootKind::Game),
+        path_key: path_key.to_owned(),
+        relative_path: row.relative_path.clone(),
+        package_id: row.package_id.clone(),
+        archive_entry: row.archive_entry.clone(),
+        blake3: row.blake3.clone(),
+        bytes: row.bytes,
+    }
+}
+
+fn planned_remove(remove: &Remove) -> PlannedPath {
+    PlannedPath {
+        root: remove.root.label().to_owned(),
+        path: remove.relative_path.clone(),
+        action: PathAction::Remove,
+        package: Some(remove.package_id.clone()),
+        replaces: None,
+        blake3: Some(remove.blake3.clone()),
+        bytes: Some(remove.bytes),
+    }
 }
 
 fn planned_write(write: &Write) -> PlannedPath {

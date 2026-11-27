@@ -1,17 +1,32 @@
-//! Planning a profile switch without changing a file or a state row.
+//! Planning and executing a profile switch.
 //!
 //! A plan names the managed files of the active profile that the target
 //! profile does not claim, the target winners that differ from the bytes on
 //! disk, and the packages that enter or leave the active state. It refuses
-//! before any write when the switch is unsafe. Execution and the command
-//! surface build on this read-only plan.
+//! before any write when the switch is unsafe. Execution applies one plan as
+//! a journaled transaction: it stages every written member, quarantines the
+//! bytes it removes, and commits the active profile, winner rows, history and
+//! journal in one SQLite transaction. Recovery restores a consistent state
+//! after a crash at any point.
 
+#[cfg(test)]
+mod commit_tests;
+#[cfg(test)]
+mod crash_tests;
+mod execute;
+#[cfg(test)]
+mod execute_tests;
 mod plan;
 #[cfg(test)]
 mod plan_tests;
+mod recover;
 #[cfg(test)]
 mod refusal_tests;
 mod refuse;
+
+pub use execute::{profile_switch, ProfileSwitchOptions, ProfileSwitchOutcome};
+pub(crate) use plan::{PreparedSwitch, Remove, Write};
+pub(crate) use recover::recover_switch;
 
 use crate::state::Store;
 use anyhow::Result;

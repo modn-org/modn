@@ -92,7 +92,8 @@ pub use native_injector::{
 };
 pub use profile_apply::{PriorityReport, ProfileApply};
 pub use profile_switch::{
-    plan_profile_switch, PathAction, PlannedPath, ProfileSwitchPlan, UnchangedPath,
+    plan_profile_switch, profile_switch, PathAction, PlannedPath, ProfileSwitchOptions,
+    ProfileSwitchOutcome, ProfileSwitchPlan, UnchangedPath,
 };
 pub use profile_toggle::{ProfileToggle, ToggleAction, ToggleChange};
 pub use stack::StackMember;

@@ -100,6 +100,10 @@ impl Store {
             [id],
         )?;
         tx.execute("DELETE FROM pending_restores WHERE transaction_id=?1", [id])?;
+        tx.execute(
+            "DELETE FROM pending_profile_switches WHERE transaction_id=?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
@@ -124,6 +128,10 @@ impl Store {
         let roots = Roots { game, content };
         if matches!(journal.action.as_str(), "profile_toggle" | "profile_apply") {
             super::profile_toggle_apply::recover_toggle(self, journal, &roots)?;
+            return self.finish_journal(&journal.id);
+        }
+        if journal.action == "profile-switch" {
+            super::profile_switch::recover_switch(self, journal, &roots)?;
             return self.finish_journal(&journal.id);
         }
         if journal.action == "install" && journal.status == "staging" {
