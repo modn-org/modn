@@ -262,6 +262,15 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+fn path_key(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        text.to_ascii_lowercase()
+    } else {
+        text
+    }
+}
+
 fn json(output: &Output) -> Result<Value, TestCaseError> {
     serde_json::from_slice(&output.stdout).map_err(|err| TestCaseError::fail(err.to_string()))
 }
@@ -331,10 +340,12 @@ fn check_install(
     let destinations: BTreeSet<PathBuf> = operations
         .iter()
         .filter_map(|operation| operation["destination"].as_str())
-        .map(PathBuf::from)
+        .map(|destination| Path::new("game").join(destination))
         .collect();
+    let destination_keys: BTreeSet<String> =
+        destinations.iter().map(|path| path_key(path)).collect();
     for (path, bytes) in &before_files {
-        if destinations.contains(path) {
+        if destination_keys.contains(&path_key(path)) {
             continue;
         }
         prop_assert_eq!(
@@ -352,7 +363,10 @@ fn check_install(
         .collect();
     for path in &destinations {
         prop_assert!(
-            after_files.contains_key(path),
+            after_files.contains_key(path)
+                || after_files
+                    .keys()
+                    .any(|actual| path_key(actual) == path_key(path)),
             "install of {} did not write the previewed {:?}",
             package,
             path
@@ -400,9 +414,10 @@ fn check_uninstall(
         stderr(&removed)
     );
     let after = snapshot(&world.root)?;
+    let owned: BTreeSet<String> = owned.iter().map(|path| path_key(path)).collect();
     let expected: BTreeMap<_, _> = files(&before)
         .into_iter()
-        .filter(|(path, _)| !owned.contains(*path))
+        .filter(|(path, _)| !owned.contains(&path_key(path)))
         .collect();
     prop_assert_eq!(
         files(&after),
@@ -416,7 +431,7 @@ fn check_uninstall(
 pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(), TestCaseError> {
     let world = World::new(case)?;
     let start = snapshot(&world.root)?;
-    let Some((first_id, mut first_files, _first_destinations)) =
+    let Some((first_id, _first_files, mut first_owned)) =
         check_install(&world, 'a', case.first.len(), observed)?
     else {
         return Ok(());
@@ -427,13 +442,14 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
         check_install(&world, 'b', case.second.len(), observed)?
     };
     if let Some((_, _, second_destinations)) = &second {
-        for path in second_destinations {
-            first_files.remove(path);
-        }
+        let second_keys: BTreeSet<String> =
+            second_destinations.iter().map(|path| path_key(path)).collect();
+        first_owned.retain(|path| !second_keys.contains(&path_key(path)));
     }
-    check_uninstall(&world, &first_id, &first_files)?;
-    if let Some((second_id, second_files, _)) = second {
-        check_uninstall(&world, &second_id, &second_files)?;
+    check_uninstall(&world, &first_id, &first_owned)?;
+    if let Some((second_id, second_files, second_destinations)) = second {
+        let _ = second_files;
+        check_uninstall(&world, &second_id, &second_destinations)?;
     }
     prop_assert_eq!(
         snapshot(&world.root)?,

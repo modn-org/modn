@@ -142,9 +142,14 @@ fn cet_nested_zip_is_managed_and_survives_conflicts_and_drift() {
         ],
     );
     assert!(
-        !duplicate.status.success(),
-        "existing owned files must block"
+        duplicate.status.success(),
+        "a managed package may replace an owned file: {duplicate:?}"
     );
+    let duplicate_id = serde_json::from_slice::<serde_json::Value>(&duplicate.stdout)
+        .expect("duplicate install report")["id"]
+        .as_str()
+        .expect("duplicate package id")
+        .to_owned();
     fs::write(game.join(&init), b"edited").expect("mutated managed fixture");
     let drift = success(&state, &["doctor", "--path", game.to_str().expect("game")]);
     assert!(drift["diagnostics"]
@@ -152,18 +157,16 @@ fn cet_nested_zip_is_managed_and_survives_conflicts_and_drift() {
         .expect("diagnostics")
         .iter()
         .any(|item| item["code"] == "OWNED_FILE_MODIFIED"));
-    assert!(!cli(
+    success(
         &state,
         &[
             "uninstall",
             id,
             "--yes",
             "--path",
-            game.to_str().expect("game")
-        ]
-    )
-    .status
-    .success());
+            game.to_str().expect("game"),
+        ],
+    );
     assert_eq!(
         fs::read(game.join(&init)).expect("preserved changes"),
         b"edited"
@@ -173,7 +176,7 @@ fn cet_nested_zip_is_managed_and_survives_conflicts_and_drift() {
         &state,
         &[
             "uninstall",
-            id,
+            &duplicate_id,
             "--yes",
             "--path",
             game.to_str().expect("game"),
