@@ -72,17 +72,14 @@ impl Store {
                AND file.package_id IS NOT ?2",
         )?;
         let keys = statement
-            .query_map(
-                params![game.to_string_lossy().as_ref(), replaced],
-                |row| {
-                    let root: String = row.get(0)?;
-                    let destination: String = row.get(1)?;
-                    Ok(format!(
-                        "{root}:{}",
-                        crate::transactions::ownership_key(&destination)
-                    ))
-                },
-            )?
+            .query_map(params![game.to_string_lossy().as_ref(), replaced], |row| {
+                let root: String = row.get(0)?;
+                let destination: String = row.get(1)?;
+                Ok(format!(
+                    "{root}:{}",
+                    crate::transactions::ownership_key(&destination)
+                ))
+            })?
             .collect::<rusqlite::Result<BTreeSet<_>>>()?;
         Ok(keys)
     }

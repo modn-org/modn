@@ -203,7 +203,10 @@ fn claim_manifest_conflict_is_still_refused_with_overlapping_paths() {
             [&digest],
         )
         .expect("declared conflict");
-    assert_eq!(fixture.overrides(&[(SHARED, 3)]).expect("override").len(), 1);
+    assert_eq!(
+        fixture.overrides(&[(SHARED, 3)]).expect("override").len(),
+        1
+    );
     assert_eq!(
         fixture
             .store

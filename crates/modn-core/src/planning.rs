@@ -437,10 +437,9 @@ fn resolve_inner(
             ))
         });
         if let Some(code) =
-            existing_destination_issue(root_path, &request.destination, managed_file)
-                .filter(|&code| {
-                    code != "EXISTING_FILE" || !is_replaced(replaced, &request.destination)
-                })
+            existing_destination_issue(root_path, &request.destination, managed_file).filter(
+                |&code| code != "EXISTING_FILE" || !is_replaced(replaced, &request.destination),
+            )
         {
             issue(
                 &mut blockers,
