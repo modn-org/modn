@@ -289,4 +289,6 @@ impl ArchiveCache {
 }
 
 #[cfg(test)]
+mod staging_tests;
+#[cfg(test)]
 mod tests;
