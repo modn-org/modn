@@ -12,6 +12,11 @@ use std::path::Path;
 
 use crate::transactions::ownership_key;
 
+pub mod profile_health;
+
+#[cfg(test)]
+mod profile_health_tests;
+
 /// Reconcile owned files using the selected game's ordinary Lua scan policy.
 pub fn scan_with_ownership_for(
     roots: &ManagerRoots,
@@ -233,6 +238,7 @@ pub fn doctor_with_ownership_appdata(
     {
         let installation = installation.canonicalize()?;
         let created_directories = store.created_directories(&installation)?;
+        let profile = profile_health::health(store, &installation)?;
         return Ok(DoctorReport {
             scan: ScanReport {
                 incomplete: true,
@@ -247,6 +253,7 @@ pub fn doctor_with_ownership_appdata(
             },
             diagnostics: source_diagnostics,
             created_directories,
+            profile,
         });
     }
     let selection = ModuleSelection::resolve(roots, game_id)?;
@@ -277,6 +284,7 @@ pub fn doctor_with_ownership_appdata(
     }
     report.diagnostics.extend(source_diagnostics);
     report.created_directories = store.created_directories(installation)?;
+    report.profile = profile_health::health(store, installation)?;
     Ok(report)
 }
 

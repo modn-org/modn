@@ -7,6 +7,7 @@ use modn_core::error::{coded, ErrorCode};
 use modn_core::history::HistoryContext;
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::transactions::{CleanupApproval, UninstallScope};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub(super) fn list(
@@ -21,22 +22,88 @@ pub(super) fn list(
     let store = selected.store.expect("write access opens manager state");
     let game = selected.root;
     let packages = store.installed(&game)?;
+    let profiles = modn_core::profiles::list(&store, &game)?;
+    let active = profiles.iter().find(|profile| profile.active);
+    let profile_name = active.map(|profile| profile.name.clone());
+    let mut members = HashMap::new();
+    let mut ranks = HashMap::new();
+    if let Some(profile) = active {
+        for member in &profile.packages {
+            if member.enabled {
+                let rank = ranks.len() + 1;
+                ranks.insert(member.package_id.as_str(), rank);
+            }
+            members.insert(member.package_id.as_str(), member);
+        }
+    }
     if json {
-        println!("{}", serde_json::to_string_pretty(&packages)?);
+        let mut entries = Vec::with_capacity(packages.len());
+        for package in &packages {
+            let mut value = serde_json::to_value(package)?;
+            let entry = value
+                .as_object_mut()
+                .expect("a managed package serializes as a JSON object");
+            let member = members.get(package.id.as_str());
+            entry.insert(
+                "profile".into(),
+                profile_name
+                    .as_deref()
+                    .map_or(serde_json::Value::Null, |name| name.into()),
+            );
+            entry.insert(
+                "rank".into(),
+                ranks
+                    .get(package.id.as_str())
+                    .map_or(serde_json::Value::Null, |rank| serde_json::json!(rank)),
+            );
+            entry.insert(
+                "enabled".into(),
+                serde_json::json!(member.is_some_and(|member| member.enabled)),
+            );
+            entry.insert(
+                "shadowed_files".into(),
+                serde_json::json!(member.map_or(0, |member| member.shadowed_files)),
+            );
+            entry.insert(
+                "priority".into(),
+                member.map_or(serde_json::Value::Null, |member| {
+                    serde_json::json!(member.priority)
+                }),
+            );
+            entries.push(value);
+        }
+        println!("{}", serde_json::to_string_pretty(&entries)?);
         return Ok(());
+    }
+    match &profile_name {
+        Some(name) => println!("Profile: {name}"),
+        None => println!("Profile: (none)"),
     }
     if packages.is_empty() {
         println!("No manager-owned packages installed.");
     } else {
         for package in packages {
+            let member = members.get(package.id.as_str());
+            let tag = match ranks.get(package.id.as_str()) {
+                Some(rank) => format!("#{rank} "),
+                None => "disabled ".to_owned(),
+            };
+            let shadowed = member
+                .filter(|member| member.shadowed_files > 0)
+                .map(|member| format!(" ({} shadowed)", member.shadowed_files))
+                .unwrap_or_default();
             let pin = if package.pinned { " (pinned)" } else { "" };
             match &package.catalog {
                 Some(catalog) => println!(
-                    "{}{pin}: {catalog}, {} owned files",
+                    "{tag}{}{pin}: {catalog}, {} owned files{shadowed}",
                     package.id,
                     package.files.len()
                 ),
-                None => println!("{}{pin}: {} owned files", package.id, package.files.len()),
+                None => println!(
+                    "{tag}{}{pin}: {} owned files{shadowed}",
+                    package.id,
+                    package.files.len()
+                ),
             }
             for directory in &package.directories {
                 println!("  exclusive folder: {directory}");

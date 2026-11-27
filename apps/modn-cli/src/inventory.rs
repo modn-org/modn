@@ -114,6 +114,26 @@ pub(super) fn doctor(
     );
     println!("Owned files checked: {}", report.scan.owned_files.len());
     println!("Folders Modn created: {}", report.created_directories.len());
+    if let Some(profile) = &report.profile {
+        println!(
+            "Profile: {} ({} packages, {} overlapping files, {})",
+            profile.name,
+            profile.packages,
+            profile.overlapping_files,
+            if profile.consistent {
+                "consistent"
+            } else {
+                "inconsistent"
+            }
+        );
+        for issue in &profile.issues {
+            println!(
+                "profile issue {}: {} ({}) {}",
+                issue.kind, issue.path, issue.package, issue.detail
+            );
+            println!("  Next: {}", issue.advice);
+        }
+    }
     for entry in report.scan.mods.iter().filter(|entry| !entry.managed) {
         let root = if entry.root == ScanRoot::Content {
             "content "
