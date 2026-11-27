@@ -110,12 +110,11 @@ pub(crate) fn run(
         return Err(RunError::Cancelled);
     }
     tree::confine(&mut command).map_err(RunError::Tree)?;
-    let mut child = command
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(RunError::Io)?;
+        .stderr(Stdio::piped());
+    let mut child = spawn_git(&mut command).map_err(RunError::Io)?;
     let mut guard = match TreeGuard::attach(&child) {
         Ok(guard) => guard,
         Err(error) => {
@@ -202,6 +201,36 @@ fn stop(guard: &mut TreeGuard, child: &mut Child, reason: RunError) -> RunError 
 fn stop_unattached(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Spawn the confined Git child.
+///
+/// Unit tests write executable stub programs while sibling test threads fork.
+/// A child that inherits the stub's write descriptor makes the next exec fail
+/// with [`io::ErrorKind::ExecutableFileBusy`] until that child execs or exits.
+/// A test build retries that transient condition; a release build spawns once.
+#[cfg(test)]
+fn spawn_git(command: &mut Command) -> io::Result<Child> {
+    const RETRIES: u32 = 50;
+    const RETRY_DELAY: Duration = Duration::from_millis(10);
+    let mut attempt = 0;
+    loop {
+        match command.spawn() {
+            Err(error)
+                if error.kind() == io::ErrorKind::ExecutableFileBusy && attempt < RETRIES =>
+            {
+                attempt += 1;
+                thread::sleep(RETRY_DELAY);
+            }
+            result => return result,
+        }
+    }
+}
+
+/// Spawn the confined Git child.
+#[cfg(not(test))]
+fn spawn_git(command: &mut Command) -> io::Result<Child> {
+    command.spawn()
 }
 
 struct Stream {
