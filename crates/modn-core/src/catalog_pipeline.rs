@@ -35,6 +35,9 @@ mod outcome;
 mod plan;
 mod preview;
 mod requirements;
+mod update;
+mod update_commit;
+mod update_digest;
 
 pub use acquire::{acquire_pending, AcquiredArchive, AcquiredArchives};
 pub use commit::{commit_plan, CommitRequest};
@@ -43,10 +46,11 @@ pub use digest::{plan_digest, PlanDigest, ReleasePreview};
 pub use input::{ConsentInputs, InstallInput, InstallTarget};
 pub use outcome::CommitOutcome;
 pub use plan::{
-    CatalogPlan, PendingDownload, PlanConflict, PlanKind, PlanRefusal, PlannedRelease,
-    ServedArchive, ServedOrigin,
+    CatalogPlan, DependentRequirement, InstalledPackage, PendingDownload, PlanConflict, PlanKind,
+    PlanRefusal, PlannedDependent, PlannedRelease, ServedArchive, ServedOrigin, UpdatePlan,
 };
-pub use preview::{preview_catalog_install, preview_catalog_release};
+pub use preview::{preview_catalog_install, preview_catalog_release, preview_catalog_update};
+pub use update::{plan_update, UpdateInput};
 
 use archives::ResolvedArchives;
 use order::OrderedRelease;

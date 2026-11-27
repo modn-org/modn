@@ -11,3 +11,6 @@ mod order_tests;
 mod plan_install_tests;
 mod refusal_tests;
 mod synthetic;
+mod update_commit_tests;
+mod update_support;
+mod update_tests;

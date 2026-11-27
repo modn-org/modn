@@ -8,15 +8,16 @@
 
 use super::consent::ExecutableApproval;
 use super::digest::ReleasePreview;
-use super::plan::CatalogPlan;
+use super::plan::{CatalogPlan, PlanKind};
 use crate::content_root::appdata_directory;
 use crate::game_modules::{content_root_spec, ModuleSelection};
 use crate::manager_roots::ManagerRoots;
 use crate::planning::{
-    preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions, InstallPlan,
+    preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
+    preview_update_with_appdata, preview_update_with_permissions, InstallPlan,
 };
 use crate::transactions::CatalogReference;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -101,6 +102,72 @@ pub(crate) fn preview_release(
         None => {
             preview_install_zip_with_permissions(roots, game_id, installation, archive, approved)
         }
+    }
+}
+
+/// Preview one update's archive with the paths of the installed release removed.
+///
+/// The game module plans as if `UpdatePlan::replaced` were already gone, so an
+/// exclusive folder is claimed again. Installation revalidates the proposal
+/// against the real disk after it removes them.
+///
+/// # Errors
+///
+/// Returns an error for a plan that is not an update, the error of the game
+/// module, or the error of the archive inspection.
+pub fn preview_catalog_update(
+    roots: &ManagerRoots,
+    plan: &CatalogPlan,
+    archive: &Path,
+    approved: &[String],
+) -> Result<ReleasePreview> {
+    let PlanKind::Update(update) = &plan.kind else {
+        bail!("the plan is not an update");
+    };
+    Ok(ReleasePreview {
+        reference: plan.selected.clone(),
+        plan: preview_update(
+            roots,
+            &plan.game_id,
+            &plan.installation,
+            archive,
+            approved,
+            &update.replaced,
+        )?,
+    })
+}
+
+/// Preview one archive as an update that replaces `replaced`.
+pub(crate) fn preview_update(
+    roots: &ManagerRoots,
+    game_id: &str,
+    installation: &Path,
+    archive: &Path,
+    approved: &[String],
+    replaced: &[String],
+) -> Result<InstallPlan> {
+    let selection = ModuleSelection::resolve(roots, game_id)?;
+    match content_root_spec(&selection)? {
+        Some(_) => {
+            let appdata = appdata_directory()?;
+            preview_update_with_appdata(
+                roots,
+                game_id,
+                installation,
+                archive,
+                approved,
+                replaced,
+                &appdata,
+            )
+        }
+        None => preview_update_with_permissions(
+            roots,
+            game_id,
+            installation,
+            archive,
+            approved,
+            replaced,
+        ),
     }
 }
 

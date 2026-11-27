@@ -18,7 +18,7 @@ use super::acquire::{acquire_pending, archives_of, digests_of, sources_of};
 use super::consent::Consent;
 use super::digest::ReleasePreview;
 use super::outcome::{blocking_refusal, CommitOutcome};
-use super::plan::{CatalogPlan, PlannedRelease};
+use super::plan::{CatalogPlan, PlanKind, PlannedRelease};
 use super::preview::{approved_for, preview_catalog_install, preview_release};
 use crate::acquisition::{
     ArchiveCache, CacheUse, ReleaseDigest, ReleaseResolver, SourcePolicy, SourceTransport,
@@ -161,6 +161,11 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
     if let Some(error) = blocking_refusal(plan) {
         return Err(error);
     }
+    if let PlanKind::Update(update) = &plan.kind {
+        if update.up_to_date {
+            return Ok(CommitOutcome::up_to_date());
+        }
+    }
     let acquired = acquire_pending(
         plan,
         cache,
@@ -170,6 +175,11 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
         resolver,
         control,
     )?;
+    if let PlanKind::Update(update) = &plan.kind {
+        return super::update_commit::commit_update(
+            roots, plan, consent, &acquired, update, control, store,
+        );
+    }
     let archives = archives_of(plan, &acquired);
     let digests = digests_of(plan, &acquired);
     let sources = sources_of(plan, &acquired);
@@ -240,6 +250,7 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
         operation_id,
         attempts: acquired.attempts,
         sources,
+        up_to_date: false,
     })
 }
 
@@ -369,7 +380,7 @@ fn install_stack(
 }
 
 /// Record the capabilities of each installed release after the commit.
-fn record_approvals(
+pub(super) fn record_approvals(
     store: &mut Store,
     plan: &CatalogPlan,
     installing: &[&PlannedRelease],
@@ -403,7 +414,10 @@ fn record_approvals(
 }
 
 /// Whether every installing native injector is covered by the consent.
-fn native_policy(installing: &[&PlannedRelease], consent: &Consent) -> NativeInjectorPolicy {
+pub(super) fn native_policy(
+    installing: &[&PlannedRelease],
+    consent: &Consent,
+) -> NativeInjectorPolicy {
     let places_native = installing
         .iter()
         .any(|planned| planned.needed.native_injector);
@@ -418,13 +432,19 @@ fn native_policy(installing: &[&PlannedRelease], consent: &Consent) -> NativeInj
 }
 
 /// Check one fresh preview against the digest the plan expects.
-fn verify_preview(preview: &ReleasePreview, expected: Option<&ReleaseDigest>) -> Result<()> {
+pub(super) fn verify_preview(
+    preview: &ReleasePreview,
+    expected: Option<&ReleaseDigest>,
+) -> Result<()> {
     verify_digest(preview, expected)?;
     verify_reviewable(preview)
 }
 
 /// Check that the archive a preview read is the release that the plan pins.
-fn verify_digest(preview: &ReleasePreview, expected: Option<&ReleaseDigest>) -> Result<()> {
+pub(super) fn verify_digest(
+    preview: &ReleasePreview,
+    expected: Option<&ReleaseDigest>,
+) -> Result<()> {
     if let Some(expected) = expected {
         if expected.as_str() != Some(preview.plan.archive_blake3.as_str()) {
             return Err(coded(
@@ -440,7 +460,7 @@ fn verify_digest(preview: &ReleasePreview, expected: Option<&ReleaseDigest>) -> 
 }
 
 /// Check that the game module allows one release as previewed.
-fn verify_reviewable(preview: &ReleasePreview) -> Result<()> {
+pub(super) fn verify_reviewable(preview: &ReleasePreview) -> Result<()> {
     if !preview.reviewable() {
         return Err(coded(
             ErrorCode::PlanBlocked,
@@ -454,7 +474,7 @@ fn verify_reviewable(preview: &ReleasePreview) -> Result<()> {
 }
 
 /// The destinations of one preview, for the capability record.
-fn destinations_of(plan: &InstallPlan) -> BTreeSet<String> {
+pub(super) fn destinations_of(plan: &InstallPlan) -> BTreeSet<String> {
     plan.operations
         .iter()
         .map(|operation| operation.destination.clone())

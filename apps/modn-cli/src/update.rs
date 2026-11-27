@@ -1,36 +1,33 @@
-use crate::catalog_install::{self, expected_format, reference_of};
+use crate::catalog_install::{self, reference_of};
 use crate::commands::UpdateArgs;
-use crate::dependency_plan::acquisition;
+use crate::dependency_plan;
 use crate::download;
 use crate::install_consent::{self, UpdateRequest};
-use crate::modules::content_root_appdata;
+use crate::nxm::NxmLink;
 use crate::progress::Progress;
 use crate::selection::selected_installation;
 use crate::state_access::{ManagerState, ProtectedTarget};
-use crate::update_report::{self, DependentCheck, FileChanges, Preview};
+use crate::update_report::{self, FileChanges, Preview};
 use anyhow::{bail, Context, Result};
-use identity::{installed_identity, same_release, target_identity};
-use modn_core::acquisition::CacheUse;
+use modn_core::acquisition::{ArchiveCache, CacheUse, SourcePolicy};
 use modn_core::approval::{ApprovalRefusal, Capabilities, Uncovered};
-use modn_core::archive::{inspect, ArchiveFormat};
-use modn_core::buckets::{BucketPackage, BucketStore, PackageSource};
-use modn_core::error::{coded, ErrorCode};
-use modn_core::history::HistoryContext;
-use modn_core::manager_roots::ManagerRoots;
-use modn_core::planning::{
-    preview_update_with_appdata, preview_update_with_permissions, InstallPlan, PlanStatus,
+use modn_core::buckets::{BucketPackage, BucketSnapshot, BucketStore, PackageSource};
+use modn_core::catalog_pipeline::{
+    acquire_pending, commit_plan, plan_digest, plan_update, preview_catalog_update,
+    AcquiredArchives, CatalogPlan, CommitRequest, Consent, ConsentInputs, ExecutableApproval,
+    InstallTarget, PlanKind, PlanRefusal, PlannedRelease, ReleasePreview, UpdateInput, UpdatePlan,
 };
-use modn_core::transactions::ManagedPackage;
-use std::collections::BTreeMap;
+use modn_core::error::{coded, ErrorCode};
+use modn_core::manager_roots::ManagerRoots;
+use modn_core::state::Store;
+use modn_core::transactions::NativeInjectorPolicy;
+use std::collections::BTreeSet;
 use std::io;
-use std::path::Path;
-
-#[path = "update_identity.rs"]
-mod identity;
+use std::path::{Path, PathBuf};
 
 fn planned_source(release: &BucketPackage) -> &PackageSource {
     crate::dependency_plan::fetchable_source(&release.package.sources)
-        .unwrap_or(release.package.primary_source())
+        .unwrap_or_else(|| release.package.primary_source())
 }
 
 fn choose_release(
@@ -56,138 +53,101 @@ fn choose_release(
         })
 }
 
-fn supplied_format(target: &BucketPackage) -> Option<ArchiveFormat> {
-    expected_format(target.package.archive_format.as_ref()).or_else(|| {
-        matches!(target.package.primary_source(), PackageSource::Git { .. })
-            .then_some(ArchiveFormat::Zip)
-    })
-}
-
-fn supplied_archive(
-    file: &Path,
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the plan call keeps the selected release, catalog, state, target, supplied files, cache and consent explicit"
+)]
+fn build_plan(
     target: &BucketPackage,
-    digests: &BTreeMap<String, String>,
-) -> Result<download::SuppliedArchive> {
-    if !std::fs::symlink_metadata(file)?.file_type().is_file() {
-        bail!("archive must be a regular file: {}", file.display());
+    catalog: &BucketSnapshot,
+    store: &Store,
+    game_id: &str,
+    game: &Path,
+    supplied: &[PathBuf],
+    cache: &ArchiveCache,
+    cache_use: CacheUse,
+    flags: &Capabilities,
+) -> Result<CatalogPlan> {
+    plan_update(&UpdateInput::new(
+        target,
+        catalog,
+        store,
+        InstallTarget::new(game_id, game),
+        supplied,
+        cache,
+        cache_use,
+        ConsentInputs::new(flags.clone()),
+    ))
+}
+
+fn update_facts(plan: &CatalogPlan) -> Result<&UpdatePlan> {
+    match &plan.kind {
+        PlanKind::Update(update) => Ok(update),
+        _ => bail!("the plan is not an update"),
     }
-    let inspected = inspect(file)?;
-    let reference = reference_of(target);
-    let expected = download::digest(target, digests)?;
-    let expected = expected.as_str().with_context(|| {
-        format!(
-            "{reference}: Modn knows no archive digest to verify {} against; run modn update {reference} without --file so it can acquire the archive from the source",
-            file.display()
-        )
-    })?;
-    if expected != inspected.blake3 {
-        bail!(
-            "{}: archive BLAKE3 does not match {reference} {}",
-            file.display(),
-            target.package.version
-        );
-    }
-    if Some(inspected.format) != supplied_format(target) {
-        bail!("{reference}: archive format does not match catalog manifest");
-    }
-    Ok(download::SuppliedArchive {
-        path: file.to_path_buf(),
-        blake3: inspected.blake3,
+}
+
+fn selected(plan: &CatalogPlan) -> Result<&PlannedRelease> {
+    plan.order
+        .last()
+        .context("the update plan has no selected release")
+}
+
+fn pinned_package(plan: &CatalogPlan) -> Option<&str> {
+    plan.refusals.iter().find_map(|refusal| match refusal {
+        PlanRefusal::PackagePinned { package_id } => Some(package_id.as_str()),
+        _ => None,
     })
 }
 
-fn installed_package(
-    packages: Vec<ManagedPackage>,
-    reference: &modn_core::transactions::CatalogReference,
-) -> Result<ManagedPackage> {
-    let mut matches: Vec<ManagedPackage> = packages
-        .into_iter()
-        .filter(|package| package.catalog.as_ref() == Some(reference))
-        .collect();
-    match matches.len() {
-        0 => bail!("{reference} is not a managed package here; install it with modn install"),
-        1 => Ok(matches.remove(0)),
-        _ => bail!(
-            "several managed packages come from {reference}: {}; uninstall the extra ones first",
-            matches
-                .iter()
-                .map(|p| p.id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    }
+fn native_refused(plan: &CatalogPlan) -> bool {
+    plan.refusals
+        .iter()
+        .any(|refusal| matches!(refusal, PlanRefusal::NativeInjector { .. }))
 }
 
-fn replaced_paths(old: &ManagedPackage) -> Vec<String> {
-    old.files
-        .iter()
-        .map(|file| file.destination.clone())
-        .chain(old.directories.iter().cloned())
-        .collect()
+fn archive_required_source(plan: &CatalogPlan) -> Option<&PackageSource> {
+    plan.refusals.iter().find_map(|refusal| match refusal {
+        PlanRefusal::ArchiveRequired { reference, source } if *reference == plan.selected => {
+            Some(source)
+        }
+        _ => None,
+    })
+}
+
+fn unmatched_supplied(plan: &CatalogPlan) -> Option<&Path> {
+    plan.refusals.iter().find_map(|refusal| match refusal {
+        PlanRefusal::ArchiveUnmatched { path } => Some(path.as_path()),
+        _ => None,
+    })
+}
+
+fn acquire(
+    plan: &CatalogPlan,
+    cache: &ArchiveCache,
+    cache_use: CacheUse,
+    links: &[NxmLink],
+    json: bool,
+    progress: &Progress,
+) -> Result<AcquiredArchives> {
+    let text = !json && !progress.enabled();
+    let mut report = io::stderr();
+    let resolver = download::resolver(links, text, &mut report);
+    acquire_pending(
+        plan,
+        cache,
+        cache_use,
+        download::transport(),
+        SourcePolicy::default(),
+        &resolver,
+        progress.control(),
+    )
 }
 
 struct Candidate {
-    plan: InstallPlan,
+    preview: ReleasePreview,
     pending: Vec<String>,
-    present: std::collections::BTreeSet<String>,
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "manager roots, explicit approvals and stored consent are separate inputs"
-)]
-fn plan_update(
-    roots: &ManagerRoots,
-    game_id: &str,
-    game: &Path,
-    archive: &Path,
-    target: &BucketPackage,
-    replaced: &[String],
-    explicit: &[String],
-    stored: Option<&Capabilities>,
-) -> Result<Candidate> {
-    let appdata = content_root_appdata(roots, game_id)?;
-    let preview = |approved: &[String]| -> Result<InstallPlan> {
-        match &appdata {
-            Some(appdata) => preview_update_with_appdata(
-                roots, game_id, game, archive, approved, replaced, appdata,
-            ),
-            None => {
-                preview_update_with_permissions(roots, game_id, game, archive, approved, replaced)
-            }
-        }
-    };
-    let declared = &target.package.executables;
-    let mut base_approved = explicit.to_vec();
-    if let Some(stored) = stored {
-        let additions: Vec<String> = stored
-            .executables
-            .iter()
-            .filter(|path| !base_approved.contains(path))
-            .cloned()
-            .collect();
-        base_approved.extend(additions);
-    }
-    let mut approved = base_approved.clone();
-    let additions: Vec<String> = declared
-        .iter()
-        .filter(|path| !approved.contains(path))
-        .cloned()
-        .collect();
-    approved.extend(additions);
-    let plan = preview(&approved)?;
-    let destinations: Vec<&str> = plan
-        .operations
-        .iter()
-        .map(|operation| operation.destination.as_str())
-        .collect();
-    let pending = install_consent::pending_executables(declared, &base_approved, &destinations);
-    let present = install_consent::present_executables(declared, &destinations);
-    Ok(Candidate {
-        plan,
-        pending,
-        present,
-    })
+    present: BTreeSet<String>,
 }
 
 pub(super) fn run(
@@ -201,7 +161,7 @@ pub(super) fn run(
     if args.download && !args.dry_run {
         bail!("--download only prepares a --dry-run; an update downloads what it needs");
     }
-    let Some(target) = args.target.as_deref() else {
+    let Some(query) = args.target.as_deref() else {
         return crate::update_refresh::run(args, roots, requested, json);
     };
     if progress.enabled() && !args.yes && !args.dry_run {
@@ -211,18 +171,10 @@ pub(super) fn run(
         ));
     }
     let catalog = BucketStore::new(roots).snapshot(requested)?;
-    let current = catalog_install::resolve(target, &catalog, json)?;
+    let current = catalog_install::resolve(query, &catalog, json)?;
     let reference = reference_of(&current);
     let label = reference.to_string();
     let releases = catalog.releases(&current.bucket, &current.package.game, &current.package.id)?;
-    let installed_versions: Vec<(String, String)> = releases
-        .iter()
-        .filter_map(|r| {
-            r.package
-                .pin()
-                .map(|pin| (pin.to_owned(), r.package.version.clone()))
-        })
-        .collect();
     let target = choose_release(releases, args.version.as_deref(), &label)?;
     download::validate_links(&args.nxm_links, &[&target])?;
     let interactive = !args.yes && !args.dry_run && !progress.enabled();
@@ -236,86 +188,75 @@ pub(super) fn run(
         args.path.clone(),
         Some(&current.package.game),
     )?;
-    let old = installed_package(store.installed(&game)?, &reference)?;
-    if old.pinned {
-        println!(
-            "Skipped {}: managed package is pinned; run `modn unpin {}` to update it.",
-            old.id, old.id
-        );
-        return Ok(());
-    }
     let flags = install_consent::flags(args.allow_native_injector, &args.allow_executable);
-    let stored = install_consent::stored_approval(Some(store), &game, &reference)?;
-    let native_covered = args.allow_native_injector
-        || stored
-            .as_ref()
-            .is_some_and(|approval| approval.native_injector);
-    if interactive && !install_consent::can_prompt(json) {
-        bail!("an update writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
-    }
-    let installed_version = installed_versions
-        .iter()
-        .find(|(archive_blake3, _)| *archive_blake3 == old.archive_blake3)
-        .map(|(_, version)| version.as_str())
-        .or(old.version.as_deref());
-    let mut blockers = Vec::new();
-    if let Err(error) = catalog.install_order(&target) {
-        blockers.push(format!("{error:#}"));
-    }
-    let release = catalog.release(&target)?;
-    let dependents: Vec<DependentCheck> =
-        update_report::dependent_checks(store, &game, &old, &catalog, &target)?;
-    blockers.extend(update_report::dependency_blockers(
-        &release,
-        &store.dependency_states(&game, &release.dependencies)?,
-    ));
-    blockers.extend(update_report::dependent_blockers(
-        &dependents,
-        &current.package.id,
-    ));
-    let up_to_date = same_release(
-        installed_identity(&old),
-        target_identity(&target.package, &old),
-    );
-    if target.package.native_injector && !native_covered && !up_to_date && !args.dry_run {
-        return Err(
-            ApprovalRefusal::new(reference.clone(), Uncovered::native_injector()).into_error(),
-        );
-    }
     let cache = roots.archive_cache();
-    let mut archives = BTreeMap::new();
-    let mut digests = BTreeMap::new();
-    let mut served = BTreeMap::new();
-    let mut download_attempts = Vec::new();
     let cache_use = if args.no_cache {
         CacheUse::Refresh
     } else {
-        download::add_cached(&cache, [&target], &mut archives, &mut digests, &mut served)?;
         CacheUse::Reuse
     };
-    let mut supplied: BTreeMap<String, download::SuppliedArchive> = BTreeMap::new();
-    if let Some(file) = &args.file {
-        let verified = supplied_archive(file, &target, &digests)?;
-        archives.insert(label.clone(), verified.path.clone());
-        supplied.insert(label.clone(), verified);
-    }
     let protected = ProtectedTarget {
         game: Some(game_id.clone()),
         root: Some(game.clone()),
     };
-    let fetch = !up_to_date && !archives.contains_key(&label) && (args.download || !args.dry_run);
-    if fetch && blockers.is_empty() {
-        let planned = planned_source(&target);
-        if !download::downloadable(&target) {
-            let source = acquisition(planned);
-            bail!("{label}: {source}, then use modn update {label} --file <archive>");
+    let mut plan = build_plan(
+        &target,
+        &catalog,
+        store,
+        &game_id,
+        &game,
+        args.file.as_slice(),
+        &cache,
+        cache_use,
+        &flags,
+    )?;
+    let update = update_facts(&plan)?;
+    if let Some(package_id) = pinned_package(&plan) {
+        println!(
+            "Skipped {package_id}: managed package is pinned; run `modn unpin {package_id}` to update it."
+        );
+        return Ok(());
+    }
+    if interactive && !install_consent::can_prompt(json) {
+        bail!("an update writes game files; choose --dry-run, confirm in a terminal, or explicitly approve with --yes");
+    }
+    let blockers = update_report::blockers(&plan);
+    if !update.up_to_date && !args.dry_run && native_refused(&plan) {
+        return Err(
+            ApprovalRefusal::new(reference.clone(), Uncovered::native_injector()).into_error(),
+        );
+    }
+    if let Some(path) = unmatched_supplied(&plan) {
+        let planned = selected(&plan)?;
+        if planned.served.is_some() || planned.digest.as_str().is_some() {
+            bail!(
+                "{}: archive BLAKE3 does not match {label} {}",
+                path.display(),
+                planned.package.package.version
+            );
+        }
+        bail!(
+            "{label}: Modn knows no archive digest to verify {} against; run modn update {label} without --file so it can acquire the archive from the source",
+            path.display()
+        );
+    }
+    let mut download_attempts = Vec::new();
+    let served = selected(&plan)?.served.is_some();
+    let fetch =
+        !update.up_to_date && !served && (args.download || !args.dry_run) && blockers.is_empty();
+    if fetch {
+        if let Some(source) = archive_required_source(&plan) {
+            bail!(
+                "{label}: {}, then use modn update {label} --file <archive>",
+                dependency_plan::acquisition(source)
+            );
         }
         state.validate_download(cache.root(), &protected)?;
         if interactive {
             let download = format!(
                 "{label} {}; {}",
                 target.package.version,
-                acquisition(planned)
+                dependency_plan::acquisition(planned_source(&target))
             );
             if !install_consent::confirm_download(
                 &[download],
@@ -325,101 +266,134 @@ pub(super) fn run(
                 bail!("{label}: download cancelled");
             }
         }
-        download_attempts.extend(download::download(
-            &cache,
-            cache_use,
-            &[&target],
-            &mut archives,
-            &mut digests,
-            &mut served,
-            &args.nxm_links,
-            json,
-            progress,
-        )?);
-    }
-    let archive = archives.get(&label).cloned();
-    let candidate = match (&archive, up_to_date) {
-        (Some(archive), false) => Some(plan_update(
-            roots,
+        let acquired = acquire(&plan, &cache, cache_use, &args.nxm_links, json, progress)?;
+        plan = build_plan(
+            &target,
+            &catalog,
+            store,
             &game_id,
             &game,
-            archive,
-            &target,
-            &replaced_paths(&old),
-            &args.allow_executable,
-            stored.as_ref(),
-        )?),
-        _ => None,
-    };
-    if let Some(candidate) = &candidate {
-        let expected = download::digest(&target, &digests)?;
-        let expected = expected.as_str().with_context(|| {
-            format!(
-                "{label}: Modn knows no archive digest to verify {} against",
-                target.package.version
-            )
-        })?;
-        if candidate.plan.archive_blake3 != expected {
-            bail!("{label}: source changed after catalog verification");
+            args.file.as_slice(),
+            &cache,
+            CacheUse::Reuse,
+            &flags,
+        )?;
+        acquired.apply_to(&mut plan);
+        download_attempts = acquired.attempts;
+    }
+    let update = update_facts(&plan)?;
+    let planned = selected(&plan)?;
+    let archive = planned.served.as_ref().map(|served| served.path.clone());
+    let mut candidate_approvals = args.allow_executable.clone();
+    if let Some(stored) = &planned.stored {
+        for path in &stored.executables {
+            if !candidate_approvals.contains(path) {
+                candidate_approvals.push(path.clone());
+            }
         }
     }
+    let base_approved = candidate_approvals.clone();
+    for path in &planned.package.package.executables {
+        if !candidate_approvals.contains(path) {
+            candidate_approvals.push(path.clone());
+        }
+    }
+    let candidate = match (&archive, update.up_to_date) {
+        (Some(archive), false) => {
+            let preview = preview_catalog_update(roots, &plan, archive, &candidate_approvals)?;
+            if let Some(expected) = planned.digest.as_str() {
+                if preview.plan.archive_blake3 != expected {
+                    bail!("{label}: source changed after catalog verification");
+                }
+            }
+            let destinations: Vec<&str> = preview
+                .plan
+                .operations
+                .iter()
+                .map(|operation| operation.destination.as_str())
+                .collect();
+            let present = install_consent::present_executables(
+                &planned.package.package.executables,
+                &destinations,
+            );
+            let pending = install_consent::pending_executables(
+                &planned.package.package.executables,
+                &base_approved,
+                &destinations,
+            );
+            Some(Candidate {
+                preview,
+                pending,
+                present,
+            })
+        }
+        _ => None,
+    };
     let check = candidate.as_ref().map(|candidate| {
         let needed = Capabilities::new(
-            target.package.native_injector,
+            planned.package.package.native_injector,
             candidate.present.iter().cloned(),
         );
-        install_consent::ApprovalCheck::new(reference.clone(), needed, stored.clone(), &flags)
+        install_consent::ApprovalCheck::new(
+            reference.clone(),
+            needed,
+            planned.stored.clone(),
+            &flags,
+        )
     });
     let preview = Preview {
         reference: &label,
-        old: &old,
-        installed_version,
-        target: &target,
-        up_to_date,
+        installed: &update.installed,
+        installed_version: update.installed_version.as_deref(),
+        target: &planned.package,
+        up_to_date: update.up_to_date,
         files: candidate
             .as_ref()
-            .map(|candidate| FileChanges::new(&old, &candidate.plan)),
-        plan: candidate.as_ref().map(|candidate| &candidate.plan),
-        archive_needed: (archive.is_none() && !up_to_date)
-            .then(|| acquisition(planned_source(&target))),
-        dependents: &dependents,
+            .map(|candidate| FileChanges::new(&update.installed.files, &candidate.preview.plan)),
+        plan: candidate.as_ref().map(|candidate| &candidate.preview.plan),
+        archive_needed: (archive.is_none() && !update.up_to_date)
+            .then(|| dependency_plan::acquisition(planned_source(&target))),
+        dependents: &update.dependents,
         blockers: &blockers,
         downloads: &download_attempts,
         unapproved_declared_executables: candidate
             .as_ref()
             .map_or(&[], |candidate| candidate.pending.as_slice()),
     };
-    if args.dry_run || up_to_date {
+    if args.dry_run || update.up_to_date {
         return preview.print(json);
     }
     if !blockers.is_empty() {
         bail!("{label}: update blocked:\n  {}", blockers.join("\n  "));
     }
-    let (Some(archive), Some(candidate)) = (archive.as_deref(), candidate.as_ref()) else {
-        bail!("{label}: no archive for {}", target.package.version);
+    let Some(candidate) = candidate.as_ref() else {
+        bail!(
+            "{label}: no archive for {}",
+            planned.package.package.version
+        );
     };
     let check = check.as_ref().context("update plan has approval state")?;
     if !check.uncovered.is_empty() && (!interactive || check.uncovered.native_injector) {
         return check.ensure_approved();
     }
-    let mut approved = check.approved_executables();
-    if interactive {
-        approved.extend(check.uncovered.executables.iter().cloned());
-    }
-    if candidate.plan.status != PlanStatus::Reviewable {
+    if !candidate.preview.reviewable() {
         bail!("{label}: update blocked; inspect it with --dry-run first");
     }
     if interactive {
         preview.print(false)?;
-        let dependents: Vec<String> = dependents
+        let dependents: Vec<String> = update
+            .dependents
             .iter()
-            .map(|check| check.package_id_label())
+            .map(update_report::dependent_label)
             .collect();
         let request = UpdateRequest {
             reference: &label,
             game: &game,
-            from: installed_version.unwrap_or("an unlisted release"),
-            to: &target.package.version,
+            from: update
+                .installed_version
+                .as_deref()
+                .unwrap_or("an unlisted release"),
+            to: &planned.package.package.version,
             dependents: &dependents,
             executables: &candidate.pending,
         };
@@ -427,37 +401,44 @@ pub(super) fn run(
             bail!("{label}: update cancelled");
         }
     }
-    let mut store = state.open_writable(&protected)?;
-    store.set_control(progress.control().clone());
-    store.set_history_context(
-        HistoryContext::new(game_id.clone(), game.clone()).with_source(
-            &reference,
-            download::serving_source(&label, &supplied, &served, &target),
-        ),
+    let approvals = vec![ExecutableApproval::new(reference, candidate_approvals)];
+    let digest = plan_digest(&plan, &approvals, std::slice::from_ref(&candidate.preview));
+    let consent = Consent::new(
+        plan.native_injector == NativeInjectorPolicy::Allow,
+        approvals,
+        digest,
     );
-    let package = store.update_catalog_release(
-        &game,
-        &old.id,
-        archive,
-        &candidate.plan,
-        &release,
-        check.policy(),
-        &approved,
-    )?;
-    let operation_id = store.committed_operation_id().map(str::to_owned);
-    install_consent::record(&mut store, &game, &reference, &check.needed)?;
+    let mut store = state.open_writable(&protected)?;
+    let mut report = io::stderr();
+    let resolver = download::resolver(&args.nxm_links, !json && !progress.enabled(), &mut report);
+    let outcome = commit_plan(CommitRequest::new(
+        roots,
+        &cache,
+        &plan,
+        &consent,
+        download::transport(),
+        &resolver,
+        SourcePolicy::default(),
+        CacheUse::Reuse,
+        progress.control(),
+        &mut store,
+    ))?;
+    let package = outcome
+        .packages
+        .first()
+        .context("the update committed no package")?;
     if json {
         let mut result = serde_json::json!({
-            "package": label, "replaced": old.id, "installed": package,
+            "package": label, "replaced": update.installed.id, "installed": package,
         });
-        if let Some(operation_id) = operation_id {
-            result["operation_id"] = serde_json::Value::String(operation_id);
+        if let Some(operation_id) = &outcome.operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id.clone());
         }
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         println!(
             "Updated {label} to {} ({} owned files)",
-            target.package.version,
+            planned.package.package.version,
             package.files.len()
         );
     }

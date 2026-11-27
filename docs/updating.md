@@ -34,8 +34,10 @@ installed archive digest.
 
 The file list needs the target archive. Without it, the dry run names the
 needed archive. `--file`, `--nxm` and `--download` work as for install.
-A `nexus` target needs an API key, and a free Nexus account also needs the
-matching `--nxm` link. JSON adds `up_to_date`, `blockers`, `plan`,
+A Git release has no BLAKE3 pin, so its supplied archive must match the
+digest that the verified cache records; `--dry-run --download` prepares that
+entry. A `nexus` target needs an API key, and a free Nexus account also needs
+the matching `--nxm` link. JSON adds `up_to_date`, `blockers`, `plan`,
 `downloads` and `unapproved_declared_executables`; its `installed` object
 includes `source`. The text output prints a `DOWNLOAD` line for each attempt,
 including `update --dry-run --download`.
@@ -67,6 +69,15 @@ installed, not of the bucket's current release. A package installed before
 Modn recorded requirements falls back to the bucket release with its archive
 digest. If the bucket no longer publishes that release, the requirement is
 unknown: update or reinstall that dependent first.
+
+The update is planned and committed through the same core routines as an
+install. The plan records the installed package, the release it replaces, the
+replaced paths, whether it is current, each dependent with its recorded
+requirement, and every refusal; it holds no consent. The commit acquires
+missing releases through the verified archive cache, re-runs the game policy
+preview under the transaction lock, and compares the reviewed plan digest with
+the current one. A changed plan is refused with `PLAN_STALE` and writes
+nothing. An up-to-date plan commits nothing.
 
 The game policy plans the new release as if the old release were already
 removed, so an exclusive folder is claimed again. Rust then validates the

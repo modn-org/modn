@@ -4,6 +4,7 @@ mod http;
 #[path = "nexus_download.rs"]
 pub(super) mod nexus_download;
 
+#[cfg(test)]
 pub(super) use acquire::download;
 pub(super) use acquire::resolver;
 
@@ -120,18 +121,6 @@ pub(super) fn fetch_catalog(url: &str) -> anyhow::Result<Box<dyn Read>> {
         }
     }
 }
-pub(super) fn downloadable(release: &BucketPackage) -> bool {
-    release.package.sources.iter().any(|source| {
-        matches!(
-            source,
-            PackageSource::Https { .. }
-                | PackageSource::GithubRelease { .. }
-                | PackageSource::Git { .. }
-                | PackageSource::Nexus { .. }
-        )
-    })
-}
-
 pub(super) fn validate_links(links: &[NxmLink], releases: &[&BucketPackage]) -> Result<()> {
     let packages: Vec<(&str, u64, u64)> = releases
         .iter()
@@ -263,35 +252,13 @@ pub(super) fn downloads_json(attempts: &[SourceAttempt]) -> Vec<serde_json::Valu
         .collect()
 }
 
-pub(super) fn add_cached<'a>(
-    cache: &ArchiveCache,
-    releases: impl IntoIterator<Item = &'a BucketPackage>,
-    archives: &mut BTreeMap<String, PathBuf>,
-    digests: &mut BTreeMap<String, String>,
-    served: &mut BTreeMap<String, PackageSource>,
-) -> Result<()> {
-    for release in releases {
-        let reference = reference_of(release).to_string();
-        if archives.contains_key(&reference) {
-            continue;
-        }
-        let Some(acquired) = cache.cached_release(release)? else {
-            continue;
-        };
-        if let Some(digest) = acquired.digest.as_str() {
-            digests.insert(reference.clone(), digest.to_owned());
-        }
-        served.insert(reference.clone(), acquired.source);
-        archives.insert(reference, acquired.path);
-    }
-    Ok(())
-}
-
+#[cfg(test)]
 pub(super) struct SuppliedArchive {
     pub(super) path: PathBuf,
     pub(super) blake3: String,
 }
 
+#[cfg(test)]
 pub(super) fn serving_source(
     reference: &str,
     supplied: &BTreeMap<String, SuppliedArchive>,
@@ -317,6 +284,7 @@ pub(super) fn serving_source(
         .unwrap_or_else(|| release.package.primary_source().clone())
 }
 
+#[cfg(test)]
 fn refetchable_source(sources: &[PackageSource]) -> Option<&PackageSource> {
     sources.iter().find(|source| {
         matches!(

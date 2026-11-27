@@ -28,7 +28,7 @@ fn a_plain_install_plans_one_release() {
         Capabilities::default(),
     );
 
-    assert_eq!(plan.kind, PlanKind::Install);
+    assert!(matches!(plan.kind, PlanKind::Install));
     assert_eq!(plan.selected.to_string(), reference_of("top"));
     assert_eq!(plan.game_id, GAME);
     assert_eq!(plan.installation, game);

@@ -1,7 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use modn_core::approval::{ApprovalRefusal, Capabilities, Uncovered};
 use modn_core::state::Store;
-use modn_core::transactions::{CatalogReference, NativeInjectorPolicy};
+use modn_core::transactions::CatalogReference;
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::Path;
@@ -187,14 +187,6 @@ impl ApprovalCheck {
         }
     }
 
-    pub(super) fn policy(&self) -> NativeInjectorPolicy {
-        if self.needed.native_injector && !self.uncovered.native_injector {
-            NativeInjectorPolicy::Allow
-        } else {
-            NativeInjectorPolicy::Refuse
-        }
-    }
-
     pub(super) fn ensure_approved(&self) -> Result<()> {
         if self.uncovered.is_empty() {
             return Ok(());
@@ -238,17 +230,6 @@ pub(super) fn present_executables(declared: &[String], destinations: &[&str]) ->
         .filter(|path| destinations.contains(&path.as_str()))
         .cloned()
         .collect()
-}
-
-pub(super) fn record(
-    store: &mut Store,
-    game: &Path,
-    reference: &CatalogReference,
-    needed: &Capabilities,
-) -> Result<()> {
-    store
-        .record_approval(game, &reference.bucket, &reference.mod_id, needed)
-        .with_context(|| format!("{reference} is installed, but its approval could not be stored"))
 }
 
 #[cfg(test)]
