@@ -34,11 +34,8 @@ impl Fixture {
     }
 
     fn write_known(&self, entries: &str) {
-        fs::write(
-            self.state.join("buckets/main/known-buckets.json"),
-            entries,
-        )
-        .expect("known bucket list");
+        fs::write(self.state.join("buckets/main/known-buckets.json"), entries)
+            .expect("known bucket list");
     }
 
     fn run(&self, variables: &[(&str, &str)], args: &[&str]) -> Output {
@@ -110,7 +107,7 @@ fn known_list(entries: &[String]) -> String {
     )
 }
 
-fn redirect<'a>(repo: &'a Path) -> Vec<(&'static str, &'a str)> {
+fn redirect(repo: &Path) -> Vec<(&'static str, &str)> {
     vec![
         ("MODN_TEST_KNOWN_BUCKET_SOURCE", KNOWN_URL),
         ("MODN_TEST_KNOWN_BUCKET_TARGET", path_text(repo)),
@@ -198,10 +195,9 @@ fn known_sync_registers_the_catalog_without_module_trust() {
         "{text}"
     );
 
-    let registration: Value = serde_json::from_slice(
-        &fs::read(fixture.registration("community")).expect("registration"),
-    )
-    .expect("registration JSON");
+    let registration: Value =
+        serde_json::from_slice(&fs::read(fixture.registration("community")).expect("registration"))
+            .expect("registration JSON");
     assert_eq!(registration["git"]["source"]["remote"], path_text(&repo));
     assert_eq!(registration["git"]["signer"]["key_id"], SIGNED_KEY);
     assert!(
@@ -275,12 +271,10 @@ fn unknown_or_unregistered_sync_names_the_known_command() {
     assert!(!refused.status.success());
     let error: Value = serde_json::from_slice(&refused.stderr).expect("error JSON");
     assert_eq!(error["error"], "BUCKET_FAILED");
-    assert!(
-        error["message"]
-            .as_str()
-            .expect("error message")
-            .contains("modn bucket known lists the known buckets")
-    );
+    assert!(error["message"]
+        .as_str()
+        .expect("error message")
+        .contains("modn bucket known lists the known buckets"));
 }
 
 #[test]
@@ -296,11 +290,9 @@ fn revision_without_source_on_a_known_name_is_a_usage_error() {
     let refused = fixture.run_json(&[], &["bucket", "sync", "community", "--revision", "main"]);
     assert!(!refused.status.success());
     let error: Value = serde_json::from_slice(&refused.stderr).expect("error JSON");
-    assert!(
-        error["message"]
-            .as_str()
-            .expect("error message")
-            .contains("`--revision` needs `--source`")
-    );
+    assert!(error["message"]
+        .as_str()
+        .expect("error message")
+        .contains("`--revision` needs `--source`"));
     assert!(!fixture.registration("community").exists());
 }

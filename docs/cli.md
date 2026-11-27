@@ -602,6 +602,7 @@ otherwise the command's default code is used. No command reports a generic
 | `APPROVAL_REQUIRED` | A write needs `--yes` or an interactive confirmation, or a release adds an executable path the stored approval does not cover. |
 | `ARCHIVE_INVALID` | An archive cannot be read or changed during the operation. |
 | `ARCHIVE_REQUIRED` | A mod has no downloadable source and needs `--file`. |
+| `BUCKET_FINGERPRINT_MISMATCH` | A known bucket's `catalog.pub` key ID differs from the fingerprint in the official main list. |
 | `CANCELLED` | The operation was cancelled before its commit point. |
 | `CONFLICT` | A declared or ownership conflict blocks the operation. |
 | `DEPENDENCY_MISSING` | A dependency is not installed or not intact. |
@@ -665,6 +666,8 @@ otherwise the command's default code is used. No command reports a generic
 ## Additional commands
 
 - `modn scan --path <game>` and `modn doctor --path <game>` read the game root and a module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
+- `modn bucket known [--json]` prints the community buckets that the installed official `main` copy lists, in name order, without network access. Human output prints one line per bucket with its name, kind, fingerprint and source, then the description; `--json` prints a `buckets` array whose entries have `name`, `kind`, `source`, `revision` (null when absent), `description` and `fingerprint`. An empty or missing list exits 0.
+- `modn bucket sync <name>` without `--source` resolves an unregistered name from the `main` list and performs the usual signed sync. The listed `fingerprint` must equal the fetched `catalog.pub` key ID, checked before signature verification and before any write; a mismatch reports `BUCKET_FINGERPRINT_MISMATCH` and writes nothing. `--revision` needs `--source`. A known sync registers an ordinary community bucket and grants no module trust; run `modn bucket trust-modules <name> --yes` to trust its modules. A name that is neither registered nor listed is refused with a hint to run `modn bucket known`. See [buckets.md](buckets.md#known-community-buckets).
 - `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key and the optional revocation key. A later sync refuses an unrelated key change and follows a signed rotation or revocation. See [sources.md](sources.md) and [buckets.md](buckets.md#catalog-key-rotation-and-revocation).
 - `modn bucket sync <name> --source <url>.zip` registers a signed ZIP catalog. Modn verifies it in staging before publication, and `--revision` is refused. The source must be `https://`, or an absolute local ZIP path for offline testing. See [buckets.md](buckets.md#community-catalog-sources).
 - `modn bucket sync` and `modn update` try the registered primary and then the mirrors that the latest verified revision lists. A signed `relocation.json` moves the registered primary. See [buckets.md](buckets.md#mirrors-and-relocation).

@@ -3,7 +3,7 @@
 //! The ZIP root holds the same files as a Git catalog. Modn inspects the
 //! archive, extracts it into staging, verifies the signature and the contract
 //! v2 layout, then publishes the catalog and updates one registration.
-use super::git::{validate_tree, verify_catalog_tree, CatalogSigner};
+use super::git::{catalog_source_error, validate_tree, verify_catalog_tree, CatalogSigner};
 use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::mirrors::{
@@ -326,7 +326,7 @@ impl BucketStore {
             previous.as_ref().map(|revision| &revision.signer),
             expected_fingerprint,
         )
-        .with_context(|| format!("catalog source {} failed", served_by.label()))?;
+        .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let trust = match verification.key_change.as_ref().map(|change| change.kind) {
             Some(KeyChangeKind::Revoked) => ModuleTrustState::Untrusted,
             _ => trust,

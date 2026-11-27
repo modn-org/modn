@@ -159,6 +159,20 @@ pub(super) fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustSta
     Ok(())
 }
 
+/// Add the failing source to a staged catalog error without losing its code.
+///
+/// The text keeps the flattened form that users already see. A fingerprint
+/// mismatch keeps [`crate::error::ErrorCode::BucketFingerprintMismatch`].
+pub(super) fn catalog_source_error(label: &str, error: anyhow::Error) -> anyhow::Error {
+    let message = format!("catalog source {label} failed: {error:#}");
+    match crate::error::code_of(&error) {
+        Some(code @ crate::error::ErrorCode::BucketFingerprintMismatch) => {
+            crate::error::coded(code, message)
+        }
+        _ => anyhow!(message),
+    }
+}
+
 fn verify_revision(
     root: &Path,
     name: &str,
@@ -289,10 +303,9 @@ impl BucketStore {
         };
         let source = expected_fingerprint
             .and_then(|_| super::test_hooks::known_source_redirect(&source.remote))
-            .map_or(source.clone(), |remote| GitCatalogSource::new(
-                remote,
-                source.reference.clone(),
-            ));
+            .map_or(source.clone(), |remote| {
+                GitCatalogSource::new(remote, source.reference.clone())
+            });
         source.validate()?;
         let primary = CatalogHost::from(&source);
         let mut candidates = vec![source.clone()];
@@ -343,7 +356,7 @@ impl BucketStore {
             previous.as_ref(),
             expected_fingerprint,
         )
-        .with_context(|| format!("catalog source {} failed", served_by.label()))?;
+        .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let trust = match verification.key_change.as_ref().map(|change| change.kind) {
             Some(KeyChangeKind::Revoked) => ModuleTrustState::Untrusted,
             _ => trust,

@@ -97,10 +97,7 @@ fn known_request(entry: &KnownBucket) -> Result<CatalogRequest> {
     let kind = match entry.kind {
         KnownSourceKind::Git => CatalogKind::Git(Some(GitCatalogSource::new(
             entry.source.clone(),
-            entry
-                .revision
-                .clone()
-                .unwrap_or_else(|| "HEAD".to_owned()),
+            entry.revision.clone().unwrap_or_else(|| "HEAD".to_owned()),
         ))),
         KnownSourceKind::Zip => CatalogKind::Zip(Some(ZipCatalogSource::new(entry.source.clone()))),
         _ => bail!(
