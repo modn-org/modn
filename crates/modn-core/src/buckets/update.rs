@@ -150,7 +150,8 @@ impl BucketStore {
     ///
     /// A signed `sequence.json` is checked against the record beside the
     /// installed copy before the swap. A lower number or a dropped number is a
-    /// rollback and writes nothing.
+    /// rollback and writes nothing. An accepted number is recorded before the
+    /// swap, so an interrupted update never lowers the recorded number.
     pub fn update_main<R: Read, S: Read>(
         &self,
         embedded_key: &str,
@@ -202,16 +203,22 @@ impl BucketStore {
             let digest = bucket_digest::directory_digest(&stage)?;
             let had_main = directory_exists(&main)?;
             let changed = !had_main || bucket_digest::directory_digest(&main)? != digest;
+            // Record the accepted number before the swap. A crash or a failed
+            // swap then leaves the record ahead of the installed copy, which
+            // refuses only older catalogs. A record written after the swap
+            // would leave a window in which an older catalog is accepted.
+            if let Some(accepted) = &accepted {
+                self.write_main_sequence(accepted)?;
+            }
+            #[cfg(test)]
+            sequence_tests::fail_point(&root)?;
             swap(&root, had_main, remove_directory)?;
-            Ok((digest, changed, verified.key_id, accepted, warnings))
+            Ok((digest, changed, verified.key_id, warnings))
         })();
         let cleanup = remove_directory(&stage);
         match result {
-            Ok((digest, changed, key_id, accepted, warnings)) => {
+            Ok((digest, changed, key_id, warnings)) => {
                 cleanup?;
-                if let Some(accepted) = accepted {
-                    self.write_main_sequence(&accepted)?;
-                }
                 Ok(MainCatalogUpdate {
                     digest,
                     changed,
@@ -226,6 +233,10 @@ impl BucketStore {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "update_sequence_tests.rs"]
+mod sequence_tests;
 
 #[cfg(test)]
 mod tests {

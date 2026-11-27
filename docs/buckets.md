@@ -206,7 +206,9 @@ revision after a numbered one is refused with `CATALOG_ROLLBACK`. The same
 number with a different digest is refused with `CATALOG_SEQUENCE_CONFLICT`.
 Both refusals leave the previous registration, catalog files and stored number
 unchanged. A first sync, numbered or unnumbered, always works, so a publisher
-can adopt numbering at any release.
+can adopt numbering at any release. `modn bucket update` records the accepted
+number for `main` before it swaps in the new copy. An interrupted update can
+leave the record ahead of the installed copy, which only refuses older catalogs.
 
 An expiry in the past never refuses a sync. It prints this warning and the
 command exits 0:
