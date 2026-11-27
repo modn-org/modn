@@ -383,6 +383,33 @@ fn print_stack(
     Ok(())
 }
 
+/// Print one release result.
+fn print_release(
+    reference: &str,
+    package: &ManagedPackage,
+    operation_id: Option<&str>,
+    attempts: &[SourceAttempt],
+    json: bool,
+) -> Result<()> {
+    if json {
+        let mut result = serde_json::json!({
+            "package": reference,
+            "installed": package,
+            "downloads": download::downloads_json(attempts),
+        });
+        if let Some(operation_id) = operation_id {
+            result["operation_id"] = serde_json::Value::String(operation_id.to_owned());
+        }
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!(
+            "Installed {reference} ({} owned files)",
+            package.files.len()
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,7 +421,11 @@ mod tests {
 
     fn check(id: &str, needed: &[&str], stored: &[&str]) -> install_consent::ApprovalCheck {
         let needed = Capabilities::new(false, needed.iter().copied());
-        let stored = (!stored.is_empty()).then(|| Capabilities::new(false, stored.iter().copied()));
+        let stored = if stored.is_empty() {
+            None
+        } else {
+            Some(Capabilities::new(false, stored.iter().copied()))
+        };
         install_consent::ApprovalCheck::new(reference(id), needed, stored, &Capabilities::default())
     }
 
@@ -451,31 +482,4 @@ mod tests {
             BTreeSet::from(["tools/base.exe".to_owned()])
         );
     }
-}
-
-/// Print one release result.
-fn print_release(
-    reference: &str,
-    package: &ManagedPackage,
-    operation_id: Option<&str>,
-    attempts: &[SourceAttempt],
-    json: bool,
-) -> Result<()> {
-    if json {
-        let mut result = serde_json::json!({
-            "package": reference,
-            "installed": package,
-            "downloads": download::downloads_json(attempts),
-        });
-        if let Some(operation_id) = operation_id {
-            result["operation_id"] = serde_json::Value::String(operation_id.to_owned());
-        }
-        println!("{}", serde_json::to_string_pretty(&result)?);
-    } else {
-        println!(
-            "Installed {reference} ({} owned files)",
-            package.files.len()
-        );
-    }
-    Ok(())
 }
