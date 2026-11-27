@@ -1,7 +1,6 @@
 use crate::main_bucket;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
-use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::Write;
@@ -9,6 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tempfile::{tempdir, TempDir};
 use zip::write::SimpleFileOptions;
+
+mod snapshot;
+use snapshot::{files, json, path_key, snapshot, stderr};
 
 const SHARED: &[&str] = &[
     "archive/pc/mod/a.archive",
@@ -169,6 +171,14 @@ impl World {
                 .map_err(|err| TestCaseError::fail(err.to_string()))?;
         }
         let state = temp.path().join("state");
+        let cache = state.join("cache");
+        fs::create_dir_all(&cache)?;
+        for package in ['a', 'b'] {
+            fs::copy(
+                temp.path().join(format!("{package}.zip")),
+                cache.join(format!("cyberpunk-2077#{package}#1.0#0000000.zip")),
+            )?;
+        }
         Ok(Self {
             root,
             game,
@@ -223,56 +233,6 @@ impl World {
         let game = self.game.to_string_lossy().into_owned();
         self.modn(&["uninstall", id, "--yes", "--path", &game])
     }
-}
-
-type Snapshot = BTreeMap<PathBuf, Option<Vec<u8>>>;
-
-fn snapshot(root: &Path) -> Result<Snapshot, TestCaseError> {
-    let mut entries = BTreeMap::new();
-    if fs::symlink_metadata(root).is_err() {
-        return Ok(entries);
-    }
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(&directory)? {
-            let path = entry?.path();
-            let relative = path
-                .strip_prefix(root)
-                .map_err(|err| TestCaseError::fail(err.to_string()))?
-                .to_path_buf();
-            if fs::symlink_metadata(&path)?.is_dir() {
-                pending.push(path);
-                entries.insert(relative, None);
-            } else {
-                entries.insert(relative, Some(fs::read(&path)?));
-            }
-        }
-    }
-    Ok(entries)
-}
-
-fn files(snapshot: &Snapshot) -> BTreeMap<&PathBuf, &Vec<u8>> {
-    snapshot
-        .iter()
-        .filter_map(|(path, bytes)| bytes.as_ref().map(|bytes| (path, bytes)))
-        .collect()
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-fn path_key(path: &Path) -> String {
-    let text = path.to_string_lossy().replace('\\', "/");
-    if cfg!(windows) {
-        text.to_ascii_lowercase()
-    } else {
-        text
-    }
-}
-
-fn json(output: &Output) -> Result<Value, TestCaseError> {
-    serde_json::from_slice(&output.stdout).map_err(|err| TestCaseError::fail(err.to_string()))
 }
 
 #[derive(Default)]
@@ -406,6 +366,7 @@ fn check_uninstall(
     world: &World,
     id: &str,
     owned: &BTreeSet<PathBuf>,
+    restored: &BTreeMap<String, Vec<u8>>,
 ) -> Result<(), TestCaseError> {
     let before = snapshot(&world.root)?;
     let removed = world.uninstall(id)?;
@@ -417,12 +378,22 @@ fn check_uninstall(
     );
     let after = snapshot(&world.root)?;
     let owned: BTreeSet<String> = owned.iter().map(|path| path_key(path)).collect();
-    let expected: BTreeMap<_, _> = files(&before)
+    let mut expected: BTreeMap<PathBuf, Vec<u8>> = files(&before)
         .into_iter()
         .filter(|(path, _)| !owned.contains(&path_key(path)))
+        .map(|(path, bytes)| (path.clone(), bytes.clone()))
+        .collect();
+    for (path, bytes) in &mut expected {
+        if let Some(replacement) = restored.get(&path_key(path)) {
+            *bytes = replacement.clone();
+        }
+    }
+    let after_files: BTreeMap<PathBuf, Vec<u8>> = files(&after)
+        .into_iter()
+        .map(|(path, bytes)| (path.clone(), bytes.clone()))
         .collect();
     prop_assert_eq!(
-        files(&after),
+        after_files,
         expected,
         "uninstall of {} removed the wrong files",
         id
@@ -443,17 +414,41 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
     } else {
         check_install(&world, 'b', case.second.len(), observed)?
     };
-    if let Some((_, _, second_destinations)) = &second {
-        let second_keys: BTreeSet<String> = second_destinations
-            .iter()
-            .map(|path| path_key(path))
-            .collect();
+    let Some((second_id, _second_files, mut second_owned)) = second else {
+        check_uninstall(&world, &first_id, &first_owned, &BTreeMap::new())?;
+        prop_assert_eq!(
+            snapshot(&world.root)?,
+            start,
+            "uninstalling every package did not restore the game"
+        );
+        return Ok(());
+    };
+    let first_keys: BTreeSet<String> = first_owned.iter().map(|path| path_key(path)).collect();
+    let second_keys: BTreeSet<String> = second_owned.iter().map(|path| path_key(path)).collect();
+    let shared: BTreeSet<String> = first_keys.intersection(&second_keys).cloned().collect();
+    // Undo the winner first on some cases so both install orders are covered.
+    let winner_first = !shared.is_empty() || case.user_files.len().is_multiple_of(2);
+    let mut restored = BTreeMap::new();
+    if winner_first {
+        second_owned.retain(|path| !first_keys.contains(&path_key(path)));
+        for (index, destination) in case.first.iter().enumerate() {
+            let key = path_key(&Path::new("game").join(destination));
+            if shared.contains(&key) {
+                restored.insert(key, payload('a', index));
+            }
+        }
+        check_uninstall(&world, &second_id, &second_owned, &restored)?;
+        check_uninstall(&world, &first_id, &first_owned, &BTreeMap::new())?;
+    } else {
         first_owned.retain(|path| !second_keys.contains(&path_key(path)));
-    }
-    check_uninstall(&world, &first_id, &first_owned)?;
-    if let Some((second_id, second_files, second_destinations)) = second {
-        let _ = second_files;
-        check_uninstall(&world, &second_id, &second_destinations)?;
+        for (index, destination) in case.second.iter().enumerate() {
+            let key = path_key(&Path::new("game").join(destination));
+            if shared.contains(&key) {
+                restored.insert(key, payload('b', index));
+            }
+        }
+        check_uninstall(&world, &first_id, &first_owned, &restored)?;
+        check_uninstall(&world, &second_id, &second_owned, &BTreeMap::new())?;
     }
     prop_assert_eq!(
         snapshot(&world.root)?,
