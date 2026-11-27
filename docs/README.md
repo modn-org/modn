@@ -10,14 +10,15 @@ shipped behavior.
 - [`install.md`](install.md): install Modn on Windows and verify the download.
 - [`getting-started.md`](getting-started.md): first-time setup, game discovery,
   the state directory and a clean manager state.
-- [`cli.md`](cli.md): command reference for games, buckets, search, install,
-  update, list, history and uninstall.
+- [`cli.md`](cli.md): command reference for games, buckets, profiles, search,
+  install, update, list, history and uninstall.
 - [`installing.md`](installing.md): catalog and standalone installs, dependency
   plans, stacks and tool executable approval.
 - [`updating.md`](updating.md): pin, unpin and update a managed package.
 - [`cache.md`](cache.md): the verified download cache and `modn cache`.
 - [`inventory.md`](inventory.md): `scan` and `doctor`, ownership drift and
   framework signals.
+- [`profiles.md`](profiles.md): profiles, conflict priority and profile switch.
 - [`history.md`](history.md): durable operation history, its storage and
   `modn history` output.
 - [`assets.md`](assets.md): read-only DDS and RDAR structure inspection.

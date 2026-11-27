@@ -4,7 +4,11 @@
 
 The Cyberpunk Lua policy prefers an **exclusive mod folder** for new CET, RED4ext, and mod-specific redscript subdirectories when their shared parent already exists. Modn owns the entire newly created folder: uninstall quarantines and deletes it, including changed files and runtime-generated content. Do not place unrelated personal content in these folders. Pre-existing mod directories cannot be claimed wholesale; loose archives, tweaks and XML mappings use conservative file-level ownership. An exclusive claim never overwrites a pre-existing folder. Modn records the operating system's directory-object identity in its SQLite ledger (on Linux this requires a supported filesystem birth timestamp, not just a reusable inode). A transaction prepares each new folder at a same-volume staging name, persists that identity, and then activates it by rename. Recovery checks the directory object rather than a file marker, so interrupted cleanup remains restartable without hashing runtime contents.
 
-`uninstall` and standalone archive installs require explicit `--yes` approval; catalog installs accept `--yes` or an interactive confirmation. The manager stores file hashes and ownership in SQLite in the state directory. It rejects existing destinations, linked paths, unsupported mod layouts, encrypted archives, oversized content, and attempts to uninstall modified files. Installation verifies archive content into manager-owned staging before creating game files; destination creation uses exclusive hard links rather than replacing existing files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `modn recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
+`uninstall` and standalone archive installs require explicit `--yes` approval; catalog installs accept `--yes` or an interactive confirmation. The manager stores file hashes and ownership in SQLite in the state directory. It rejects unmanaged destinations, linked paths, unsupported mod layouts, encrypted archives, oversized content, and attempts to uninstall modified files. A managed destination that another enabled package owns is allowed and becomes
+a recorded override. The new package wins by priority and the old owner keeps a
+shadowed claim. Installation verifies archive content into manager-owned
+staging before creating game files; destination creation uses exclusive hard
+links rather than replacing unmanaged files. Backups/witnesses remain until the SQLite ownership update commits. An interrupted transaction blocks further writes until `modn recover --yes` can safely roll it back or finish cleanup. If a witness or owned file was modified, recovery deliberately fails without deleting it; resolve that state manually before continuing.
 
 The transaction executor is game-agnostic: Rust callers may submit an explicitly approved `InstallPlan` to `Store::install_operations_zip` for any real installation root. Under the exclusive store lock it independently re-inspects the archive, verifies archive hashes and all source sizes, validates destinations, collisions, executable payloads, ownership conflicts, and size limits before staging. The ownership ledger, rollback, crash recovery, and uninstall operate on generic installation roots. The CLI now resolves installation operations from Lua; no Cyberpunk-specific Rust installation planner or legacy compatibility adapter remains. ZIP and 7z extraction are supported; REDmod deployment remains unsupported. CET/RED4ext `.dll` plugin files are permitted within the recognized plugin layout, but neither Modn nor its preview executes them or certifies their compatibility; prohibited executable payloads remain blocked unless explicitly approved as an exact tool path by the caller.
 
@@ -45,6 +49,9 @@ the transaction starts to change game files or the records that own them.
   a cancellation before the commit point restores it.
 - **Uninstall and forced cleanup:** the commit point is before Modn
   quarantines the first owned file.
+- **Profile switch:** the commit point is before Modn sets the active profile
+  and replaces the winner rows. A cancellation before it restores every
+  quarantined path.
 - **Download:** the commit point is the digest check that renames the
   complete partial file into the verified cache entry. A cancelled download
   removes the partial file and keeps no entry.
@@ -55,6 +62,45 @@ files, manager state and ownership records as they were. From the commit
 point on, Modn ignores cancellation and finishes, or rolls back, the
 operation as it does without one. [cli.md](cli.md#progress-events-and-cancellation)
 defines the CLI protocol and the event schema.
+
+## Profile switch transactions
+
+A profile switch uses the journal action `profile-switch`. It re-runs its
+read-only plan under the transaction lock, then stages every written member
+from the package archive. Staging verifies each member before the journal
+appears. The journal records:
+
+- `pending_transactions` with action `profile-switch` and status `pending`.
+- `pending_profile_switches` with the installation and the from and to profile
+  names.
+- `pending_files` for every path the target profile writes.
+- `pending_overrides` for every path the switch removes or replaces, with the
+  old package, digest and size.
+
+Execution quarantines each removed or replaced path as a hard-link `.old`
+witness. It writes each new path through a `.tmp` witness and verifies the
+digest. The commit point is the `commit` progress event, checked once more
+before the commit. One SQLite transaction then sets the active profile, replaces
+the winner rows and writes the history record. A cancellation before the commit
+point returns `CANCELLED` and rolls back. A failure before it uses the same
+recovery path.
+
+Recovery of the `profile-switch` action reads the journal and its witnesses:
+
+| Crash point | Evidence | Recovery result |
+|---|---|---|
+| Before the journal | No pending row | Reports 0. The old profile stays active. |
+| After the journal, before a move | Pending journal, no witness | Deletes the journal. The old profile stays active. |
+| After some quarantines | Pending journal, `.old` witnesses | Restores every `.old` path and removes every `.tmp` witness. The old profile stays active. |
+| After all moves, before the commit | Pending journal, new bytes at each destination | Restores every replaced or removed path and removes every created path. The old profile stays active. |
+| After the commit, before cleanup | Journal status `committed` | Keeps the new profile and new bytes. Removes witnesses and staging. |
+
+A destination that matches neither journaled digest is never overwritten.
+Recovery keeps it and reports `CONFLICT`, so the journal waits for a decision.
+Profile enable, disable, apply and the uninstall restore use the journal actions
+`profile_toggle` and `profile_apply`, or the uninstall journal with
+`pending_restores`. `modn recover --yes` resolves all of them with the same
+rules.
 
 ## Operation history at the commit point
 
@@ -100,4 +146,6 @@ that still holds content moves into the ledger, so a later prune can remove it.
 ## Explicit lifecycle extensions
 
 [Managed lifecycle](lifecycle.md) describes acknowledged adoption and approved cleanup of modified owned files.
-Normal installation still rejects existing destinations. Normal uninstall retains strict integrity checks.
+Normal installation still rejects existing unmanaged destinations. It allows a
+managed destination and records the previous owner as a shadowed claim. Normal
+uninstall retains strict integrity checks.

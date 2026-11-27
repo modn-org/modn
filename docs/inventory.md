@@ -22,3 +22,30 @@ ArchiveXL DLL is present, and reported informationally as `SCAN_IGNORED_GENERATE
 mod content. Directory symlinks and special objects stay unsafe; Unix
 conservatively reports an unknown link type. The link is never followed, and
 skipped entries remain visible in diagnostics; scanning never grants ownership.
+
+## Profile health
+
+`modn doctor` reports the active profile in text and in a `profile` object under
+`--json`. The object has `name`, `active`, `packages`, `overlapping_files`,
+`consistent` and `issues`. `packages` counts enabled and disabled memberships.
+`overlapping_files` counts paths that two or more enabled members claim. An
+installation without an active profile has a null `profile`.
+
+Each issue has `kind`, `path`, `package`, `detail` and `advice`. The kinds are:
+
+- `winner_mismatch`: the stored winner is not the priority winner, or no winner
+  row exists. The advice is `modn profile apply --yes`.
+- `shadowed_claim_unrecoverable`: a shadowed claim has no verified archive, or
+  the archive lacks its entry. The advice is `modn cache show`.
+- `other_profile_archive_missing`: a package that another profile would write
+  has no verified archive. The detail names that profile.
+
+`consistent` is false when any issue exists. Doctor reads manager state and the
+archive cache. It never repairs, never writes a game file and never changes the
+cache. A missing archive therefore stays reported until you reacquire the
+package into the verified cache.
+
+`modn list` shows the active profile and a rank marker for each enabled member.
+A disabled member is marked `disabled`. A package with shadowed files shows the
+count. `modn list --json` stays one array. Each package adds `profile`, `rank`,
+`enabled`, `shadowed_files` and `priority`. See [cli.md](cli.md#modn-profile).
