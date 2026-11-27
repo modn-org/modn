@@ -24,10 +24,6 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
 /// Commit one update plan through its re-planning entry point.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the update step keeps the plan, consent, acquisition and open store explicit"
-)]
 pub(super) fn commit_update(
     roots: &ManagerRoots,
     plan: &CatalogPlan,

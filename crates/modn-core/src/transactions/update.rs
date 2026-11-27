@@ -189,6 +189,10 @@ impl Store {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the locked update keeps the release, proposal, policy and fault injection explicit"
+    )]
     fn update_locked(
         &mut self,
         game: &Path,

@@ -335,10 +335,7 @@ fn target_identity<'a>(manifest: &'a PackageManifest, installed: &ManagedPackage
         .source
         .as_ref()
         .and_then(|source| listed_git_commit(manifest, source))
-        .map_or_else(
-            || source_identity(manifest),
-            |commit| Identity::Commit(commit),
-        )
+        .map_or_else(|| source_identity(manifest), Identity::Commit)
 }
 
 fn installed_identity(package: &ManagedPackage) -> Identity<'_> {
