@@ -287,6 +287,7 @@ impl Store {
         let path_text = path.to_str().context("game path must be valid UTF-8")?;
         let tx = self.connection.unchecked_transaction()?;
         roots::record_root(&tx, &path, roots::RootKind::Game, &path)?;
+        profiles::ensure_profile(&tx, &path)?;
         tx.execute(
             "INSERT INTO game_installations (game_id, path, source)
              VALUES (?1, ?2, ?3)
@@ -479,7 +480,7 @@ fn ensure_history_undoes(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-mod profiles;
+pub(crate) mod profiles;
 mod roots;
 mod schema;
 #[cfg(test)]

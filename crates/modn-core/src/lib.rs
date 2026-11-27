@@ -35,6 +35,8 @@ pub mod launch;
 /// Resolve every manager-owned location once per command.
 pub mod manager_roots;
 pub mod planning;
+/// Named per-game profiles and their package priority order.
+pub mod profiles;
 pub mod progress;
 /// Inventory detected game files and produce diagnostic findings.
 pub mod scan;

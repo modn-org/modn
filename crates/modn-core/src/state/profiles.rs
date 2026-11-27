@@ -5,6 +5,10 @@
 //! schema version is refused before any of these tables is read. Profile
 //! lifecycle, claim and switch SQL belongs in this module.
 
+use anyhow::{Context, Result};
+use rusqlite::{params, Connection, OptionalExtension};
+use std::path::Path;
+
 /// The tables that schema version 8 adds, for layout validation.
 pub(super) const TABLES: [&str; 7] = [
     "profiles",
@@ -92,3 +96,104 @@ CREATE TABLE IF NOT EXISTS history_profile_switches (
     to_profile TEXT NOT NULL
 );
 ";
+
+/// The profile that owns new mainstream installs for one installation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveProfile {
+    pub(crate) id: String,
+}
+
+/// The active profile of `game`, creating `default` when the installation has
+/// no profile yet.
+pub(crate) fn ensure_profile(connection: &Connection, game: &Path) -> Result<ActiveProfile> {
+    let game_text = game.to_string_lossy();
+    let active: Option<String> = connection
+        .query_row(
+            "SELECT id FROM profiles WHERE game_path=?1 AND active=1",
+            [game_text.as_ref()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(id) = active {
+        return Ok(ActiveProfile { id });
+    }
+    let existing_default: Option<String> = connection
+        .query_row(
+            "SELECT id FROM profiles WHERE game_path=?1 AND name='default'",
+            [game_text.as_ref()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(id) = existing_default {
+        connection.execute("UPDATE profiles SET active=1 WHERE id=?1", [&id])?;
+        return Ok(ActiveProfile { id });
+    }
+    let id = profile_id(&game_text, "default");
+    connection.execute(
+        "INSERT INTO profiles(id,game_path,name,active) VALUES (?1,?2,'default',1)",
+        params![id, game_text.as_ref()],
+    )?;
+    Ok(ActiveProfile { id })
+}
+
+/// A stable profile identifier derived from the installation path and name.
+pub(crate) fn profile_id(game_path: &str, name: &str) -> String {
+    let digest = blake3::hash(format!("{game_path}\0{name}").as_bytes());
+    format!("profile-{}", digest.to_hex())
+}
+
+/// Append `package_id` to `profile_id` at the next priority and enable it.
+pub(crate) fn append_package(
+    connection: &Connection,
+    profile_id: &str,
+    package_id: &str,
+) -> Result<i64> {
+    connection.execute(
+        "INSERT INTO profile_packages(profile_id,package_id,priority,enabled)
+         SELECT ?1,?2,COALESCE(MAX(priority),-1)+1,1
+         FROM profile_packages WHERE profile_id=?1",
+        params![profile_id, package_id],
+    )?;
+    connection
+        .query_row(
+            "SELECT priority FROM profile_packages WHERE profile_id=?1 AND package_id=?2",
+            params![profile_id, package_id],
+            |row| row.get(0),
+        )
+        .context("appended profile membership is missing")
+}
+
+/// Move every membership of `from_package` to `to_package`, keeping priorities
+/// and enabled flags. An update uses this so it does not append a new rank.
+pub(crate) fn transfer_memberships(
+    connection: &Connection,
+    from_package: &str,
+    to_package: &str,
+) -> Result<usize> {
+    Ok(connection.execute(
+        "UPDATE profile_packages SET package_id=?2 WHERE package_id=?1",
+        params![from_package, to_package],
+    )?)
+}
+
+/// Delete every row that names `package_id`, except the package row itself.
+pub(crate) fn delete_package_records(connection: &Connection, package_id: &str) -> Result<()> {
+    for statement in [
+        "DELETE FROM profile_packages WHERE package_id=?1",
+        "DELETE FROM file_claims WHERE package_id=?1",
+        "DELETE FROM pending_overrides WHERE package_id=?1",
+        "DELETE FROM pending_restores WHERE package_id=?1",
+        "DELETE FROM managed_files WHERE package_id=?1",
+        "DELETE FROM managed_directories WHERE package_id=?1",
+        "DELETE FROM package_conflicts WHERE package_id=?1",
+        "DELETE FROM package_requirements WHERE package_id=?1",
+        "DELETE FROM pending_stack_packages WHERE package_id=?1",
+        "DELETE FROM package_dependencies WHERE package_id=?1",
+        "DELETE FROM package_dependencies WHERE dependency_id=?1",
+        "DELETE FROM catalog_provenance WHERE package_id=?1",
+        "DELETE FROM managed_package_releases WHERE package_id=?1",
+    ] {
+        connection.execute(statement, [package_id])?;
+    }
+    Ok(())
+}
