@@ -49,6 +49,7 @@ pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
         skipped_generated_files: Vec::new(),
         content_base: None,
         content_root: None,
+        overrides: Vec::new(),
     }
 }
 #[test]
@@ -441,6 +442,7 @@ fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
         skipped_generated_files: Vec::new(),
         content_base: None,
         content_root: None,
+        overrides: Vec::new(),
     };
     assert!(store
         .install_operations_zip(&game, &archive, &proposal)

@@ -2,6 +2,8 @@
 mod adoption;
 use crate::archive::Inspection;
 pub use adoption::{preview_adoption, preview_adoption_with_appdata};
+mod destination;
+pub(crate) use destination::existing_destination_issue;
 mod preview;
 pub(crate) use preview::preview_install_zip_optional_appdata;
 pub use preview::{
@@ -84,6 +86,8 @@ pub struct InstallPlan {
     /// Validated content root, when the module declares one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_root: Option<PathBuf>,
+    /// Managed destinations this plan replaces, one per shared file.
+    pub overrides: Vec<crate::transactions::claim::PlanOverride>,
 }
 
 pub(crate) fn prohibited_payload(path: &str) -> bool {
@@ -113,64 +117,6 @@ pub(crate) fn is_replaced(replaced: &[String], relative: &str) -> bool {
     })
 }
 
-pub(crate) fn existing_destination_issue(game: &Path, target: &str) -> Option<&'static str> {
-    let mut current = game.to_path_buf();
-    let canonical_game = game.canonicalize().ok()?;
-    let components: Vec<_> = target.split('/').collect();
-    for (index, component) in components.iter().enumerate() {
-        current.push(component);
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) => {
-                if index + 1 < components.len() && !metadata.is_dir() {
-                    return Some("NON_DIRECTORY_ANCESTOR");
-                }
-                if metadata.file_type().is_symlink() {
-                    return Some("LINKED_DESTINATION");
-                }
-                let Ok(resolved) = current.canonicalize() else {
-                    return Some("LINKED_DESTINATION");
-                };
-                if !resolved.starts_with(&canonical_game) {
-                    return Some("LINKED_DESTINATION");
-                }
-                // On Windows, a short (8.3) name can alias a long directory name
-                // without matching its SQLite ownership key. Never publish a
-                // new file below an ancestor addressed through a different name.
-                #[cfg(windows)]
-                {
-                    let key = crate::transactions::ownership_key(component);
-                    if !resolved
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(|actual| crate::transactions::ownership_key(actual) == key)
-                    {
-                        return Some("ALIASED_DESTINATION");
-                    }
-                    if component.contains('~')
-                        && !current.parent().is_some_and(|parent| {
-                            fs::read_dir(parent).is_ok_and(|entries| {
-                                entries.flatten().any(|entry| {
-                                    entry.file_name().to_str().is_some_and(|actual| {
-                                        crate::transactions::ownership_key(actual) == key
-                                    })
-                                })
-                            })
-                        })
-                    {
-                        return Some("ALIASED_DESTINATION");
-                    }
-                }
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => break,
-            Err(_) => return Some("DESTINATION_UNREADABLE"),
-        }
-    }
-    if fs::symlink_metadata(&current).is_ok() || game.join(target).exists() {
-        Some("EXISTING_FILE")
-    } else {
-        None
-    }
-}
 pub(crate) fn insert_destination(
     targets: &mut BTreeSet<String>,
     root: &str,
@@ -237,6 +183,65 @@ pub(crate) fn resolve_with_permissions(
     approved: &[String],
     replaced: &[String],
     appdata: Option<&Path>,
+) -> anyhow::Result<InstallPlan> {
+    resolve_inner(
+        roots, game_id, inspection, game, approved, replaced, appdata, None,
+    )
+}
+
+/// Resolve a plan against the files the active profile's packages own on disk.
+///
+/// A destination that another member of the active profile owns is a planned
+/// override, not an unmanaged file. The returned plan names the replaced
+/// package and digest for every shared file. `replaced_package` names the
+/// package an update withdraws, so its own claims are not overrides.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the store-aware resolver names the same planning inputs plus the store"
+)]
+pub fn resolve_with_claims(
+    store: &crate::state::Store,
+    roots: &crate::manager_roots::ManagerRoots,
+    game_id: &str,
+    inspection: &Inspection,
+    game: &Path,
+    approved: &[String],
+    replaced: &[String],
+    replaced_package: Option<&str>,
+    appdata: Option<&Path>,
+) -> anyhow::Result<InstallPlan> {
+    if !fs::symlink_metadata(game)?.file_type().is_dir() {
+        anyhow::bail!("installation root must be a real directory, not a link");
+    }
+    let game = game.canonicalize()?;
+    let managed = store.managed_claim_keys(&game, replaced_package)?;
+    let mut plan = resolve_inner(
+        roots,
+        game_id,
+        inspection,
+        &game,
+        approved,
+        replaced,
+        appdata,
+        Some(&managed),
+    )?;
+    plan.overrides = store.claim_overrides(&game, &plan, replaced_package)?;
+    Ok(plan)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the resolver keeps each planning input explicit"
+)]
+fn resolve_inner(
+    roots: &crate::manager_roots::ManagerRoots,
+    game_id: &str,
+    inspection: &Inspection,
+    game: &Path,
+    approved: &[String],
+    replaced: &[String],
+    appdata: Option<&Path>,
+    managed: Option<&BTreeSet<String>>,
 ) -> anyhow::Result<InstallPlan> {
     use anyhow::bail;
     if !fs::symlink_metadata(game)?.file_type().is_dir() {
@@ -433,8 +438,16 @@ pub(crate) fn resolve_with_permissions(
                 }
             },
         };
-        if let Some(code) = existing_destination_issue(root_path, &request.destination)
-            .filter(|&code| code != "EXISTING_FILE" || !is_replaced(replaced, &request.destination))
+        let managed_file = managed.is_some_and(|keys| {
+            keys.contains(&format!(
+                "{root_label}:{}",
+                crate::transactions::ownership_key(&request.destination)
+            ))
+        });
+        if let Some(code) =
+            existing_destination_issue(root_path, &request.destination, managed_file).filter(
+                |&code| code != "EXISTING_FILE" || !is_replaced(replaced, &request.destination),
+            )
         {
             issue(
                 &mut blockers,
@@ -477,6 +490,7 @@ pub(crate) fn resolve_with_permissions(
         skipped_generated_files,
         content_base,
         content_root,
+        overrides: Vec::new(),
     })
 }
 

@@ -3,6 +3,9 @@ mod adoption;
 mod catalog;
 #[cfg(test)]
 mod catalog_tests;
+pub mod claim;
+#[cfg(test)]
+mod claim_tests;
 mod conflicts;
 #[cfg(test)]
 mod conflicts_tests;

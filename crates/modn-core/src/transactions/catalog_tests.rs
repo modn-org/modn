@@ -132,6 +132,7 @@ pub(super) fn plan_into(game: &Path, archive: &Path, directory: &str) -> Install
         skipped_generated_files: Vec::new(),
         content_base: None,
         content_root: None,
+        overrides: Vec::new(),
     }
 }
 

@@ -1,3 +1,4 @@
+use super::claim::{ClaimedPath, PlanOverride};
 use super::journal::Roots;
 use crate::archive::{validated_name, Inspection};
 use crate::planning::{
@@ -94,6 +95,17 @@ pub(super) fn validate_plan(
         }
         sources.insert(entry.entry.as_str(), entry.bytes);
     }
+    let overridden: BTreeSet<String> = proposal
+        .overrides
+        .iter()
+        .map(|entry| {
+            format!(
+                "{}:{}",
+                entry.root,
+                super::ownership_key(&entry.destination)
+            )
+        })
+        .collect();
     let mut selected = HashSet::new();
     let mut targets = BTreeSet::new();
     let mut total = 0u64;
@@ -146,7 +158,12 @@ pub(super) fn validate_plan(
         ) {
             bail!("{code}: {}", operation.destination);
         }
-        if let Some(code) = existing_destination_issue(root_path, &operation.destination)
+        let managed = overridden.contains(&format!(
+            "{}:{}",
+            operation.root,
+            super::ownership_key(&operation.destination)
+        ));
+        if let Some(code) = existing_destination_issue(root_path, &operation.destination, managed)
             .filter(|code| *code != "EXISTING_FILE" || matches!(existing, ExistingTargets::Refuse))
         {
             bail!("{code}: {}", operation.destination);
@@ -155,30 +172,51 @@ pub(super) fn validate_plan(
     Ok(())
 }
 
+impl Store {
+    /// Destinations of `plan` that replace another package's managed file.
+    ///
+    /// Each returned entry names the package that owns the file now. The
+    /// installation root overlap, exclusive directory, duplicate destination
+    /// and active-profile membership rules still refuse.
+    pub(crate) fn claim_overrides(
+        &self,
+        game: &Path,
+        plan: &InstallPlan,
+        replaced: Option<&str>,
+    ) -> Result<Vec<PlanOverride>> {
+        let mut overrides = Vec::new();
+        for root in [RootKind::Game, RootKind::Content] {
+            let paths = plan
+                .operations
+                .iter()
+                .filter(|operation| operation.root == root.label())
+                .map(|operation| ClaimedPath {
+                    destination: &operation.destination,
+                    archive_entry: &operation.source,
+                    bytes: operation.bytes,
+                });
+            overrides.extend(validate_ownership_paths(self, game, root, paths, replaced)?);
+        }
+        Ok(overrides)
+    }
+}
+
 pub(super) fn validate_ownership(
     store: &Store,
     game: &Path,
     proposal: &InstallPlan,
     replaced: Option<&str>,
-) -> Result<()> {
-    for root in [RootKind::Game, RootKind::Content] {
-        let paths = proposal
-            .operations
-            .iter()
-            .filter(|operation| operation.root == root.label())
-            .map(|operation| operation.destination.as_str());
-        validate_ownership_paths(store, game, root, paths, replaced)?;
-    }
-    Ok(())
+) -> Result<Vec<PlanOverride>> {
+    store.claim_overrides(game, proposal, replaced)
 }
 
 fn validate_ownership_paths<'a>(
     store: &Store,
     game: &Path,
     root: RootKind,
-    paths: impl IntoIterator<Item = &'a str>,
+    paths: impl IntoIterator<Item = ClaimedPath<'a>>,
     replaced: Option<&str>,
-) -> Result<()> {
+) -> Result<Vec<PlanOverride>> {
     let selected = PathBuf::from(super::ownership_key(&game.to_string_lossy()));
     let mut roots = store
         .connection
@@ -192,17 +230,7 @@ fn validate_ownership_paths<'a>(
             bail!("installation root overlaps another managed installation");
         }
     }
-    let mut reserved: BTreeSet<String> = owned_paths(
-        store,
-        game,
-        root,
-        "relative_path",
-        "managed_files",
-        replaced,
-    )?
-    .into_iter()
-    .map(|path| super::ownership_key(&path))
-    .collect();
+    let reservations = store.file_reservations(game, root, replaced)?;
     let directories = owned_paths(
         store,
         game,
@@ -211,7 +239,10 @@ fn validate_ownership_paths<'a>(
         "managed_directories",
         replaced,
     )?;
-    for destination in paths {
+    let mut targets = BTreeSet::new();
+    let mut overrides = Vec::new();
+    for path in paths {
+        let destination = path.destination;
         let folded = super::directory::case_key(destination);
         if directories.iter().any(|root| {
             let key = super::directory::case_key(root);
@@ -219,11 +250,27 @@ fn validate_ownership_paths<'a>(
         }) {
             bail!("destination is inside an exclusively owned directory: {destination}");
         }
-        if let Some(code) = insert_destination(&mut reserved, root.label(), destination) {
-            bail!("{code}: destination already reserved by manager: {destination}");
+        if let Some(code) = insert_destination(&mut targets, root.label(), destination) {
+            bail!("{code}: {destination}");
         }
+        let Some(reservation) = reservations.get(&super::ownership_key(destination)) else {
+            continue;
+        };
+        if !store.claims_in_active_profile(game, &reservation.package_id)? {
+            bail!("CONFLICT: claim owner is not in the active profile: {destination}");
+        }
+        overrides.push(PlanOverride {
+            root: root.label().to_owned(),
+            destination: destination.to_owned(),
+            package_id: None,
+            blake3: None,
+            bytes: path.bytes,
+            archive_entry: path.archive_entry.to_owned(),
+            replaced_package: reservation.package_id.clone(),
+            replaced_blake3: reservation.blake3.clone(),
+        });
     }
-    Ok(())
+    Ok(overrides)
 }
 
 fn owned_paths(
