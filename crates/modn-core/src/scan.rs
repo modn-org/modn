@@ -201,6 +201,9 @@ pub struct DoctorReport {
     /// Folders Modn created for its packages, removed when empty. Empty
     /// when the report was made without manager state.
     pub created_directories: Vec<String>,
+    /// Health of the active profile, when its state was read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<crate::inventory::profile_health::ProfileHealth>,
 }
 
 /// Scan using a runtime-selected game's Lua module.
@@ -296,6 +299,7 @@ pub(crate) fn diagnose_checked(
         scan: report,
         diagnostics,
         created_directories: Vec::new(),
+        profile: None,
     })
 }
 
@@ -309,6 +313,7 @@ pub(crate) fn diagnose(selection: Option<&ModuleSelection>, report: ScanReport) 
             scan: report,
             diagnostics,
             created_directories: Vec::new(),
+            profile: None,
         },
         Err(_) => DoctorReport {
             scan: ScanReport {
@@ -322,6 +327,7 @@ pub(crate) fn diagnose(selection: Option<&ModuleSelection>, report: ScanReport) 
                 action: None,
             }],
             created_directories: Vec::new(),
+            profile: None,
         },
     }
 }
