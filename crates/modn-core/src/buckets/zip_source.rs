@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+
+mod publish;
 /// Largest accepted catalog ZIP body.
 pub const MAX_CATALOG_ZIP_BYTES: u64 = 256 * 1024 * 1024;
 /// Largest accepted uncompressed size of one catalog entry.
@@ -452,35 +454,6 @@ impl BucketStore {
                 moved_to,
             },
         })
-    }
-    pub(super) fn publish_zip(
-        &self,
-        name: &str,
-        path: PathBuf,
-        zip: super::ZipCatalogRevision,
-        mirrors: Vec<CatalogHost>,
-        trusted: bool,
-        accepted: Option<super::sequence::StoredSequence>,
-    ) -> Result<()> {
-        let signer_key_id = zip.signer.key_id.clone();
-        let module_trust = trusted.then_some(super::ModuleSourceTrust { signer_key_id });
-        let trust = if module_trust.is_some() {
-            ModuleTrustState::Trusted
-        } else {
-            ModuleTrustState::Untrusted
-        };
-        self.validate_catalog(name, &path, trust)?;
-        self.write_registration(
-            name,
-            &Registration {
-                path,
-                git: None,
-                zip: Some(zip.into()),
-                module_trust,
-                mirrors: Some(mirrors),
-                accepted,
-            },
-        )
     }
     pub(super) fn registered_zip(&self, name: &str) -> Result<Option<super::ZipCatalogRevision>> {
         if !self.registrations()?.contains_key(name) {

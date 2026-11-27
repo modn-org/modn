@@ -15,13 +15,14 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 mod fetch;
+mod sequence_glue;
 mod verify;
 
 use self::fetch::clone_catalog;
+pub(super) use self::sequence_glue::catalog_source_error;
+use self::sequence_glue::verify_revision;
 pub(super) use verify::verify_catalog_tree;
 pub use verify::CatalogSigner;
-
-use self::verify::CatalogVerification;
 
 /// An explicitly selected community catalog remote and branch, tag or commit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,42 +161,6 @@ pub(super) fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustSta
         }
     }
     Ok(())
-}
-
-/// Add the failing source to a staged catalog error without losing its code.
-///
-/// The text keeps the flattened form that users already see. A fingerprint
-/// mismatch keeps [`crate::error::ErrorCode::BucketFingerprintMismatch`].
-pub(super) fn catalog_source_error(label: &str, error: anyhow::Error) -> anyhow::Error {
-    let message = format!("catalog source {label} failed: {error:#}");
-    match crate::error::code_of(&error) {
-        Some(
-            code @ (crate::error::ErrorCode::BucketFingerprintMismatch
-            | crate::error::ErrorCode::CatalogRollback
-            | crate::error::ErrorCode::CatalogSequenceConflict),
-        ) => crate::error::coded(code, message),
-        _ => anyhow!(message),
-    }
-}
-
-fn verify_revision(
-    root: &Path,
-    name: &str,
-    reference: &str,
-    previous: Option<&GitCatalogRevision>,
-    expected_fingerprint: Option<&CatalogKeyId>,
-    stored_sequence: Option<&super::sequence::StoredSequence>,
-    now: u64,
-) -> Result<CatalogVerification> {
-    verify_catalog_tree(
-        root,
-        name,
-        &format!("Git catalog {name} at {reference}"),
-        previous.map(|revision| &revision.signer),
-        expected_fingerprint,
-        stored_sequence,
-        now,
-    )
 }
 
 impl GitCatalogSource {
