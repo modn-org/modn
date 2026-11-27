@@ -1,7 +1,7 @@
 //! The one game module that governs a command, with its origin and trust decision.
 
 use super::loader::{self, VerifiedModule};
-use super::official::read_official;
+use super::official::official_directory;
 use super::registry::ModuleRegistry;
 use crate::buckets::{decide_module_source_trust, BucketStore, ModuleSourceTrustDecision};
 use crate::game_modules::ModuleSource;
@@ -28,6 +28,7 @@ pub enum ModuleOrigin {
 #[derive(Debug)]
 pub struct ModuleSelection {
     origin: ModuleOrigin,
+    directory: PathBuf,
     module: VerifiedModule,
     script: String,
     trust: ModuleSourceTrustDecision,
@@ -40,8 +41,8 @@ impl ModuleSelection {
     /// The precedence is:
     ///
     /// 1. **Development override**: [`ManagerRoots::development_modules`] as a
-    ///    direct module directory, otherwise `MODN_GAME_MODULES_DIR/<game>` as
-    ///    a base directory joined with the game.
+    ///    direct module directory, otherwise [`ManagerRoots::development_module_base`]<game>
+    ///    as a base directory joined with the game.
     /// 2. **Official bucket**: the verified first-party module for the game when
     ///    the local official `main` bucket lists it.
     /// 3. **Retained release**: the active release in the module registry, and
@@ -99,19 +100,45 @@ impl ModuleSelection {
         &self.trust
     }
 
+    /// Re-read the module bytes from the selected origin and compare them with
+    /// the bytes this selection verified.
+    ///
+    /// Every execution boundary calls this before it runs or reads the module,
+    /// so a file changed after resolution is refused instead of executed. The
+    /// selection is not a cache of the bytes on disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ModuleSelectionError::Changed`] when the manifest, digest or
+    /// script differs from the selection, and [`ModuleSelectionError::Unavailable`]
+    /// when the origin can no longer be read.
+    pub fn verify(&self) -> Result<(), ModuleSelectionError> {
+        let (module, script) =
+            loader::read_verified_module(&self.directory).map_err(unavailable)?;
+        if module.digest != self.module.digest || script != self.script {
+            return Err(ModuleSelectionError::Changed {
+                game: self.module.game_id.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
     pub(crate) fn into_parts(self) -> (VerifiedModule, String) {
         (self.module, self.script)
     }
 }
 
 /// The explicit development override, when this command selects one.
+///
+/// [`ManagerRoots::development_modules`] is a direct module directory. The
+/// caller-provided base directory joins the game ID instead. Both are explicit
+/// inputs; this resolver never reads the process environment.
 fn development_directory(roots: &ManagerRoots, game: &str) -> Option<PathBuf> {
     roots
         .development_modules()
         .map(Path::to_path_buf)
-        .or_else(|| {
-            std::env::var_os("MODN_GAME_MODULES_DIR").map(|base| PathBuf::from(base).join(game))
-        })
+        .or_else(|| roots.development_module_base().map(|base| base.join(game)))
 }
 
 /// Use the development override and refuse if it does not verify.
@@ -120,6 +147,7 @@ fn development_override(directory: &Path) -> Result<ModuleSelection, ModuleSelec
         .map_err(|source| ModuleSelectionError::DevelopmentOverrideRejected { source })?;
     Ok(ModuleSelection {
         origin: ModuleOrigin::DevelopmentOverride,
+        directory: directory.to_path_buf(),
         module,
         script,
         trust: development_trust(),
@@ -134,9 +162,11 @@ fn without_override(
     let store = BucketStore::new(roots);
     let official = store.official_games().map_err(unavailable)?;
     if official.iter().any(|id| id == game) {
-        let (module, script) = read_official(roots, game).map_err(unavailable)?;
+        let directory = official_directory(roots, game).map_err(unavailable)?;
+        let (module, script) = loader::read_verified_module(&directory).map_err(unavailable)?;
         return Ok(ModuleSelection {
             origin: ModuleOrigin::OfficialBucket,
+            directory,
             module,
             script,
             trust: official_trust(),
@@ -159,8 +189,15 @@ fn without_override(
                 decision: Box::new(trust),
             });
         }
+        let version = registered.module.version.clone();
+        let directory = roots
+            .module_registry()
+            .join(game)
+            .join("versions")
+            .join(version);
         return Ok(ModuleSelection {
             origin: ModuleOrigin::RetainedRelease,
+            directory,
             module,
             script,
             trust,
@@ -177,9 +214,14 @@ fn no_game_module(
     roots: &ManagerRoots,
     game: &str,
 ) -> Result<ModuleSelection, ModuleSelectionError> {
-    read_official(roots, game)
+    let directory =
+        official_directory(roots, game).map_err(|error| ModuleSelectionError::NoGameModule {
+            reason: error.to_string(),
+        })?;
+    loader::read_verified_module(&directory)
         .map(|(module, script)| ModuleSelection {
             origin: ModuleOrigin::OfficialBucket,
+            directory,
             module,
             script,
             trust: official_trust(),
@@ -250,6 +292,11 @@ pub enum ModuleSelectionError {
         /// The underlying failure.
         source: anyhow::Error,
     },
+    /// The module bytes changed after the selection verified them.
+    Changed {
+        /// Game whose module changed.
+        game: String,
+    },
 }
 
 impl fmt::Display for ModuleSelectionError {
@@ -277,6 +324,10 @@ impl fmt::Display for ModuleSelectionError {
             }
             Self::NoGameModule { reason } => formatter.write_str(reason),
             Self::Unavailable { source } => write!(formatter, "{source}"),
+            Self::Changed { game } => write!(
+                formatter,
+                "game module {game} changed after selection; refusing to execute the changed bytes"
+            ),
         }
     }
 }

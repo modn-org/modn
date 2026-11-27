@@ -283,6 +283,44 @@ impl ModuleSourceTrustDecision {
     pub fn remedy(&self) -> Option<&ModuleSourceTrustRemedy> {
         self.remedy.as_ref()
     }
+
+    /// Sentence that names the ordered commands which resolve this refusal.
+    ///
+    /// The commands depend on the reason. A retained release whose recorded
+    /// signer the trusted signer no longer authorizes stays in place when the
+    /// bucket is trusted again, so the module must be removed before that
+    /// trust. An unregistered bucket cannot use `trust-modules` at all, so
+    /// registering it again is the only other path. Trusted decisions and other
+    /// reasons keep the plain trust-or-remove choice.
+    #[must_use]
+    pub fn remedy_text(&self, game: &str) -> Option<String> {
+        let remedy = self.remedy.as_ref()?;
+        let text = match &self.reason {
+            ModuleSourceTrustReason::SignerKeyChanged { .. }
+            | ModuleSourceTrustReason::UnauthorizedReleaseSigner { .. }
+            | ModuleSourceTrustReason::RevokedReleaseSigner { .. }
+            | ModuleSourceTrustReason::MissingReleaseSigner { .. } => format!(
+                "Run `{}` first, then `{}` to trust the bucket's current signer and import the module again.",
+                remedy.remove_module_command(game),
+                remedy.trust_modules_command()
+            ),
+            ModuleSourceTrustReason::UnregisteredBucket { .. } => format!(
+                "Run `{}` to remove the module, or register the bucket again with `modn bucket sync {} --source <remote> --revision <reference>`, then trust its modules.",
+                remedy.remove_module_command(game),
+                remedy.bucket()
+            ),
+            ModuleSourceTrustReason::LocalFolderBucket { .. } => format!(
+                "Run `{}` to remove the module; a local folder bucket cannot supply game modules.",
+                remedy.remove_module_command(game)
+            ),
+            _ => format!(
+                "Run `{}` to trust it again, or `{}` to remove the module.",
+                remedy.trust_modules_command(),
+                remedy.remove_module_command(game)
+            ),
+        };
+        Some(text)
+    }
 }
 
 /// Remedy for a refused module source.

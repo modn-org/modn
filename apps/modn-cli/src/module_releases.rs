@@ -73,13 +73,12 @@ fn update(
         ) {
             bail!("{}", local_bucket_module_refusal(&bucket));
         }
+        let reason = decision.reason();
         let remedy = decision
-            .remedy()
+            .remedy_text(game)
             .expect("a refused module source always names a remedy");
         bail!(
-            "game module {game} comes from bucket {bucket}, which is not a trusted module source; run `{}` to trust it again, or `{}` to remove the module",
-            remedy.trust_modules_command(),
-            remedy.remove_module_command(game)
+            "game module {game} comes from bucket {bucket}, which is not a trusted module source: {reason}. {remedy}"
         );
     }
     let pinned = registry.pin_status(game)?.is_some();
@@ -155,7 +154,8 @@ pub(super) fn list(roots: &ManagerRoots, json_output: bool) -> Result<()> {
         let game = active.module.game_id;
         let pin = registry.pin_status(&game)?;
         for release in registry.releases(&game)? {
-            let source_trusted = store.module_source_trust(&release.source)?.is_trusted();
+            let decision = store.module_source_trust(&release.source)?;
+            let source_trusted = decision.is_trusted();
             let pinned = pin.as_ref().is_some_and(|pin| {
                 pin.version == release.module.version && pin.blake3 == release.blake3
             });
@@ -191,8 +191,12 @@ pub(super) fn list(roots: &ManagerRoots, json_output: bool) -> Result<()> {
             lines.push(format!("BLAKE3: {}", release.blake3));
             if !source_trusted {
                 if let Some(bucket) = release.source.bucket.as_deref() {
+                    let reason = decision.reason();
+                    let remedy = decision
+                        .remedy_text(&game)
+                        .expect("a refused module source always names a remedy");
                     lines.push(format!(
-                        "warning: bucket {bucket} is not a trusted module source; this release is refused at use. Run `modn bucket trust-modules {bucket}` or `modn module remove {game}`."
+                        "warning: bucket {bucket} is not a trusted module source: {reason}. This release is refused at use. {remedy}"
                     ));
                 }
             }

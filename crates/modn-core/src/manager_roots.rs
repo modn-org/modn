@@ -9,6 +9,7 @@ pub struct ManagerRoots {
     profile: PathBuf,
     archive_cache: PathBuf,
     development_modules: Option<PathBuf>,
+    development_module_base: Option<PathBuf>,
 }
 
 impl ManagerRoots {
@@ -24,6 +25,7 @@ impl ManagerRoots {
             profile,
             archive_cache,
             development_modules: None,
+            development_module_base: None,
         }
     }
 
@@ -38,6 +40,17 @@ impl ManagerRoots {
     #[must_use]
     pub fn with_development_modules(mut self, root: Option<PathBuf>) -> Self {
         self.development_modules = root;
+        self
+    }
+
+    /// Select or clear the development module base directory.
+    ///
+    /// The selection joins this base with the game ID, so one base can hold
+    /// several game modules. The caller passes it explicitly; this value never
+    /// reads the process environment.
+    #[must_use]
+    pub fn with_development_module_base(mut self, root: Option<PathBuf>) -> Self {
+        self.development_module_base = root;
         self
     }
 
@@ -124,6 +137,12 @@ impl ManagerRoots {
     #[must_use]
     pub fn development_modules(&self) -> Option<&Path> {
         self.development_modules.as_deref()
+    }
+
+    /// The development module base directory, when one is selected.
+    #[must_use]
+    pub fn development_module_base(&self) -> Option<&Path> {
+        self.development_module_base.as_deref()
     }
 }
 

@@ -345,3 +345,63 @@ fn module_source_trust_table() {
         }
     }
 }
+
+#[test]
+fn remedy_text_orders_commands_by_refusal_reason() {
+    let signer_change = decide_module_source_trust(
+        &source(Some("community"), Some("B4B4B4B4B4B4B4B4")),
+        Some(&facts(
+            Some("A1A1A1A1A1A1A1A1"),
+            Some("B4B4B4B4B4B4B4B4"),
+            &[],
+            &[],
+        )),
+    );
+    assert_eq!(
+        signer_change.remedy_text("test-game").expect("remedy"),
+        "Run `modn module remove test-game` first, then `modn bucket trust-modules community` to trust the bucket's current signer and import the module again."
+    );
+
+    // The release-signer mismatch left by a plain signer change needs the same
+    // order: re-trusting does not rewrite the retained release's signer.
+    let unauthorized_signer = decide_module_source_trust(
+        &source(Some("community"), Some("C5C5C5C5C5C5C5C5")),
+        Some(&facts(
+            Some("B4B4B4B4B4B4B4B4"),
+            Some("B4B4B4B4B4B4B4B4"),
+            &[],
+            &[],
+        )),
+    );
+    assert_eq!(
+        unauthorized_signer.remedy_text("test-game").expect("remedy"),
+        "Run `modn module remove test-game` first, then `modn bucket trust-modules community` to trust the bucket's current signer and import the module again."
+    );
+
+    let unregistered = decide_module_source_trust(&source(Some("missing"), None), None);
+    let text = unregistered.remedy_text("test-game").expect("remedy");
+    assert!(
+        !text.contains("trust-modules"),
+        "an unregistered bucket cannot be trusted with trust-modules: {text}"
+    );
+    assert!(
+        text.contains("modn module remove test-game"),
+        "the unregistered-bucket remedy must remove the module: {text}"
+    );
+    assert!(
+        text.contains("modn bucket sync missing --source <remote> --revision <reference>"),
+        "the unregistered-bucket remedy must name the registration command: {text}"
+    );
+
+    let no_trust_record = decide_module_source_trust(
+        &source(Some("community"), Some("B4B4B4B4B4B4B4B4")),
+        Some(&facts(None, Some("B4B4B4B4B4B4B4B4"), &[], &[])),
+    );
+    assert_eq!(
+        no_trust_record.remedy_text("test-game").expect("remedy"),
+        "Run `modn bucket trust-modules community` to trust it again, or `modn module remove test-game` to remove the module."
+    );
+
+    let trusted = decide_module_source_trust(&source(Some("main"), None), None);
+    assert_eq!(trusted.remedy_text("test-game"), None);
+}

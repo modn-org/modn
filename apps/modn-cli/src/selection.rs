@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use modn_core::detection::detect_installations;
 use modn_core::discovery::{validate_installation_for, Candidate};
+use modn_core::game_modules::ModuleSelection;
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
 use modn_core::stores::StoreLibraries;
@@ -12,8 +13,9 @@ pub(crate) fn choose_candidate(
     path: Option<PathBuf>,
 ) -> Result<Candidate> {
     if let Some(path) = path {
+        let selection = ModuleSelection::resolve(roots, game)?;
         return Ok(Candidate {
-            path: validate_installation_for(roots, game, &path)?,
+            path: validate_installation_for(&selection, &path)?,
             source: "manual".into(),
         });
     }
@@ -57,7 +59,11 @@ pub(crate) fn selected_installation(
             (None, []) => bail!("unregistered installation; specify --game <game-id>"),
             (None, _) => bail!("installation is registered for multiple games; specify --game"),
         };
-        return Ok((id.into(), validate_installation_for(roots, id, &canonical)?));
+        let selection = ModuleSelection::resolve(roots, id)?;
+        return Ok((
+            id.into(),
+            validate_installation_for(&selection, &canonical)?,
+        ));
     }
     let store = store.ok_or_else(|| anyhow::anyhow!("no registered game database for preview"))?;
     let registrations = store.list()?;
@@ -66,10 +72,13 @@ pub(crate) fn selected_installation(
         .filter(|entry| selected.is_none_or(|id| entry.game_id == id))
         .collect();
     match matches.as_slice() {
-        [entry] => Ok((
-            entry.game_id.clone(),
-            validate_installation_for(roots, &entry.game_id, &entry.path)?,
-        )),
+        [entry] => {
+            let selection = ModuleSelection::resolve(roots, &entry.game_id)?;
+            Ok((
+                entry.game_id.clone(),
+                validate_installation_for(&selection, &entry.path)?,
+            ))
+        }
         [] => {
             bail!("no matching game registered; run 'modn game add <game-id> --path <directory>'")
         }

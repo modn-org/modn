@@ -353,3 +353,35 @@ fn module_selection_table() {
         assert_eq!(row.error.to_string(), row.expected_message, "{}", row.name);
     }
 }
+
+#[test]
+fn selection_reverification_table() {
+    main_bucket::seeded_roots(|roots| {
+        let dev = tempfile::tempdir().expect("development root");
+        let directory = write_module(dev.path(), OFFICIAL_GAME, "9.9.9");
+        let roots = roots
+            .clone()
+            .with_development_modules(Some(directory.clone()));
+        let selection = ModuleSelection::resolve(&roots, OFFICIAL_GAME).expect("module selection");
+
+        selection.verify().expect("an unchanged module evaluates");
+        selection
+            .verify()
+            .expect("an unchanged module evaluates twice");
+
+        fs::write(
+            directory.join("module.lua"),
+            "return {game_id='cyberpunk-2077', api_version=3, version='9.9.9'}",
+        )
+        .expect("changed module script");
+        let error = selection.verify().expect_err("a changed script is refused");
+        assert!(
+            matches!(error, ModuleSelectionError::Changed { ref game } if game == OFFICIAL_GAME),
+            "{error:?}"
+        );
+        assert!(
+            error.to_string().contains("changed after selection"),
+            "{error}"
+        );
+    });
+}

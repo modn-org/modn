@@ -1,12 +1,15 @@
 use crate::commands::ModuleCommand;
 use crate::state_access::validate_write_targets;
 use anyhow::Result;
-use modn_core::game_modules::{check_module_with_roots, ModuleRegistry, ModuleTrust};
+use modn_core::game_modules::{
+    check_module_with_roots, content_root_spec, ModuleRegistry, ModuleSelection, ModuleTrust,
+};
 use modn_core::manager_roots::ManagerRoots;
 use std::path::PathBuf;
 
 pub(super) fn content_root_appdata(roots: &ManagerRoots, game_id: &str) -> Result<Option<PathBuf>> {
-    if modn_core::game_modules::content_root_spec(roots, game_id)?.is_some() {
+    let selection = ModuleSelection::resolve(roots, game_id)?;
+    if content_root_spec(&selection)?.is_some() {
         Ok(Some(modn_core::content_root::appdata_directory()?))
     } else {
         Ok(None)
