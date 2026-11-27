@@ -78,6 +78,10 @@ pub struct InstalledPackage {
     pub archive_blake3: String,
     /// Serving source recorded at installation, when recorded.
     pub source: Option<PackageSource>,
+    /// Game-relative files the installed release owns.
+    pub files: Vec<String>,
+    /// Exclusive game-relative folders the installed release owns.
+    pub directories: Vec<String>,
 }
 
 /// One managed package that depends on the package an update replaces.

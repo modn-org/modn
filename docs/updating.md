@@ -34,8 +34,10 @@ installed archive digest.
 
 The file list needs the target archive. Without it, the dry run names the
 needed archive. `--file`, `--nxm` and `--download` work as for install.
-A `nexus` target needs an API key, and a free Nexus account also needs the
-matching `--nxm` link. JSON adds `up_to_date`, `blockers`, `plan`,
+A Git release has no BLAKE3 pin, so its supplied archive must match the
+digest that the verified cache records; `--dry-run --download` prepares that
+entry. A `nexus` target needs an API key, and a free Nexus account also needs
+the matching `--nxm` link. JSON adds `up_to_date`, `blockers`, `plan`,
 `downloads` and `unapproved_declared_executables`; its `installed` object
 includes `source`. The text output prints a `DOWNLOAD` line for each attempt,
 including `update --dry-run --download`.

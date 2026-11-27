@@ -2,8 +2,7 @@ use crate::commands::InstallArgs;
 use crate::install_consent;
 use crate::progress::Progress;
 use anyhow::{bail, Context, Result};
-use modn_core::archive;
-use modn_core::buckets::{ArchiveFormat, BucketPackage, BucketSnapshot, BucketStore};
+use modn_core::buckets::{BucketPackage, BucketSnapshot, BucketStore};
 use modn_core::error::{coded, ErrorCode};
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::transactions::CatalogReference;
@@ -87,14 +86,6 @@ pub(super) fn resolve(query: &str, catalog: &BucketSnapshot, json: bool) -> Resu
             }
             Ok(candidates.remove(index - 1))
         }
-    }
-}
-
-pub(super) fn expected_format(format: Option<&ArchiveFormat>) -> Option<archive::ArchiveFormat> {
-    match format {
-        Some(ArchiveFormat::Zip) => Some(archive::ArchiveFormat::Zip),
-        Some(ArchiveFormat::SevenZ) => Some(archive::ArchiveFormat::SevenZ),
-        _ => None,
     }
 }
 
