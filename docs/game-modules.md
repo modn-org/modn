@@ -95,6 +95,27 @@ source are observed without rebuilding Modn. A persistent
 unset it outside development. Neither override grants write
 access to the game or changes Rust installation transactions.
 
+### Governing module selection
+
+One command has at most one governing game module, held by one
+`ModuleSelection` value. The governing-module precedence is fixed:
+
+1. **Development override.** The directory selected by `--module-src`, or
+   `MODN_GAME_MODULES_DIR/<game-id>`, is verified and used.
+2. **Official bucket.** The verified first-party module is used when the local
+   `main` bucket copy lists the game.
+3. **Retained release.** The active release in the module registry is used only
+   when its module-source trust decision is trusted.
+
+Otherwise the command is refused with `no first-party game module for <game>`
+and the expected first-party path. A refusal never falls through to a later
+origin. A development override that fails verification, a retained release from
+an untrusted bucket, and a release whose recorded signer differs from the
+trusted signer are refusals, even when another origin could supply the game. A
+verified manifest whose `game_id` differs from the requested game is also
+refused. The selection is built for each command and re-reads the module bytes;
+it is not a cache.
+
 The shared read-only host adds `mods_host.directory.list(root_id,relative[,max_entries])`
 (default and maximum 2,048 entries; an optional per-call bound reports
 `incomplete=true` when truncated) and `mods_host.directory.read_text(root_id,relative)`
