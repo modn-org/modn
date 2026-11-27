@@ -11,6 +11,7 @@ mod checkver;
 mod checkver_output;
 mod checkver_update;
 mod checkver_upstream;
+mod init;
 mod keys;
 mod maintenance;
 
@@ -49,6 +50,7 @@ pub(super) fn run(command: &CatalogCommand, json_output: bool) -> Result<()> {
         ),
         CatalogCommand::Verify { dir, key } => verify(dir, key, json_output),
         CatalogCommand::Hash { archive } => hash(archive, json_output),
+        CatalogCommand::Init { dir, name, title } => init::run(dir, name, title, json_output),
         CatalogCommand::Checkver {
             dir,
             mod_id,

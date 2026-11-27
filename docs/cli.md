@@ -137,6 +137,7 @@ that an author distributes. It needs no manager state and registers nothing.
 [catalog-authoring.md](catalog-authoring.md) shows the full publishing workflow.
 
 ```sh
+modn catalog init <dir> --name <name> --title <title>
 modn catalog keygen [--out <dir>] [--name <name>] [--password-env <VAR>]
 modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>] [--revocation-public-key <file>]
 modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--password-env <VAR>]
@@ -145,6 +146,21 @@ modn catalog verify <dir> --key <public-key-file>
 modn catalog hash <archive> [--json]
 modn catalog checkver <dir> [<mod-id>] [--update] [--keep-previous] [--json]
 ```
+
+`init <dir>` writes a ready-to-sign bucket repository and exits 0. The target
+must be missing or empty; a directory with any entry, including a hidden one,
+is refused and nothing is written. Parent directories are created. `--name`
+accepts lowercase letters, digits and dashes, at most 64 characters, and not
+the reserved name `main`. `--title` must be non-empty, at most 128 bytes and
+free of control characters. Both values follow the same rules that a registered
+bucket applies to `bucket.json`, and a refusal writes nothing.
+
+The scaffold holds `bucket.json` with `schema_version` 2, an empty `mods/`
+directory, `PROVENANCE.md`, `templates/package.example.json`, `.gitignore`,
+`.github/workflows/validate.yml` and `.github/workflows/autoupdate.yml`. The
+command prints the created entries and the next steps. See
+[catalog authoring](catalog-authoring.md#start-a-new-bucket) for the workflow
+contents and the sample manifest.
 
 `keygen` writes `<name>.key` and `<name>.pub` and prints the 16-digit key
 fingerprint. It refuses to overwrite either file and never prints secret
