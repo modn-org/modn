@@ -1,14 +1,16 @@
 # Operation history
 
-Modn records each committed install, update and uninstall in manager state.
-`modn history` prints those records newest first. History is evidence of what
-Modn changed; it is not a second ownership ledger and grants no authority.
+Modn records each committed install, update, uninstall and profile switch in
+manager state. `modn history` prints those records newest first. History is
+evidence of what Modn changed; it is not a second ownership ledger and grants no
+authority.
 
 ## What a record holds
 
-Every record has a stable, short operation ID, its kind (`install`, `update`
-or `uninstall`), the registered game ID, the canonical installation root and a
-UTC timestamp. For each package it holds:
+Every record has a stable, short operation ID and a kind: `install`, `update`,
+`uninstall` or `profile_switch`. It also names the registered game ID, the
+canonical installation root and a UTC timestamp. For each package it holds,
+where the kind has them:
 
 - the catalog mod ID, or the standalone archive stem;
 - the managed-package ID before and after the operation, when each exists;
@@ -79,6 +81,12 @@ removed file. An install has `release_after` only; an uninstall has
 `release_before` only. A record written by `modn undo` also has an `undoes`
 field that names the operation it reversed. Other records omit the field.
 
+A `profile_switch` record has no release side. For each package it lists the
+files the switch wrote or removed, with the digest before or after. The from and
+to profile names are in the `history_profile_switches` row of the same
+operation. `modn undo` refuses this kind with `UNDO_CONFLICT`, because reversing
+a switch is a new switch.
+
 ## Commands
 
 ```sh
@@ -102,9 +110,10 @@ omitted path is refused instead of guessed. An explicit ID from another
 installation or game is refused with `UNDO_NOT_FOUND`, and the message names
 the installation that owns the record. The inverse follows the recorded kind:
 an install is removed, an update restores the earlier release, and an uninstall
-restores the recorded release. An undo writes a normal record for the change it
-makes and sets `undoes` to the target's ID. It never edits or deletes the target
-record.
+restores the recorded release. A `profile_switch` record cannot be undone: the
+error is `UNDO_CONFLICT`, and you switch profiles again instead. An undo writes
+a normal record for the change it makes and sets `undoes` to the target's ID. It
+never edits or deletes the target record.
 
 The undo refuses before any change to game files, manager state, ownership or
 history in these cases. A cache miss can still download an archive into the
@@ -168,13 +177,14 @@ History lives in `state.sqlite`:
 | `history_operations` | ID, kind, game ID, installation root, UTC time and the optional `undoes` target; an autoincrement sequence orders records. |
 | `history_packages` | One row per package with before/after package IDs and serialized release descriptors. |
 | `history_files` | One row per owned file with before/after BLAKE3 digests. |
+| `history_profile_switches` | The from and to profile name of one `profile_switch` operation, keyed by its operation ID. |
 | `managed_package_releases` | Release version, source descriptor, archive BLAKE3, qualified catalog reference and declared dependencies, conflicts and native-injector flag for each installed package, so a later update or uninstall can record the side it removes. |
 
-These tables are additive and add no schema version of their own. A writable
-open creates them when they are missing, and it also creates the approvals
-table, so the manager schema version of state that this build writes is 7.
-A state database with any other schema version is refused at read-write
-and read-only open with one message; Modn does not read or change it.
+`history_profile_switches` belongs to state schema 8. The earlier history tables
+are additive: a writable open creates them when they are missing, and it also
+creates the approvals table. This build writes manager schema version 8. A
+state database with any other schema version is refused at read-write and
+read-only open with one message; Modn does not read or change it.
 Move the file aside to start a new state; the files Modn installed stay on
 disk but are no longer tracked. See [the data model](data-model.md). The `catalog` and `declarations` columns were added
 to `managed_package_releases` in a later release; a writable open adds them
@@ -191,6 +201,9 @@ The record is inserted in the same SQLite transaction that changes ownership:
 - Uninstall and forced cleanup: the transaction that deletes ownership also
   inserts the record. Each removed package is one record, so `--include-deps`
   and `--cascade` create one record per removed package.
+- Profile switch: the transaction that changes the active profile also replaces
+  the winner rows and inserts the record. A crash before it leaves the old
+  profile active and writes no record.
 - Stack install: member ownership commits first, and finalizing the stack
   inserts one record for all members in the transaction that removes the stack
   marker. An interrupted stack is rolled back by `modn recover` and leaves no

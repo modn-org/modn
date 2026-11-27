@@ -51,7 +51,8 @@ It rejects changed archives, blocked proposals, missing files, unsafe paths, own
 Every selected target must match its archive member by byte size and BLAKE3 digest.
 Rust records individual file claims and archive provenance in one SQLite transaction.
 It creates no game file, directory claim, or claim over unknown descendants.
-Normal install continues to reject existing files.
+Normal install still rejects existing unmanaged files. It may share a path with
+another managed package, subject to profile priority.
 
 Adoption currently uses local ZIP or 7z archives without catalog identity or dependency registration.
 Archive BLAKE3 identifies provenance. The schema does not distinguish adopted packages from installed packages.

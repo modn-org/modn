@@ -294,6 +294,27 @@ A durable record assigning responsibility for a specific file or exclusive
 directory to a managed package in a particular game installation.
 _Avoid_: Discovery result, package source
 
+**Profile**:
+A named set of managed packages for one game installation, with an ordered
+priority. Exactly one profile is active and decides the files on disk. Not the
+manager profile that `--state-dir` selects.
+_Avoid_: Manager profile, preset
+
+**Profile priority**:
+The stored order of packages in a profile. A higher stored priority wins a
+shared path, and rank 1 is the winner.
+_Avoid_: Load order, install order
+
+**Winner**:
+The enabled package with the highest priority that claims a path in the active
+profile. Its bytes are on disk.
+_Avoid_: Owner of an unclaimed path, load order
+
+**Shadowed claim**:
+A file claim whose package loses its path to a higher-priority package. It
+stays recorded so its verified bytes can return.
+_Avoid_: Conflict, orphaned mod
+
 **Exclusive directory**:
 A newly created mod directory owned as a whole by one managed package,
 including runtime-generated contents inside that directory.

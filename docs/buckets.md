@@ -524,6 +524,10 @@ download or write, Modn refuses a plan in these cases:
 - two releases in the installation conflict
 - a release conflicts with an installed managed package, in either direction
 
+A declared conflict stays a hard refusal. Path overlap between two managed
+packages is separate and follows profile priority. See
+[profiles.md](profiles.md#conflict-priority).
+
 A dry run lists these conflicts in `conflicts`. The Rust core checks
 conflicts again under the transaction lock, and records each package's
 conflicts in the same commit as its ownership. A conflict matches by catalog

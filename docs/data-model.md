@@ -35,6 +35,8 @@ Bucket -> BucketSnapshot -> ModRelease -> Game
                                      -> ArtifactSource
                                      -> Dependency -> ModRelease
 GameInstallation -> ManagedPackage -> OwnershipClaim
+                 -> Profile -> ProfileMembership -> ManagedPackage
+                 -> FileClaim
                  -> PendingTransaction
                  -> ModApproval
 ```
@@ -214,6 +216,43 @@ satisfied their dependencies, committed atomically with ownership. Recorded
 dependencies cannot be uninstalled while a dependent remains. Provenance does
 not replace the ownership evidence.
 
+### Profile, membership and file claim
+
+A **Profile** is a named set of managed packages for one game installation. Its
+memberships have a priority and an enabled flag. Exactly one profile is active,
+and the active profile decides the files on disk. A package may belong to
+several profiles, so a claim and its archive bytes serve every profile.
+
+Three tables hold the profile, membership and claim state:
+
+- `profiles(id, game_path, name, active, created_at)` holds the name, the
+  active flag and one row per installation and name. A partial unique index
+  allows at most one active profile per installation.
+- `profile_packages(profile_id, package_id, priority, enabled)` holds one
+  membership. A higher priority wins a shared path, and rank 1 is the winner.
+  A disabled membership keeps its priority but is ignored.
+- `file_claims(package_id, game_path, root, path_key, relative_path,
+  archive_entry, blake3, bytes)` holds every path that a package claims, whether
+  it wins or loses. The table has no winner column.
+
+`managed_files` stays the on-disk winner table. Its rows name the active
+profile in `profile_id` and the archive member in `archive_entry`. The winner of
+a path is the enabled claimant with the highest priority in the active profile.
+A package that loses a path keeps a **shadowed claim** in `file_claims`.
+
+An install joins the active profile at the next priority. Its bytes replace the
+current winner of any shared path, and the previous owner keeps its claim. An
+uninstall of a winner writes the next claimant's verified bytes from the
+archive cache. A profile switch changes the active flag, the `managed_files`
+rows and the bytes on disk. One SQLite transaction also writes its history
+record. The switch never changes `file_claims`, package rows or release
+metadata.
+
+Deleting an inactive profile removes its memberships and every package that no
+other profile contains. The active profile and the only profile are refused.
+There is no migration: state schema 8 adds these tables and the `managed_files`
+columns, and an earlier schema is refused before it is read.
+
 ### Mod approval
 
 A **ModApproval** records the capabilities of one catalog mod that the user
@@ -247,6 +286,8 @@ in one game installation.
   its runtime-generated contents; cleanup checks directory identity.
 - In a shared game location, Modn claims **individual files**, including
   their paths, size and digest.
+- Two managed packages may claim one path. Profile priority decides the winner,
+  and the losing package keeps a shadowed claim.
 - Pre-existing files and directories are not silently adopted or overwritten.
   Unmanaged content stays outside managed uninstall authority.
 
@@ -259,9 +300,10 @@ Pending transactions block conflicting managed writes until resolved.
 
 ### Operation history
 
-A durable record of one committed install, update or uninstall. It names the
-game installation and per package the mod ID, package IDs and release sides
-before and after, each release's qualified catalog identity and declared
+A durable record of one committed install, update, uninstall or profile switch.
+For a switch it lists the files the switch changed and no release data. It
+names the game installation and per package the mod ID, package IDs and release
+sides before and after, each release's qualified catalog identity and declared
 dependencies, conflicts and native-injector flag when recorded, source
 descriptor, the archive BLAKE3 pin, and every owned file the
 operation created, replaced or removed with its content digest before and
@@ -289,14 +331,17 @@ fixture exercises game-agnostic support.
 | Catalog provenance | `state.sqlite / catalog_provenance(package_id, bucket, game_id, mod_id)` |
 | Dependency links | `state.sqlite / package_dependencies(package_id, dependency_id)` |
 | Installation root | `state.sqlite / installation_roots(game_path, root, path, path_key)` |
-| File ownership | `state.sqlite / managed_files(game_path, root, path_key, relative_path, package_id, blake3, bytes)` |
+| Profile | `state.sqlite / profiles(id, game_path, name, active, created_at)` |
+| Profile membership | `state.sqlite / profile_packages(profile_id, package_id, priority, enabled)` |
+| File claim | `state.sqlite / file_claims(package_id, game_path, root, path_key, relative_path, archive_entry, blake3, bytes)` |
+| File ownership (winner) | `state.sqlite / managed_files(game_path, root, path_key, relative_path, package_id, blake3, bytes, profile_id, archive_entry)` |
 | Directory ownership | `state.sqlite / managed_directories(game_path, root, path_key, ...)` |
 | Created folder | `state.sqlite / created_directories(game_path, root, path_key, ...)` |
-| Pending transaction | `state.sqlite / pending_transactions(id, action, status, game_path, package_id, archive_blake3), pending_files(transaction_id, ord, root, relative_path, blake3, bytes), pending_directories` |
+| Pending transaction | `state.sqlite / pending_transactions(id, action, status, game_path, package_id, archive_blake3), pending_files(transaction_id, ord, root, relative_path, blake3, bytes), pending_directories, pending_overrides, pending_restores, pending_profile_switches` |
 | Package conflict evidence | `state.sqlite / package_conflicts(package_id, bucket, game_id, mod_id, archive_blake3)` |
 | Package requirement evidence | `state.sqlite / package_requirements(package_id, bucket, game_id, mod_id, archive_blake3, requirement)` |
 | Package release metadata | `state.sqlite / managed_package_releases(package_id, mod_id, version, source, archive_blake3, catalog, declarations)` |
-| Operation history | `state.sqlite / history_operations, history_packages, history_files` |
+| Operation history | `state.sqlite / history_operations, history_packages, history_files, history_profile_switches` |
 | Official game module | `main/games/<game-id>/module.json` and `module.lua` in the local bucket copy |
 | Retained module release | `<data-directory>/game-modules/<game-id>/versions/<version>/`, with a verified `registration.json` receipt |
 | Active or pinned module release | `<data-directory>/game-modules/<game-id>/current` and `pin.json` |
@@ -339,10 +384,10 @@ A writable open creates the current schema in one transaction.
 An existing state database from an earlier schema version is refused at read-write and read-only open, and Modn does not change its contents.
 There are no legacy views and no migration path.
 
-Operation history and the package release metadata are tables in the current
-schema version 7. A package without recorded release metadata has no version or
-source in its uninstall history; the history names only the archive BLAKE3 pin.
-See [history.md](history.md).
+Operation history, the package release metadata and the profile tables are in
+the current schema version 8. A package without recorded release metadata has no
+version or source in its uninstall history; the history names only the archive
+BLAKE3 pin. See [history.md](history.md).
 
 This build refuses a state database written by an earlier schema version.
 The message names the file, the found and required versions, and says that Modn

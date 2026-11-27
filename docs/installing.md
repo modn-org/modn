@@ -24,6 +24,14 @@ dependency while a dependent managed package remains; uninstall the dependent
 first. Standalone archive installs and packages installed before this record
 existed carry no dependency links.
 
+An install joins the active profile of the installation at the next priority.
+Registering an installation creates an active `default` profile, and an install
+creates it when it is missing. An install may claim a path that another managed
+package already owns. The new package wins the shared path by priority, and the
+previous owner keeps a shadowed claim. The preview lists the overridden paths.
+Modn never overwrites an unmanaged file, and manifest-declared `conflicts`
+remain hard refusals. See [profiles.md](profiles.md).
+
 ## Plan, consent and commit
 
 A catalog install runs in three steps. The core planner builds a typed plan
