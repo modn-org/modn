@@ -6,6 +6,8 @@ mod catalog_mirrors;
 mod catalog_rotation;
 #[path = "support/catalog_rotation_state.rs"]
 mod catalog_rotation_state;
+#[path = "support/catalog_sequence.rs"]
+mod catalog_sequence;
 #[path = "support/git_fixture.rs"]
 mod git_fixture;
 #[path = "support/main_bucket.rs"]
@@ -17,10 +19,11 @@ mod zip_catalog_fixture;
 
 use catalog_authoring::{commit_all, copy_tree, path_text, prepare_catalog, run, stderr};
 use catalog_mirrors::{keygen, pack_catalog, signed_catalog};
-use catalog_rotation::{revoke, rotate, sign};
+use catalog_rotation::{public_text, revoke, rotate, sign};
 use catalog_rotation_state::{
     copy_into, listed_entry, listed_entry_git, registration, state_snapshot, GitFixture,
 };
+use catalog_sequence::{catalog_json, numbered_catalog, statement_sequence};
 use zip_catalog::pack;
 use zip_catalog_fixture::Fixture;
 
@@ -271,4 +274,51 @@ fn a_new_user_registers_a_rotated_catalog_and_the_output_names_the_ignored_state
     );
     let stored = registration(&fixture.temp.path().join("state"));
     assert_eq!(stored["zip"]["signer"]["key_id"], next);
+}
+
+#[test]
+fn a_numbered_catalog_delivers_a_revocation() {
+    let fixture = Fixture::new();
+    let temp = fixture.temp.path();
+    let keys = temp.join("keys");
+    let old = keygen(&keys, "author");
+    let offline = keygen(&keys, "offline");
+    let next = keygen(&keys, "next");
+    let revocation_text = public_text(&keys.join("offline.pub"));
+    let catalog = numbered_catalog(
+        temp,
+        "community",
+        &keys,
+        "author",
+        "1",
+        None,
+        &[("revocation.pub", revocation_text.as_str())],
+    );
+    let source = pack_catalog(&catalog, &temp.join("community.zip"));
+    let first = fixture.sync(&source);
+    assert!(first.status.success(), "{}", stderr(&first));
+    assert!(
+        stderr(&first).contains(&format!("Pinned revocation key {offline}")),
+        "{}",
+        stderr(&first)
+    );
+
+    revoke(
+        &catalog,
+        &keys.join("offline.key"),
+        &old,
+        &keys.join("next.pub"),
+    );
+    assert_eq!(statement_sequence(&catalog, "revocation.json"), Some(2));
+    sign(&catalog, &keys.join("next.key"));
+    assert_eq!(catalog_json(&catalog, "sequence.json")["sequence"], 2);
+    pack(&catalog, &source);
+    let revoked = fixture.sync(&source);
+    assert!(revoked.status.success(), "{}", stderr(&revoked));
+    assert!(
+        stderr(&revoked).contains(&format!("signing key revoked: {old} replaced by {next}")),
+        "{}",
+        stderr(&revoked)
+    );
+    assert_eq!(listed_entry(&fixture)["signer_key_id"], next.as_str());
 }

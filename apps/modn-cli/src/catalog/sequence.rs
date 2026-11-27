@@ -12,7 +12,12 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) const SEQUENCE_FILE: &str = "sequence.json";
+/// Root file that carries a rotation statement.
+pub(crate) const ROTATION_FILE: &str = "rotation.json";
+/// Root file that carries a revocation statement.
+pub(crate) const REVOCATION_FILE: &str = "revocation.json";
 const MAX_SEQUENCE_BYTES: u64 = 4 * 1024;
+const MAX_STATEMENT_BYTES: u64 = 32 * 1024;
 
 /// One parsed `sequence.json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,68 +88,165 @@ pub(crate) fn read(root: &Path) -> Result<Option<SequenceFile>> {
 
 /// Decide the number and expiry that `modn catalog sign` writes.
 ///
-/// `None` means the run leaves `sequence.json` untouched. A numbered file that
-/// already exists may stay, rise, or keep its number with a new expiry; it never
-/// drops.
+/// A published rotation or revocation statement names the revision that must
+/// carry it, so its number is a floor: `sign` never signs a revision older than
+/// a statement in the tree. `None` means the run leaves `sequence.json`
+/// untouched. A numbered file that already exists may stay, rise, or keep its
+/// number with a new expiry; it never drops.
 pub(crate) fn plan(
     existing: Option<&SequenceFile>,
+    statement: Option<u64>,
     flag: Option<&str>,
     expires: Option<&str>,
 ) -> Result<Option<SequencePlan>> {
     if let Some(expires) = expires {
         require_future(expires)?;
     }
+    let file_number = existing.map(|file| file.sequence);
+    let floor = highest(file_number, statement);
     let number = match flag {
-        None => match (existing, expires) {
-            (_, None) => return Ok(None),
-            (Some(file), Some(_)) => file.sequence,
+        None => match (floor, expires) {
+            (None, None) => return Ok(None),
             (None, Some(_)) => bail!(
-                "`--expires` needs `--sequence` or an existing {SEQUENCE_FILE}; run `modn catalog sign <dir> --sequence next --expires <time>`"
+                "`--expires` needs `--sequence`, an existing {SEQUENCE_FILE} or a numbered key statement; run `modn catalog sign <dir> --sequence next --expires <time>`"
             ),
+            (Some(number), None) => {
+                if file_number.is_some_and(|file| number <= file) {
+                    return Ok(None);
+                }
+                number
+            }
+            (Some(number), Some(_)) => number,
         },
-        Some("next") => match existing {
-            Some(file) => file
-                .sequence
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("{SEQUENCE_FILE} sequence cannot rise above u64"))?,
-            None => 1,
-        },
-        Some(text) => parse_number(text)?,
-    };
-    if let Some(file) = existing {
-        if number < file.sequence {
-            bail!(
-                "{SEQUENCE_FILE} already holds sequence {}, so this run cannot write sequence {number}; a signed catalog number never goes down",
-                file.sequence
-            );
+        Some("next") => {
+            let after_file = match file_number {
+                Some(file) => file.checked_add(1).ok_or_else(|| {
+                    anyhow::anyhow!("{SEQUENCE_FILE} sequence cannot rise above u64")
+                })?,
+                None => 1,
+            };
+            match statement {
+                Some(statement) => after_file.max(statement),
+                None => after_file,
+            }
         }
-    }
+        Some(text) => {
+            let number = parse_number(text)?;
+            if let Some(file) = file_number {
+                if number < file {
+                    bail!(
+                        "{SEQUENCE_FILE} already holds sequence {file}, so this run cannot write sequence {number}; a signed catalog number never goes down"
+                    );
+                }
+            }
+            if let Some(statement) = statement {
+                if number < statement {
+                    bail!(
+                        "a published key statement names sequence {statement}, so this run cannot sign sequence {number}; sign sequence {statement} or higher, or remove the statement before signing an older revision"
+                    );
+                }
+            }
+            number
+        }
+    };
+    let written_expires = match flag {
+        Some(_) => expires.map(str::to_owned),
+        None => expires
+            .map(str::to_owned)
+            .or_else(|| existing.and_then(|file| file.expires.clone())),
+    };
     Ok(Some(SequencePlan {
         sequence: number,
-        expires: expires.map(str::to_owned),
+        expires: written_expires,
     }))
+}
+
+fn highest(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (left, right) => left.or(right),
+    }
+}
+
+/// The highest sequence that a published key statement names, if any.
+///
+/// `sign` treats it as a floor, because a revision must never be older than a
+/// statement inside it. A statement without a number, or no statement at all,
+/// adds no floor. The file is read as data only; sync still validates the
+/// statement itself.
+pub(crate) fn published_statement_sequence(root: &Path) -> Result<Option<u64>> {
+    let mut highest = None;
+    for file in [ROTATION_FILE, REVOCATION_FILE] {
+        let Some(value) = read_statement(root, file)? else {
+            continue;
+        };
+        let Some(number) = value.get("sequence").and_then(serde_json::Value::as_u64) else {
+            continue;
+        };
+        if number == 0 {
+            bail!("{file} names sequence 0; a key statement sequence must be at least 1");
+        }
+        highest = Some(highest.map_or(number, |current: u64| current.max(number)));
+    }
+    Ok(highest)
+}
+
+fn read_statement(root: &Path, file: &str) -> Result<Option<serde_json::Value>> {
+    let path = root.join(file);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.file_type().is_file() {
+        bail!("{file} must be a regular file: {}", path.display());
+    }
+    if metadata.len() > MAX_STATEMENT_BYTES {
+        bail!("{file} exceeds size limit: {}", path.display());
+    }
+    let bytes =
+        fs::read(&path).with_context(|| format!("cannot read {file}: {}", path.display()))?;
+    let value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("invalid {file} in {}", root.display()))?;
+    Ok(Some(value))
 }
 
 /// The statement sequence for `rotate` or `revoke`.
 ///
-/// The explicit number, when given, must equal a present `sequence.json`. With
-/// no explicit number the file decides, and an unnumbered catalog yields none.
+/// A statement describes the revision that will carry it, so a numbered catalog
+/// names the next number: the file's number plus one. This command never writes
+/// `sequence.json`; the following `sign` signs that number and writes it. An
+/// explicit number must be at least the next number. An unnumbered catalog
+/// yields no number unless `--sequence` names one, which numbers the catalog at
+/// the following `sign`.
 pub(crate) fn statement_sequence(root: &Path, explicit: Option<u64>) -> Result<Option<u64>> {
     let existing = read(root)?;
     match (explicit, existing) {
-        (Some(number), Some(file)) if number != file.sequence => bail!(
-            "--sequence {number} differs from {SEQUENCE_FILE} sequence {}; a key statement must name the signed catalog number",
-            file.sequence
-        ),
-        (Some(number), _) => {
+        (Some(number), Some(file)) => {
+            let minimum = next_number(file.sequence)?;
+            if number < minimum {
+                bail!(
+                    "--sequence {number} is not after {SEQUENCE_FILE} sequence {}; a key statement describes the next revision, so use at least {minimum} or omit --sequence",
+                    file.sequence
+                );
+            }
+            Ok(Some(number))
+        }
+        (Some(number), None) => {
             if number == 0 {
                 bail!("--sequence must be at least 1");
             }
             Ok(Some(number))
         }
-        (None, Some(file)) => Ok(Some(file.sequence)),
+        (None, Some(file)) => Ok(Some(next_number(file.sequence)?)),
         (None, None) => Ok(None),
     }
+}
+
+fn next_number(number: u64) -> Result<u64> {
+    number
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("{SEQUENCE_FILE} sequence cannot rise above u64"))
 }
 
 /// Write `<root>/sequence.json` atomically from the plan.

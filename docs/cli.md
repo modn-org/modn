@@ -182,22 +182,32 @@ password. A refusal writes nothing. `--revocation-public-key` copies the named
 public key to `revocation.pub` before signing, so the digest covers it.
 
 `--sequence <N>` writes `sequence.json` with a number of at least 1 before the
-digest is computed. `--sequence next` writes the number in the existing
-`sequence.json` plus one, or 1 when the file is absent. The file is rewritten
-completely from the flags, so `expires` appears only with `--expires`. A number
-lower than the one already in the file is refused and writes nothing; an equal
-number is allowed. `--expires <time>` takes a strict UTC timestamp such as
-`2027-12-31T00:00:00Z` in the future, and needs `--sequence` or an existing
-`sequence.json`. Without both flags the directory is signed as before and
-`sequence.json` stays untouched. Text output then ends with a one-line hint that
+digest is computed. `--sequence next` writes the next release number: the
+number in the existing `sequence.json` plus one, or 1 when the file is absent.
+A published `rotation.json` or `revocation.json` that names a higher number is
+a floor: `sign` uses that number, because a revision must never be older than a
+statement inside it. The file is rewritten
+completely from the flags, so `expires` appears only with `--expires`, except
+when `sign` only raises the number to a statement's number: then it keeps the
+existing expiry. A number
+lower than the one already in the file or a published statement is refused and
+writes nothing; an equal number is allowed. `--expires <time>` takes a strict
+UTC timestamp such as
+`2027-12-31T00:00:00Z` in the future, and needs `--sequence`, an existing
+`sequence.json` or a numbered key statement. Without both flags the directory
+is signed as before and
+`sequence.json` stays untouched, unless a published statement names a higher
+number. Text output then ends with a one-line hint that
 a numbered catalog protects users against rollback. `--json` adds `sequence`
 and, when set, `expires`.
 `rotate` writes `rotation.json` and `rotation.sig` with the current signing key.
 `revoke` writes `revocation.json` and `revocation.sig` with the offline
 revocation key. Both refuse a secret key inside the catalog and write nothing on
-refusal. Each statement copies the number from `sequence.json` when it exists;
-`--sequence <N>` sets it explicitly and is refused when it differs from that
-file. After either command, run `modn catalog sign` with the successor key.
+refusal. Each statement describes the revision that will carry it: the number
+in `sequence.json` plus one. `--sequence <N>` sets it explicitly and must be at
+least that next number. Neither command writes `sequence.json`; after either
+command, run `modn catalog sign` with the successor key. It signs the statement's
+number and writes it to `sequence.json`.
 Sync prints both fingerprints and explains how trust changes. See
 [catalog authoring](catalog-authoring.md#rotate-or-revoke-a-signing-key).
 

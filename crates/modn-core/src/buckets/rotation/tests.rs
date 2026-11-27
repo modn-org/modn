@@ -1,7 +1,7 @@
 use super::{
     apply_key_statements, check_revocation_key, key_statement_bytes, revocation_statement,
-    revocation_statement_with_sequence, rotation_statement, rotation_statement_with_sequence,
-    PinnedKeys, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE, ROTATION_FILE, ROTATION_SIGNATURE_FILE,
+    revocation_statement_with_sequence, rotation_statement, PinnedKeys, REVOCATION_FILE,
+    REVOCATION_SIGNATURE_FILE, ROTATION_FILE, ROTATION_SIGNATURE_FILE,
 };
 use crate::buckets::signature::CatalogPublicKey;
 use minisign::KeyPair;
@@ -405,50 +405,6 @@ fn revocation_key_must_be_pinned_and_cannot_change() {
 }
 
 #[test]
-fn rotation_statement_sequence_must_equal_the_revision_sequence() {
-    let directory = catalog();
-    let signer = test_key();
-    let successor = test_key();
-    let body =
-        rotation_statement_with_sequence(&signer.public.key_id().to_string(), &successor.text, 2)
-            .expect("rotation body");
-    assert!(String::from_utf8(body.clone())
-        .expect("UTF-8")
-        .contains("\"sequence\":2"));
-    write(directory.path(), ROTATION_FILE, &body);
-    write(
-        directory.path(),
-        ROTATION_SIGNATURE_FILE,
-        sign(
-            &signer,
-            &key_statement_bytes(super::KeyChangeKind::Rotated, CATALOG_NAME, &body),
-        )
-        .as_bytes(),
-    );
-    let error = apply_key_statements(
-        directory.path(),
-        CATALOG_NAME,
-        &pinned(&signer, None),
-        Some(&successor.public),
-        Some(3),
-    )
-    .expect_err("a statement from an older revision is a replay");
-    assert_eq!(
-        crate::error::code_of(&error),
-        Some(crate::error::ErrorCode::CatalogRollback)
-    );
-    let outcome = apply_key_statements(
-        directory.path(),
-        CATALOG_NAME,
-        &pinned(&signer, None),
-        Some(&successor.public),
-        Some(2),
-    )
-    .expect("a statement at the revision sequence applies");
-    assert!(outcome.change.is_some());
-}
-
-#[test]
 fn revocation_statement_with_sequence_builder_round_trips() {
     let body = revocation_statement_with_sequence("0123456789ABCDEF", "key text", 4)
         .expect("revocation body");
@@ -462,3 +418,5 @@ fn revocation_statement_with_sequence_builder_round_trips() {
         "an unnumbered builder writes no sequence field"
     );
 }
+
+mod statement_sequence;

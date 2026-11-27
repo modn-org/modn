@@ -48,7 +48,7 @@ pub(crate) enum CatalogCommand {
         /// Environment variable that holds the password of the secret key.
         #[arg(long, value_name = "VAR")]
         password_env: Option<String>,
-        /// Statement sequence, which must equal sequence.json when it exists.
+        /// Statement sequence, which must be at least the next catalog number.
         #[arg(long, value_name = "N")]
         sequence: Option<u64>,
     },
@@ -68,7 +68,7 @@ pub(crate) enum CatalogCommand {
         /// Environment variable that holds the password of the secret key.
         #[arg(long, value_name = "VAR")]
         password_env: Option<String>,
-        /// Statement sequence, which must equal sequence.json when it exists.
+        /// Statement sequence, which must be at least the next catalog number.
         #[arg(long, value_name = "N")]
         sequence: Option<u64>,
     },

@@ -85,6 +85,13 @@ timestamp in `YYYY-MM-DDTHH:MM:SSZ` form and in the future. Commit
 `catalog.sig` signs that digest. Pack the ZIP only after the signing step, so
 `main-bucket.zip` contains the same `sequence.json`.
 
+When a release carries a key rotation or revocation, run `modn catalog rotate`
+or `modn catalog revoke` before the signing step. The command writes the
+statement for the next number, and `sign` signs that number whether or not you
+pass `--sequence next`. Never sign a release below the statement's number. Sync
+refuses a statement that names a newer revision, and it refuses an older
+statement that would change the pinned key.
+
 Users keep accepting unnumbered catalogs. Once a user accepted a numbered
 release, a later release with a lower number, or with no number, is refused as a
 rollback. The first numbered release therefore works as a normal upgrade, and
