@@ -1,0 +1,5 @@
+# Never commit a catalog signing key, a backup of one, or a key directory.
+*.key
+*.key.bak
+*.pub.bak
+keys/

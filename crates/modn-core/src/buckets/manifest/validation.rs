@@ -69,7 +69,13 @@ impl PackageManifest {
         Ok(pin)
     }
 
-    pub(in crate::buckets) fn validate(&self, game: &str, id: &str) -> Result<()> {
+    /// Validate one package record against the path that names it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the schema version, identity, sources, pin or
+    /// dependency declarations are invalid.
+    pub fn validate(&self, game: &str, id: &str) -> Result<()> {
         if self.schema_version != 2 {
             bail!(
                 "bucket package schema_version {} is unsupported; Modn requires bucket contract v2 and does not read v1 records",
@@ -221,6 +227,9 @@ impl PackageManifest {
             {
                 bail!("invalid, self-referential, duplicate or depended-on conflict: {conflict}");
             }
+        }
+        if let Some(checkver) = &self.checkver {
+            checkver.validate(game, id)?;
         }
         Ok(())
     }

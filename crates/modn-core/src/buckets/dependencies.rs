@@ -130,6 +130,7 @@ mod tests {
                 dependency_versions: BTreeMap::new(),
                 conflicts: Vec::new(),
                 native_injector: false,
+                checkver: None,
             },
         }
     }

@@ -107,8 +107,11 @@ selects an HTTPS URL or local ZIP path for that command.
 It verifies the minisign signature over the catalog digest and validates the
 bucket and its modules before an atomic swap. Failure preserves the previous copy.
 Modn refuses an unsigned, invalid or wrong-key release. The `main-bucket.zip.sha256`
-sidecar is no longer used. See
-[Main catalog signature](../docs/buckets.md#main-catalog-signature).
+sidecar is no longer used. Each release also publishes a signed root
+`sequence.json` whose number is higher than the previous release. After a user
+accepts a numbered release, an older or unnumbered release is refused as a
+rollback. See
+[Signed sequence numbers](../docs/buckets.md#signed-sequence-numbers).
 
 Use `modn search` for package discovery and `modn bucket show bucket/game/package` for an exact manifest.
 `modn bucket add <name> <directory>` registers a local catalog; removing

@@ -26,3 +26,27 @@ pub fn main_release_list_override() -> Option<String> {
 pub fn main_release_list_override() -> Option<String> {
     None
 }
+
+/// Redirect one HTTPS source of a known bucket to a local fixture.
+///
+/// Release builds return `None` and never read the variables, so a listed
+/// bucket keeps an HTTPS-only source. The `test-known-source-redirect` feature
+/// is enabled only by this repository's test dependencies.
+#[cfg(feature = "test-known-source-redirect")]
+#[must_use]
+pub fn known_source_redirect(source: &str) -> Option<String> {
+    let listed = std::env::var("MODN_TEST_KNOWN_BUCKET_SOURCE").ok()?;
+    let target = std::env::var("MODN_TEST_KNOWN_BUCKET_TARGET").ok()?;
+    let listed = listed.trim();
+    let target = target.trim();
+    (!listed.is_empty() && !target.is_empty() && source == listed).then(|| target.to_owned())
+}
+
+/// Redirect one HTTPS source of a known bucket to a local fixture.
+///
+/// Release builds return `None` and never read the variables.
+#[cfg(not(feature = "test-known-source-redirect"))]
+#[must_use]
+pub fn known_source_redirect(_source: &str) -> Option<String> {
+    None
+}

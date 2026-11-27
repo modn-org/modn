@@ -7,8 +7,14 @@ use std::fs;
 use std::io::{self, Cursor};
 use std::path::{Component, Path};
 
+mod checkver;
+mod checkver_output;
+mod checkver_update;
+mod checkver_upstream;
+mod init;
 mod keys;
 mod maintenance;
+pub(crate) mod sequence;
 
 use self::keys::{
     encoded_public, encoded_secret, fingerprint, load_secret_outside, read_password,
@@ -36,25 +42,38 @@ pub(super) fn run(command: &CatalogCommand, json_output: bool) -> Result<()> {
             key,
             password_env,
             revocation_public_key,
+            sequence,
+            expires,
         } => sign(
             dir,
             key,
             password_env.as_deref(),
             revocation_public_key.as_deref(),
+            sequence.as_deref(),
+            expires.as_deref(),
             json_output,
         ),
         CatalogCommand::Verify { dir, key } => verify(dir, key, json_output),
         CatalogCommand::Hash { archive } => hash(archive, json_output),
+        CatalogCommand::Init { dir, name, title } => init::run(dir, name, title, json_output),
+        CatalogCommand::Checkver {
+            dir,
+            mod_id,
+            update,
+            keep_previous,
+        } => checkver::run(dir, mod_id.as_deref(), json_output, *update, *keep_previous),
         CatalogCommand::Rotate {
             dir,
             key,
             new_public_key,
             password_env,
+            sequence,
         } => maintenance::rotate(
             dir,
             key,
             new_public_key,
             password_env.as_deref(),
+            *sequence,
             json_output,
         ),
         CatalogCommand::Revoke {
@@ -63,12 +82,14 @@ pub(super) fn run(command: &CatalogCommand, json_output: bool) -> Result<()> {
             revoked,
             replacement_public_key,
             password_env,
+            sequence,
         } => maintenance::revoke(
             dir,
             revocation_key,
             revoked,
             replacement_public_key,
             password_env.as_deref(),
+            *sequence,
             json_output,
         ),
     }
@@ -123,14 +144,21 @@ fn keygen(out: &Path, name: &str, password_env: Option<&str>, json_output: bool)
     Ok(())
 }
 
+const HINT_UNNUMBERED: &str = "Hint: `--sequence next` numbers this catalog; a numbered catalog lets Modn refuse a rollback to an older signed revision.";
+
 fn sign(
     root: &Path,
     key_path: &Path,
     password_env: Option<&str>,
     revocation_public_key: Option<&Path>,
+    sequence_flag: Option<&str>,
+    expires: Option<&str>,
     json_output: bool,
 ) -> Result<()> {
     require_directory(root, "catalog directory")?;
+    let existing = sequence::read(root)?;
+    let statement = sequence::published_statement_sequence(root)?;
+    let plan = sequence::plan(existing.as_ref(), statement, sequence_flag, expires)?;
     let secret = load_secret_outside(root, key_path, password_env)?;
     let public = PublicKey::from_secret_key(&secret)
         .map_err(|_| anyhow!("secret key does not contain its public key"))?;
@@ -144,6 +172,9 @@ fn sign(
         }
         None => None,
     };
+    if let Some(plan) = &plan {
+        sequence::write(root, plan)?;
+    }
     let (view, staging) = published_view(root, revocation.is_some())?;
     if let Some((_, text)) = &revocation {
         fs::write(view.join(REVOCATION_KEY_FILE), text).with_context(|| {
@@ -175,6 +206,15 @@ fn sign(
         &root.join(SIGNATURE_FILE),
         signature.into_string().as_bytes(),
     )?;
+    let signed_sequence = match &plan {
+        Some(plan) => Some(plan.sequence),
+        None => existing.as_ref().map(|file| file.sequence),
+    };
+    let signed_expires = match &plan {
+        Some(plan) => plan.expires.clone(),
+        None => existing.as_ref().and_then(|file| file.expires.clone()),
+    };
+    let hint = sequence_flag.is_none() && expires.is_none();
     if json_output {
         let mut value = json!({
             "fingerprint": fingerprint,
@@ -182,28 +222,47 @@ fn sign(
             "signature": root.join(SIGNATURE_FILE),
             "public_key": root.join(PUBLIC_KEY_FILE),
         });
+        if let Some(number) = signed_sequence {
+            value["sequence"] = json!(number);
+            if let Some(expires) = &signed_expires {
+                value["expires"] = json!(expires);
+            }
+        }
         if let Some(key_id) = revocation_fingerprint {
             value["revocation_key_id"] = json!(key_id);
             value["revocation_public_key"] = json!(root.join(REVOCATION_KEY_FILE));
         }
         println!("{value}");
+        if hint {
+            eprintln!("{HINT_UNNUMBERED}");
+        }
     } else {
         println!("Signed catalog {} with key {fingerprint}", statement.name());
         if let Some(key_id) = revocation_fingerprint {
             println!("Pinned revocation key {key_id}");
         }
         println!("Digest: {}", statement.digest());
+        if let Some(number) = signed_sequence {
+            match &signed_expires {
+                Some(expires) => println!("Sequence: {number} (expires {expires})"),
+                None => println!("Sequence: {number}"),
+            }
+        }
         println!(
             "Wrote {} and {}",
             root.join(SIGNATURE_FILE).display(),
             root.join(PUBLIC_KEY_FILE).display()
         );
+        if hint {
+            println!("{HINT_UNNUMBERED}");
+        }
     }
     Ok(())
 }
 
 fn verify(root: &Path, key_path: &Path, json_output: bool) -> Result<()> {
     require_directory(root, "catalog directory")?;
+    let sequence = sequence::read(root)?;
     let text = fs::read_to_string(key_path)
         .with_context(|| format!("cannot read public key: {}", key_path.display()))?;
     let key = CatalogPublicKey::parse(&text)
@@ -221,14 +280,16 @@ fn verify(root: &Path, key_path: &Path, json_output: bool) -> Result<()> {
     })?;
     drop(staging);
     if json_output {
-        println!(
-            "{}",
-            json!({
-                "catalog": verified.statement.name(),
-                "fingerprint": verified.key_id.to_string(),
-                "digest": verified.statement.digest().as_str(),
-            })
-        );
+        let mut value = json!({
+            "catalog": verified.statement.name(),
+            "fingerprint": verified.key_id.to_string(),
+            "digest": verified.statement.digest().as_str(),
+            "sequence": sequence.as_ref().map(|file| file.sequence),
+        });
+        if let Some(expires) = sequence.as_ref().and_then(|file| file.expires.as_deref()) {
+            value["expires"] = json!(expires);
+        }
+        println!("{value}");
     } else {
         println!(
             "Verified catalog {} with key {}",
@@ -236,6 +297,15 @@ fn verify(root: &Path, key_path: &Path, json_output: bool) -> Result<()> {
             verified.key_id
         );
         println!("Digest: {}", verified.statement.digest());
+        match &sequence {
+            Some(sequence) => {
+                println!("sequence: {}", sequence.sequence);
+                if let Some(expires) = &sequence.expires {
+                    println!("expires: {expires}");
+                }
+            }
+            None => println!("sequence: unnumbered"),
+        }
     }
     Ok(())
 }

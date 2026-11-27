@@ -1,0 +1,55 @@
+name: Validate catalog
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install modn
+        run: cargo install --locked --git https://github.com/modn-org/modn --tag v{{VERSION}} modn-cli
+      - name: Validate the bucket and resolve every package
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/modn-state"
+          game_root="$RUNNER_TEMP/games"
+          mkdir -p "$game_root"
+          modn --state-dir "$state" bucket update
+          modn --state-dir "$state" bucket add "$(jq -r .name bucket.json)" .
+          modn --state-dir "$state" search --json
+          prepare_game() {
+            local root="$1" game_id="$2"
+            case "$game_id" in
+              cyberpunk-2077)
+                mkdir -p "$root/bin/x64"
+                : > "$root/bin/x64/Cyberpunk2077.exe"
+                ;;
+              balatro)
+                : > "$root/Balatro.exe"
+                ;;
+              *)
+                echo "::error::Add the dry-run marker of game $game_id to validate.yml."
+                exit 1
+                ;;
+            esac
+          }
+          shopt -s nullglob
+          for manifest in mods/*/*.json; do
+            package="${manifest#mods/}"
+            package="${package%.json}"
+            game_id="${package%%/*}"
+            mod_id="${package#*/}"
+            game_dir="$game_root/$game_id"
+            prepare_game "$game_dir" "$game_id"
+            modn --state-dir "$state" install \
+              "$(jq -r .name bucket.json)/$game_id/$mod_id" \
+              --download --dry-run --path "$game_dir"
+          done

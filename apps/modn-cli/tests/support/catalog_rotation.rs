@@ -113,3 +113,31 @@ pub fn public_text(path: &Path) -> String {
         .trim()
         .to_owned()
 }
+
+/// Sign a catalog tree with a key without `modn catalog sign`.
+///
+/// The authoring command refuses to sign a revision older than a published key
+/// statement. A test uses this helper to build such a tree and prove that sync
+/// refuses it.
+pub fn sign_catalog_direct(catalog: &Path, key: &Path) {
+    let text = fs::read_to_string(key).expect("secret key");
+    let boxed = SecretKeyBox::from_string(&text).expect("secret key box");
+    let secret = SecretKey::from_unencrypted_box(boxed).expect("secret key");
+    let public = PublicKey::from_secret_key(&secret).expect("public key");
+    let statement = modn_core::buckets::catalog_statement(catalog).expect("catalog statement");
+    let signature = minisign::sign(
+        Some(&public),
+        &secret,
+        Cursor::new(statement.as_bytes()),
+        Some("fixture catalog"),
+        Some("fixture catalog signature"),
+    )
+    .expect("catalog signature")
+    .into_string();
+    fs::write(
+        catalog.join("catalog.pub"),
+        public.to_box().expect("public key box").into_string(),
+    )
+    .expect("catalog public key");
+    fs::write(catalog.join("catalog.sig"), signature).expect("catalog signature");
+}

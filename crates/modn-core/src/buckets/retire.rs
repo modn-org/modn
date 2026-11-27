@@ -212,6 +212,11 @@ impl BucketStore {
         }
     }
 
+    /// The current wall-clock time in seconds, with the test clock when one is installed.
+    pub(super) fn clock_seconds(&self) -> u64 {
+        self.retired_now()
+    }
+
     /// The current time in seconds, with the test clock when one is installed.
     fn retired_now(&self) -> u64 {
         #[cfg(test)]

@@ -6,6 +6,8 @@ mod catalog_mirrors;
 mod catalog_rotation;
 #[path = "support/catalog_rotation_state.rs"]
 mod catalog_rotation_state;
+#[path = "support/catalog_sequence.rs"]
+mod catalog_sequence;
 #[path = "support/main_bucket.rs"]
 mod main_bucket;
 #[path = "support/zip_catalog.rs"]
@@ -15,9 +17,14 @@ mod zip_catalog_fixture;
 
 use catalog_authoring::{copy_tree, path_text, prepare_catalog, run, snapshot, stderr};
 use catalog_mirrors::{keygen, pack_catalog, signed_catalog};
-use catalog_rotation::{forge_revocation, forge_rotation, public_text, rotate, sign};
+use catalog_rotation::{
+    forge_revocation, forge_rotation, public_text, rotate, sign, sign_catalog_direct,
+};
 use catalog_rotation_state::{listed_entry, state_snapshot};
-use modn_core::buckets::{revocation_statement, rotation_statement};
+use catalog_sequence::{catalog_json, error_code, numbered_catalog, statement_sequence};
+use modn_core::buckets::{
+    revocation_statement, rotation_statement, rotation_statement_with_sequence,
+};
 use std::fs;
 use std::path::Path;
 use zip_catalog::pack;
@@ -319,4 +326,147 @@ fn author_commands_refuse_a_secret_key_inside_the_catalog_and_write_nothing() {
         stderr(&revoke_output)
     );
     assert_eq!(before, snapshot(&catalog));
+}
+
+#[test]
+fn a_numbered_catalog_delivers_a_rotation_and_stays_syncable() {
+    let fixture = Fixture::new();
+    let temp = fixture.temp.path();
+    let keys = temp.join("keys");
+    let old = keygen(&keys, "author");
+    let next = keygen(&keys, "next");
+    let catalog = numbered_catalog(temp, "community", &keys, "author", "1", None, &[]);
+    let source = pack_catalog(&catalog, &temp.join("community.zip"));
+    let first = fixture.sync(&source);
+    assert!(first.status.success(), "{}", stderr(&first));
+    assert_eq!(listed_entry(&fixture)["signer_key_id"], old.as_str());
+
+    rotate(&catalog, &keys.join("author.key"), &keys.join("next.pub"));
+    assert_eq!(catalog_json(&catalog, "sequence.json")["sequence"], 1);
+    assert_eq!(statement_sequence(&catalog, "rotation.json"), Some(2));
+    sign(&catalog, &keys.join("next.key"));
+    assert_eq!(catalog_json(&catalog, "sequence.json")["sequence"], 2);
+    pack(&catalog, &source);
+
+    let fresh = Fixture::new();
+    let first_rotated = fresh.sync(&source);
+    assert!(first_rotated.status.success(), "{}", stderr(&first_rotated));
+    assert!(
+        stderr(&first_rotated).contains(&format!("Pinned signer key {next}")),
+        "{}",
+        stderr(&first_rotated)
+    );
+    assert_eq!(listed_entry(&fresh)["signer_key_id"], next.as_str());
+
+    let rotated = fixture.sync(&source);
+    assert!(rotated.status.success(), "{}", stderr(&rotated));
+    assert!(
+        stderr(&rotated).contains(&format!("signing key rotated: {old} -> {next}")),
+        "{}",
+        stderr(&rotated)
+    );
+    assert_eq!(listed_entry(&fixture)["signer_key_id"], next.as_str());
+
+    fs::write(catalog.join("notes.txt"), "the next release").expect("release content");
+    let released = run(&[
+        "--json",
+        "catalog",
+        "sign",
+        path_text(&catalog),
+        "--key",
+        path_text(&keys.join("next.key")),
+        "--sequence",
+        "next",
+    ]);
+    assert!(released.status.success(), "{}", stderr(&released));
+    assert_eq!(catalog_json(&catalog, "sequence.json")["sequence"], 3);
+    pack(&catalog, &source);
+    let updated = fixture.sync(&source);
+    assert!(updated.status.success(), "{}", stderr(&updated));
+    assert_eq!(listed_entry(&fixture)["signer_key_id"], next.as_str());
+}
+
+#[test]
+fn a_statement_from_an_older_revision_is_refused_as_a_rollback() {
+    let fixture = Fixture::new();
+    let temp = fixture.temp.path();
+    let state = temp.join("state");
+    let keys = temp.join("keys");
+    let old = keygen(&keys, "author");
+    keygen(&keys, "next");
+    let catalog = numbered_catalog(temp, "community", &keys, "author", "2", None, &[]);
+    let source = pack_catalog(&catalog, &temp.join("community.zip"));
+    let first = fixture.sync(&source);
+    assert!(first.status.success(), "{}", stderr(&first));
+
+    let case = temp.join("replay");
+    copy_tree(&catalog, &case);
+    let next_text = public_text(&keys.join("next.pub"));
+    let body = rotation_statement_with_sequence(&old, &next_text, 2).expect("rotation statement");
+    forge_rotation(&case, &body, &keys.join("author.key"));
+    let signed = run(&[
+        "--json",
+        "catalog",
+        "sign",
+        path_text(&case),
+        "--key",
+        path_text(&keys.join("next.key")),
+        "--sequence",
+        "3",
+    ]);
+    assert!(signed.status.success(), "{}", stderr(&signed));
+    pack(&case, &source);
+
+    let before = state_snapshot(&state);
+    let refused = fixture.run(&["--json", "bucket", "sync", "community"]);
+    assert!(!refused.status.success(), "an older statement was accepted");
+    assert_eq!(
+        error_code(&refused),
+        "CATALOG_ROLLBACK",
+        "{}",
+        stderr(&refused)
+    );
+    assert!(
+        stderr(&refused).contains("older revision is a replay"),
+        "{}",
+        stderr(&refused)
+    );
+    assert_eq!(before, state_snapshot(&state));
+}
+
+#[test]
+fn a_statement_from_a_newer_revision_is_refused() {
+    let fixture = Fixture::new();
+    let temp = fixture.temp.path();
+    let state = temp.join("state");
+    let keys = temp.join("keys");
+    let old = keygen(&keys, "author");
+    keygen(&keys, "next");
+    let catalog = numbered_catalog(temp, "community", &keys, "author", "2", None, &[]);
+    let source = pack_catalog(&catalog, &temp.join("community.zip"));
+    let first = fixture.sync(&source);
+    assert!(first.status.success(), "{}", stderr(&first));
+
+    let case = temp.join("future");
+    copy_tree(&catalog, &case);
+    let next_text = public_text(&keys.join("next.pub"));
+    let body = rotation_statement_with_sequence(&old, &next_text, 4).expect("rotation statement");
+    forge_rotation(&case, &body, &keys.join("author.key"));
+    fs::write(
+        case.join("sequence.json"),
+        "{\"schema_version\":1,\"sequence\":3}",
+    )
+    .expect("catalog sequence");
+    sign_catalog_direct(&case, &keys.join("next.key"));
+    pack(&case, &source);
+
+    let before = state_snapshot(&state);
+    let refused = fixture.run(&["--json", "bucket", "sync", "community"]);
+    assert!(!refused.status.success(), "a future statement was accepted");
+    assert!(
+        stderr(&refused).contains("newer than the catalog revision's sequence 3"),
+        "{}",
+        stderr(&refused)
+    );
+    assert_eq!(before, state_snapshot(&state));
 }

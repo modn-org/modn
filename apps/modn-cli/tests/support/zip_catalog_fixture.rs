@@ -19,6 +19,13 @@ pub struct Fixture {
 }
 impl Fixture {
     pub fn new() -> Self {
+        Self::build(None)
+    }
+    /// A fixture whose official `main` release carries a signed sequence.
+    pub fn numbered_main(sequence: u64) -> Self {
+        Self::build(Some(sequence))
+    }
+    fn build(main_sequence: Option<u64>) -> Self {
         let temp = TempDir::new().expect("test fixture invariant");
         let data = temp.path().join("data");
         fs::create_dir_all(&data).expect("data directory");
@@ -28,6 +35,13 @@ impl Fixture {
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../buckets/main"),
             &tree,
         );
+        if let Some(sequence) = main_sequence {
+            fs::write(
+                tree.join("sequence.json"),
+                format!("{{\"schema_version\":1,\"sequence\":{sequence}}}"),
+            )
+            .expect("main sequence");
+        }
         let main_zip = temp.path().join("main.zip");
         pack(&tree, &main_zip);
         main_bucket::write_signature(&tree, &main_zip);

@@ -46,6 +46,67 @@ fn relocation_moves_the_primary_and_the_next_sync_uses_it() {
     assert!(!opened.contains(&PRIMARY.to_owned()), "{opened:?}");
 }
 
+fn relocation_json_sequence(url: &str, sequence: u64) -> String {
+    serde_json::json!({
+        "schema_version": 1,
+        "primary": {"kind":"zip","url":url},
+        "sequence": sequence,
+    })
+    .to_string()
+}
+
+#[test]
+fn relocation_with_the_revision_sequence_moves_the_primary() {
+    let key = test_key();
+    let temp = tempfile::tempdir().expect("temp");
+    let two = sequence_json(2);
+    let relocation = relocation_json_sequence(NEW_PRIMARY, 2);
+    let bytes = signed_zip(
+        temp.path(),
+        "v2",
+        "2.0",
+        &key,
+        &[("sequence.json", &two), ("relocation.json", &relocation)],
+    );
+    let state = temp.path().join("state");
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
+    let opener = Opener::new(vec![(PRIMARY, Some(bytes))]);
+    let synced = store
+        .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {
+            opener.open(source)
+        })
+        .expect("a relocation that names the revision sequence is followed");
+    assert_eq!(synced.trace.moved_to, Some(host(NEW_PRIMARY)));
+}
+
+#[test]
+fn relocation_rollback_cannot_lower_the_signed_sequence() {
+    let key = test_key();
+    let temp = tempfile::tempdir().expect("temp");
+    let two = sequence_json(2);
+    let stale = relocation_json_sequence(NEW_PRIMARY, 1);
+    let bytes = signed_zip(
+        temp.path(),
+        "v2",
+        "2.0",
+        &key,
+        &[("sequence.json", &two), ("relocation.json", &stale)],
+    );
+    let state = temp.path().join("state");
+    let store = BucketStore::new(&ManagerRoots::new(&state, None));
+    let opener = Opener::new(vec![(PRIMARY, Some(bytes))]);
+    let error = store
+        .sync_zip_with_signer("community", Some(zip_source(PRIMARY)), |source| {
+            opener.open(source)
+        })
+        .expect_err("a relocation from an older sequence is refused");
+    assert_eq!(
+        crate::error::code_of(&error),
+        Some(crate::error::ErrorCode::CatalogRollback)
+    );
+    assert!(!registration_file(&state).exists());
+}
+
 #[test]
 fn relocation_to_the_same_primary_is_ignored() {
     let key = test_key();
