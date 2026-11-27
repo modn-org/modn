@@ -12,6 +12,7 @@ use zip::write::SimpleFileOptions;
 #[path = "priority.rs"]
 mod priority;
 mod snapshot;
+mod switch;
 #[path = "toggle.rs"]
 mod toggle;
 use snapshot::{files, json, path_key, snapshot, stderr};
@@ -271,6 +272,7 @@ impl World {
 pub(crate) struct Observed {
     pub(crate) reviewable_install_failed: Vec<String>,
     pub(crate) installs: usize,
+    pub(crate) switches: usize,
 }
 
 type Installed = (String, BTreeSet<PathBuf>, BTreeSet<PathBuf>);
@@ -394,45 +396,6 @@ fn check_install(
     Ok(Some((id, added, destinations)))
 }
 
-fn check_uninstall(
-    world: &World,
-    id: &str,
-    owned: &BTreeSet<PathBuf>,
-    restored: &BTreeMap<String, Vec<u8>>,
-) -> Result<(), TestCaseError> {
-    let before = snapshot(&world.root)?;
-    let removed = world.uninstall(id)?;
-    prop_assert!(
-        removed.status.success(),
-        "uninstall of {} failed: {}",
-        id,
-        stderr(&removed)
-    );
-    let after = snapshot(&world.root)?;
-    let owned: BTreeSet<String> = owned.iter().map(|path| path_key(path)).collect();
-    let mut expected: BTreeMap<PathBuf, Vec<u8>> = files(&before)
-        .into_iter()
-        .filter(|(path, _)| !owned.contains(&path_key(path)))
-        .map(|(path, bytes)| (path.clone(), bytes.clone()))
-        .collect();
-    for (path, bytes) in &mut expected {
-        if let Some(replacement) = restored.get(&path_key(path)) {
-            *bytes = replacement.clone();
-        }
-    }
-    let after_files: BTreeMap<PathBuf, Vec<u8>> = files(&after)
-        .into_iter()
-        .map(|(path, bytes)| (path.clone(), bytes.clone()))
-        .collect();
-    prop_assert_eq!(
-        after_files,
-        expected,
-        "uninstall of {} removed the wrong files",
-        id
-    );
-    Ok(())
-}
-
 pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(), TestCaseError> {
     let world = World::new(case)?;
     let start = snapshot(&world.root)?;
@@ -447,7 +410,7 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
         check_install(&world, 'b', case.second.len(), observed)?
     };
     let Some((second_id, _second_files, mut second_owned)) = second else {
-        check_uninstall(&world, &first_id, &first_owned, &BTreeMap::new())?;
+        switch::check_uninstall(&world, &first_id, &first_owned, &BTreeMap::new())?;
         prop_assert_eq!(
             snapshot(&world.root)?,
             start,
@@ -457,6 +420,15 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
     };
     toggle::check_toggle_round_trip(&world, &second_id, &second_owned, &case.first)?;
     priority::check_priority_round_trip(&world, &first_id, &second_id, &case.first)?;
+    let extra = switch::check_switch_round_trip(
+        &world,
+        case,
+        &first_id,
+        &second_id,
+        &first_owned,
+        &second_owned,
+        observed,
+    )?;
     let first_keys: BTreeSet<String> = first_owned.iter().map(|path| path_key(path)).collect();
     let second_keys: BTreeSet<String> = second_owned.iter().map(|path| path_key(path)).collect();
     let shared: BTreeSet<String> = first_keys.intersection(&second_keys).cloned().collect();
@@ -471,8 +443,8 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
                 restored.insert(key, payload('a', index));
             }
         }
-        check_uninstall(&world, &second_id, &second_owned, &restored)?;
-        check_uninstall(&world, &first_id, &first_owned, &BTreeMap::new())?;
+        switch::check_uninstall(&world, &second_id, &second_owned, &restored)?;
+        switch::check_uninstall(&world, &first_id, &first_owned, &BTreeMap::new())?;
     } else {
         first_owned.retain(|path| !second_keys.contains(&path_key(path)));
         for (index, destination) in case.second.iter().enumerate() {
@@ -481,13 +453,13 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
                 restored.insert(key, payload('b', index));
             }
         }
-        check_uninstall(&world, &first_id, &first_owned, &restored)?;
-        check_uninstall(&world, &second_id, &second_owned, &BTreeMap::new())?;
+        switch::check_uninstall(&world, &first_id, &first_owned, &restored)?;
+        switch::check_uninstall(&world, &second_id, &second_owned, &BTreeMap::new())?;
     }
     prop_assert_eq!(
         snapshot(&world.root)?,
-        start,
+        start.clone(),
         "uninstalling every package did not restore the game"
     );
-    Ok(())
+    switch::finish(&world, extra, &start)
 }

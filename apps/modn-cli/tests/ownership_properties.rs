@@ -22,17 +22,22 @@ fn config(default_cases: u32) -> Config {
     config
 }
 
-fn run_cases(default_cases: u32, check: impl Fn(&Observed) -> Result<(), TestCaseError>) -> usize {
+fn run_cases(
+    default_cases: u32,
+    check: impl Fn(&Observed) -> Result<(), TestCaseError>,
+) -> (usize, usize) {
     let installs = std::cell::Cell::new(0usize);
+    let switches = std::cell::Cell::new(0usize);
     let mut runner = TestRunner::new(config(default_cases));
     let result = runner.run(&case(), |case| {
         let mut observed = Observed::default();
         ownership_case(&case, &mut observed)?;
         installs.set(installs.get() + observed.installs);
+        switches.set(switches.get() + observed.switches);
         check(&observed)
     });
     match result {
-        Ok(()) => installs.get(),
+        Ok(()) => (installs.get(), switches.get()),
         Err(TestError::Fail(reason, case)) => {
             panic!("{reason}\nminimal counterexample: {case:#?}")
         }
@@ -42,9 +47,15 @@ fn run_cases(default_cases: u32, check: impl Fn(&Observed) -> Result<(), TestCas
 
 #[test]
 fn dry_run_install_and_uninstall_keep_ownership_promises() {
-    let installs = run_cases(64, |_| Ok(()));
-    println!("ownership: {installs} approved installs checked");
+    let (installs, switches) = run_cases(64, |_| Ok(()));
+    println!(
+        "ownership: {installs} approved installs, {switches} profile switch round trips checked"
+    );
     assert!(installs >= 5, "too few approved installs: {installs}");
+    assert!(
+        switches >= 3,
+        "too few profile switch round trips: {switches}"
+    );
 }
 
 #[test]
@@ -62,7 +73,7 @@ fn single_component_destination_plans_installs_and_uninstalls() {
 
 #[test]
 fn reviewable_dry_run_predicts_the_install() {
-    let installs = run_cases(256, |observed| {
+    let (installs, _) = run_cases(256, |observed| {
         prop_assert!(
             observed.reviewable_install_failed.is_empty(),
             "reviewable dry run, failed install: {:?}",
