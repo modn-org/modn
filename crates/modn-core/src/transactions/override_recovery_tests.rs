@@ -287,14 +287,20 @@ fn override_recovery_after_witness_before_placement_restores_old_bytes() {
     let first = fixture.install(&first_archive, &[("pack/one.bin", ONE)]);
     let second_archive = fixture.archive("second", &[("pack/one.bin", NEW)]);
     let id = fixture.crash(&second_archive, &[("pack/one.bin", ONE)]);
-    let dest = fixture.dest(ONE);
-    fs::remove_file(&dest).expect("interrupted before placement");
-    let (temp, backup) = fixture.witness(&id, ONE, 0);
-    assert!(temp.exists() && backup.exists());
+    fs::remove_file(fixture.dest(ONE)).expect("interrupted before placement");
     assert_eq!(fixture.store.recover().expect("recover"), 1);
     fixture.assert_old_owner(ONE, &first, 1);
     fixture.assert_no_witnesses(&id, ONE, 0);
     assert_eq!(fixture.store.recover().expect("idle"), 0);
+
+    // The same step interrupted before the old bytes are removed.
+    let id = fixture.crash(&second_archive, &[("pack/one.bin", ONE)]);
+    let (_temp, backup) = fixture.witness(&id, ONE, 0);
+    fs::remove_file(fixture.dest(ONE)).expect("interrupted placement");
+    fs::hard_link(&backup, fixture.dest(ONE)).expect("old bytes stay in place");
+    assert_eq!(fixture.store.recover().expect("recover old in place"), 1);
+    fixture.assert_old_owner(ONE, &first, 1);
+    fixture.assert_no_witnesses(&id, ONE, 0);
 }
 
 #[test]
