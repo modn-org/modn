@@ -25,6 +25,8 @@ struct Asset {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SelectedGithubRelease {
+    /// The exact release tag, such as `v1.2.0`.
+    pub tag: String,
     /// The release tag with one leading `v` removed.
     pub version: String,
     /// The one asset whose name matches the pattern.
@@ -67,6 +69,7 @@ pub fn select_github_release(
         );
     }
     Ok(SelectedGithubRelease {
+        tag: release.tag_name.clone(),
         version: github_tag_version(&release.tag_name),
         asset: asset.name.clone(),
     })
@@ -91,6 +94,7 @@ mod tests {
              "assets": [{"name": "Mod-1.1.0.zip"}]}
         ]));
         let selected = select_github_release(&bytes, false, "Mod-*.zip").expect("release");
+        assert_eq!(selected.tag, "v1.1.0");
         assert_eq!(selected.version, "1.1.0");
         assert_eq!(selected.asset, "Mod-1.1.0.zip");
     }
