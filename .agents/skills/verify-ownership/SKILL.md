@@ -20,10 +20,10 @@ rules as the oracle for that class.
 
 | Check | Promise, in one sentence | Harm when broken |
 |---|---|---|
-| `accepted_destinations_stay_inside_the_game` | Every destination the gate accepts names one new file inside the game folder, under the same name, after the OS resolves it. | A hostile module writes outside the game, to a device such as `CON`, or under a silently changed name. |
+| `accepted_destinations_stay_inside_the_game` | Every destination the gate accepts names one new file inside the installation root, under the same name, after the OS resolves it. | A hostile module writes outside the installation root, to a device such as `CON`, or under a silently changed name. |
 | `accepted_destinations_follow_documented_windows_names` | No accepted path component is `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` or `LPT1`–`LPT9` (alone or before an extension), ends in a space or period, or holds a reserved character. | A package installs a file that Windows tools open as a device or cannot delete. |
 | `accepted_destinations_avoid_superscript_device_names` | No accepted path component is `COM¹`–`COM³` or `LPT¹`–`LPT³`, alone or before an extension. | The same device-name harm through the superscript digits that Microsoft documents as reserved. |
-| `single_component_destinations_keep_every_rule` | A destination with one component is accepted only when it names one file directly in the game folder, follows the documented Windows names, and shares its ownership key with every same-file spelling; drive, UNC, traversal, stream, trailing-dot, trailing-space and device-name forms stay rejected. | A single-file mod writes outside the game, to a device, or beside another package's file under a different case. |
+| `single_component_destinations_keep_every_rule` | A destination with one component is accepted only when it names one file directly in the installation root, follows the documented Windows names, and shares its ownership key with every same-file spelling; drive, UNC, traversal, stream, trailing-dot, trailing-space and device-name forms stay rejected. | A single-file mod writes outside the installation root, to a device, or beside another package's file under a different case. |
 | `same_file_spellings_share_one_ownership_key` | Two accepted destinations that the OS treats as one file get the same ownership key. | Two operations or two packages own one file, so the plan and the ownership checks miss the collision. |
 | `dry_run_install_and_uninstall_keep_ownership_promises` | A dry run changes no file and no manager state. An install writes exactly the previewed files or changes nothing. An uninstall removes exactly its package's files. Uninstalling every package restores the game tree. | Previews write, installs overwrite user files or write outside the game, or uninstall deletes another package's or the user's files. |
 | `reviewable_dry_run_predicts_the_install` | When nothing changes between them, a `reviewable` dry run and the approved install agree. | The user approves a preview, and the install then fails on a blocker the preview missed. |
@@ -34,18 +34,24 @@ than its floor fails, so a vacuous pass cannot happen.
 
 ## Coverage record
 
-Last confirmed against commit `88a3164` with the content-root change.
+Last confirmed against commit `f586621` after Milestone 17.
 
 | Check | Covered code |
 |---|---|
-| containment, documented names, superscript device names, single component | `crates/modn-core/src/archive.rs` `validated_name`; the destination gate in `crates/modn-core/src/planning.rs` `resolve_with_permissions` and `crates/modn-core/src/transactions/validation.rs` `validate_plan` (called by `validate_execution_plan` and adoption); `crates/modn-core/src/transactions/journal.rs` `target_path`. The test function `accepted` in `crates/modn-core/src/planning/destination_properties.rs` copies that gate and must match both call sites. The single-component checks live in `destination_properties/single_component.rs`. |
-| ownership key | `transactions/directory.rs` `ownership_key` and `case_key`; `planning.rs` `insert_destination`; `transactions/journal.rs` `commit_install` (`path_key` and root label); `transactions/journal.rs` `Roots` and pending root labels; `transactions/created_dirs.rs`; `inventory.rs`; `transactions/validation.rs` `validate_ownership_paths`; `state.rs` `migrate_ownership_keys` and its migration and collision tests in `state/tests.rs`; `state/roots.rs` `migrate_to_v3`, `record_root` and `resolve_root`, `RootKind::Content`, and `crates/modn-core/src/content_root.rs` resolution, whose root-qualified keys `(game_path, root, path_key)` the checks reach through `commit_install`, `validate_ownership_paths` and `Store::transaction_root`, with tests in `state/roots_tests.rs` and `transactions/roots_tests.rs`. |
-| end to end, agreement | `apps/modn-cli/src/install.rs` `install_archive`; `apps/modn-cli/src/state_access.rs`; `planning.rs` `resolve_with_permissions`, `existing_destination_issue`; `crates/modn-core/src/transactions/` `install.rs`, `uninstall.rs`, `journal.rs`, `recovery.rs`, `created_dirs.rs`, `validation.rs`. |
+| containment, documented names, superscript device names, single component | `crates/modn-core/src/archive.rs` `validated_name`; the destination gate in `crates/modn-core/src/planning.rs` `resolve_with_permissions` and `crates/modn-core/src/transactions/validation.rs` `validate_plan` (called by `validate_execution_plan` and `transactions/adoption.rs`); `crates/modn-core/src/transactions/journal.rs` `target_path`. The test function `accepted` in `crates/modn-core/src/planning/destination_properties.rs` calls `validated_name` directly, so the name rules have one owner. The single-component checks live in `destination_properties/single_component.rs`. |
+| ownership key | `transactions/directory.rs` `ownership_key`, `case_key` and `directory_candidate_key`; `planning.rs` `insert_destination` (one key per root); `transactions/journal.rs` `commit_install` (`path_key` and root label) and `Roots`; `transactions/created_dirs.rs`; `transactions/validation.rs` `validate_ownership_paths` and `Store::transaction_root`; `state.rs` `migrate_ownership_keys` and its migration and collision tests in `state/tests.rs`; `state/roots.rs` `SCHEMA_VERSION`, `record_root`, `check_root`, `recorded_root` and `resolve_root`, `RootKind::Content`, and `crates/modn-core/src/content_root.rs` resolution, whose root-qualified keys `(game_path, root, path_key)` the checks reach through `commit_install`, `validate_ownership_paths` and `Store::transaction_root`, with tests in `state/roots_tests.rs` and `transactions/roots_tests.rs`. |
+| end to end, agreement | `apps/modn-cli/src/install.rs` `install_archive`; `apps/modn-cli/src/managed.rs` `uninstall`; `apps/modn-cli/src/state_access.rs`; `crates/modn-core/src/planning/preview.rs` `preview_install_zip_with_permissions` and `preview_install_zip_with_appdata_permissions`; `planning.rs` `resolve_with_permissions`, `existing_destination_issue`; `crates/modn-core/src/transactions/` `install.rs` (`install_operations_zip_with_permissions`), `uninstall.rs`, `uninstall_plan.rs` (`uninstall_with`), `directory_ledger.rs` (`installed`), `journal.rs`, `recovery.rs`, `created_dirs.rs`, `validation.rs`. |
+
+The checks do not reach these paths today:
+
+- A catalog install or update. `crates/modn-core/src/catalog_pipeline/` (`commit_plan` and `commit_update`) commits through `transactions/install/planned.rs` (`install_catalog_release_planned`), `transactions/stack.rs` (`install_catalog_stack`) and `transactions/update.rs` (`update_catalog_release_planned`), and `apps/modn-cli/src/catalog_install.rs` runs the catalog install command, including its dry run. These reach `validate_plan`, `validate_ownership` and `commit_install`, but no property generator runs them.
+- A declared content root. The CLI generator rewrites the Cyberpunk policy without `content_root`, so every operation uses the `game` root. The ownership-key property also tests only the `game` root. `apps/modn-cli/tests/content_root_cli.rs` covers a content-root install, dry run, uninstall and update by example.
+- Scan and doctor reconciliation. `crates/modn-core/src/inventory.rs` reads the same ownership keys against the disk, but no property runs a scan or doctor report.
 
 To see whether the covered code changed after the sync commit, run:
 
 ```sh
-git diff --stat 7550011 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning.rs crates/modn-core/src/state.rs crates/modn-core/src/state/roots.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions apps/modn-cli/src/install.rs apps/modn-cli/src/state_access.rs
+git diff --stat f586621 -- crates/modn-core/src/archive.rs crates/modn-core/src/planning crates/modn-core/src/state.rs crates/modn-core/src/state/roots.rs crates/modn-core/src/content_root.rs crates/modn-core/src/inventory.rs crates/modn-core/src/transactions crates/modn-core/src/catalog_pipeline apps/modn-cli/src/install.rs apps/modn-cli/src/managed.rs apps/modn-cli/src/state_access.rs apps/modn-cli/src/catalog_install.rs apps/modn-cli/src/catalog_install
 ```
 
 When that diff is not empty, read it against the table and the generators.
@@ -79,8 +85,11 @@ Writable state opens migrate stored file, directory and created-directory
 keys in one transaction. Exact keys require no updates.
 A collision refuses the open and
 preserves every ownership record. Read-only opens do not migrate state.
-Schema version 3 qualifies every ownership key with its root label; today
-every record uses the `game` root, so the checks see the same keys as before.
+Schema version 7 records each installation root in `installation_roots`, and
+every ownership and created-directory key is qualified by
+`(game_path, root, path_key)`. The checks record only the `game` root; a
+declared content root is exercised by the content-root CLI tests, not by these
+properties.
 
 ## Read a failure
 
@@ -90,7 +99,7 @@ what the dry run reported, what `install --yes` or `uninstall --yes` did to
 which path. Then decide which of these it is:
 
 - **Real bug.** A property assertion failed, such as `dry run of a changed manager state`, `uninstall of ... removed the wrong files` or a containment mismatch. Report it with the steps. Keep the property and the generators unchanged, and change product code only when the user asks.
-- **Modeling error.** The test's copy of the code drifted. Examples: `accepted` no longer matches the gate in `planning.rs` and `validation.rs`, or the bundled `main.lua` no longer ends in `return policy`. Fix the test so that it describes the code again.
+- **Modeling error.** The test no longer describes the code. Examples: `accepted` no longer matches the gate in `planning.rs` and `validation.rs`, or the bundled `main.lua` no longer ends in `return policy`. Fix the test so that it describes the code again.
 - **Setup noise.** The failure is an I/O error from building the fixture, such as a path that is too long or a file locked by antivirus. Rerun it, and if it repeats, fix the fixture.
 
 ## Change the verification
