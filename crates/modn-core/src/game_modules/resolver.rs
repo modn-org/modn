@@ -1,10 +1,7 @@
-use super::loader::{self, VerifiedModule};
-use super::official::read_official;
-use super::registry::{ModuleRegistry, ModuleSource};
+use super::registry::ModuleRegistry;
 use crate::buckets::BucketStore;
 use crate::manager_roots::ManagerRoots;
-use anyhow::{bail, Result};
-use std::path::{Path, PathBuf};
+use anyhow::Result;
 
 /// Game IDs of every module that ordinary commands can select: the official
 /// `main` modules and the registered third-party modules, without duplicates.
@@ -19,58 +16,4 @@ pub fn available_games(roots: &ManagerRoots) -> Result<Vec<String>> {
     games.sort();
     games.dedup();
     Ok(games)
-}
-
-pub(crate) fn read_policy(roots: &ManagerRoots, game: &str) -> Result<(VerifiedModule, String)> {
-    if !loader::valid_game_id(game) {
-        bail!("invalid game module identifier");
-    }
-    let directory = roots
-        .development_modules()
-        .map(Path::to_path_buf)
-        .or_else(|| {
-            std::env::var_os("MODN_GAME_MODULES_DIR").map(|base| PathBuf::from(base).join(game))
-        });
-    let (manifest, source) = match directory {
-        Some(directory) => loader::read_verified_module(&directory)?,
-        None => {
-            let store = BucketStore::new(roots);
-            if store.official_games()?.iter().any(|id| id == game) {
-                read_official(roots, game)?
-            } else if let Some((manifest, script, registered)) =
-                ModuleRegistry::new(roots).read(game)?
-            {
-                ensure_source_trusted(&store, game, &registered.source)?;
-                (manifest, script)
-            } else {
-                read_official(roots, game)?
-            }
-        }
-    };
-    if manifest.game_id != game {
-        bail!("game module identity does not match requested game");
-    }
-    Ok((manifest, source))
-}
-
-fn ensure_source_trusted(store: &BucketStore, game: &str, source: &ModuleSource) -> Result<()> {
-    let Some(bucket) = source.bucket.as_deref() else {
-        return Ok(());
-    };
-    if bucket == "main" {
-        return Ok(());
-    }
-    let trusted = store.trusted_module_sources()?.into_iter().any(|trusted| {
-        trusted.bucket == bucket
-            && source
-                .signer_key_id
-                .as_deref()
-                .is_some_and(|signer| trusted.authorizes(signer))
-    });
-    if !trusted {
-        bail!(
-            "game module {game} comes from bucket {bucket}, which is not a trusted module source; run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game}` to remove the module"
-        );
-    }
-    Ok(())
 }

@@ -76,7 +76,7 @@ fn epic_manifest_is_detected_and_deduplicated() {
 fn invalid_game_is_rejected() {
     main_bucket::seeded_roots(|roots| {
         let temp = tempdir().unwrap();
-        assert!(validate_installation_for(roots, "cyberpunk-2077", temp.path()).is_err());
+        assert!(validate(roots, "cyberpunk-2077", temp.path()).is_err());
     });
 }
 
@@ -87,7 +87,7 @@ fn registration_persists_without_touching_game() {
         let game = temp.path().join("game");
         game_at(&game);
         let state = temp.path().join("state/mod.sqlite");
-        let game_path = validate_installation_for(roots, "cyberpunk-2077", &game).unwrap();
+        let game_path = validate(roots, "cyberpunk-2077", &game).unwrap();
         let store = Store::open(&state).unwrap();
         store
             .add_game(roots, "cyberpunk-2077", &game_path, "manual")
@@ -104,4 +104,13 @@ fn registration_persists_without_touching_game() {
             b"fixture"
         );
     });
+}
+
+fn validate(
+    roots: &modn_core::manager_roots::ManagerRoots,
+    game: &str,
+    path: &std::path::Path,
+) -> anyhow::Result<std::path::PathBuf> {
+    let selection = modn_core::game_modules::ModuleSelection::resolve(roots, game)?;
+    validate_installation_for(&selection, path)
 }

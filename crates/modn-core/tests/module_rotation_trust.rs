@@ -225,8 +225,7 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
             .sync_git_with_signer("community", Some(catalog.source()))
             .expect("first sync");
         catalog.trust(&store, &catalog.key_id);
-        modn_core::game_modules::content_root_spec(roots, "fixture-game")
-            .expect("module usable before rotation");
+        content_root(roots, "fixture-game").expect("module usable before rotation");
 
         let (next_pair, next_public, next_key_id) = next_key();
         let body = rotation_statement(&catalog.key_id, &next_public).expect("rotation body");
@@ -254,16 +253,27 @@ fn a_key_rotation_keeps_a_retained_module_release_usable() {
             vec![catalog.key_id.clone()]
         );
 
-        modn_core::game_modules::content_root_spec(roots, "fixture-game")
-            .expect("a rotation keeps the retained release usable");
+        content_root(roots, "fixture-game").expect("a rotation keeps the retained release usable");
         assert!(
             !doctor_reports_untrusted(roots),
             "doctor accepts a release kept under a previous signer"
         );
-        let trusted = store.trusted_module_sources().expect("trusted sources");
-        assert_eq!(trusted.len(), 1);
-        assert_eq!(trusted[0].signer_key_id, next_key_id);
-        assert!(trusted[0].authorizes(&catalog.key_id));
+        let retained = modn_core::game_modules::ModuleSource {
+            bucket: Some("community".to_owned()),
+            signer_key_id: Some(catalog.key_id.clone()),
+        };
+        let decision = store
+            .module_source_trust(&retained)
+            .expect("trusted source decision");
+        assert!(decision.is_trusted());
+        assert_eq!(
+            store
+                .catalog_signer("community")
+                .expect("signer")
+                .expect("pinned signer")
+                .key_id,
+            next_key_id
+        );
     });
 }
 
@@ -280,8 +290,7 @@ fn a_revocation_keeps_the_revoked_release_untrusted() {
             .sync_git_with_signer("community", Some(catalog.source()))
             .expect("first sync");
         catalog.trust(&store, &catalog.key_id);
-        modn_core::game_modules::content_root_spec(roots, "fixture-game")
-            .expect("module usable before revocation");
+        content_root(roots, "fixture-game").expect("module usable before revocation");
 
         let (next_pair, next_public, next_key_id) = next_key();
         let body = revocation_statement(&catalog.key_id, &next_public).expect("revocation body");
@@ -316,13 +325,13 @@ fn a_revocation_keeps_the_revoked_release_untrusted() {
             revoked.key_change.expect("revocation").kind,
             KeyChangeKind::Revoked
         );
-        let error = modn_core::game_modules::content_root_spec(roots, "fixture-game")
+        let error = content_root(roots, "fixture-game")
             .expect_err("a revocation clears module trust")
             .to_string();
         assert!(error.contains("not a trusted module source"), "{error}");
 
         catalog.trust(&store, &next_key_id);
-        let error = modn_core::game_modules::content_root_spec(roots, "fixture-game")
+        let error = content_root(roots, "fixture-game")
             .expect_err("a release imported under the revoked key stays untrusted")
             .to_string();
         assert!(error.contains("not a trusted module source"), "{error}");
@@ -339,7 +348,15 @@ fn a_revocation_keeps_the_revoked_release_untrusted() {
         store
             .sync_git_with_signer("community", None)
             .expect("the replacement key signs the new release");
-        modn_core::game_modules::content_root_spec(roots, "fixture-game")
+        content_root(roots, "fixture-game")
             .expect("a release signed by the replacement key is usable");
     });
+}
+
+fn content_root(
+    roots: &modn_core::manager_roots::ManagerRoots,
+    game: &str,
+) -> anyhow::Result<Option<modn_core::game_modules::ContentRootSpec>> {
+    let selection = modn_core::game_modules::ModuleSelection::resolve(roots, game)?;
+    modn_core::game_modules::content_root_spec(&selection)
 }

@@ -4,6 +4,7 @@ use super::lock::{acquire_lock, LOCK_WAIT};
 use super::manifest::valid_id;
 use super::signature::{verify_catalog_directory, CatalogPublicKey};
 use super::store::{validate_module_source_games, Registration};
+use super::trust_decision::ModuleSourceRegistrationFacts;
 use super::BucketStore;
 use crate::game_modules::ImportReport;
 use anyhow::{bail, Context, Result};
@@ -85,26 +86,6 @@ pub struct TrustedModuleSource {
     pub previous_signers: Vec<String>,
     /// Keys that the offline revocation key revoked.
     pub revoked_signers: Vec<String>,
-}
-
-impl TrustedModuleSource {
-    /// True when a retained module release signed by `key_id` stays authorized.
-    ///
-    /// A rotation carries trust from the old key to the new one, so a release
-    /// imported under an earlier signer stays usable. A revoked key never does:
-    /// only a release signed by the replacement key is accepted.
-    #[must_use]
-    pub fn authorizes(&self, key_id: &str) -> bool {
-        self.signer_key_id.eq_ignore_ascii_case(key_id)
-            || (self
-                .previous_signers
-                .iter()
-                .any(|previous| previous.eq_ignore_ascii_case(key_id))
-                && !self
-                    .revoked_signers
-                    .iter()
-                    .any(|revoked| revoked.eq_ignore_ascii_case(key_id)))
-    }
 }
 
 impl BucketStore {
@@ -230,7 +211,11 @@ impl BucketStore {
         )
     }
 
-    /// Report whether a bucket may supply executable game modules.
+    /// Report the stored trust state of a bucket as a module source.
+    ///
+    /// Git and ZIP sync read this bucket-level state before they import
+    /// modules. It is built from the same facts and signer comparison as
+    /// [`decide_module_source_trust`](super::decide_module_source_trust).
     pub fn module_trust(&self, name: &str) -> Result<ModuleTrustState> {
         if name == "main" {
             return Ok(ModuleTrustState::Main);
@@ -239,54 +224,20 @@ impl BucketStore {
             bail!("invalid bucket name");
         }
         let registration = self.registration(name)?;
-        if registration.git.is_none() && registration.zip.is_none() {
-            return Ok(ModuleTrustState::Local);
-        }
-        let Some(signer) = registration.catalog_signer() else {
-            return Ok(ModuleTrustState::Untrusted);
-        };
-        let trusted = registration
-            .module_trust
-            .as_ref()
-            .is_some_and(|trust| trust.signer_key_id == signer.key_id);
-        Ok(if trusted {
-            ModuleTrustState::Trusted
-        } else {
-            ModuleTrustState::Untrusted
-        })
+        Ok(ModuleSourceRegistrationFacts::from_registration(&registration).bucket_trust_state())
     }
 
     /// List trusted module catalogs with their published directory.
     pub(crate) fn trusted_module_catalogs(&self) -> Result<Vec<(String, PathBuf)>> {
         let mut catalogs = Vec::new();
         for (bucket, registration) in self.registrations()? {
-            if Self::stored_module_trust(&registration) != ModuleTrustState::Trusted {
+            let trust = ModuleSourceRegistrationFacts::from_registration(&registration)
+                .bucket_trust_state();
+            if trust != ModuleTrustState::Trusted {
                 continue;
             }
             catalogs.push((bucket, registration.path));
         }
         Ok(catalogs)
-    }
-
-    /// List each bucket whose trust record matches its pinned signer key ID.
-    pub fn trusted_module_sources(&self) -> Result<Vec<TrustedModuleSource>> {
-        let mut sources = Vec::new();
-        for (bucket, registration) in self.registrations()? {
-            let Some(trust) = &registration.module_trust else {
-                continue;
-            };
-            let Some(signer) = registration.catalog_signer() else {
-                continue;
-            };
-            if trust.signer_key_id == signer.key_id {
-                sources.push(TrustedModuleSource {
-                    bucket,
-                    signer_key_id: signer.key_id.clone(),
-                    previous_signers: signer.previous_signers.clone(),
-                    revoked_signers: signer.revoked_signers.clone(),
-                });
-            }
-        }
-        Ok(sources)
     }
 }

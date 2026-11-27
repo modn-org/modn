@@ -1,5 +1,5 @@
 use crate::content_root::{self, ContentRootHealth};
-use crate::game_modules::policy;
+use crate::game_modules::{policy, ModuleSelection};
 use crate::manager_roots::ManagerRoots;
 use anyhow::Result;
 use serde::Serialize;
@@ -206,28 +206,32 @@ pub struct DoctorReport {
 /// Scan using a runtime-selected game's Lua module.
 #[must_use]
 pub fn scan_for(roots: &ManagerRoots, game_id: &str, installation: &Path) -> ScanReport {
-    scan_bounded_for(roots, game_id, installation, MAX_ENTRIES)
+    let selection = ModuleSelection::resolve(roots, game_id).ok();
+    scan_bounded_for(selection.as_ref(), game_id, installation, MAX_ENTRIES)
 }
 
 fn scan_bounded_for(
-    roots: &ManagerRoots,
+    selection: Option<&ModuleSelection>,
     game_id: &str,
     installation: &Path,
     limit: usize,
 ) -> ScanReport {
-    scan_bounded_with_health(roots, game_id, installation, None, limit).0
+    scan_bounded_with_health(selection, game_id, installation, None, limit).0
 }
 
 fn scan_bounded_with_health(
-    roots: &ManagerRoots,
+    selection: Option<&ModuleSelection>,
     game_id: &str,
     installation: &Path,
     appdata: Option<&Path>,
     limit: usize,
 ) -> (ScanReport, Option<ContentRootHealth>) {
-    let health = crate::game_modules::content_root_spec(roots, game_id)
-        .ok()
-        .flatten()
+    let health = selection
+        .and_then(|selection| {
+            crate::game_modules::content_root_spec(selection)
+                .ok()
+                .flatten()
+        })
         .and_then(|spec| {
             let base = appdata
                 .map(Path::to_path_buf)
@@ -236,8 +240,10 @@ fn scan_bounded_with_health(
         });
     let content = health.as_ref().and_then(|health| health.root.as_deref());
     let content_path = health.as_ref().map(|health| health.path.clone());
-    let report =
-        policy::scan(roots, game_id, installation, content, limit).unwrap_or_else(|_| ScanReport {
+    let report = selection
+        .map(|selection| policy::scan(selection, installation, content, limit))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no governing game module was selected")))
+        .unwrap_or_else(|_| ScanReport {
             incomplete: true,
             scan_issues: vec!["SCAN_UNREADABLE_ENTRY".into()],
             game_id: game_id.into(),
@@ -258,9 +264,10 @@ fn scan_bounded_with_health(
 /// Diagnose a runtime-selected game's read-only inventory.
 #[must_use]
 pub fn doctor_for(roots: &ManagerRoots, game_id: &str, installation: &Path) -> DoctorReport {
+    let selection = ModuleSelection::resolve(roots, game_id).ok();
     let (report, health) =
-        scan_bounded_with_health(roots, game_id, installation, None, MAX_ENTRIES);
-    let mut doctor = diagnose(roots, report);
+        scan_bounded_with_health(selection.as_ref(), game_id, installation, None, MAX_ENTRIES);
+    let mut doctor = diagnose(selection.as_ref(), report);
     doctor
         .diagnostics
         .extend(content_root_diagnostics(health.as_ref()));
@@ -280,8 +287,11 @@ pub(crate) fn content_root_diagnostics(health: Option<&ContentRootHealth>) -> Ve
         .collect()
 }
 
-pub(crate) fn diagnose_checked(roots: &ManagerRoots, report: ScanReport) -> Result<DoctorReport> {
-    let diagnostics = policy::diagnose(roots, &report)?;
+pub(crate) fn diagnose_checked(
+    selection: &ModuleSelection,
+    report: ScanReport,
+) -> Result<DoctorReport> {
+    let diagnostics = policy::diagnose(selection, &report)?;
     Ok(DoctorReport {
         scan: report,
         diagnostics,
@@ -289,8 +299,12 @@ pub(crate) fn diagnose_checked(roots: &ManagerRoots, report: ScanReport) -> Resu
     })
 }
 
-pub(crate) fn diagnose(roots: &ManagerRoots, report: ScanReport) -> DoctorReport {
-    match policy::diagnose(roots, &report) {
+pub(crate) fn diagnose(selection: Option<&ModuleSelection>, report: ScanReport) -> DoctorReport {
+    let outcome = match selection {
+        Some(selection) => policy::diagnose(selection, &report),
+        None => Err(anyhow::anyhow!("no governing game module was selected")),
+    };
+    match outcome {
         Ok(diagnostics) => DoctorReport {
             scan: report,
             diagnostics,
@@ -326,10 +340,11 @@ mod tests {
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("unrelated.txt"), "fixture").unwrap();
             fs::create_dir_all(game.path().join("mods/ActualRedmod")).unwrap();
-            let report = scan_bounded_for(roots, "cyberpunk-2077", game.path(), 1);
+            let selection = ModuleSelection::resolve(roots, "cyberpunk-2077").ok();
+            let report = scan_bounded_for(selection.as_ref(), "cyberpunk-2077", game.path(), 1);
             assert!(report.incomplete);
             assert!(report.mods.is_empty());
-            assert!(diagnose(roots, report)
+            assert!(diagnose(selection.as_ref(), report)
                 .diagnostics
                 .iter()
                 .any(|d| d.code == "SCAN_INCOMPLETE"));
@@ -343,10 +358,11 @@ mod tests {
             let dir = game.path().join("archive/pc/mod");
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("one.archive"), "fixture").unwrap();
-            let report = scan_bounded_for(roots, "cyberpunk-2077", game.path(), 1);
+            let selection = ModuleSelection::resolve(roots, "cyberpunk-2077").ok();
+            let report = scan_bounded_for(selection.as_ref(), "cyberpunk-2077", game.path(), 1);
             assert!(!report.incomplete);
             assert_eq!(report.mods.len(), 1);
-            assert!(!diagnose(roots, report)
+            assert!(!diagnose(selection.as_ref(), report)
                 .diagnostics
                 .iter()
                 .any(|d| d.code == "SCAN_INCOMPLETE"));

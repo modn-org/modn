@@ -371,10 +371,7 @@ fn resolution_reads_the_active_release() {
         let registry = ModuleRegistry::new(roots);
         let v1 = source(fixture.path(), "v1", "1.0.0", 3, &lua(3), None);
         registry.register(&v1, ModuleTrust::Acknowledged).unwrap();
-        assert_eq!(
-            modn_core::game_modules::content_root_spec(roots, GAME).unwrap(),
-            None
-        );
+        assert_eq!(content_root(roots, GAME).unwrap(), None);
         let v2 = source(
             fixture.path(),
             "v2",
@@ -386,15 +383,20 @@ fn resolution_reads_the_active_release() {
         registry
             .import_release(&v2, ModuleSource::default())
             .unwrap();
-        let spec = modn_core::game_modules::content_root_spec(roots, GAME)
+        let spec = content_root(roots, GAME)
             .unwrap()
             .expect("v2 declares a content root");
         assert_eq!(spec.base, "appdata");
         assert_eq!(spec.path, "Fixture Game/Mods");
         registry.rollback(GAME, None).unwrap();
-        assert_eq!(
-            modn_core::game_modules::content_root_spec(roots, GAME).unwrap(),
-            None
-        );
+        assert_eq!(content_root(roots, GAME).unwrap(), None);
     });
+}
+
+fn content_root(
+    roots: &modn_core::manager_roots::ManagerRoots,
+    game: &str,
+) -> anyhow::Result<Option<modn_core::game_modules::ContentRootSpec>> {
+    let selection = modn_core::game_modules::ModuleSelection::resolve(roots, game)?;
+    modn_core::game_modules::content_root_spec(&selection)
 }

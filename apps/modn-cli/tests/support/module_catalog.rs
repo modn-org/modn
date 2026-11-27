@@ -51,6 +51,19 @@ impl ModuleCatalog {
         &self.key_id
     }
 
+    /// Replace the catalog signer with a new key that no rotation names.
+    ///
+    /// The next `sign_and_commit` publishes `catalog.pub` and `catalog.sig` for
+    /// the new key, so re-registering the bucket pins a plain signer change.
+    pub fn change_signer(&mut self) {
+        self.pair = KeyPair::generate_unencrypted_keypair().expect("replacement signing key");
+        self.public = self.pair.pk.to_box().expect("public key").into_string();
+        self.key_id = CatalogPublicKey::parse(&self.public)
+            .expect("catalog public key")
+            .key_id()
+            .to_string();
+    }
+
     pub fn write_module(&self, game: &str, version: &str, lua: &str) -> PathBuf {
         let directory = self.directory.path().join("games").join(game);
         fs::create_dir_all(&directory).expect("game module directory");

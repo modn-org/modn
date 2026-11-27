@@ -195,7 +195,14 @@ fn untrusted_catalogs_ignore_games_and_stay_untrusted() {
             store.module_trust("community").expect("trust"),
             ModuleTrustState::Untrusted
         );
-        assert!(store.trusted_module_sources().expect("sources").is_empty());
+        let source = modn_core::game_modules::ModuleSource {
+            bucket: Some("community".to_owned()),
+            signer_key_id: None,
+        };
+        assert!(!store
+            .module_source_trust(&source)
+            .expect("decision")
+            .is_trusted());
         let packages = store.packages(Some("test-game")).expect("packages");
         assert!(packages.iter().any(|package| package.package.id == "mod"));
     });

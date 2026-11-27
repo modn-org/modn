@@ -259,8 +259,9 @@ pub fn check_module_with_roots(
     Ok(info.into())
 }
 
+/// A game module whose manifest and Lua entrypoint were read and validated.
 #[derive(Debug)]
-pub(super) struct VerifiedModule {
+pub struct VerifiedModule {
     pub(super) game_id: String,
     pub(super) version: String,
     pub(super) api_version: u32,
@@ -268,6 +269,51 @@ pub(super) struct VerifiedModule {
     pub(super) content_root: Option<ContentRootSpec>,
     pub(super) stores: StoreIdentities,
     pub(super) launch: LaunchTargets,
+    pub(super) digest: String,
+}
+
+impl VerifiedModule {
+    /// The game identity declared by the verified manifest.
+    #[must_use]
+    pub fn game_id(&self) -> &str {
+        &self.game_id
+    }
+
+    /// The module version declared by the verified manifest.
+    #[must_use]
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// The host API version declared by the verified manifest.
+    #[must_use]
+    pub fn api_version(&self) -> u32 {
+        self.api_version
+    }
+
+    /// The single Lua entrypoint filename declared by the verified manifest.
+    #[must_use]
+    pub fn entrypoint(&self) -> &str {
+        &self.entrypoint
+    }
+
+    /// The content root declared by the module, when it names one.
+    #[must_use]
+    pub fn content_root(&self) -> Option<&ContentRootSpec> {
+        self.content_root.as_ref()
+    }
+
+    /// The store identities declared by the module.
+    #[must_use]
+    pub fn stores(&self) -> &StoreIdentities {
+        &self.stores
+    }
+
+    /// The launch targets declared by the module.
+    #[must_use]
+    pub fn launch(&self) -> &LaunchTargets {
+        &self.launch
+    }
 }
 
 impl From<VerifiedModule> for GameModuleInfo {
@@ -290,7 +336,7 @@ pub(super) fn read_verified_module(directory: &Path) -> Result<(VerifiedModule, 
     let manifest_bytes = bounded_file(&root.join("module.json"), &root, MAX_MANIFEST_BYTES)?;
     let manifest = parse_manifest(&manifest_bytes)?;
     let script = bounded_file(&root.join(&manifest.entrypoint), &root, MAX_SCRIPT_BYTES)?;
-    verified(manifest, &script)
+    verified(manifest, &manifest_bytes, &script)
 }
 
 fn parse_manifest(bytes: &[u8]) -> Result<ModuleManifest> {
@@ -300,7 +346,11 @@ fn parse_manifest(bytes: &[u8]) -> Result<ModuleManifest> {
     Ok(manifest)
 }
 
-fn verified(manifest: ModuleManifest, script: &[u8]) -> Result<(VerifiedModule, String)> {
+fn verified(
+    manifest: ModuleManifest,
+    manifest_bytes: &[u8],
+    script: &[u8],
+) -> Result<(VerifiedModule, String)> {
     let source = std::str::from_utf8(script).context("Lua entrypoint must be UTF-8 source")?;
     if source.contains('\0') {
         bail!("Lua entrypoint cannot contain NUL bytes or binary chunks");
@@ -314,7 +364,16 @@ fn verified(manifest: ModuleManifest, script: &[u8]) -> Result<(VerifiedModule, 
             content_root: manifest.content_root,
             stores: manifest.stores.unwrap_or_default(),
             launch: manifest.launch.unwrap_or_default(),
+            digest: module_digest(manifest_bytes, script),
         },
         source.to_owned(),
     ))
+}
+
+/// BLAKE3 digest of the exact manifest bytes followed by the entrypoint bytes.
+pub(super) fn module_digest(manifest: &[u8], script: &[u8]) -> String {
+    let mut hash = blake3::Hasher::new();
+    hash.update(manifest);
+    hash.update(script);
+    hash.finalize().to_hex().to_string()
 }

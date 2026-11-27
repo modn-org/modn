@@ -90,10 +90,37 @@ The `--src` alias for `--module-src` is global but never persisted.
 `MODN_GAME_MODULES_DIR/<game-id>/` remains an alternative developer override.
 An explicit missing, invalid or mismatched source fails without fallback.
 Ordinary commands return to the local `main` policy; edits to a selected local
-source are observed without rebuilding Modn. A persistent
+source are observed without rebuilding Modn. The CLI reads
+`MODN_GAME_MODULES_DIR` once per command and passes it as a development base
+directory; the selection joins it with the game ID. A persistent
 `MODN_GAME_MODULES_DIR` applies to every command in that environment, so
 unset it outside development. Neither override grants write
 access to the game or changes Rust installation transactions.
+
+### Governing module selection
+
+One command has at most one governing game module, held by one
+`ModuleSelection` value. The governing-module precedence is fixed:
+
+1. **Development override.** The directory selected by `--module-src`, or
+   `MODN_GAME_MODULES_DIR/<game-id>`, is verified and used.
+2. **Official bucket.** The verified first-party module is used when the local
+   `main` bucket copy lists the game.
+3. **Retained release.** The active release in the module registry is used only
+   when its module-source trust decision is trusted.
+
+Otherwise the command is refused with `no first-party game module for <game>`
+and the expected first-party path. A refusal never falls through to a later
+origin. A development override that fails verification, a retained release from
+an untrusted bucket, and a release whose recorded signer differs from the
+trusted signer are refusals, even when another origin could supply the game. A
+verified manifest whose `game_id` differs from the requested game is also
+refused. The selection is built for each command and is not a cache. Every
+execution boundary re-reads the module from the selected origin and refuses with
+`game module <game> changed after selection` when the identity, digest or script
+differs; an unchanged module runs normally. The policy evaluation, content-root,
+store-identity and launch-target lookups all take this selection instead of
+resolving the module again.
 
 The shared read-only host adds `mods_host.directory.list(root_id,relative[,max_entries])`
 (default and maximum 2,048 entries; an optional per-call bound reports
@@ -146,7 +173,7 @@ modn module rollback <game-id> --to <version>
 
 `module rollback` switches the `current` pointer to the previous retained release, or to the version named by `--to`. It changes only future plans. It never changes installed files, game files or ownership records.
 
-`module list` verifies and lists every retained release, with its digest, source, trust state and `active` or `pinned` marker.
+`module list` verifies and lists every retained release, with its digest, source, trust state and `active` or `pinned` marker. A release is a trusted module source only when its recorded signer is authorized by the signer the bucket's trust record currently names. `main` is always a trusted module source.
 
 ### Trusted module sources
 
@@ -184,7 +211,23 @@ catalog with an extra entry is refused and stays untrusted. The refusal names
 the offending path. Package manifests live in `mods/<game-id>/`, so a mod whose ID is `module`
 is a normal package. See [buckets.md](buckets.md#module-sources-and-trust).
 
-Modn refuses a module whose bucket is no longer trusted. The refusal names the bucket and the recovery command. Run `modn bucket trust-modules <bucket>` to trust the bucket again, or `modn module remove <game-id>` to remove the module. `modn doctor` reports the same condition, with the same signer rule, as `MODULE_SOURCE_UNTRUSTED`: a retained release stays authorized under a previous signer after a rotation, and a release signed by a revoked key stays untrusted even when the bucket is trusted again.
+Modn refuses a module whose bucket is no longer trusted. The refusal names the
+bucket, the reason and the recovery commands, and `modn module list` prints the
+same reason and commands as a warning. The commands depend on the reason:
+
+- **Signer key change.** Re-trusting the bucket alone keeps the retained release
+  recorded under the previous signer. Run `modn module remove <game-id>` first,
+  then `modn bucket trust-modules <bucket>`, which trusts the bucket's current
+  signer and imports the module again.
+- **Unregistered bucket.** The bucket does not exist locally, so
+  `trust-modules` cannot work. Run `modn module remove <game-id>` to remove the
+  module, or register the bucket again with
+  `modn bucket sync <bucket> --source <remote> --revision <reference>` and then
+  trust its modules.
+- **Any other refusal.** Run `modn bucket trust-modules <bucket>` to trust the
+  bucket again, or `modn module remove <game-id>` to remove the module.
+
+`modn doctor` reports the same condition, with the same signer rule, as `MODULE_SOURCE_UNTRUSTED`: a retained release stays authorized under a previous signer after a rotation, and a release signed by a revoked key stays untrusted even when the bucket is trusted again.
 
 ## Store identities and detection
 

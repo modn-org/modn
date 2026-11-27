@@ -279,7 +279,8 @@ impl Store {
         path: &Path,
         source: &str,
     ) -> Result<GameInstallation> {
-        let path = crate::discovery::validate_installation_for(roots, game_id, path)?;
+        let selection = crate::game_modules::ModuleSelection::resolve(roots, game_id)?;
+        let path = crate::discovery::validate_installation_for(&selection, path)?;
         let path_text = path.to_str().context("game path must be valid UTF-8")?;
         let tx = self.connection.unchecked_transaction()?;
         roots::record_root(&tx, &path, roots::RootKind::Game, &path)?;

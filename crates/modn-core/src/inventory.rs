@@ -1,7 +1,7 @@
 //! Reconcile on-disk discovery against manager-owned SQLite records without writing to a game.
 use crate::buckets::BucketStore;
 use crate::content_root::{self, ContentRootHealth, ContentRootStatus};
-use crate::game_modules::{content_root_spec, hidden_modules, ModuleRegistry};
+use crate::game_modules::{content_root_spec, hidden_modules, ModuleRegistry, ModuleSelection};
 use crate::integrity::{self, FileRoots, PathState};
 use crate::manager_roots::ManagerRoots;
 use crate::scan::{self, Diagnostic, DoctorReport, IntegrityStatus, ScanReport, ScanRoot};
@@ -44,11 +44,21 @@ fn scan_inner(
     installation: &Path,
     appdata: Option<&Path>,
 ) -> Result<(ScanReport, Option<ContentRootHealth>)> {
-    let game = crate::discovery::validate_installation_for(roots, game_id, installation)?;
+    let selection = ModuleSelection::resolve(roots, game_id)?;
+    scan_inner_selected(&selection, store, installation, appdata)
+}
+
+fn scan_inner_selected(
+    selection: &ModuleSelection,
+    store: &Store,
+    installation: &Path,
+    appdata: Option<&Path>,
+) -> Result<(ScanReport, Option<ContentRootHealth>)> {
+    let game = crate::discovery::validate_installation_for(selection, installation)?;
     let installed = store.installed(&game)?;
-    let health = content_health(roots, store, game_id, &game, appdata)?;
+    let health = content_health(selection, store, &game, appdata)?;
     let content = health.as_ref().and_then(|health| health.root.as_deref());
-    let mut report = crate::game_modules::policy::scan(roots, game_id, &game, content, 20_000)?;
+    let mut report = crate::game_modules::policy::scan(selection, &game, content, 20_000)?;
     if report.content_root.is_none() {
         report.content_root = health.as_ref().map(|health| health.path.clone());
     }
@@ -177,13 +187,12 @@ fn scan_root_path<'a>(
 }
 
 fn content_health(
-    roots: &ManagerRoots,
+    selection: &ModuleSelection,
     store: &Store,
-    game_id: &str,
     game: &Path,
     appdata: Option<&Path>,
 ) -> Result<Option<ContentRootHealth>> {
-    let Some(spec) = content_root_spec(roots, game_id)? else {
+    let Some(spec) = content_root_spec(selection)? else {
         return Ok(None);
     };
     let appdata = match appdata {
@@ -240,8 +249,9 @@ pub fn doctor_with_ownership_appdata(
             created_directories,
         });
     }
-    let (report, health) = scan_inner(roots, store, game_id, installation, appdata)?;
-    let mut report = scan::diagnose_checked(roots, report)?;
+    let selection = ModuleSelection::resolve(roots, game_id)?;
+    let (report, health) = scan_inner_selected(&selection, store, installation, appdata)?;
+    let mut report = scan::diagnose_checked(&selection, report)?;
     report
         .diagnostics
         .extend(scan::content_root_diagnostics(health.as_ref()));
@@ -272,31 +282,23 @@ pub fn doctor_with_ownership_appdata(
 
 fn module_source_diagnostics(roots: &ManagerRoots, game_id: &str) -> Result<Vec<Diagnostic>> {
     let buckets = BucketStore::new(roots);
-    let trusted = buckets.trusted_module_sources()?;
     let mut diagnostics = Vec::new();
     if let Some(release) = ModuleRegistry::new(roots).active(game_id)? {
-        if let Some(bucket) = release.source.bucket.as_deref() {
-            let trusted = bucket == "main"
-                || trusted.iter().any(|source| {
-                    source.bucket == bucket
-                        && release
-                            .source
-                            .signer_key_id
-                            .as_deref()
-                            .is_some_and(|signer| source.authorizes(signer))
-                });
-            if !trusted {
-                diagnostics.push(Diagnostic {
-                    code: "MODULE_SOURCE_UNTRUSTED".into(),
-                    severity: "warning".into(),
-                    message: format!(
-                        "game module {game_id} comes from bucket {bucket}, which is not a trusted module source."
-                    ),
-                    action: Some(format!(
-                        "Run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game_id}` to remove the module."
-                    )),
-                });
-            }
+        let decision = buckets.module_source_trust(&release.source)?;
+        if let Some(remedy) = decision.remedy() {
+            let bucket = remedy.bucket();
+            diagnostics.push(Diagnostic {
+                code: "MODULE_SOURCE_UNTRUSTED".into(),
+                severity: "warning".into(),
+                message: format!(
+                    "game module {game_id} comes from bucket {bucket}, which is not a trusted module source."
+                ),
+                action: Some(format!(
+                    "Run `{}` to trust it again, or `{}` to remove the module.",
+                    remedy.trust_modules_command(),
+                    remedy.remove_module_command(game_id)
+                )),
+            });
         }
     }
     for hidden in hidden_modules(roots, game_id)? {

@@ -1,10 +1,9 @@
 use crate::commands::ModuleCommand;
 use anyhow::{bail, Context, Result};
-use modn_core::buckets::{local_bucket_module_refusal, BucketStore, ModuleTrustState};
+use modn_core::buckets::{local_bucket_module_refusal, BucketStore, ModuleSourceTrustReason};
 use modn_core::game_modules::{ModuleRegistry, ModuleSource, ReleaseOutcome};
 use modn_core::manager_roots::ManagerRoots;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 
 pub(super) fn run(command: ModuleCommand, roots: &ManagerRoots, json_output: bool) -> Result<()> {
     crate::state_access::validate_write_targets(roots, None)?;
@@ -66,15 +65,21 @@ fn update(
         );
     };
     let store = BucketStore::new(roots);
-    match store.module_trust(&bucket)? {
-        ModuleTrustState::Trusted | ModuleTrustState::Main => {}
-        ModuleTrustState::Untrusted => bail!(
-            "game module {game} comes from bucket {bucket}, which is not a trusted module source; run `modn bucket trust-modules {bucket}` to trust it again, or `modn module remove {game}` to remove the module"
-        ),
-        ModuleTrustState::Local => {
-            bail!("{}", local_bucket_module_refusal(&bucket))
+    let decision = store.module_source_trust(&active.source)?;
+    if !decision.is_trusted() {
+        if matches!(
+            decision.reason(),
+            ModuleSourceTrustReason::LocalFolderBucket { .. }
+        ) {
+            bail!("{}", local_bucket_module_refusal(&bucket));
         }
-        _ => bail!("unsupported module trust state for bucket {bucket}"),
+        let reason = decision.reason();
+        let remedy = decision
+            .remedy_text(game)
+            .expect("a refused module source always names a remedy");
+        bail!(
+            "game module {game} comes from bucket {bucket}, which is not a trusted module source: {reason}. {remedy}"
+        );
     }
     let pinned = registry.pin_status(game)?.is_some();
     let synced = store.sync_git_with_signer(&bucket, None)?;
@@ -143,14 +148,14 @@ fn rollback(
 pub(super) fn list(roots: &ManagerRoots, json_output: bool) -> Result<()> {
     let registry = ModuleRegistry::new(roots);
     let store = BucketStore::new(roots);
-    let mut trust = BTreeMap::new();
     let mut entries = Vec::new();
     let mut lines = Vec::new();
     for active in registry.list()? {
         let game = active.module.game_id;
         let pin = registry.pin_status(&game)?;
         for release in registry.releases(&game)? {
-            let source_trusted = source_trusted(&store, &release.source, &mut trust);
+            let decision = store.module_source_trust(&release.source)?;
+            let source_trusted = decision.is_trusted();
             let pinned = pin.as_ref().is_some_and(|pin| {
                 pin.version == release.module.version && pin.blake3 == release.blake3
             });
@@ -186,8 +191,12 @@ pub(super) fn list(roots: &ManagerRoots, json_output: bool) -> Result<()> {
             lines.push(format!("BLAKE3: {}", release.blake3));
             if !source_trusted {
                 if let Some(bucket) = release.source.bucket.as_deref() {
+                    let reason = decision.reason();
+                    let remedy = decision
+                        .remedy_text(&game)
+                        .expect("a refused module source always names a remedy");
                     lines.push(format!(
-                        "warning: bucket {bucket} is not a trusted module source; this release is refused at use. Run `modn bucket trust-modules {bucket}` or `modn module remove {game}`."
+                        "warning: bucket {bucket} is not a trusted module source: {reason}. This release is refused at use. {remedy}"
                     ));
                 }
             }
@@ -211,25 +220,6 @@ fn describe_source(source: &ModuleSource) -> String {
         },
         None => "from local registration".to_owned(),
     }
-}
-
-fn source_trusted(
-    store: &BucketStore,
-    source: &ModuleSource,
-    cache: &mut BTreeMap<String, bool>,
-) -> bool {
-    let Some(bucket) = source.bucket.as_deref() else {
-        return true;
-    };
-    if let Some(trusted) = cache.get(bucket) {
-        return *trusted;
-    }
-    let trusted = matches!(
-        store.module_trust(bucket),
-        Ok(ModuleTrustState::Main | ModuleTrustState::Trusted)
-    );
-    cache.insert(bucket.to_owned(), trusted);
-    trusted
 }
 
 fn outcome_name(outcome: ReleaseOutcome) -> &'static str {
