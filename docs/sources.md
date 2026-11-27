@@ -70,13 +70,15 @@ stall, and release builds accept only HTTPS remotes. A timed-out fetch removes
 its temporary files before Modn tries the next source. A catalog mirror clone
 uses the same limits. A stalled mirror is recorded as `timed out`, and sync
 tries the next mirror. The catalog error text is
-`GIT_CATALOG_FETCH_FAILED: ... timed out: ...`. Ctrl-C forwarding is not
-part of this release; it is tracked in issue #190. Catalog sync serializes other Git sync calls: a second sync waits up to 2 seconds
+`GIT_CATALOG_FETCH_FAILED: ... timed out: ...`. Ctrl-C during a fetch or clone
+is not forwarded to Git: Modn cancels its process-wide interrupt token and
+stops the Git tree itself. Catalog sync serializes other Git sync calls: a second sync waits up to 2 seconds
 for the first to finish, then fails with the already running error. It does not
 coordinate concurrent local registration edits.
 Catalog metadata does not approve executable installation or grant game writes.
 Modn drains Git's standard output and standard error while Git runs and keeps only the last 64 KiB of each, so a remote that keeps sending messages cannot grow memory without a bound; a low-speed abort stays a `timeout` even when its output was truncated.
 Every Git fetch and catalog clone runs in its own process tree: a Windows job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, or a Unix process group that Git leads. On a hard deadline, a cancel, or any Git exit, Modn stops the whole tree, including a `git-remote-https` helper, and confirms that no process is still alive before it returns. A fetch or clone has a hard deadline of 15 minutes; an expiry keeps the `timeout` class and says "hard deadline". If Modn cannot confirm the stop, it returns `GIT_PROCESS_TREE_NOT_STOPPED`. Acquisition and mirror fallback then stop, and the staging directory is left in place for the error report.
+A Ctrl-C, a `SIGTERM` or `SIGHUP` on Unix and a Ctrl-Break console event on Windows cancel one process-wide interrupt token. The Git runner treats that token like an operation cancel on both the install path and the catalog clone path, so the same tree stop runs and the command reports `CANCELLED`. A second interrupt changes nothing. The CLI handler ends the process 5 seconds after an interrupt that no Git runner consumes; see [cli](cli.md#progress-events-and-cancellation).
 
 ## Verified archive reuse
 
@@ -192,7 +194,7 @@ The same connect and idle values set the Git low-speed time: 90 seconds.
 Git prints progress to its error stream while it receives data, so a slow transfer that keeps receiving data is not stopped.
 Git stops an HTTP or HTTPS transfer that stays below one byte per second for 90 seconds, and that abort keeps the same `timeout` class.
 The low-speed limits do not apply to the `file` transport.
-The Git connect phase has no Modn bound. The operating system's TCP timeout limits it, and a Modn hard deadline is tracked in issue #190.
+The Git connect phase is bounded by the same 15-minute hard deadline as the rest of the fetch or clone, including a TLS handshake that stalls after TCP connects. Git 2.56 documents no `http.connectTimeout` setting: `git help --config` lists only `http.lowSpeedLimit` and `http.lowSpeedTime` among its HTTP stall settings, so Modn passes no connect timeout. The operating system's TCP timeout is not a Modn bound.
 Modn clears `GIT_HTTP_LOW_SPEED_LIMIT` and `GIT_HTTP_LOW_SPEED_TIME` from the Git environment, so the user's environment cannot disable the low-speed abort.
 A timed-out fetch removes its temporary files and tries the next source.
 

@@ -17,7 +17,7 @@
 use super::ForcedUnconfirmed;
 use crate::acquisition::git::run::{self, GitOutput, RunError};
 use crate::git;
-use crate::progress::CancellationToken;
+use crate::progress::{interrupt_token, CancellationToken};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -327,6 +327,65 @@ fn a_cancel_stops_the_whole_stub_tree() {
     assert!(formed, "the stub tree did not form within {PID_WAIT:?}");
     assert!(matches!(error, RunError::Cancelled), "{error:?}");
     assert_tree_dead(&pids, 2);
+}
+
+/// Marks the re-run of this test that owns the process-wide interrupt token.
+const INTERRUPT_CHILD: &str = "MODN_TEST_INTERRUPT_CHILD";
+
+/// The filter that selects the interrupt test alone in its child process.
+const INTERRUPT_TEST: &str = "cancelling_the_interrupt_token_stops_the_whole_stub_tree";
+
+#[test]
+fn cancelling_the_interrupt_token_stops_the_whole_stub_tree() {
+    if !in_interrupt_child(INTERRUPT_CHILD) {
+        return;
+    }
+    assert!(!interrupt_token().is_cancelled());
+    let root = tempfile::tempdir().expect("temp");
+    let pids = root.path().join("pids");
+    let program = stub_program(root.path(), "parent", &pids);
+    let _program = Program::install(&program);
+    let watcher = std::thread::spawn({
+        let pids = pids.clone();
+        move || {
+            let formed = wait_for_pids(&pids);
+            interrupt_token().cancel();
+            formed
+        }
+    });
+
+    let error = run_stub(&CancellationToken::new(), NO_DEADLINE)
+        .err()
+        .expect("an interrupted fetch must fail");
+    let formed = watcher.join().expect("watcher thread");
+    assert!(formed, "the stub tree did not form within {PID_WAIT:?}");
+    assert!(matches!(error, RunError::Cancelled), "{error:?}");
+    assert_tree_dead(&pids, 2);
+}
+
+/// Tell whether this process runs the interrupt test body.
+///
+/// The interrupt token is process-wide, so a cancel in the shared test process
+/// would stop a Git tree that another test runs at the same time. When `marker`
+/// is absent, this re-runs the test in its own process and returns `false`.
+/// That child owns the token and exits after the test, so no state leaks.
+fn in_interrupt_child(marker: &str) -> bool {
+    if std::env::var_os(marker).is_some() {
+        return true;
+    }
+    let output = Command::new(std::env::current_exe().expect("the test binary path"))
+        .args([INTERRUPT_TEST, "--nocapture"])
+        .env(marker, "1")
+        .output()
+        .expect("the interrupt test child");
+    assert!(
+        output.status.success(),
+        "the interrupt test child failed with {:?}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    false
 }
 
 #[test]

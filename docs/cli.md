@@ -110,6 +110,13 @@ or Git fetch removes its partial file and keeps no new cache entry. From the
 commit point on, Modn ignores the request and finishes, or rolls back, the
 operation as it does without one. Close stdin when no cancellation is wanted.
 
+Ctrl-C (`SIGINT`), `SIGTERM` and `SIGHUP` on Unix and a Ctrl-Break console event
+on Windows use the same cancel path. The handler cancels one process-wide token and does
+nothing else. A running Git fetch or clone stops its whole process tree, and
+the command ends with `CANCELLED` before its commit point. A second interrupt
+changes nothing. When no Git runs, the handler ends the process 5 seconds
+after the interrupt, with status 130 on Unix and 1 on Windows.
+
 ## Catalog refresh
 
 `modn update` without a target refreshes every catalog and changes no game
@@ -640,7 +647,7 @@ otherwise the command's default code is used. No command reports a generic
 | `ARCHIVE_INVALID` | An archive cannot be read or changed during the operation. |
 | `ARCHIVE_REQUIRED` | A mod has no downloadable source and needs `--file`. |
 | `BUCKET_FINGERPRINT_MISMATCH` | A known bucket's `catalog.pub` key ID differs from the fingerprint in the official main list. |
-| `CANCELLED` | The operation was cancelled before its commit point. |
+| `CANCELLED` | The operation was cancelled before its commit point by a `cancel` line or an interrupt. |
 | `CATALOG_ROLLBACK` | A signed catalog, relocation or key statement goes back to an older or dropped sequence number. |
 | `CATALOG_SEQUENCE_CONFLICT` | A signed catalog reuses an accepted sequence number with a different digest. |
 | `CONFLICT` | A declared or ownership conflict blocks the operation. |
