@@ -318,5 +318,11 @@ impl<'de> Deserialize<'de> for RawBuckets {
 }
 
 #[cfg(test)]
+#[path = "known_loader_tests.rs"]
+mod loader_tests;
+#[cfg(test)]
+#[path = "known_test_support.rs"]
+mod test_support;
+#[cfg(test)]
 #[path = "known_tests.rs"]
 mod tests;
