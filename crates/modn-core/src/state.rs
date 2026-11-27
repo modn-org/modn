@@ -86,6 +86,8 @@ impl Store {
                 package_id TEXT NOT NULL REFERENCES managed_packages(id),
                 blake3 TEXT NOT NULL,
                 bytes INTEGER NOT NULL,
+                profile_id TEXT NOT NULL DEFAULT '',
+                archive_entry TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY(game_path, root, path_key)
             );
             CREATE TABLE IF NOT EXISTS managed_directories (
@@ -227,6 +229,7 @@ impl Store {
                 PRIMARY KEY(operation_id, package_ord, ord)
             );",
         )?;
+        tx.execute_batch(profiles::DDL)?;
         if !existing_state {
             tx.pragma_update(None, "user_version", roots::SCHEMA_VERSION)?;
         }
@@ -476,6 +479,7 @@ fn ensure_history_undoes(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+mod profiles;
 mod roots;
 mod schema;
 #[cfg(test)]
