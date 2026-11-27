@@ -1,16 +1,14 @@
-use crate::catalog_install::reference_of;
 use crate::download;
 use anyhow::Result;
 use modn_core::acquisition::SourceAttempt;
-use modn_core::buckets::{BucketPackage, BucketSnapshot, VersionReq};
-use modn_core::planning::InstallPlan;
-use modn_core::state::Store;
-use modn_core::transactions::{
-    CatalogRelease, DependencyState, ManagedPackage, RecordedDependency,
+use modn_core::buckets::BucketPackage;
+use modn_core::catalog_pipeline::{
+    CatalogPlan, DependentRequirement, InstalledPackage, PlanRefusal, PlannedDependent,
 };
+use modn_core::planning::InstallPlan;
+use modn_core::transactions::DependencyState;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
-use std::path::Path;
 
 pub(super) struct FileChanges {
     added: Vec<String>,
@@ -19,9 +17,9 @@ pub(super) struct FileChanges {
 }
 
 impl FileChanges {
-    pub(super) fn new(old: &ManagedPackage, plan: &InstallPlan) -> Self {
+    pub(super) fn new(owned: &[String], plan: &InstallPlan) -> Self {
         let key = |path: &str| path.to_lowercase();
-        let old_paths: BTreeSet<String> = old.files.iter().map(|f| key(&f.destination)).collect();
+        let old_paths: BTreeSet<String> = owned.iter().map(|path| key(path)).collect();
         let new_paths: BTreeSet<String> = plan
             .operations
             .iter()
@@ -39,9 +37,9 @@ impl FileChanges {
                 changes.added.push(operation.destination.clone());
             }
         }
-        for file in &old.files {
-            if !new_paths.contains(&key(&file.destination)) {
-                changes.removed.push(file.destination.clone());
+        for path in owned {
+            if !new_paths.contains(&key(path)) {
+                changes.removed.push(path.clone());
             }
         }
         changes
@@ -52,173 +50,77 @@ impl FileChanges {
     }
 }
 
-pub(super) struct DependentCheck {
-    package_id: String,
-    pinned: bool,
-    package: String,
-    requirement: Requirement,
-    satisfied: bool,
+/// The dependent label that the update prompt names.
+pub(super) fn dependent_label(dependent: &PlannedDependent) -> String {
+    format!("{} {}", dependent.package_id, dependent.package)
 }
 
-enum Requirement {
-    Unknown,
-    Unrestricted,
-    Requires(String),
-    Alias(String),
-}
-
-impl DependentCheck {
-    pub(super) fn package_id_label(&self) -> String {
-        format!("{} {}", self.package_id, self.package)
-    }
-}
-
-fn of_dependency(requirement: Option<String>) -> Requirement {
-    requirement.map_or(Requirement::Unrestricted, Requirement::Requires)
-}
-
-fn recorded_requirement(
-    recorded: Vec<RecordedDependency>,
-    old: &ManagedPackage,
-    target: &BucketPackage,
-) -> Requirement {
-    let updated = reference_of(target);
-    if let Some(alias) = recorded
-        .iter()
-        .find(|row| row.reference != updated && row.archive_blake3 == old.archive_blake3)
-    {
-        return Requirement::Alias(alias.reference.to_string());
-    }
-    recorded
-        .into_iter()
-        .find(|row| row.reference == updated)
-        .map_or(Requirement::Unknown, |row| of_dependency(row.requirement))
-}
-
-fn legacy_requirement(
-    catalog: &BucketSnapshot,
-    dependent: &ManagedPackage,
-    target: &BucketPackage,
-) -> Requirement {
-    let Some(reference) = &dependent.catalog else {
-        return Requirement::Unknown;
-    };
-    let installed = catalog
-        .releases(&reference.bucket, &reference.game_id, &reference.mod_id)
-        .ok()
-        .and_then(|releases| {
-            releases
-                .into_iter()
-                .find(|release| release.package.pin() == Some(dependent.archive_blake3.as_str()))
-        });
-    match installed {
-        Some(release)
-            if reference.bucket == target.bucket
-                && release.package.dependencies.contains(&target.package.id) =>
-        {
-            of_dependency(
-                release
-                    .package
-                    .dependency_versions
-                    .get(&target.package.id)
-                    .cloned(),
-            )
+/// The blocker lines that the plan reports before it may write.
+///
+/// Only the order, dependency and dependent refusals are blockers in the
+/// update report; the caller reports the remaining refusals separately.
+pub(super) fn blockers(plan: &CatalogPlan) -> Vec<String> {
+    let mut blockers = Vec::new();
+    for refusal in &plan.refusals {
+        match refusal {
+            PlanRefusal::UpdateOrder { reason } => blockers.push(reason.clone()),
+            PlanRefusal::DependencyNotReady { reference, state } => {
+                blockers.extend(dependency_blocker(reference, state));
+            }
+            PlanRefusal::DependentBlocks { dependent } => {
+                blockers.push(dependent_blocker(dependent, &plan.selected.mod_id));
+            }
+            _ => {}
         }
-        _ => Requirement::Unknown,
     }
+    blockers
 }
 
-pub(super) fn dependent_checks(
-    store: &Store,
-    game: &Path,
-    old: &ManagedPackage,
-    catalog: &BucketSnapshot,
-    target: &BucketPackage,
-) -> Result<Vec<DependentCheck>> {
-    store
-        .dependents_of(game, &old.id)?
-        .into_iter()
-        .map(|dependent| {
-            let requirement = match store.recorded_dependencies(&dependent.id)? {
-                Some(recorded) => recorded_requirement(recorded, old, target),
-                None => legacy_requirement(catalog, &dependent, target),
-            };
-            let satisfied = match &requirement {
-                Requirement::Requires(text) => VersionReq::parse(text)?
-                    .matches(&target.package.version)
-                    .unwrap_or(false),
-                Requirement::Unrestricted => true,
-                Requirement::Unknown | Requirement::Alias(_) => false,
-            };
-            Ok(DependentCheck {
-                package: dependent
-                    .catalog
-                    .as_ref()
-                    .map_or_else(String::new, ToString::to_string),
-                package_id: dependent.id,
-                pinned: dependent.pinned,
-                requirement,
-                satisfied,
-            })
-        })
-        .collect()
+fn dependency_blocker(
+    reference: &modn_core::transactions::CatalogReference,
+    state: &DependencyState,
+) -> Option<String> {
+    let problem = match state {
+        DependencyState::Ready { .. } => return None,
+        DependencyState::Damaged { .. } => "is damaged",
+        DependencyState::OtherRelease { .. } => "is another release",
+        DependencyState::Missing => "is not installed",
+        _ => "is in an unknown state",
+    };
+    Some(format!(
+        "dependency {reference} {problem}; install, restore or update it first"
+    ))
 }
 
-pub(super) fn dependency_blockers(
-    release: &CatalogRelease,
-    states: &[DependencyState],
-) -> Vec<String> {
-    release
-        .dependencies
-        .iter()
-        .zip(states)
-        .filter_map(|(dependency, state)| {
-            let problem = match state {
-                DependencyState::Ready { .. } => return None,
-                DependencyState::Damaged { .. } => "is damaged",
-                DependencyState::OtherRelease { .. } => "is another release",
-                DependencyState::Missing => "is not installed",
-                _ => "is in an unknown state",
-            };
-            Some(format!(
-                "dependency {} {problem}; install, restore or update it first",
-                dependency.reference
-            ))
-        })
-        .collect()
-}
-
-pub(super) fn dependent_blockers(checks: &[DependentCheck], mod_id: &str) -> Vec<String> {
-    checks
-        .iter()
-        .filter(|check| !check.satisfied)
-        .map(|check| match &check.requirement {
-            Requirement::Requires(text) => format!(
-                "{} {}{} requires {mod_id} {text}",
-                check.package_id, check.package, if check.pinned { " (pinned)" } else { "" }
-            ),
-            Requirement::Alias(alias) => format!(
-                "{} {} needs this archive as {alias}, not as {mod_id}; Modn cannot show that it accepts the update, so update or reinstall it first",
-                check.package_id, check.package
-            ),
-            _ => format!(
-                "{} {}: its requirement on {mod_id} is unknown; update or reinstall it first",
-                check.package_id, check.package
-            ),
-        })
-        .collect()
+fn dependent_blocker(dependent: &PlannedDependent, mod_id: &str) -> String {
+    match &dependent.requirement {
+        DependentRequirement::Requires(text) => format!(
+            "{} {}{} requires {mod_id} {text}",
+            dependent.package_id,
+            dependent.package,
+            if dependent.pinned { " (pinned)" } else { "" }
+        ),
+        DependentRequirement::Alias(alias) => format!(
+            "{} {} needs this archive as {alias}, not as {mod_id}; Modn cannot show that it accepts the update, so update or reinstall it first",
+            dependent.package_id, dependent.package
+        ),
+        _ => format!(
+            "{} {}: its requirement on {mod_id} is unknown; update or reinstall it first",
+            dependent.package_id, dependent.package
+        ),
+    }
 }
 
 pub(super) struct Preview<'a> {
     pub(super) reference: &'a str,
-    pub(super) old: &'a ManagedPackage,
+    pub(super) installed: &'a InstalledPackage,
     pub(super) installed_version: Option<&'a str>,
     pub(super) target: &'a BucketPackage,
     pub(super) up_to_date: bool,
     pub(super) files: Option<FileChanges>,
     pub(super) plan: Option<&'a InstallPlan>,
     pub(super) archive_needed: Option<String>,
-    pub(super) dependents: &'a [DependentCheck],
+    pub(super) dependents: &'a [PlannedDependent],
     pub(super) blockers: &'a [String],
     pub(super) downloads: &'a [SourceAttempt],
     pub(super) unapproved_declared_executables: &'a [String],
@@ -233,7 +135,7 @@ impl Preview<'_> {
         let from = self.installed_version.unwrap_or("an unlisted release");
         println!(
             "{}: installed {from} ({}), target {}",
-            self.reference, self.old.id, self.target.package.version
+            self.reference, self.installed.id, self.target.package.version
         );
         for attempt in self.downloads {
             println!("DOWNLOAD {}: {}", attempt.source, attempt.describe());
@@ -279,11 +181,11 @@ impl Preview<'_> {
         json!({
             "package": self.reference,
             "installed": {
-                "package_id": self.old.id,
+                "package_id": self.installed.id,
                 "version": self.installed_version,
-                "archive_blake3": self.old.archive_blake3,
-                "source": self.old.source,
-                "exclusive_folders": self.old.directories,
+                "archive_blake3": self.installed.archive_blake3,
+                "source": self.installed.source,
+                "exclusive_folders": self.installed.directories,
             },
             "target": {
                 "version": self.target.package.version,
@@ -298,15 +200,15 @@ impl Preview<'_> {
                 "package_id": check.package_id,
                 "package": check.package,
                 "requirement": match &check.requirement {
-                    Requirement::Requires(text) => Some(text.as_str()),
+                    DependentRequirement::Requires(text) => Some(text.as_str()),
                     _ => None,
                 },
                 "requirement_known": matches!(
                     check.requirement,
-                    Requirement::Requires(_) | Requirement::Unrestricted
+                    DependentRequirement::Requires(_) | DependentRequirement::Unrestricted
                 ),
                 "alias": match &check.requirement {
-                    Requirement::Alias(alias) => Some(alias.as_str()),
+                    DependentRequirement::Alias(alias) => Some(alias.as_str()),
                     _ => None,
                 },
                 "satisfied": check.satisfied,

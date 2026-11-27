@@ -41,11 +41,77 @@ pub struct CatalogPlan {
 }
 
 /// The operation one plan prepares.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum PlanKind {
     /// Install the selected release and any missing dependencies.
     Install,
+    /// Replace one installed managed package with the selected release.
+    Update(Box<UpdatePlan>),
+}
+
+/// What an update plan replaces and what it must keep working.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct UpdatePlan {
+    /// The managed package the plan replaces.
+    pub installed: InstalledPackage,
+    /// Version of the installed release, when a bucket release pins its archive.
+    pub installed_version: Option<String>,
+    /// Game-relative files and exclusive folders that the policy plans as removed.
+    pub replaced: Vec<String>,
+    /// Whether the installed release already is the target release.
+    pub up_to_date: bool,
+    /// Managed packages that depend on the installed package.
+    pub dependents: Vec<PlannedDependent>,
+}
+
+/// The installed managed package that one update plan replaces.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct InstalledPackage {
+    /// Managed package ID.
+    pub id: String,
+    /// Whether the package is pinned against updates.
+    pub pinned: bool,
+    /// Archive digest recorded at installation.
+    pub archive_blake3: String,
+    /// Serving source recorded at installation, when recorded.
+    pub source: Option<PackageSource>,
+    /// Game-relative files the installed release owns.
+    pub files: Vec<String>,
+    /// Exclusive game-relative folders the installed release owns.
+    pub directories: Vec<String>,
+}
+
+/// One managed package that depends on the package an update replaces.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PlannedDependent {
+    /// Managed package ID of the dependent.
+    pub package_id: String,
+    /// Catalog identity of the dependent, or empty for a standalone package.
+    pub package: String,
+    /// Whether the dependent is pinned.
+    pub pinned: bool,
+    /// The dependent's recorded requirement on the replaced package.
+    pub requirement: DependentRequirement,
+    /// Whether the requirement accepts the target release.
+    pub satisfied: bool,
+}
+
+/// A dependent's recorded requirement on the package an update replaces.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DependentRequirement {
+    /// No usable requirement was recorded.
+    Unknown,
+    /// The dependent recorded no version requirement.
+    Unrestricted,
+    /// A version requirement, such as `>=1.31.0`.
+    Requires(String),
+    /// The dependent needs the installed archive under another catalog name.
+    Alias(String),
 }
 
 /// One release of a plan's install order, with the evidence the plan read.
@@ -172,9 +238,42 @@ pub enum PlanRefusal {
         /// The blockers that the preview reported.
         blockers: Vec<PlanIssue>,
     },
+    /// The installed package is pinned against updates.
+    PackagePinned {
+        /// Managed package ID of the pinned package.
+        package_id: String,
+    },
+    /// The target release does not resolve to an install order.
+    UpdateOrder {
+        /// The resolution error, as reported today.
+        reason: String,
+    },
+    /// A managed dependent does not accept the target release.
+    DependentBlocks {
+        /// The dependent that would stop accepting the replaced package.
+        dependent: PlannedDependent,
+    },
 }
 
 impl CatalogPlan {
+    /// Copy this plan's identity facts without its refusals.
+    ///
+    /// Re-planning uses it to compare a fresh digest under the transaction
+    /// lock. Acquisition state is dropped: it never reaches the digest.
+    pub(crate) fn clone_without_refusals(&self) -> Self {
+        Self {
+            kind: self.kind.clone(),
+            selected: self.selected.clone(),
+            game_id: self.game_id.clone(),
+            installation: self.installation.clone(),
+            order: self.order.clone(),
+            pending: Vec::new(),
+            conflicts: self.conflicts.clone(),
+            native_injector: self.native_injector,
+            refusals: Vec::new(),
+        }
+    }
+
     /// The releases this plan would place, dependencies first, selected last.
     ///
     /// A dependency that is ready, damaged or installed as another release is

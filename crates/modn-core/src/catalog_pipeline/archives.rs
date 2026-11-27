@@ -47,7 +47,42 @@ pub(super) fn resolve(
     cache: &ArchiveCache,
     cache_use: CacheUse,
 ) -> Result<ResolvedArchives> {
-    let (mut served, unmatched) = match_supplied(supplied, order)?;
+    resolve_with(order, supplied, cache, cache_use, SuppliedMatch::PinOnly)
+}
+
+/// Resolve the archives of one update plan.
+///
+/// An update may accept a supplied archive for a release whose manifest
+/// publishes no pin, such as a Git release, when the archive's BLAKE3 equals
+/// the digest that the verified cache records for that release. An install
+/// keeps matching supplied archives by manifest pin only.
+pub(super) fn resolve_update(
+    order: &[OrderedRelease],
+    supplied: &[PathBuf],
+    cache: &ArchiveCache,
+    cache_use: CacheUse,
+) -> Result<ResolvedArchives> {
+    resolve_with(order, supplied, cache, cache_use, SuppliedMatch::PinOrCache)
+}
+
+/// How supplied archives are matched to releases.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SuppliedMatch {
+    /// Match a supplied archive only by a manifest pin.
+    PinOnly,
+    /// Also match a release without a pin by its verified cache digest.
+    PinOrCache,
+}
+
+fn resolve_with(
+    order: &[OrderedRelease],
+    supplied: &[PathBuf],
+    cache: &ArchiveCache,
+    cache_use: CacheUse,
+    supplied_match: SuppliedMatch,
+) -> Result<ResolvedArchives> {
+    let (mut served, unmatched) =
+        match_supplied(supplied, order, cache, cache_use, supplied_match)?;
     if cache_use == CacheUse::Reuse {
         for (index, ordered) in order.iter().enumerate() {
             if served[index].is_some() {
@@ -138,6 +173,9 @@ pub(super) fn one_archive_per_digest(
 fn match_supplied(
     files: &[PathBuf],
     order: &[OrderedRelease],
+    cache: &ArchiveCache,
+    cache_use: CacheUse,
+    supplied_match: SuppliedMatch,
 ) -> Result<(Vec<Option<ServedArchive>>, Vec<PathBuf>)> {
     let mut served = vec![None; order.len()];
     let mut unmatched = Vec::new();
@@ -146,19 +184,17 @@ fn match_supplied(
             bail!("archive must be a regular file: {}", file.display());
         }
         let inspected = archive::inspect(file)?;
-        let matches: Vec<usize> = order
-            .iter()
-            .enumerate()
-            .filter(|(_, ordered)| ordered.package.package.pin() == Some(inspected.blake3.as_str()))
-            .map(|(index, _)| index)
-            .collect();
+        let mut matches = pinned_matches(order, &inspected.blake3);
+        if matches.is_empty() && supplied_match == SuppliedMatch::PinOrCache {
+            matches = cached_matches(order, cache, cache_use, &inspected.blake3)?;
+        }
         if matches.is_empty() {
             unmatched.push(file.clone());
             continue;
         }
         for index in matches {
             let package = &order[index].package;
-            if Some(inspected.format) != expected_format(package.package.archive_format.as_ref()) {
+            if Some(inspected.format) != expected_format(package, supplied_match) {
                 bail!(
                     "{}: archive format does not match catalog manifest",
                     package.reference()
@@ -175,6 +211,40 @@ fn match_supplied(
     Ok((served, unmatched))
 }
 
+fn pinned_matches(order: &[OrderedRelease], blake3: &str) -> Vec<usize> {
+    order
+        .iter()
+        .enumerate()
+        .filter(|(_, ordered)| ordered.package.package.pin() == Some(blake3))
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// Match a supplied archive by the digest Modn already verified for a release
+/// whose manifest publishes no pin, such as a Git release.
+fn cached_matches(
+    order: &[OrderedRelease],
+    cache: &ArchiveCache,
+    cache_use: CacheUse,
+    blake3: &str,
+) -> Result<Vec<usize>> {
+    if cache_use != CacheUse::Reuse {
+        return Ok(Vec::new());
+    }
+    let mut matches = Vec::new();
+    for (index, ordered) in order.iter().enumerate() {
+        if ordered.package.package.pin().is_some() {
+            continue;
+        }
+        if let Some(acquired) = cache.cached_release(&ordered.package)? {
+            if acquired.digest.as_str() == Some(blake3) {
+                matches.push(index);
+            }
+        }
+    }
+    Ok(matches)
+}
+
 fn pending_download(package: &BucketPackage, digest: ReleaseDigest) -> PendingDownload {
     let sources = plan_sources(package);
     let downloadable = sources
@@ -189,10 +259,18 @@ fn pending_download(package: &BucketPackage, digest: ReleaseDigest) -> PendingDo
     }
 }
 
-fn expected_format(format: Option<&ArchiveFormat>) -> Option<archive::ArchiveFormat> {
-    match format {
+fn expected_format(
+    package: &BucketPackage,
+    supplied_match: SuppliedMatch,
+) -> Option<archive::ArchiveFormat> {
+    match package.package.archive_format.as_ref() {
         Some(ArchiveFormat::Zip) => Some(archive::ArchiveFormat::Zip),
         Some(ArchiveFormat::SevenZ) => Some(archive::ArchiveFormat::SevenZ),
+        None if supplied_match == SuppliedMatch::PinOrCache
+            && matches!(package.package.primary_source(), PackageSource::Git { .. }) =>
+        {
+            Some(archive::ArchiveFormat::Zip)
+        }
         None => None,
     }
 }

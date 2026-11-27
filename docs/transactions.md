@@ -20,6 +20,16 @@ Transactions are **recoverable** rather than one single filesystem-wide atomic v
 
 A stack commit re-previews every member before its first member is written. A stale digest therefore refuses with no member written. A later failure keeps the stack rollback described above.
 
+## Catalog update entry points
+
+`catalog_pipeline::plan_update` plans one update from the selected target release, one catalog snapshot, the read-only store, the archive cache and the supplied `--file` archives. The plan records the installed package with its pinned flag, recorded digest and source; the installed version; the replaced paths; the up-to-date flag; each dependent with its recorded requirement and whether it accepts the target; and every refusal that gates a commit. A pinned package, an unresolved install order, an unready dependency, a blocking dependent, an uncovered native injector and a release with no archive and no downloadable source are refusals, not prompts. The function never prompts, downloads, runs a game module or writes.
+
+`catalog_pipeline::preview_catalog_update` runs the game-module preview with the installed release's files and exclusive folders marked as replaced, through the same `planning` entry points as an install.
+
+`Store::update_catalog_release_planned` is the re-planning entry point for updates. Under the transaction lock, after the idle check and the pinned-target check, it inspects the archive, passes it with the installed package and read-only state to a closure, and commits the returned plan through the same withdraw-then-install path as `Store::update_catalog_release`. The old release's withdraw and the new release's install stay one recoverable operation, and the lock, journal and ownership writes stay in `transactions/`.
+
+`catalog_pipeline::commit_plan` dispatches `PlanKind::Update` to that entry point. It refuses a blocking plan, acquires each missing release only through `ArchiveCache::acquire_release` before the lock, repeats the consent checks, and compares a fresh `PlanDigest` under the lock. A mismatch is a `StalePlan` error with code `PLAN_STALE` and no write. A plan that is up to date commits nothing and returns `CommitOutcome` with `up_to_date` set.
+
 ## The commit point and cancellation
 
 An install, update, uninstall or download may report progress and accept a
