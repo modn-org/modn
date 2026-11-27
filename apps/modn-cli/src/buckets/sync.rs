@@ -3,14 +3,16 @@
 use anyhow::Result;
 use modn_core::buckets::{
     BucketStore, CatalogKeyChange, CatalogKeyId, CatalogModuleReport, CatalogSigner,
-    CatalogSyncTrace, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason, ZipCatalogSource,
-    ZipCatalogSync,
+    CatalogSyncTrace, CatalogWarning, GitCatalogSource, GitCatalogSync, ModuleIgnoreReason,
+    ZipCatalogSource, ZipCatalogSync,
 };
+use modn_core::manager_roots::ManagerRoots;
 use std::fs::File;
 use std::io::Read;
 
 pub(crate) fn sync_catalog(
     store: &BucketStore,
+    roots: &ManagerRoots,
     name: &str,
     source: Option<GitCatalogSource>,
     expected_fingerprint: Option<&CatalogKeyId>,
@@ -26,11 +28,13 @@ pub(crate) fn sync_catalog(
         json_output,
     );
     report_trace(name, &synced.trace, json_output);
+    report_sequence(roots, name, &synced.warnings, json_output);
     Ok(synced)
 }
 
 pub(crate) fn sync_zip_catalog(
     store: &BucketStore,
+    roots: &ManagerRoots,
     name: &str,
     source: Option<ZipCatalogSource>,
     expected_fingerprint: Option<&CatalogKeyId>,
@@ -51,7 +55,19 @@ pub(crate) fn sync_zip_catalog(
         json_output,
     );
     report_trace(name, &synced.trace, json_output);
+    report_sequence(roots, name, &synced.warnings, json_output);
     Ok(synced)
+}
+
+fn report_sequence(
+    roots: &ManagerRoots,
+    name: &str,
+    warnings: &[CatalogWarning],
+    json_output: bool,
+) {
+    for line in super::report::catalog(roots, name, warnings).lines {
+        emit_report(&line, json_output);
+    }
 }
 
 fn open_zip_source(source: &ZipCatalogSource) -> Result<Box<dyn Read>> {

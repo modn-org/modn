@@ -28,6 +28,12 @@ pub(crate) enum CatalogCommand {
         /// Public key file to publish as the offline revocation key.
         #[arg(long, value_name = "FILE")]
         revocation_public_key: Option<PathBuf>,
+        /// Sequence number to write to sequence.json: a number of at least 1, or "next".
+        #[arg(long, value_name = "N|next")]
+        sequence: Option<String>,
+        /// UTC expiry timestamp to write to sequence.json, such as 2027-12-31T00:00:00Z.
+        #[arg(long, value_name = "TIME")]
+        expires: Option<String>,
     },
     /// Write rotation.json and rotation.sig, signed by the current signing key.
     Rotate {
@@ -42,6 +48,9 @@ pub(crate) enum CatalogCommand {
         /// Environment variable that holds the password of the secret key.
         #[arg(long, value_name = "VAR")]
         password_env: Option<String>,
+        /// Statement sequence, which must equal sequence.json when it exists.
+        #[arg(long, value_name = "N")]
+        sequence: Option<u64>,
     },
     /// Write revocation.json and revocation.sig, signed by the offline revocation key.
     Revoke {
@@ -59,6 +68,9 @@ pub(crate) enum CatalogCommand {
         /// Environment variable that holds the password of the secret key.
         #[arg(long, value_name = "VAR")]
         password_env: Option<String>,
+        /// Statement sequence, which must equal sequence.json when it exists.
+        #[arg(long, value_name = "N")]
+        sequence: Option<u64>,
     },
     /// Verify a catalog against a public key without registering it.
     Verify {

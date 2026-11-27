@@ -8,11 +8,13 @@ use modn_core::buckets::{
 use modn_core::manager_roots::ManagerRoots;
 use serde_json::Value;
 
+pub(crate) use self::report::{catalog as catalog_report, CatalogReport};
 pub(super) use self::sync::{
     emit_report, print_git_sync, print_zip_sync, sync_catalog, sync_zip_catalog,
 };
 
 mod known;
+mod report;
 mod sync;
 
 fn host_label(host: &Value) -> String {
@@ -229,6 +231,7 @@ pub(super) fn run(
                 CatalogKind::Git(source) => {
                     let synced = sync_catalog(
                         &store,
+                        roots,
                         &name,
                         source,
                         request.expected_fingerprint.as_ref(),
@@ -237,11 +240,17 @@ pub(super) fn run(
                     if !json_output {
                         print_git_sync(&name, &synced);
                     }
-                    serde_json::to_value(&synced)?
+                    let mut value = serde_json::to_value(&synced)?;
+                    if let Some(sequence) = catalog_report(roots, &name, &synced.warnings).sequence
+                    {
+                        value["sequence"] = serde_json::json!(sequence);
+                    }
+                    value
                 }
                 CatalogKind::Zip(source) => {
                     let synced = sync_zip_catalog(
                         &store,
+                        roots,
                         &name,
                         source,
                         request.expected_fingerprint.as_ref(),
@@ -250,7 +259,12 @@ pub(super) fn run(
                     if !json_output {
                         print_zip_sync(&name, &synced);
                     }
-                    serde_json::to_value(&synced)?
+                    let mut value = serde_json::to_value(&synced)?;
+                    if let Some(sequence) = catalog_report(roots, &name, &synced.warnings).sequence
+                    {
+                        value["sequence"] = serde_json::json!(sequence);
+                    }
+                    value
                 }
             };
             if known_sync {
