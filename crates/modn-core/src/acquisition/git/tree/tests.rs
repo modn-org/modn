@@ -9,9 +9,12 @@
 //! The test binary is used instead of a batch script because a batch stub
 //! needs `cmd.exe` and a `ping` grandchild to hold inherited pipes. The binary
 //! keeps the tree and its exit codes identical on Windows and Unix.
-#![expect(
-    unsafe_code,
-    reason = "the Windows pid check calls OpenProcess, GetExitCodeProcess and CloseHandle"
+#![cfg_attr(
+    windows,
+    expect(
+        unsafe_code,
+        reason = "the Windows pid check calls OpenProcess, GetExitCodeProcess and CloseHandle"
+    )
 )]
 
 use super::ForcedUnconfirmed;
@@ -282,7 +285,7 @@ fn process_alive(pid: u32) -> bool {
     match Pid::from_raw(pid as i32) {
         Some(pid) => match test_kill_process(pid) {
             Ok(()) => true,
-            Err(Errno::ESRCH) => false,
+            Err(Errno::SRCH) => false,
             Err(_) => true,
         },
         None => false,
