@@ -360,6 +360,58 @@ at its root. A `main` release also uploads the same signature as
 which uses the stock `minisign` CLI with `-S`, never `-l`, and produces the same
 statement format. See [releasing](releasing.md).
 
+## Known community buckets
+
+The official `main` bucket may hold an optional `known-buckets.json` at its
+root. The file lists community buckets that Modn can offer by short name. Modn
+does not yet have a command that prints the list.
+
+The `main` catalog signature covers the file, because the
+[catalog digest](#catalog-digest) covers every root file except `catalog.sig`
+and `catalog.pub`. Any change to the list changes the digest and invalidates
+the signature.
+
+```json
+{
+  "schema_version": 1,
+  "buckets": {
+    "example": {
+      "kind": "git",
+      "source": "https://github.com/owner/bucket",
+      "revision": "main",
+      "fingerprint": "0E250AD52A3BA2AA",
+      "description": "One line about the bucket."
+    }
+  }
+}
+```
+
+The file is UTF-8 JSON, at most 256 KiB, and lists at most 256 entries.
+`buckets` maps a short name to one entry. Unknown fields, an unknown
+`schema_version` and a duplicate name are refused. Each refusal names the
+entry and the field. Entries are read in name order.
+
+- A name follows the bucket-name rule of a registered bucket: lowercase ASCII
+  letters, digits and dashes, at most 64 characters, starting with a letter,
+  and not the reserved name `main`.
+- `kind` is `git` or `zip`.
+- `source` is an `https://` URL of at most 2048 characters. Modn refuses
+  `http://`, `file:`, `ssh:`, scp-style remotes, local paths, credentials in
+  the URL, an empty host, whitespace and control characters.
+- `revision` is optional and allowed only for `kind: git`. It is 1 to 255
+  characters without whitespace or control characters and does not start
+  with `-`.
+- `fingerprint` is the 16-hexadecimal-digit minisign key ID of the bucket's
+  `catalog.pub`. Modn accepts either letter case and reports the uppercase
+  form.
+- `description` is 1 to 200 characters without control characters.
+
+Listing a bucket is metadata only. It does not register the bucket, fetch it or
+trust its game modules. Registering and syncing a listed bucket stays an
+explicit step. Modn parses the file only in the official `main` copy; a
+`known-buckets.json` in another bucket is never read, and a malformed file
+refuses a `main` update without changing the installed copy.
+
 ## Module sources and trust
 
 `main` is always a trusted module source. Only a signed catalog can become

@@ -250,6 +250,7 @@ impl BucketStore {
 
     pub(super) fn validate_main(&self, path: &Path) -> Result<()> {
         self.load("main", path, ModuleTrustState::Main)?;
+        super::known::validate_root(path)?;
         Ok(())
     }
     /// Validate one staged community catalog before publication.

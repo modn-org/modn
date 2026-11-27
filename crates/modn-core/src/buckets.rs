@@ -1,6 +1,7 @@
 mod checkver;
 mod dependencies;
 mod git;
+mod known;
 mod lock;
 mod manifest;
 mod mirrors;
@@ -21,6 +22,7 @@ pub use crate::game_modules::{CatalogModuleReport, IgnoredModule, ModuleIgnoreRe
 pub use checkver::Checkver;
 pub use dependencies::install_order;
 pub use git::{CatalogSigner, GitCatalogRevision, GitCatalogSource, GitCatalogSync};
+pub use known::{KnownBucket, KnownBuckets, KnownSourceKind};
 pub use manifest::{ArchiveFormat, PackageManifest, PackageSource};
 pub use mirrors::{CatalogHost, CatalogSyncTrace, MAX_CATALOG_MIRRORS};
 pub use rotation::{
