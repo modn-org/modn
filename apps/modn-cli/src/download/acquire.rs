@@ -1,26 +1,34 @@
 use super::nexus_download;
 use super::nexus_label;
+#[cfg(test)]
 use super::HttpTransport;
+#[cfg(test)]
 use crate::catalog_install::reference_of;
 use crate::git_source;
 use crate::nexus_auth;
 use crate::nxm::NxmLink;
+#[cfg(test)]
 use crate::progress::Progress;
+#[cfg(test)]
+use modn_core::acquisition::SourcePolicy;
 use modn_core::acquisition::{
     ArchiveCache, CacheUse, GitAcquired, GitCacheKey, NexusDownloadUrl, NexusFile, PlannedAction,
-    ReleaseResolver, SourceAttempt, SourceBody, SourceCandidate, SourcePolicy, SourceTarget,
+    ReleaseResolver, SourceAttempt, SourceBody, SourceCandidate, SourceTarget,
 };
 use modn_core::buckets::{BucketPackage, PackageSource};
 use modn_core::progress::OperationControl;
 use std::cell::RefCell;
+#[cfg(test)]
 use std::collections::BTreeMap;
 use std::io::Write;
+#[cfg(test)]
 use std::path::PathBuf;
 
 #[expect(
     clippy::too_many_arguments,
     reason = "the step keeps the cache, package set, report sink and cancellation explicit"
 )]
+#[cfg(test)]
 pub(crate) fn download(
     cache: &ArchiveCache,
     cache_use: CacheUse,
@@ -52,6 +60,7 @@ pub(crate) fn download(
     clippy::too_many_arguments,
     reason = "the download step keeps the verified cache, package set, report sink and cancellation explicit"
 )]
+#[cfg(test)]
 pub(super) fn download_into(
     cache: &ArchiveCache,
     cache_use: CacheUse,

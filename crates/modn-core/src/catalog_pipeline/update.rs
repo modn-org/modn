@@ -123,7 +123,7 @@ pub fn plan_update(input: &UpdateInput<'_>) -> Result<CatalogPlan> {
         package: input.selected.clone(),
         release,
     }];
-    let resolved = archives::resolve(&order, input.supplied, input.cache, input.cache_use)?;
+    let resolved = archives::resolve_update(&order, input.supplied, input.cache, input.cache_use)?;
     for path in &resolved.unmatched {
         refusals.push(PlanRefusal::ArchiveUnmatched { path: path.clone() });
     }
@@ -289,6 +289,12 @@ fn installed_package_of(old: &ManagedPackage) -> InstalledPackage {
         pinned: old.pinned,
         archive_blake3: old.archive_blake3.clone(),
         source: old.source.clone(),
+        files: old
+            .files
+            .iter()
+            .map(|file| file.destination.clone())
+            .collect(),
+        directories: old.directories.clone(),
     }
 }
 
