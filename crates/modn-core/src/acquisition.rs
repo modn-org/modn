@@ -44,6 +44,14 @@ pub use sources::{
 /// Largest archive Modn downloads; a longer response is refused.
 pub const MAX_DOWNLOAD_BYTES: u64 = 4 << 30;
 
+/// The error of an acquisition cancelled before its commit point.
+pub(crate) fn cancelled() -> anyhow::Error {
+    coded(
+        ErrorCode::Cancelled,
+        "operation cancelled before the commit point",
+    )
+}
+
 /// One release's archive, as the package manifest pins it.
 #[expect(missing_docs, reason = "Field and variant names state their meaning")]
 #[derive(Debug, Clone)]
