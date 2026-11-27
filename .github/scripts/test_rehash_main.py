@@ -138,7 +138,9 @@ class ConversionTests(RehashTestCase):
         code, _, stderr = self.run_main(*self.convert_arguments())
         self.assertEqual(code, 0, stderr)
         data = self.root / "data"
-        official = data / "modn" / "buckets" / "main"
+        state = self.root / "state"
+        # With --state-dir the official main copy lives inside the profile.
+        official = state / "buckets" / "main"
         official.mkdir(parents=True)
         (official / "bucket.json").write_text(
             json.dumps({"schema_version": 2, "name": "main", "title": "Fixture Main"}),
@@ -152,7 +154,6 @@ class ConversionTests(RehashTestCase):
             MODN_CACHE=str(self.root / "cache"),
             XDG_STATE_HOME=str(self.root / "xdg"),
         )
-        state = self.root / "state"
         added = subprocess.run(
             [str(MODN), "--json", "--state-dir", str(state), "bucket", "add", "fixture",
              str(self.out)],

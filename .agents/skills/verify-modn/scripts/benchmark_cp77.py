@@ -8,6 +8,7 @@ import argparse
 import collections
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -57,6 +58,8 @@ def run(archive_dir, binary, max_archive_mib):
             file.write_bytes(b"synthetic-framework-marker")
             markers.append(file)
         state = root / "manager-state"
+        # A selected --state-dir reads the official main copy from inside it.
+        shutil.copytree(REPO / "buckets" / "main", state / "buckets" / "main")
         for archive in sorted(archive_dir.glob("*"), key=lambda path: path.name.lower()):
             if not archive.is_file() or archive.suffix.lower() not in (".zip", ".rar", ".7z"):
                 continue
