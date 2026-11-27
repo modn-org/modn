@@ -43,6 +43,7 @@ mod profile_apply_crash_tests;
 mod profile_apply_plan;
 #[cfg(test)]
 mod profile_apply_tests;
+mod profile_switch;
 mod profile_toggle;
 mod profile_toggle_apply;
 #[cfg(test)]
@@ -90,6 +91,9 @@ pub use native_injector::{
     NATIVE_INJECTOR_NOT_ALLOWED,
 };
 pub use profile_apply::{PriorityReport, ProfileApply};
+pub use profile_switch::{
+    plan_profile_switch, PathAction, PlannedPath, ProfileSwitchPlan, UnchangedPath,
+};
 pub use profile_toggle::{ProfileToggle, ToggleAction, ToggleChange};
 pub use stack::StackMember;
 pub use uninstall_plan::{PlannedRemoval, PlannedRestore, UninstallScope};
