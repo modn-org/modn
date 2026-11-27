@@ -304,9 +304,12 @@ fn a_successful_stack_records_one_operation_with_every_package() {
     let game = fixture.game.clone();
     let installed = fixture
         .store
-        .install_catalog_stack(&game, &members, NativeInjectorPolicy::Refuse, |_store, member| {
-            Ok(plan(&game, &member.archive))
-        })
+        .install_catalog_stack(
+            &game,
+            &members,
+            NativeInjectorPolicy::Refuse,
+            |_store, member| Ok(plan(&game, &member.archive)),
+        )
         .expect("stack");
     assert_eq!(installed.len(), 2);
     let operations = fixture.store.history(None).expect("history");

@@ -14,8 +14,8 @@ use crate::game_modules::{content_root_spec, ModuleSelection};
 use crate::manager_roots::ManagerRoots;
 use crate::planning::{
     preview_install_zip_with_appdata_permissions, preview_install_zip_with_claims,
-    preview_install_zip_with_permissions, preview_update_with_appdata,
-    preview_update_with_claims, preview_update_with_permissions, InstallPlan,
+    preview_install_zip_with_permissions, preview_update_with_appdata, preview_update_with_claims,
+    preview_update_with_permissions, InstallPlan,
 };
 use crate::state::Store;
 use crate::transactions::CatalogReference;
@@ -132,7 +132,9 @@ pub(crate) fn preview_release(
             approved,
             appdata,
         ),
-        None => preview_install_zip_with_permissions(roots, game_id, installation, archive, approved),
+        None => {
+            preview_install_zip_with_permissions(roots, game_id, installation, archive, approved)
+        }
     }
 }
 
@@ -174,6 +176,10 @@ pub fn preview_catalog_update(
 }
 
 /// Preview one archive as an update that replaces `replaced`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the preview names the store, the replaced package and the update inputs explicitly"
+)]
 pub(crate) fn preview_update(
     store: Option<&Store>,
     roots: &ManagerRoots,

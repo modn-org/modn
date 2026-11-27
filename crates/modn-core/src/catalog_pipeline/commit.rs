@@ -193,7 +193,8 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
             ));
         }
     }
-    let previews = preview_catalog_install(Some(&*store), roots, plan, &archives, &consent.executables)?;
+    let previews =
+        preview_catalog_install(Some(&*store), roots, plan, &archives, &consent.executables)?;
     for preview in &previews {
         verify_digest(preview, digests.get(&preview.reference.to_string()))?;
     }
@@ -350,8 +351,13 @@ fn install_stack(
             let expected = digests.get(&key).cloned();
             let preview = if first {
                 first = false;
-                let locked =
-                    preview_catalog_install(Some(store), roots, plan, archives, &consent.executables)?;
+                let locked = preview_catalog_install(
+                    Some(store),
+                    roots,
+                    plan,
+                    archives,
+                    &consent.executables,
+                )?;
                 for preview in &locked {
                     verify_digest(preview, digests.get(&preview.reference.to_string()))?;
                 }

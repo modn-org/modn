@@ -355,9 +355,7 @@ fn override_catalog_install_replaces_a_managed_file() {
     assert!(dry.status.success(), "{dry:?}");
     let preview = json(&dry);
     assert_eq!(preview["plan"]["status"], "reviewable", "{preview}");
-    let overrides = preview["plan"]["overrides"]
-        .as_array()
-        .expect("overrides");
+    let overrides = preview["plan"]["overrides"].as_array().expect("overrides");
     assert_eq!(overrides.len(), 1, "{preview}");
     assert_eq!(overrides[0]["destination"], CATALOG_SHARED);
     assert!(overrides[0]["replaced_package"].is_string(), "{preview}");

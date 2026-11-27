@@ -17,7 +17,15 @@ pub fn preview_install_zip_with_claims(
     appdata: Option<&Path>,
 ) -> anyhow::Result<InstallPlan> {
     preview_update_with_claims(
-        store, roots, game_id, game, archive, approved, &[], None, appdata,
+        store,
+        roots,
+        game_id,
+        game,
+        archive,
+        approved,
+        &[],
+        None,
+        appdata,
     )
 }
 
