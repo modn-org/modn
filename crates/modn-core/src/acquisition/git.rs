@@ -1,5 +1,6 @@
 use super::digest::file_blake3;
 use super::{ArchiveCache, CacheUse, Origin};
+use crate::progress::{CancellationToken, OperationControl};
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use std::fs;
@@ -119,12 +120,23 @@ impl GitSource {
         }
     }
 
-    pub(crate) fn pack_url(&self, url: &str, staging: &Path) -> Result<pack::PackedArchive> {
-        pack_commit(url, &self.commit, staging, self.test_transport(url))
+    pub(crate) fn pack_url(
+        &self,
+        url: &str,
+        staging: &Path,
+        control: &OperationControl,
+    ) -> Result<pack::PackedArchive> {
+        pack_commit(
+            url,
+            &self.commit,
+            staging,
+            self.test_transport(url),
+            control.token(),
+        )
     }
 
     pub(crate) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
-        pack::clone_catalog(destination, remote)
+        pack::clone_catalog(destination, remote, &CancellationToken::new())
     }
 
     /// Return a verified cached archive or fetch and pack the commit.
@@ -134,8 +146,29 @@ impl GitSource {
         key: &GitCacheKey<'_>,
         cache_use: CacheUse,
     ) -> Result<GitAcquired> {
+        self.acquire_with_control(cache, key, cache_use, &OperationControl::default())
+    }
+
+    /// Return a verified cached archive or fetch and pack the commit under
+    /// `control`.
+    ///
+    /// A cancelled operation stops the Git child process during a fetch and
+    /// keeps no cache entry. Staging is removed, and existing cache entries
+    /// stay unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::ErrorCode::Cancelled`] when `control` is
+    /// cancelled, and a Git source error when the fetch or pack fails.
+    pub fn acquire_with_control(
+        &self,
+        cache: &ArchiveCache,
+        key: &GitCacheKey<'_>,
+        cache_use: CacheUse,
+        control: &OperationControl,
+    ) -> Result<GitAcquired> {
         let url = self.remote_url()?;
-        self.acquire_url(&url, cache, key, cache_use)
+        self.acquire_url(&url, cache, key, cache_use, control)
     }
 
     fn acquire_url(
@@ -144,10 +177,12 @@ impl GitSource {
         cache: &ArchiveCache,
         key: &GitCacheKey<'_>,
         cache_use: CacheUse,
+        control: &OperationControl,
     ) -> Result<GitAcquired> {
         if key.commit != self.commit {
             bail!("Git source cache key does not name the pinned commit");
         }
+        control.checkpoint()?;
         if cache_use == CacheUse::Reuse {
             if let Some((path, blake3)) = cache.git_cached(key)? {
                 return Ok(GitAcquired {
@@ -162,7 +197,7 @@ impl GitSource {
         let staging = tempfile::Builder::new()
             .prefix("git-source-")
             .tempdir_in(cache.root())?;
-        let packed = self.pack_url(url, staging.path())?;
+        let packed = self.pack_url(url, staging.path(), control)?;
         let path = cache.git_path(key, &packed.blake3);
         if path.exists() {
             fs::remove_file(&path)

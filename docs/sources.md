@@ -167,7 +167,7 @@ Modn probes the cache key of every source, in list order, before any network or 
 A user-supplied `--file` archive is recorded with the release's first `https` or `github-release` source when its BLAKE3 digest equals the catalog pin, because Modn can fetch that source again.
 A release with no such source keeps the `manual` source for a `--file` archive.
 `modn update` reads that recorded serving source back: a Git release is current when it still lists that source with the installed commit. When the release no longer lists that source, Modn compares its primary source.
-A cancellation stops the interrupted download at once, for every source kind. Modn tries no later source and retries nothing. A verified entry that the download already published stays in the cache.
+A cancellation stops the interrupted download at once, for every source kind. Modn tries no later source and retries nothing. A verified entry that the download already published stays in the cache. For a Git source, a cancel stops the Git child process that fetches or clones, removes the staging directory and keeps no new cache entry. Existing cache entries stay unchanged.
 Cancellation is checked before each source and after each failed attempt.
 A `manual` source is never started automatically.
 If only manual sources remain, Modn prints the manual step as before.
@@ -313,6 +313,7 @@ Only HTTPS transport is allowed.
 Git must be on PATH.
 A fetch or tree-read failure returns `GIT_SOURCE_FETCH_FAILED`.
 A commit that Git cannot resolve, or resolves to another object, returns `GIT_SOURCE_COMMIT_MISMATCH`.
+A cancellation during the fetch or clone stops the Git child process and returns `CANCELLED`, not `GIT_SOURCE_FETCH_FAILED`. The staging directory is removed and no cache entry is kept.
 
 Modn reads the tree with `ls-tree` and `cat-file`.
 It does not check out files and does not read attributes.

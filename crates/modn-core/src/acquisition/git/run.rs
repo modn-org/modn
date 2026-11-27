@@ -5,10 +5,16 @@
 //! streams continuously and keeps only the last [`OUTPUT_TAIL_LIMIT`] bytes of
 //! each. The low-speed marker is detected while draining, because a flood of
 //! later messages can push it out of the kept tail.
+//!
+//! The wait loop also observes the operation's cancellation token, so a
+//! cancelled operation stops a slow fetch or clone at once instead of waiting
+//! for Git to return.
 
+use crate::progress::CancellationToken;
 use std::io::{self, Read};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
+use std::time::Duration;
 
 /// The most bytes Modn keeps from the end of each piped Git stream.
 pub(crate) const OUTPUT_TAIL_LIMIT: usize = 64 * 1024;
@@ -20,6 +26,18 @@ const LOW_SPEED_MARKERS: [&[u8]; 2] = [b"operation too slow", b"bytes/sec transf
 const MARKER_CARRY: usize = 20;
 
 const READ_CHUNK: usize = 8 * 1024;
+
+/// How long the wait loop sleeps before it checks the child and the token.
+pub(crate) const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+/// Why the runner returned no finished child.
+#[derive(Debug)]
+pub(crate) enum RunError {
+    /// The operation token was cancelled before the child finished.
+    Cancelled,
+    /// The operating system could not spawn, poll or reap the child.
+    Io(io::Error),
+}
 
 /// One finished Git child and the bounded version of what it printed.
 pub(crate) struct GitOutput {
@@ -60,13 +78,20 @@ impl GitOutput {
 /// Run the command with a null stdin and piped output streams.
 ///
 /// Both readers run on their own threads, so neither pipe fills while the
-/// child runs. The caller's own stdio settings are replaced.
-pub(crate) fn run(mut command: Command) -> io::Result<GitOutput> {
+/// child runs. The caller's own stdio settings are replaced. The wait loop
+/// checks `token` every [`CHILD_POLL_INTERVAL`], stops the child when the
+/// token is cancelled, and joins both readers before it returns. No child or
+/// reader thread outlives the call.
+pub(crate) fn run(mut command: Command, token: &CancellationToken) -> Result<GitOutput, RunError> {
+    if token.is_cancelled() {
+        return Err(RunError::Cancelled);
+    }
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()?;
+        .spawn()
+        .map_err(RunError::Io)?;
     let stdout = child
         .stdout
         .take()
@@ -77,7 +102,7 @@ pub(crate) fn run(mut command: Command) -> io::Result<GitOutput> {
         .expect("GitOutput invariant: stderr is piped");
     let reader = thread::spawn(move || drain(stdout, false));
     let error_reader = thread::spawn(move || drain(stderr, true));
-    let status = child.wait();
+    let status = wait_for_child(&mut child, token);
     let reader = reader
         .join()
         .expect("GitOutput invariant: the stdout reader does not panic");
@@ -91,6 +116,33 @@ pub(crate) fn run(mut command: Command) -> io::Result<GitOutput> {
         truncated: reader.tail.truncated || error_reader.tail.truncated,
         low_speed: error_reader.low_speed,
     })
+}
+
+/// Wait for the child, and stop it when `token` is cancelled.
+fn wait_for_child(child: &mut Child, token: &CancellationToken) -> Result<ExitStatus, RunError> {
+    loop {
+        if token.is_cancelled() {
+            stop_child(child);
+            return Err(RunError::Cancelled);
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => thread::sleep(CHILD_POLL_INTERVAL),
+            Err(error) => {
+                stop_child(child);
+                return Err(RunError::Io(error));
+            }
+        }
+    }
+}
+
+/// Stop the Git child and reap it.
+///
+/// This is the one place that stops a running Git child. A later change
+/// replaces it with a whole-process-tree stop (issue #190).
+fn stop_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 struct Stream {

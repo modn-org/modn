@@ -1,6 +1,8 @@
 use super::super::digest::file_blake3;
-use super::super::FetchError;
+use super::super::{cancelled, FetchError};
+use super::run::{GitOutput, RunError};
 use crate::git::{self, GitEnvironment};
+use crate::progress::CancellationToken;
 use anyhow::{anyhow, bail, Context, Result};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -26,11 +28,21 @@ struct TreeEntry {
     executable: bool,
 }
 
-fn fetch_with(environment: &GitEnvironment<'_>, url: &str, commit: &str) -> Result<()> {
-    fetch_with_command(git::command(environment), url, commit)
+fn fetch_with(
+    environment: &GitEnvironment<'_>,
+    url: &str,
+    commit: &str,
+    token: &CancellationToken,
+) -> Result<()> {
+    fetch_with_command(git::command(environment), url, commit, token)
 }
 
-fn fetch_with_command(mut command: Command, url: &str, commit: &str) -> Result<()> {
+fn fetch_with_command(
+    mut command: Command,
+    url: &str,
+    commit: &str,
+    token: &CancellationToken,
+) -> Result<()> {
     command.args([
         "fetch",
         "--progress",
@@ -41,8 +53,11 @@ fn fetch_with_command(mut command: Command, url: &str, commit: &str) -> Result<(
         url,
         commit,
     ]);
-    let output = super::run::run(command)
-        .context("GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH")?;
+    let output = run_git(
+        command,
+        token,
+        "GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
+    )?;
     if output.success() {
         return Ok(());
     }
@@ -55,7 +70,26 @@ fn fetch_with_command(mut command: Command, url: &str, commit: &str) -> Result<(
     bail!("GIT_SOURCE_FETCH_FAILED: fetching {url} commit {commit} failed: {details}")
 }
 
-pub(super) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
+/// Run one Git child and map its failure for the source error codes.
+///
+/// A cancel returns [`ErrorCode::Cancelled`], never a Git source error.
+fn run_git(
+    command: Command,
+    token: &CancellationToken,
+    message: &'static str,
+) -> Result<GitOutput> {
+    match super::run::run(command, token) {
+        Ok(output) => Ok(output),
+        Err(RunError::Cancelled) => Err(cancelled()),
+        Err(RunError::Io(error)) => Err(anyhow::Error::new(error).context(message)),
+    }
+}
+
+pub(super) fn clone_catalog(
+    destination: &Path,
+    remote: &str,
+    token: &CancellationToken,
+) -> Result<()> {
     let hooks = git::empty_hooks()?;
     let environment = GitEnvironment {
         directory: destination,
@@ -72,7 +106,9 @@ pub(super) fn clone_catalog(destination: &Path, remote: &str) -> Result<()> {
         remote,
         "catalog",
     ]);
-    let output = super::run::run(command).context(
+    let output = run_git(
+        command,
+        token,
         "GIT_CATALOG_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
     )?;
     if output.success() {
@@ -92,7 +128,11 @@ pub(super) fn pack_commit(
     commit: &str,
     staging: &Path,
     allow_file: bool,
+    token: &CancellationToken,
 ) -> Result<PackedArchive> {
+    if token.is_cancelled() {
+        return Err(cancelled());
+    }
     let hooks = git::empty_hooks()?;
     let environment = GitEnvironment {
         directory: staging,
@@ -108,7 +148,7 @@ pub(super) fn pack_commit(
     git::run(&environment, &["init", "--bare", "--quiet"]).map_err(|error| {
         anyhow!("GIT_SOURCE_FETCH_FAILED: cannot initialize the private Git repository: {error:#}")
     })?;
-    fetch_with(&environment, url, commit)?;
+    fetch_with(&environment, url, commit, token)?;
     let pinned = format!("{commit}^{{commit}}");
     let resolved =
         git::run(&environment, &["rev-parse", "--verify", &pinned]).map_err(|error| {
