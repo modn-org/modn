@@ -170,6 +170,18 @@ impl FakeResolver {
             .push_back(Err(anyhow::anyhow!(message.to_owned())));
     }
 
+    /// Queue a Git failure with a stable code, as the runner returns it.
+    pub(super) fn git_fail_coded(&self, repository: &str, code: crate::error::ErrorCode) {
+        self.git
+            .borrow_mut()
+            .entry(repository.to_owned())
+            .or_default()
+            .push_back(Err(crate::error::coded(
+                code,
+                format!("{}: stub Git tree failure", code.as_str()),
+            )));
+    }
+
     pub(super) fn nexus_download(&self, file_id: u64, link: NexusDownloadUrl) {
         self.nexus
             .borrow_mut()

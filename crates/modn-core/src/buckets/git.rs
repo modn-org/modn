@@ -308,6 +308,15 @@ impl BucketStore {
                     break;
                 }
                 Err(error) => {
+                    if crate::error::code_of(&error)
+                        == Some(crate::error::ErrorCode::GitProcessTreeNotStopped)
+                    {
+                        // A descendant may still write here. Keep the staging
+                        // tree and end the sync instead of trying another
+                        // mirror; the error says why.
+                        let _ = stage.keep();
+                        return Err(error);
+                    }
                     let _ = fs::remove_dir_all(&attempt);
                     failed_sources.push(format!(
                         "{}: {error:#}",
@@ -467,6 +476,8 @@ mod replay_tests;
 mod snapshot_tests;
 #[cfg(test)]
 mod statement_tests;
+#[cfg(test)]
+mod tree_tests;
 
 #[cfg(test)]
 pub(crate) mod tests;

@@ -1,5 +1,6 @@
 use super::digest::file_blake3;
 use super::{ArchiveCache, CacheUse, Origin};
+use crate::error::{code_of, ErrorCode};
 use crate::progress::{CancellationToken, OperationControl};
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -8,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 mod pack;
 mod run;
+pub(crate) mod tree;
 use pack::pack_commit;
 
 /// A package source pinned to one full lowercase Git commit on GitHub.
@@ -197,7 +199,17 @@ impl GitSource {
         let staging = tempfile::Builder::new()
             .prefix("git-source-")
             .tempdir_in(cache.root())?;
-        let packed = self.pack_url(url, staging.path(), control)?;
+        let packed = match self.pack_url(url, staging.path(), control) {
+            Ok(packed) => packed,
+            Err(error) => {
+                if code_of(&error) == Some(ErrorCode::GitProcessTreeNotStopped) {
+                    // A descendant may still write to staging. Leave it in
+                    // place; `GIT_PROCESS_TREE_NOT_STOPPED` says why.
+                    let _ = staging.keep();
+                }
+                return Err(error);
+            }
+        };
         let path = cache.git_path(key, &packed.blake3);
         if path.exists() {
             fs::remove_file(&path)

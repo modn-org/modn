@@ -1,6 +1,7 @@
 use super::super::digest::file_blake3;
 use super::super::{cancelled, FetchError};
-use super::run::{GitOutput, RunError};
+use super::run::{GitOutput, RunError, FETCH_DEADLINE};
+use crate::error::{coded, ErrorCode};
 use crate::git::{self, GitEnvironment};
 use crate::progress::CancellationToken;
 use anyhow::{anyhow, bail, Context, Result};
@@ -8,6 +9,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 use zip::write::SimpleFileOptions;
 
 #[cfg(test)]
@@ -33,8 +35,9 @@ fn fetch_with(
     url: &str,
     commit: &str,
     token: &CancellationToken,
+    deadline: Duration,
 ) -> Result<()> {
-    fetch_with_command(git::command(environment), url, commit, token)
+    fetch_with_command(git::command(environment), url, commit, token, deadline)
 }
 
 fn fetch_with_command(
@@ -42,6 +45,7 @@ fn fetch_with_command(
     url: &str,
     commit: &str,
     token: &CancellationToken,
+    deadline: Duration,
 ) -> Result<()> {
     command.args([
         "fetch",
@@ -56,7 +60,9 @@ fn fetch_with_command(
     let output = run_git(
         command,
         token,
-        "GIT_SOURCE_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
+        deadline,
+        "GIT_SOURCE_FETCH_FAILED",
+        &format!("fetching {url} commit {commit}"),
     )?;
     if output.success() {
         return Ok(());
@@ -72,16 +78,30 @@ fn fetch_with_command(
 
 /// Run one Git child and map its failure for the source error codes.
 ///
-/// A cancel returns [`ErrorCode::Cancelled`], never a Git source error.
+/// A cancel returns [`ErrorCode::Cancelled`]. A tree that Modn could not
+/// confirm stopped returns [`ErrorCode::GitProcessTreeNotStopped`], which ends
+/// the acquisition instead of falling over to another source. A hard-deadline
+/// expiry keeps the [`FetchError::Timeout`] class.
 fn run_git(
     command: Command,
     token: &CancellationToken,
-    message: &'static str,
+    deadline: Duration,
+    code: &'static str,
+    action: &str,
 ) -> Result<GitOutput> {
-    match super::run::run(command, token) {
+    match super::run::run(command, token, deadline) {
         Ok(output) => Ok(output),
         Err(RunError::Cancelled) => Err(cancelled()),
-        Err(RunError::Io(error)) => Err(anyhow::Error::new(error).context(message)),
+        Err(RunError::Timeout) => Err(anyhow::Error::new(FetchError::Timeout).context(format!(
+            "{code}: {action} reached the {}-second hard deadline; Git and its helpers were stopped",
+            deadline.as_secs()
+        ))),
+        Err(RunError::Tree(error)) => Err(coded(
+            ErrorCode::GitProcessTreeNotStopped,
+            format!("GIT_PROCESS_TREE_NOT_STOPPED: {code}: {action}: {error}"),
+        )),
+        Err(RunError::Io(error)) => Err(anyhow::Error::new(error)
+            .context(format!("{code}: cannot run Git; install Git and ensure it is on PATH"))),
     }
 }
 
@@ -109,7 +129,9 @@ pub(super) fn clone_catalog(
     let output = run_git(
         command,
         token,
-        "GIT_CATALOG_FETCH_FAILED: cannot run Git; install Git and ensure it is on PATH",
+        FETCH_DEADLINE,
+        "GIT_CATALOG_FETCH_FAILED",
+        &format!("cloning {remote}"),
     )?;
     if output.success() {
         return Ok(());
@@ -148,7 +170,7 @@ pub(super) fn pack_commit(
     git::run(&environment, &["init", "--bare", "--quiet"]).map_err(|error| {
         anyhow!("GIT_SOURCE_FETCH_FAILED: cannot initialize the private Git repository: {error:#}")
     })?;
-    fetch_with(&environment, url, commit, token)?;
+    fetch_with(&environment, url, commit, token, FETCH_DEADLINE)?;
     let pinned = format!("{commit}^{{commit}}");
     let resolved =
         git::run(&environment, &["rev-parse", "--verify", &pinned]).map_err(|error| {

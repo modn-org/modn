@@ -148,7 +148,7 @@ fn a_real_low_speed_abort_keeps_the_timeout_class() {
     let url = format!("http://127.0.0.1:{port}/repo.git");
     let commit = "0".repeat(40);
     let command = git::command_with_low_speed_time(&environment, 1);
-    let error = fetch_with_command(command, &url, &commit, &token())
+    let error = fetch_with_command(command, &url, &commit, &token(), FETCH_DEADLINE)
         .expect_err("a stalled HTTP transfer must fail");
     let text = format!("{error:#}");
     assert!(timeout_class(&error), "{text}");
@@ -166,8 +166,14 @@ fn a_fetch_failure_without_low_speed_text_is_not_a_timeout() {
     git::run(&environment, &["init", "--bare", "--quiet"]).expect("bare repository");
     let missing = root.path().join("missing.git");
     let missing = missing.to_str().expect("missing repository path");
-    let error = fetch_with(&environment, missing, &"0".repeat(40), &token())
-        .expect_err("a missing repository must fail");
+    let error = fetch_with(
+        &environment,
+        missing,
+        &"0".repeat(40),
+        &token(),
+        FETCH_DEADLINE,
+    )
+    .expect_err("a missing repository must fail");
     let text = format!("{error:#}");
     assert!(!timeout_class(&error), "{text}");
     assert!(text.contains("failed"), "{text}");
@@ -186,6 +192,7 @@ fn a_flood_of_git_error_output_keeps_only_the_tail_and_bounds_the_message() {
         "https://example.invalid/owner/project.git",
         &commit,
         &token(),
+        FETCH_DEADLINE,
     )
     .expect_err("a stub Git that exits non-zero must fail the fetch");
     let text = format!("{error:#}");
@@ -226,6 +233,7 @@ fn a_truncated_low_speed_abort_keeps_the_timeout_class() {
         "https://example.invalid/owner/project.git",
         &commit,
         &token(),
+        FETCH_DEADLINE,
     )
     .expect_err("the stub Git exits non-zero after the low-speed line");
     let text = format!("{error:#}");

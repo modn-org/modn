@@ -6,15 +6,18 @@
 //! each. The low-speed marker is detected while draining, because a flood of
 //! later messages can push it out of the kept tail.
 //!
-//! The wait loop also observes the operation's cancellation token, so a
-//! cancelled operation stops a slow fetch or clone at once instead of waiting
-//! for Git to return.
+//! The wait loop observes the operation's cancellation token and the hard
+//! deadline, so a cancelled or stalled fetch or clone stops at once instead of
+//! waiting for Git to return. Every Git child starts inside its own
+//! [`tree`] confinement; a stop terminates the whole tree and confirms that it
+//! is empty before this module returns.
 
+use super::tree::{self, TreeError, TreeGuard};
 use crate::progress::CancellationToken;
 use std::io::{self, Read};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The most bytes Modn keeps from the end of each piped Git stream.
 pub(crate) const OUTPUT_TAIL_LIMIT: usize = 64 * 1024;
@@ -30,11 +33,23 @@ const READ_CHUNK: usize = 8 * 1024;
 /// How long the wait loop sleeps before it checks the child and the token.
 pub(crate) const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
+/// Hard deadline for one Git fetch or catalog clone.
+///
+/// Fifteen minutes covers a large fetch over a slow but working link. A
+/// transfer that keeps making progress still ends at this point, because a
+/// helper that keeps staging bytes must not run without a bound. The runner
+/// receives the value as a parameter, so tests inject a short deadline.
+pub(crate) const FETCH_DEADLINE: Duration = Duration::from_secs(15 * 60);
+
 /// Why the runner returned no finished child.
 #[derive(Debug)]
 pub(crate) enum RunError {
     /// The operation token was cancelled before the child finished.
     Cancelled,
+    /// The child ran past the hard deadline and was stopped.
+    Timeout,
+    /// The process tree could not be confined or confirmed stopped.
+    Tree(TreeError),
     /// The operating system could not spawn, poll or reap the child.
     Io(io::Error),
 }
@@ -78,20 +93,35 @@ impl GitOutput {
 /// Run the command with a null stdin and piped output streams.
 ///
 /// Both readers run on their own threads, so neither pipe fills while the
-/// child runs. The caller's own stdio settings are replaced. The wait loop
-/// checks `token` every [`CHILD_POLL_INTERVAL`], stops the child when the
-/// token is cancelled, and joins both readers before it returns. No child or
-/// reader thread outlives the call.
-pub(crate) fn run(mut command: Command, token: &CancellationToken) -> Result<GitOutput, RunError> {
+/// child runs. The caller's own stdio settings are replaced. The child starts
+/// inside its own process tree. The wait loop checks `token` every
+/// [`CHILD_POLL_INTERVAL`] and stops the tree when the token is cancelled or
+/// the `deadline` passes. A child that exits on its own still has its tree
+/// stopped and confirmed, because a helper can outlive Git and keep writing.
+/// Both readers are joined before this returns, unless the tree cannot be
+/// confirmed stopped; then the readers are detached so the error can return.
+pub(crate) fn run(
+    mut command: Command,
+    token: &CancellationToken,
+    deadline: Duration,
+) -> Result<GitOutput, RunError> {
     if token.is_cancelled() {
         return Err(RunError::Cancelled);
     }
+    tree::confine(&mut command).map_err(RunError::Tree)?;
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(RunError::Io)?;
+    let mut guard = match TreeGuard::attach(&child) {
+        Ok(guard) => guard,
+        Err(error) => {
+            stop_unattached(&mut child);
+            return Err(RunError::Tree(error));
+        }
+    };
     let stdout = child
         .stdout
         .take()
@@ -102,7 +132,14 @@ pub(crate) fn run(mut command: Command, token: &CancellationToken) -> Result<Git
         .expect("GitOutput invariant: stderr is piped");
     let reader = thread::spawn(move || drain(stdout, false));
     let error_reader = thread::spawn(move || drain(stderr, true));
-    let status = wait_for_child(&mut child, token);
+    let started = Instant::now();
+    let result = wait_for_child(&mut child, token, deadline, started, &mut guard);
+    let result = match result {
+        // A live descendant can hold the pipes open. Detaching the readers
+        // lets the stable error return instead of blocking forever.
+        Err(RunError::Tree(error)) => return Err(RunError::Tree(error)),
+        other => other,
+    };
     let reader = reader
         .join()
         .expect("GitOutput invariant: the stdout reader does not panic");
@@ -110,7 +147,7 @@ pub(crate) fn run(mut command: Command, token: &CancellationToken) -> Result<Git
         .join()
         .expect("GitOutput invariant: the stderr reader does not panic");
     Ok(GitOutput {
-        status: status?,
+        status: result?,
         stdout: reader.tail.bytes,
         stderr: error_reader.tail.bytes,
         truncated: reader.tail.truncated || error_reader.tail.truncated,
@@ -118,29 +155,45 @@ pub(crate) fn run(mut command: Command, token: &CancellationToken) -> Result<Git
     })
 }
 
-/// Wait for the child, and stop it when `token` is cancelled.
-fn wait_for_child(child: &mut Child, token: &CancellationToken) -> Result<ExitStatus, RunError> {
+/// Wait for the child, and stop its tree on a cancel, the deadline or a poll
+/// error. A normal exit still stops and confirms the tree.
+fn wait_for_child(
+    child: &mut Child,
+    token: &CancellationToken,
+    deadline: Duration,
+    started: Instant,
+    guard: &mut TreeGuard,
+) -> Result<ExitStatus, RunError> {
     loop {
         if token.is_cancelled() {
-            stop_child(child);
-            return Err(RunError::Cancelled);
+            return Err(stop(guard, child, RunError::Cancelled));
         }
         match child.try_wait() {
-            Ok(Some(status)) => return Ok(status),
-            Ok(None) => thread::sleep(CHILD_POLL_INTERVAL),
-            Err(error) => {
-                stop_child(child);
-                return Err(RunError::Io(error));
+            Ok(Some(status)) => {
+                guard.finish().map_err(RunError::Tree)?;
+                return Ok(status);
             }
+            Ok(None) => {
+                if started.elapsed() >= deadline {
+                    return Err(stop(guard, child, RunError::Timeout));
+                }
+                thread::sleep(CHILD_POLL_INTERVAL);
+            }
+            Err(error) => return Err(stop(guard, child, RunError::Io(error))),
         }
     }
 }
 
-/// Stop the Git child and reap it.
-///
-/// This is the one place that stops a running Git child. A later change
-/// replaces it with a whole-process-tree stop (issue #190).
-fn stop_child(child: &mut Child) {
+/// Stop the tree and keep `reason`, unless the stop itself fails.
+fn stop(guard: &mut TreeGuard, child: &mut Child, reason: RunError) -> RunError {
+    match guard.stop(child) {
+        Ok(()) => reason,
+        Err(error) => RunError::Tree(error),
+    }
+}
+
+/// Kill and reap a child whose tree was never adopted.
+fn stop_unattached(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
 }

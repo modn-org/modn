@@ -70,13 +70,13 @@ stall, and release builds accept only HTTPS remotes. A timed-out fetch removes
 its temporary files before Modn tries the next source. A catalog mirror clone
 uses the same limits. A stalled mirror is recorded as `timed out`, and sync
 tries the next mirror. The catalog error text is
-`GIT_CATALOG_FETCH_FAILED: ... timed out: ...`. Hard process-tree stop and
-Ctrl-C forwarding are not part of this release; they are tracked in issue
-#190. Catalog sync serializes other Git sync calls: a second sync waits up to 2 seconds
+`GIT_CATALOG_FETCH_FAILED: ... timed out: ...`. Ctrl-C forwarding is not
+part of this release; it is tracked in issue #190. Catalog sync serializes other Git sync calls: a second sync waits up to 2 seconds
 for the first to finish, then fails with the already running error. It does not
 coordinate concurrent local registration edits.
 Catalog metadata does not approve executable installation or grant game writes.
 Modn drains Git's standard output and standard error while Git runs and keeps only the last 64 KiB of each, so a remote that keeps sending messages cannot grow memory without a bound; a low-speed abort stays a `timeout` even when its output was truncated.
+Every Git fetch and catalog clone runs in its own process tree: a Windows job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, or a Unix process group that Git leads. On a hard deadline, a cancel, or any Git exit, Modn stops the whole tree, including a `git-remote-https` helper, and confirms that no process is still alive before it returns. A fetch or clone has a hard deadline of 15 minutes; an expiry keeps the `timeout` class and says "hard deadline". If Modn cannot confirm the stop, it returns `GIT_PROCESS_TREE_NOT_STOPPED`. Acquisition and mirror fallback then stop, and the staging directory is left in place for the error report.
 
 ## Verified archive reuse
 
@@ -167,7 +167,7 @@ Modn probes the cache key of every source, in list order, before any network or 
 A user-supplied `--file` archive is recorded with the release's first `https` or `github-release` source when its BLAKE3 digest equals the catalog pin, because Modn can fetch that source again.
 A release with no such source keeps the `manual` source for a `--file` archive.
 `modn update` reads that recorded serving source back: a Git release is current when it still lists that source with the installed commit. When the release no longer lists that source, Modn compares its primary source.
-A cancellation stops the interrupted download at once, for every source kind. Modn tries no later source and retries nothing. A verified entry that the download already published stays in the cache. For a Git source, a cancel stops the Git child process that fetches or clones, removes the staging directory and keeps no new cache entry. Existing cache entries stay unchanged.
+A cancellation stops the interrupted download at once, for every source kind. Modn tries no later source and retries nothing. A verified entry that the download already published stays in the cache. For a Git source, a cancel stops the Git process tree that fetches or clones, removes the staging directory and keeps no new cache entry. Existing cache entries stay unchanged.
 Cancellation is checked before each source and after each failed attempt.
 A `manual` source is never started automatically.
 If only manual sources remain, Modn prints the manual step as before.
@@ -313,7 +313,7 @@ Only HTTPS transport is allowed.
 Git must be on PATH.
 A fetch or tree-read failure returns `GIT_SOURCE_FETCH_FAILED`.
 A commit that Git cannot resolve, or resolves to another object, returns `GIT_SOURCE_COMMIT_MISMATCH`.
-A cancellation during the fetch or clone stops the Git child process and returns `CANCELLED`, not `GIT_SOURCE_FETCH_FAILED`. The staging directory is removed and no cache entry is kept.
+A cancellation during the fetch or clone stops the Git process tree and returns `CANCELLED`, not `GIT_SOURCE_FETCH_FAILED`. The staging directory is removed and no cache entry is kept. A tree that Modn cannot confirm stopped returns `GIT_PROCESS_TREE_NOT_STOPPED`; staging is then kept, because a surviving helper may still write to it.
 
 Modn reads the tree with `ls-tree` and `cat-file`.
 It does not check out files and does not read attributes.

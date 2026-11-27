@@ -653,6 +653,7 @@ otherwise the command's default code is used. No command reports a generic
 | `DOWNLOAD_FAILED` | A download did not complete. |
 | `GAME_MODULE_ERROR` | A game module failed to load or run. |
 | `GAME_NOT_SELECTED` | Modn cannot select one registered game installation. |
+| `GIT_PROCESS_TREE_NOT_STOPPED` | A Git process tree could not be confined or confirmed stopped; acquisition ended. |
 | `GIT_SOURCE_COMMIT_MISMATCH` | A Git source resolved to another commit. |
 | `GIT_SOURCE_FETCH_FAILED` | A Git source could not be fetched or read. |
 | `GIT_SOURCE_UNSUPPORTED_ENTRY` | A Git source contains an entry Modn does not install. |

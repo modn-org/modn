@@ -3,6 +3,7 @@ use super::support::{
 };
 use crate::acquisition::{ArchiveCache, CacheUse, SourceFailure};
 use crate::buckets::PackageSource;
+use crate::error::{code_of, ErrorCode};
 use crate::progress::OperationControl;
 use serde_json::json;
 use std::fs;
@@ -59,4 +60,40 @@ fn a_failed_git_first_source_falls_back_to_the_next_git_source() {
     assert_eq!(acquired.digest, digest);
     assert_eq!(acquired.path, archive);
     assert!(transport.calls().is_empty());
+}
+
+#[test]
+fn an_unconfirmed_git_tree_stop_ends_the_acquisition_without_the_next_source() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let cache = ArchiveCache::new(temporary.path().join("cache"));
+    let git_sources = json!([
+        {"kind": "git", "repository": GIT_MISSING, "commit": GIT_COMMIT},
+        {"kind": "git", "repository": GIT_PROJECT, "commit": GIT_COMMIT}
+    ]);
+    let release = release(git_sources, None);
+    let resolver = FakeResolver::default();
+    resolver.git_fail_coded(GIT_MISSING, ErrorCode::GitProcessTreeNotStopped);
+    let transport = FakeTransport::default();
+
+    // The second Git source is not queued. The fake resolver panics if the
+    // loop asks for it, so this test also proves that no fall-over happened.
+    let error = acquire(
+        &cache,
+        &release,
+        CacheUse::Refresh,
+        &transport,
+        &resolver,
+        &OperationControl::default(),
+    )
+    .expect_err("an unconfirmed tree ends the acquisition");
+
+    assert_eq!(
+        code_of(&error),
+        Some(ErrorCode::GitProcessTreeNotStopped),
+        "{error:#}"
+    );
+    assert!(
+        !format!("{error:#}").contains("could not be fetched"),
+        "the error must not become a multi-source report: {error:#}"
+    );
 }
