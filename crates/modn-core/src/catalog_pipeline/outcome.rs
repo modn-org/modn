@@ -20,6 +20,22 @@ pub struct CommitOutcome {
     /// The source that served each package's archive, keyed by its
     /// `bucket/game/mod` reference.
     pub sources: BTreeMap<String, PackageSource>,
+    /// True when an update found the installed release already current.
+    pub up_to_date: bool,
+}
+
+impl CommitOutcome {
+    /// The outcome of an update plan that needed no commit.
+    #[must_use]
+    pub(super) fn up_to_date() -> Self {
+        Self {
+            packages: Vec::new(),
+            operation_id: None,
+            attempts: Vec::new(),
+            sources: BTreeMap::new(),
+            up_to_date: true,
+        }
+    }
 }
 
 /// The first refusal that a consent cannot repair, as a coded error.
@@ -70,6 +86,20 @@ pub(crate) fn blocking_refusal(plan: &CatalogPlan) -> Option<anyhow::Error> {
                     .collect::<Vec<_>>()
                     .join("; ")
             ),
+        )),
+        PlanRefusal::PackagePinned { package_id } => Some(coded(
+            ErrorCode::PackagePinned,
+            format!(
+                "managed package {package_id} is pinned; run `modn unpin {package_id}` to update it"
+            ),
+        )),
+        PlanRefusal::UpdateOrder { reason } => Some(coded(
+            ErrorCode::PlanBlocked,
+            format!("update blocked: {reason}"),
+        )),
+        PlanRefusal::DependentBlocks { dependent } => Some(coded(
+            ErrorCode::PlanBlocked,
+            format!("{} blocks the update", dependent.package_id),
         )),
     })
 }

@@ -3,6 +3,7 @@ use super::install::Fault;
 use super::journal::{lock_store, ManagedPackage, Roots};
 use super::native_injector::NativeInjectorPolicy;
 use super::uninstall::Dependents;
+use crate::archive::inspect;
 use crate::error::{coded, ErrorCode};
 use crate::history::HistoryFile;
 use crate::planning::InstallPlan;
@@ -133,11 +134,39 @@ impl Store {
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
         let game = self.transaction_root(game)?;
-        let old = self
-            .installed(&game)?
-            .into_iter()
-            .find(|package| package.id == package_id)
-            .with_context(|| format!("managed package {package_id} not found for selected game"))?;
+        self.update_locked(
+            &game, package_id, archive, proposal, release, approved, policy, fault,
+        )
+    }
+
+    /// Replace `package_id` after re-planning it under the transaction lock.
+    ///
+    /// The archive is inspected before `plan` runs, and the pinned target check
+    /// runs before the closure, so neither a malformed archive nor a pinned
+    /// package executes game policy. The closure receives the archive, the
+    /// installed package and read-only state; its error propagates unchanged
+    /// before any journal entry or game file is written. Every other check is
+    /// the one [`Store::update_catalog_release`] performs, including the
+    /// pinned-dependent, dependency and dependency-cycle checks.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the planned update keeps the release, policy, approvals and re-planning closure explicit"
+    )]
+    pub fn update_catalog_release_planned(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        archive: &Path,
+        release: &CatalogRelease,
+        policy: NativeInjectorPolicy,
+        approved: &[String],
+        plan: impl FnOnce(&Path, &ManagedPackage, &Store) -> Result<InstallPlan>,
+    ) -> Result<ManagedPackage> {
+        release.ensure_native_injector_allowed(policy)?;
+        let _guard = lock_store(self)?;
+        self.ensure_idle()?;
+        let game = self.transaction_root(game)?;
+        let old = self.installed_package(&game, package_id)?;
         if old.pinned {
             return Err(coded(
                 ErrorCode::PackagePinned,
@@ -146,7 +175,41 @@ impl Store {
                 ),
             ));
         }
-        self.check_pinned_dependents(&game, &old, release)?;
+        let _ = inspect(archive)?;
+        let proposal = plan(archive, &old, &*self)?;
+        self.update_locked(
+            &game,
+            package_id,
+            archive,
+            &proposal,
+            release,
+            approved,
+            policy,
+            test_fault(),
+        )
+    }
+
+    fn update_locked(
+        &mut self,
+        game: &Path,
+        package_id: &str,
+        archive: &Path,
+        proposal: &InstallPlan,
+        release: &CatalogRelease,
+        approved: &[String],
+        policy: NativeInjectorPolicy,
+        fault: Option<Fault>,
+    ) -> Result<ManagedPackage> {
+        let old = self.installed_package(game, package_id)?;
+        if old.pinned {
+            return Err(coded(
+                ErrorCode::PackagePinned,
+                format!(
+                    "managed package {package_id} is pinned; run `modn unpin {package_id}` to update it"
+                ),
+            ));
+        }
+        self.check_pinned_dependents(game, &old, release)?;
         if old.catalog.as_ref() != Some(&release.reference) {
             bail!(
                 "managed package {package_id} was not installed from {}",
@@ -159,7 +222,7 @@ impl Store {
                 release.reference
             );
         }
-        let needs = self.ready_dependencies(&game, &release.dependencies)?;
+        let needs = self.ready_dependencies(game, &release.dependencies)?;
         let needs_old = self.linked(vec![package_id.to_owned()], Link::Dependents)?;
         if let Some(cycle) = self
             .linked(needs, Link::Dependencies)?
@@ -172,7 +235,7 @@ impl Store {
             );
         }
         self.control.checkpoint()?;
-        let journal_id = self.withdraw_locked(&game, package_id, Dependents::Repoint)?;
+        let journal_id = self.withdraw_locked(game, package_id, Dependents::Repoint)?;
         let catalog = CatalogInstall {
             release,
             replacing: Some(Replacement {
@@ -181,7 +244,7 @@ impl Store {
             }),
         };
         match self.install_locked(
-            &game,
+            game,
             archive,
             proposal,
             fault,
@@ -192,7 +255,7 @@ impl Store {
         ) {
             Ok(package) => {
                 self.prune_created(&Roots {
-                    game: game.clone(),
+                    game: game.to_path_buf(),
                     content: proposal.content_root.clone(),
                 })
                 .context("update committed; folder cleanup incomplete, run 'modn recover'")?;
@@ -205,13 +268,20 @@ impl Store {
                         "{err:#}; update rollback incomplete: {recovery:#}; run 'modn recover'"
                     ));
                 }
-                if self.installed(&game)?.iter().any(|p| p.id == package_id) {
+                if self.installed(game)?.iter().any(|p| p.id == package_id) {
                     Err(err.context(format!("update rolled back; {package_id} stays installed")))
                 } else {
                     Err(err.context("update committed; cleanup incomplete, run 'modn recover'"))
                 }
             }
         }
+    }
+
+    fn installed_package(&self, game: &Path, package_id: &str) -> Result<ManagedPackage> {
+        self.installed(game)?
+            .into_iter()
+            .find(|package| package.id == package_id)
+            .with_context(|| format!("managed package {package_id} not found for selected game"))
     }
 
     fn linked(&self, start: Vec<String>, link: Link) -> Result<BTreeSet<String>> {
