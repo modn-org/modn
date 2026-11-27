@@ -57,7 +57,13 @@ pub(super) struct StagedRestore {
 }
 
 /// The archive cache of the manager profile that holds `store`.
+///
+/// `MODN_CACHE` replaces the profile cache for every command, as it does for
+/// downloads; an empty value keeps the profile cache.
 pub(super) fn cache(store: &Store) -> ArchiveCache {
+    if let Some(root) = std::env::var_os("MODN_CACHE").filter(|value| !value.is_empty()) {
+        return ArchiveCache::new(root.into());
+    }
     ArchiveCache::new(store.state_root.join("cache"))
 }
 

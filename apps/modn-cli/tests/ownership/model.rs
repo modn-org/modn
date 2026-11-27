@@ -427,7 +427,7 @@ pub(crate) fn ownership_case(case: &Case, observed: &mut Observed) -> Result<(),
     let second_keys: BTreeSet<String> = second_owned.iter().map(|path| path_key(path)).collect();
     let shared: BTreeSet<String> = first_keys.intersection(&second_keys).cloned().collect();
     // Undo the winner first on some cases so both install orders are covered.
-    let winner_first = case.user_files.len().is_multiple_of(2);
+    let winner_first = !shared.is_empty() || case.user_files.len().is_multiple_of(2);
     let mut restored = BTreeMap::new();
     if winner_first {
         second_owned.retain(|path| !first_keys.contains(&path_key(path)));
