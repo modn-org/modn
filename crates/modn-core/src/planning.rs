@@ -193,12 +193,13 @@ pub(crate) fn resolve_with_permissions(
 ///
 /// A destination that another member of the active profile owns is a planned
 /// override, not an unmanaged file. The returned plan names the replaced
-/// package and digest for every shared file.
+/// package and digest for every shared file. `replaced_package` names the
+/// package an update withdraws, so its own claims are not overrides.
 #[expect(
     clippy::too_many_arguments,
     reason = "the store-aware resolver names the same planning inputs plus the store"
 )]
-pub(crate) fn resolve_with_claims(
+pub fn resolve_with_claims(
     store: &crate::state::Store,
     roots: &crate::manager_roots::ManagerRoots,
     game_id: &str,
@@ -225,6 +226,10 @@ pub(crate) fn resolve_with_claims(
     Ok(plan)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the resolver keeps each planning input explicit"
+)]
 fn resolve_inner(
     roots: &crate::manager_roots::ManagerRoots,
     game_id: &str,
