@@ -68,12 +68,42 @@ legacy compatibility, but the install checks still validate its contents.
 
 Modn 1.0 needs a stable bucket contract v2, host API 3 and theme API 1.
 
+### Numbered catalog releases
+
+Every `main` release carries a signed `sequence.json` with a number higher than
+any earlier release. The release job signs the packed tree with Modn's authoring
+command before it packs the ZIP:
+
+```sh
+modn catalog sign . --key ../main-keys/main.key --sequence next --expires 2027-12-31T00:00:00Z
+```
+
+`--sequence next` writes the number in the existing `sequence.json` plus one, or
+1 when the file is absent. `--expires` is optional. When given, it must be a UTC
+timestamp in `YYYY-MM-DDTHH:MM:SSZ` form and in the future. Commit
+`sequence.json` with the release, because the catalog digest covers it and
+`catalog.sig` signs that digest. Pack the ZIP only after the signing step, so
+`main-bucket.zip` contains the same `sequence.json`.
+
+Users keep accepting unnumbered catalogs. Once a user accepted a numbered
+release, a later release with a lower number, or with no number, is refused as a
+rollback. The first numbered release therefore works as a normal upgrade, and
+every release after it must keep increasing the number. An expired release only
+warns; it never blocks an update.
+
+If a release published a number by mistake, never reuse that number. Publish a
+higher number, for example with `--sequence next`. A user who already accepted
+the wrong number refuses a lower one; that user can delete
+`<profile>/buckets/main.json` by hand and run `modn bucket update` to accept the
+older number deliberately. Keep the file deletion as the documented recovery
+step; do not add a flag that disables rollback protection.
+
 ### Release checklist
 
 1. Compare the changes since the last tag with the public API above.
 2. Choose the version by the rules above. Set it in the workspace `Cargo.toml` and update `Cargo.lock`.
 3. Write the release notes. Name each raised state schema, bucket contract, host API or theme API version.
-4. Publish the matching `modn-org/main` bucket release first when the Modn release needs it. Include `main-bucket.requires.json` with the values from [Bucket release requirements](#bucket-release-requirements). See the precondition above.
+4. Publish the matching `modn-org/main` bucket release first when the Modn release needs it. Include `main-bucket.requires.json` with the values from [Bucket release requirements](#bucket-release-requirements) and a higher signed sequence number from [Numbered catalog releases](#numbered-catalog-releases). See the precondition above.
 5. Push the `v<version>` tag.
 
 Run the same smoke test locally on a built executable:
@@ -149,7 +179,7 @@ Review the diff before you commit:
 Commit the tree to `modn-org/main`, then sign and verify it at the repository root:
 
 ```sh
-modn catalog sign . --key ../main-keys/main.key
+modn catalog sign . --key ../main-keys/main.key --sequence next
 modn catalog verify . --key catalog.pub
 ```
 

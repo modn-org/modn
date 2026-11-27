@@ -1,10 +1,12 @@
 use crate::bucket_update;
 use crate::buckets;
+use crate::buckets::CatalogReport;
 use crate::commands::UpdateArgs;
 use crate::main_release::UnsupportedRelease;
 use crate::state_access::validate_write_targets;
 use anyhow::{bail, Result};
-use modn_core::buckets::{BucketStore, CatalogKeyChange, GitCatalogSync, ZipCatalogSync};
+use modn_core::buckets::{BucketStore, CatalogKeyChange};
+use modn_core::error::code_of;
 use modn_core::manager_roots::ManagerRoots;
 use serde_json::{json, Value};
 
@@ -36,19 +38,29 @@ struct Refresh {
     name: String,
     kind: &'static str,
     outcome: std::result::Result<Detail, String>,
+    report: CatalogReport,
+    code: Option<String>,
 }
 
 impl Refresh {
-    fn main(outcome: std::result::Result<Detail, String>) -> Self {
+    fn new(name: &str, kind: &'static str, outcome: std::result::Result<Detail, String>) -> Self {
         Self {
-            name: "main".into(),
-            kind: "official",
+            name: name.to_owned(),
+            kind,
             outcome,
+            report: CatalogReport::default(),
+            code: None,
         }
     }
 
+    fn main(outcome: std::result::Result<Detail, String>, report: CatalogReport) -> Self {
+        let mut refresh = Self::new("main", "official", outcome);
+        refresh.report = report;
+        refresh
+    }
+
     fn json(&self) -> Value {
-        match &self.outcome {
+        let mut value = match &self.outcome {
             Ok(Detail::Main {
                 changed,
                 key_id,
@@ -98,12 +110,20 @@ impl Refresh {
                 "kind": self.kind,
                 "error": error,
             }),
+        };
+        if let Value::Object(map) = &mut value {
+            map.insert("sequence".to_owned(), json!(self.report.sequence));
+            map.insert("warnings".to_owned(), json!(&self.report.warnings));
+            if let Some(code) = &self.code {
+                map.insert("code".to_owned(), json!(code));
+            }
         }
+        value
     }
 
     fn line(&self) -> String {
         let prefix = format!("{} ({})", self.name, self.kind);
-        match &self.outcome {
+        let line = match &self.outcome {
             Ok(Detail::Main {
                 changed,
                 key_id,
@@ -137,8 +157,18 @@ impl Refresh {
                 key_change_suffix(key_change.as_ref())
             ),
             Ok(Detail::Local) => format!("{prefix}: skipped; {LOCAL_SKIP}"),
-            Err(error) => format!("{prefix}: error: {error}"),
-        }
+            Err(error) => match &self.code {
+                Some(code) => format!("{prefix}: error: {error} ({code})"),
+                None => format!("{prefix}: error: {error}"),
+            },
+        };
+        line
+    }
+
+    fn lines(&self) -> Vec<String> {
+        let mut lines = vec![self.line()];
+        lines.extend(self.report.lines.iter().cloned());
+        lines
     }
 }
 
@@ -173,63 +203,82 @@ fn refuse_target_options(args: &UpdateArgs, requested: Option<&str>) -> Result<(
 
 fn main_refresh(roots: &ManagerRoots) -> Refresh {
     match bucket_update::refresh(roots) {
-        Ok(refreshed) => Refresh::main(Ok(Detail::Main {
-            changed: refreshed.changed,
-            key_id: refreshed.key_id.to_string(),
-            release: refreshed.release,
-            newer: refreshed.newer,
-        })),
-        Err(error) => Refresh::main(Err(format!("{error:#}"))),
+        Ok(refreshed) => Refresh::main(
+            Ok(Detail::Main {
+                changed: refreshed.changed,
+                key_id: refreshed.key_id.to_string(),
+                release: refreshed.release,
+                newer: refreshed.newer,
+            }),
+            refreshed.report,
+        ),
+        Err(error) => {
+            let mut refresh = Refresh::main(Err(format!("{error:#}")), CatalogReport::default());
+            refresh.code = code_of(&error).map(|code| code.to_string());
+            refresh
+        }
     }
 }
 
-fn git_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
+fn git_refresh(store: &BucketStore, roots: &ManagerRoots, name: &str, json: bool) -> Refresh {
     let previous = store
         .git_revision(name)
         .ok()
         .flatten()
         .map(|revision| revision.commit);
-    let outcome = buckets::sync_catalog(store, name, None, None, json).map_or_else(
-        |error| Err(format!("{error:#}")),
-        |synced: GitCatalogSync| {
+    match buckets::sync_catalog(store, roots, name, None, None, json) {
+        Ok(synced) => {
+            let report = buckets::catalog_report(roots, name, &synced.warnings);
             let commit = synced.revision.commit.clone();
-            Ok(Detail::Git {
-                changed: previous.as_deref() != Some(commit.as_str()),
-                commit,
-                signer: synced.revision.signer.key_id.clone(),
-                key_change: synced.key_change,
-            })
-        },
-    );
-    Refresh {
-        name: name.into(),
-        kind: "git",
-        outcome,
+            let mut refresh = Refresh::new(
+                name,
+                "git",
+                Ok(Detail::Git {
+                    changed: previous.as_deref() != Some(commit.as_str()),
+                    commit,
+                    signer: synced.revision.signer.key_id.clone(),
+                    key_change: synced.key_change,
+                }),
+            );
+            refresh.report = report;
+            refresh
+        }
+        Err(error) => {
+            let mut refresh = Refresh::new(name, "git", Err(format!("{error:#}")));
+            refresh.code = code_of(&error).map(|code| code.to_string());
+            refresh
+        }
     }
 }
 
-fn zip_refresh(store: &BucketStore, name: &str, json: bool) -> Refresh {
+fn zip_refresh(store: &BucketStore, roots: &ManagerRoots, name: &str, json: bool) -> Refresh {
     let previous = store
         .zip_revision(name)
         .ok()
         .flatten()
         .map(|revision| revision.digest);
-    let outcome = buckets::sync_zip_catalog(store, name, None, None, json).map_or_else(
-        |error| Err(format!("{error:#}")),
-        |synced: ZipCatalogSync| {
+    match buckets::sync_zip_catalog(store, roots, name, None, None, json) {
+        Ok(synced) => {
+            let report = buckets::catalog_report(roots, name, &synced.warnings);
             let digest = synced.revision.digest.clone();
-            Ok(Detail::Zip {
-                changed: previous.as_deref() != Some(digest.as_str()),
-                digest,
-                signer: synced.revision.signer.key_id.clone(),
-                key_change: synced.key_change,
-            })
-        },
-    );
-    Refresh {
-        name: name.into(),
-        kind: "zip",
-        outcome,
+            let mut refresh = Refresh::new(
+                name,
+                "zip",
+                Ok(Detail::Zip {
+                    changed: previous.as_deref() != Some(digest.as_str()),
+                    digest,
+                    signer: synced.revision.signer.key_id.clone(),
+                    key_change: synced.key_change,
+                }),
+            );
+            refresh.report = report;
+            refresh
+        }
+        Err(error) => {
+            let mut refresh = Refresh::new(name, "zip", Err(format!("{error:#}")));
+            refresh.code = code_of(&error).map(|code| code.to_string());
+            refresh
+        }
     }
 }
 fn key_change_suffix(change: Option<&CatalogKeyChange>) -> String {
@@ -239,33 +288,25 @@ fn catalog_refreshes(roots: &ManagerRoots, json: bool) -> Vec<Refresh> {
     let mut refreshes = vec![main_refresh(roots)];
     let store = BucketStore::new(roots);
     if let Err(error) = validate_write_targets(roots, None) {
-        refreshes.push(Refresh {
-            name: "registrations".into(),
-            kind: "registry",
-            outcome: Err(format!("{error:#}")),
-        });
+        let mut refresh = Refresh::new("registrations", "registry", Err(format!("{error:#}")));
+        refresh.code = code_of(&error).map(|code| code.to_string());
+        refreshes.push(refresh);
         return refreshes;
     }
     let listed = match store.list() {
         Ok(listed) => listed,
         Err(error) => {
-            refreshes.push(Refresh {
-                name: "registrations".into(),
-                kind: "registry",
-                outcome: Err(format!("{error:#}")),
-            });
+            let mut refresh = Refresh::new("registrations", "registry", Err(format!("{error:#}")));
+            refresh.code = code_of(&error).map(|code| code.to_string());
+            refreshes.push(refresh);
             return refreshes;
         }
     };
     for info in listed.into_iter().filter(|info| info.name != "main") {
         match info.source_kind.as_deref() {
-            Some("zip") => refreshes.push(zip_refresh(&store, &info.name, json)),
-            Some("git") => refreshes.push(git_refresh(&store, &info.name, json)),
-            _ => refreshes.push(Refresh {
-                name: info.name,
-                kind: "local",
-                outcome: Ok(Detail::Local),
-            }),
+            Some("zip") => refreshes.push(zip_refresh(&store, roots, &info.name, json)),
+            Some("git") => refreshes.push(git_refresh(&store, roots, &info.name, json)),
+            _ => refreshes.push(Refresh::new(&info.name, "local", Ok(Detail::Local))),
         }
     }
     refreshes
@@ -291,7 +332,9 @@ pub(super) fn run(
         );
     } else {
         for refresh in &refreshes {
-            println!("{}", refresh.line());
+            for line in refresh.lines() {
+                println!("{line}");
+            }
         }
     }
     if failed > 0 {

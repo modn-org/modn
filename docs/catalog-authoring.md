@@ -345,6 +345,23 @@ digest, so sign again after any change to it.
 - an encrypted secret key without `--password-env`;
 - a password that does not decrypt the key.
 
+Number a distributed catalog so that users can refuse a rollback:
+
+```sh
+modn catalog sign . --key ../author-keys/catalog.key --sequence next
+```
+
+`--sequence next` writes `sequence.json` with the number in the existing file plus
+one, or 1 when the file is absent. `--sequence <N>` writes a number you choose.
+`--expires <time>` adds a strict UTC expiry in the future and needs `--sequence`
+or an existing `sequence.json`. The file is rewritten completely from the flags,
+so `expires` appears only when you pass it. A number lower than the one already
+in the file is refused and writes nothing. Once a release is numbered, every
+later release needs a higher number; an unnumbered or lower release is refused
+as a rollback. Without these flags the catalog is signed as before, and the
+output points out that a numbered catalog protects users against rollback. See
+[signed sequence numbers](buckets.md#signed-sequence-numbers).
+
 The digest covers every regular file below the root except the root
 `catalog.sig` and `catalog.pub`. A changed, added or deleted file changes the
 digest. Modn refuses a symbolic link, another non-regular entry and two paths
@@ -360,8 +377,10 @@ Use the public key to check the catalog without registering it.
 modn catalog verify . --key catalog.pub
 ```
 
-It exits 0 and prints the fingerprint and the digest on success. It writes no
-file and no manager state.
+It exits 0 and prints the fingerprint and the digest on success. A numbered
+catalog also prints `sequence: <N>` and `expires: <time>`; an unnumbered catalog
+prints `sequence: unnumbered`. It writes no file and no manager state, and it
+refuses a malformed `sequence.json`.
 A wrong key exits nonzero and names the signature key and the expected key.
 A missing `catalog.sig`, a changed file, an added file and a deleted file each
 exit nonzero with a message that names the current digest.
@@ -394,10 +413,13 @@ modn catalog sign . --key ../author-keys/next.key
 ```
 
 `rotate` writes `rotation.json` and `rotation.sig`. `revoke` writes
-`revocation.json` and `revocation.sig`. Both commands refuse a secret key inside
-the catalog directory. A refusal writes nothing. Both commands read the catalog
-from a staged copy without a root `.git` entry, so they work in a Git checkout.
-Commit the statement files, the new signature and `catalog.pub` together.
+`revocation.json` and `revocation.sig`. When `sequence.json` exists, each
+statement copies its number; `--sequence <N>` sets it explicitly and is refused
+when it differs. Both commands refuse a secret key inside the catalog directory.
+A refusal writes nothing. Both commands read the catalog from a staged copy
+without a root `.git` entry, so they work in a Git checkout. Commit the statement
+files, the new signature, `sequence.json` when it changed, and `catalog.pub`
+together.
 
 A rotation keeps module trust because the old key vouched for the new key. A
 revocation clears it, so users run `modn bucket trust-modules` again. Sync output
@@ -444,10 +466,11 @@ git commit -m "Publish catalog"
 git push origin main
 ```
 
-Stage `bucket.json`, `mods/`, `games/` when present, `catalog.sig`, `catalog.pub`,
-`revocation.pub` when present, and every published `mirrors.json`,
-`relocation.json`, `rotation.json`, `rotation.sig`, `revocation.json` and
-`revocation.sig`. The staged files must match the signed digest.
+Stage `bucket.json`, `mods/`, `games/` when present, `sequence.json` when present,
+`catalog.sig`, `catalog.pub`, `revocation.pub` when present, and every published
+`mirrors.json`, `relocation.json`, `rotation.json`, `rotation.sig`,
+`revocation.json` and `revocation.sig`. The staged files must match the signed
+digest.
 
 Keep `catalog.sig` and `catalog.pub` at the root. Commit new signatures with each
 catalog change. A user then registers the catalog once:
@@ -550,8 +573,10 @@ GitHub release asset. See [sources](sources.md).
 2. Run `modn catalog hash` on the archive and put the value in the record.
 3. Upload the archive to its HTTPS URL and check that the URL serves the bytes.
 4. Add or edit the record under `mods/<game-id>/`.
-5. Run `modn catalog sign` and then `modn catalog verify`.
-6. Commit `mods`, `bucket.json`, `catalog.sig` and `catalog.pub`, then push.
+5. Run `modn catalog sign` (add `--sequence next` to number the release) and then
+   `modn catalog verify`.
+6. Commit `mods`, `bucket.json`, `sequence.json` when present, `catalog.sig` and
+   `catalog.pub`, then push.
 7. Tell users the fingerprint and, for a local check, the digest.
 
 A user checks the release with `modn bucket sync community` and
