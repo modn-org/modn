@@ -146,7 +146,8 @@ pub(crate) fn preview_update(
     approved: &[String],
     replaced: &[String],
 ) -> Result<InstallPlan> {
-    match content_root_spec(roots, game_id)? {
+    let selection = ModuleSelection::resolve(roots, game_id)?;
+    match content_root_spec(&selection)? {
         Some(_) => {
             let appdata = appdata_directory()?;
             preview_update_with_appdata(
