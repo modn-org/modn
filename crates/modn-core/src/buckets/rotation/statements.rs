@@ -15,6 +15,7 @@ struct Statement {
     old_key_id: String,
     new_key: CatalogPublicKey,
     new_key_text: String,
+    sequence: Option<u64>,
     body: Vec<u8>,
     signature: String,
 }
@@ -30,6 +31,7 @@ pub(in crate::buckets) fn apply_key_statements(
     catalog_name: &str,
     pinned: &PinnedKeys<'_>,
     revision_public: Option<&CatalogPublicKey>,
+    revision_sequence: Option<u64>,
 ) -> Result<KeyStatementOutcome> {
     let mut statements = Vec::new();
     if let Some((body, signature)) = read_statement(root, ROTATION_FILE, ROTATION_SIGNATURE_FILE)? {
@@ -39,6 +41,9 @@ pub(in crate::buckets) fn apply_key_statements(
         read_statement(root, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE)?
     {
         statements.push(parse_revocation(catalog_name, body, signature)?);
+    }
+    for statement in &statements {
+        check_statement_sequence(catalog_name, statement.sequence, revision_sequence)?;
     }
     let pinned_id = pinned.signer.key_id().to_string();
     let applied: Vec<usize> = statements
@@ -132,10 +137,12 @@ pub(in crate::buckets) fn apply_key_statements(
 pub(in crate::buckets) fn validate_historical_statements(
     root: &Path,
     catalog_name: &str,
+    revision_sequence: Option<u64>,
 ) -> Result<Vec<String>> {
     let mut ignored = Vec::new();
     if let Some((body, signature)) = read_statement(root, ROTATION_FILE, ROTATION_SIGNATURE_FILE)? {
         let statement = parse_rotation(catalog_name, body, signature)?;
+        check_statement_sequence(catalog_name, statement.sequence, revision_sequence)?;
         let signer = signature_key_id(&statement.signature, "rotation")?;
         if signer.to_string() != statement.old_key_id {
             bail!(
@@ -149,6 +156,7 @@ pub(in crate::buckets) fn validate_historical_statements(
         read_statement(root, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE)?
     {
         let statement = parse_revocation(catalog_name, body, signature)?;
+        check_statement_sequence(catalog_name, statement.sequence, revision_sequence)?;
         let Some((revocation_key, _)) = read_revocation_public_key(root)? else {
             bail!(
                 "catalog {catalog_name} has a revocation statement, but no revocation.pub; the statement is invalid"
@@ -164,6 +172,39 @@ pub(in crate::buckets) fn validate_historical_statements(
         ignored.push(kind_name(statement.kind).to_owned());
     }
     Ok(ignored)
+}
+
+/// A key statement may name the revision's sequence number.
+///
+/// When it does, the number must equal the catalog revision's number. A lower
+/// number is a replay of an older statement and is refused as a rollback; a
+/// higher number cannot hide in a revision that does not carry it.
+fn check_statement_sequence(
+    catalog_name: &str,
+    statement: Option<u64>,
+    revision: Option<u64>,
+) -> Result<()> {
+    let Some(statement) = statement else {
+        return Ok(());
+    };
+    match revision {
+        Some(revision) if statement == revision => Ok(()),
+        Some(revision) if statement < revision => Err(crate::error::coded(
+            crate::error::ErrorCode::CatalogRollback,
+            format!(
+                "A key statement in catalog {catalog_name} names sequence {statement}, but the catalog revision is sequence {revision}. A statement from an older revision is a replay; the rollback refused the sync and nothing was written."
+            ),
+        )),
+        Some(revision) => bail!(
+            "a key statement in catalog {catalog_name} names sequence {statement}, which is newer than the catalog revision's sequence {revision}"
+        ),
+        None => Err(crate::error::coded(
+            crate::error::ErrorCode::CatalogRollback,
+            format!(
+                "A key statement in catalog {catalog_name} names sequence {statement}, but the catalog revision is unnumbered. A numbered statement cannot appear in an unnumbered revision; the rollback refused the sync and nothing was written."
+            ),
+        )),
+    }
 }
 
 fn kind_name(kind: KeyChangeKind) -> &'static str {
@@ -230,6 +271,7 @@ fn parse_rotation(catalog_name: &str, body: Vec<u8>, signature: String) -> Resul
         old_key_id,
         new_key,
         new_key_text: statement.to,
+        sequence: statement.sequence,
         body,
         signature,
     })
@@ -258,6 +300,7 @@ fn parse_revocation(catalog_name: &str, body: Vec<u8>, signature: String) -> Res
         old_key_id,
         new_key,
         new_key_text: statement.replacement,
+        sequence: statement.sequence,
         body,
         signature,
     })

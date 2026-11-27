@@ -179,6 +179,34 @@ registration's primary in one atomic registration write. The output says
 and a relocation to the same primary is ignored. The next sync contacts the new
 primary first.
 
+### Signed sequence numbers
+
+A signed catalog may publish a root `sequence.json`:
+
+```json
+{"schema_version":1,"sequence":7,"expires":"2026-12-31T00:00:00Z"}
+```
+
+The catalog digest covers the file, so `catalog.sig` binds the number and the
+optional expiry. `sequence` is at least 1, `expires` is an optional UTC
+timestamp in `YYYY-MM-DDTHH:MM:SSZ` form, and unknown fields are refused.
+A catalog without the file is unnumbered.
+
+Modn stores the highest accepted `{sequence, digest}` per bucket in
+`<profile>/buckets/registrations/<bucket>.json`. The official `main` bucket has
+no registration, so it uses `<profile>/buckets/main.json`. A sync accepts a
+higher number and stores it, and accepts the same number with the same digest as
+an idempotent re-sync. A lower number, a dropped number or an unnumbered
+revision after a numbered one is refused with `CATALOG_ROLLBACK`. The same
+number with a different digest is refused with `CATALOG_SEQUENCE_CONFLICT`.
+A first sync, numbered or unnumbered, always works.
+
+A `relocation.json` or key statement may carry a `sequence`, which must equal the
+revision's number; a lower number is a replay and is refused as a rollback.
+An expired catalog still syncs and reports a warning. A deliberate rollback is
+possible only by removing the bucket and syncing it again; for `main`, delete
+`<profile>/buckets/main.json` by hand.
+
 ### Main catalog signature
 
 Modn verifies a minisign (Ed25519) signature with the catalog signer key built

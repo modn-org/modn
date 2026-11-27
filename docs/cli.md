@@ -604,6 +604,8 @@ otherwise the command's default code is used. No command reports a generic
 | `ARCHIVE_REQUIRED` | A mod has no downloadable source and needs `--file`. |
 | `BUCKET_FINGERPRINT_MISMATCH` | A known bucket's `catalog.pub` key ID differs from the fingerprint in the official main list. |
 | `CANCELLED` | The operation was cancelled before its commit point. |
+| `CATALOG_ROLLBACK` | A signed catalog, relocation or key statement goes back to an older or dropped sequence number. |
+| `CATALOG_SEQUENCE_CONFLICT` | A signed catalog reuses an accepted sequence number with a different digest. |
 | `CONFLICT` | A declared or ownership conflict blocks the operation. |
 | `DEPENDENCY_MISSING` | A dependency is not installed or not intact. |
 | `DETECT_FOLDER_UNCONFIRMED` | The game module did not confirm a folder that matched its store identity. |

@@ -68,24 +68,50 @@ impl CatalogKeyChange {
     }
 }
 
-/// Build the exact `rotation.json` bytes for one statement.
+/// Build the exact `rotation.json` bytes for one statement without a sequence.
 pub fn rotation_statement(from: &str, to_public_key: &str) -> Result<Vec<u8>> {
+    rotation_statement_with_sequence(from, to_public_key, None)
+}
+
+/// Build the exact `rotation.json` bytes for one statement.
+///
+/// A statement that carries a sequence must name the catalog revision's
+/// sequence number, so a replayed statement cannot hide in a newer revision.
+pub fn rotation_statement_with_sequence(
+    from: &str,
+    to_public_key: &str,
+    sequence: impl Into<Option<u64>>,
+) -> Result<Vec<u8>> {
     serde_json::to_vec(&RotationOut {
         schema_version: 1,
         kind: "rotation",
         from,
         to: to_public_key,
+        sequence: sequence.into(),
     })
     .context("cannot build the rotation statement")
 }
 
-/// Build the exact `revocation.json` bytes for one statement.
+/// Build the exact `revocation.json` bytes for one statement without a sequence.
 pub fn revocation_statement(revoked: &str, replacement_public_key: &str) -> Result<Vec<u8>> {
+    revocation_statement_with_sequence(revoked, replacement_public_key, None)
+}
+
+/// Build the exact `revocation.json` bytes for one statement.
+///
+/// A statement that carries a sequence must name the catalog revision's
+/// sequence number, so a replayed statement cannot hide in a newer revision.
+pub fn revocation_statement_with_sequence(
+    revoked: &str,
+    replacement_public_key: &str,
+    sequence: impl Into<Option<u64>>,
+) -> Result<Vec<u8>> {
     serde_json::to_vec(&RevocationOut {
         schema_version: 1,
         kind: "revocation",
         revoked,
         replacement: replacement_public_key,
+        sequence: sequence.into(),
     })
     .context("cannot build the revocation statement")
 }
@@ -112,6 +138,8 @@ struct RotationOut<'a> {
     kind: &'static str,
     from: &'a str,
     to: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sequence: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -120,6 +148,8 @@ struct RevocationOut<'a> {
     kind: &'static str,
     revoked: &'a str,
     replacement: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sequence: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -129,6 +159,8 @@ struct RotationBody {
     kind: String,
     from: String,
     to: String,
+    #[serde(default)]
+    sequence: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -138,6 +170,8 @@ struct RevocationBody {
     kind: String,
     revoked: String,
     replacement: String,
+    #[serde(default)]
+    sequence: Option<u64>,
 }
 
 /// Keys pinned by the previous registration.

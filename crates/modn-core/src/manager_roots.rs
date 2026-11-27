@@ -117,6 +117,7 @@ impl ManagerRoots {
             self.bucket_registrations()
                 .join("registrations")
                 .join(".bucket-entry.json"),
+            self.bucket_registrations().join("main.json"),
             self.module_registry().join("registry.lock"),
         ]
     }
@@ -231,6 +232,7 @@ mod tests {
                         .join("buckets")
                         .join("registrations")
                         .join(".bucket-entry.json"),
+                    profile.join("buckets").join("main.json"),
                     profile.join("game-modules").join("registry.lock"),
                 ]
             );

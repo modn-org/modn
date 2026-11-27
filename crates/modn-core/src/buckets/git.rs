@@ -62,6 +62,9 @@ pub struct GitCatalogSync {
     /// Published key statements that added no trust to this pin.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ignored_key_statements: Vec<String>,
+    /// Non-fatal warnings, such as an expired signed catalog.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<super::sequence::CatalogWarning>,
     /// Game module releases imported or ignored during this sync.
     pub modules: CatalogModuleReport,
     /// The primary, the source that served the revision and any failures.
@@ -166,9 +169,11 @@ pub(super) fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustSta
 pub(super) fn catalog_source_error(label: &str, error: anyhow::Error) -> anyhow::Error {
     let message = format!("catalog source {label} failed: {error:#}");
     match crate::error::code_of(&error) {
-        Some(code @ crate::error::ErrorCode::BucketFingerprintMismatch) => {
-            crate::error::coded(code, message)
-        }
+        Some(
+            code @ (crate::error::ErrorCode::BucketFingerprintMismatch
+            | crate::error::ErrorCode::CatalogRollback
+            | crate::error::ErrorCode::CatalogSequenceConflict),
+        ) => crate::error::coded(code, message),
         _ => anyhow!(message),
     }
 }
@@ -179,6 +184,8 @@ fn verify_revision(
     reference: &str,
     previous: Option<&GitCatalogRevision>,
     expected_fingerprint: Option<&CatalogKeyId>,
+    stored_sequence: Option<&super::sequence::StoredSequence>,
+    now: u64,
 ) -> Result<CatalogVerification> {
     verify_catalog_tree(
         root,
@@ -186,6 +193,8 @@ fn verify_revision(
         &format!("Git catalog {name} at {reference}"),
         previous.map(|revision| &revision.signer),
         expected_fingerprint,
+        stored_sequence,
+        now,
     )
 }
 
@@ -349,12 +358,15 @@ impl BucketStore {
             );
         };
         let served_by = CatalogHost::from(&served_source);
+        let stored_sequence = self.stored_sequence(name)?;
         let verification = verify_revision(
             &catalog,
             name,
             &served_source.reference,
             previous.as_ref(),
             expected_fingerprint,
+            stored_sequence.as_ref(),
+            self.clock_seconds(),
         )
         .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let trust = match verification.key_change.as_ref().map(|change| change.kind) {
@@ -368,8 +380,10 @@ impl BucketStore {
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         check_mirror_kinds(name, &served_by, &mirrors)
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
-        let relocation = read_relocation(&catalog, &served_by)
-            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let revision_sequence =
+            super::sequence::read_sequence(&catalog)?.map(|sequence| sequence.sequence());
+        let relocation = read_relocation(&catalog, &served_by, revision_sequence)
+            .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let moved_to = relocation.filter(|primary_host| primary_host != &primary);
         let published_source = match &moved_to {
             Some(host) => host
@@ -383,6 +397,8 @@ impl BucketStore {
             signer: verification.signer,
         };
         let key_change = verification.key_change;
+        let accepted = verification.accepted;
+        let warnings = verification.warnings;
         let previous_registration = match &previous {
             Some(_) => Some(self.registration(name)?),
             None => None,
@@ -433,6 +449,7 @@ impl BucketStore {
             revision.clone(),
             mirrors.clone(),
             trust == ModuleTrustState::Trusted,
+            accepted,
         )?;
         if !(unchanged && previous_registration.is_some()) {
             let _ = stage.keep();
@@ -448,6 +465,7 @@ impl BucketStore {
             pinned,
             key_change,
             ignored_key_statements: verification.ignored_key_statements,
+            warnings,
             modules: CatalogModuleReport { imported, ignored },
             trace: CatalogSyncTrace {
                 primary: primary.clone(),

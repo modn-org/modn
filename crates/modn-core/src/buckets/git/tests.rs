@@ -123,6 +123,22 @@ fn published(state: &Path) -> std::path::PathBuf {
 }
 
 #[test]
+fn sequence_rollback_keeps_its_code_through_the_source_wrapper() {
+    let inner = crate::error::coded(
+        crate::error::ErrorCode::CatalogRollback,
+        "stored sequence 2, served 1",
+    );
+    let wrapped = super::catalog_source_error("zip https://primary.example/catalog.zip", inner);
+    assert_eq!(
+        crate::error::code_of(&wrapped),
+        Some(crate::error::ErrorCode::CatalogRollback)
+    );
+    assert!(format!("{wrapped:#}").contains("catalog source"));
+}
+
+mod sequence;
+
+#[test]
 fn signed_sync_pins_signer_and_tracks_later_pinned_revisions() {
     let remote = remote("1", test_key());
     let key_id = remote.key.public.key_id().to_string();
