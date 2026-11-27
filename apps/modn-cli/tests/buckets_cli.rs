@@ -252,16 +252,22 @@ fn linked_manifest_is_refused() {
     let other = temp.path().join("outside.json");
     fs::rename(&manifest, &other).expect("test fixture invariant");
     symlink(&other, &manifest).expect("test fixture invariant");
-    assert!(!run(
-        &temp.path().join("state"),
+    let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
+    let result = run(
+        &state,
         &[
             "add",
             "community",
-            bucket.to_str().expect("test fixture invariant")
-        ]
-    )
-    .status
-    .success());
+            bucket.to_str().expect("test fixture invariant"),
+        ],
+    );
+    assert!(!result.status.success());
+    assert!(
+        !output(&result).contains("main bucket"),
+        "the refusal must come from the linked manifest: {}",
+        output(&result)
+    );
 }
 
 #[test]
@@ -379,12 +385,18 @@ fn named_pipe_metadata_is_rejected_without_opening_it() {
         "{}",
         String::from_utf8_lossy(&creation.stderr)
     );
+    let state = temp.path().join("state");
+    main_bucket::seed_state(&state);
     let result = run(
-        &temp.path().join("state"),
+        &state,
         &["add", "community", bucket.to_str().expect("path")],
     );
     assert!(!result.status.success());
-    assert!(output(&result).contains("regular file"));
+    assert!(
+        output(&result).contains("regular file"),
+        "{}",
+        output(&result)
+    );
 }
 
 #[test]
