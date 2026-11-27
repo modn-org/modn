@@ -133,7 +133,7 @@ impl Consent {
 /// member. The caller records them before the archive acquisition and checks
 /// them again after the re-plan; a difference is a stale plan and writes
 /// nothing.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ConfirmedStack {
     /// The plan-wide native-injector policy the user confirmed.
@@ -143,7 +143,7 @@ pub struct ConfirmedStack {
 }
 
 /// The facts of one confirmed stack member.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ConfirmedMember {
     /// The catalog identity that the prompt named.
@@ -162,10 +162,10 @@ pub struct ConfirmedMember {
 }
 
 impl ConfirmedStack {
-    /// Record the stack facts of `plan`.
+    /// Record the stack facts of `plan` as plain data.
     ///
-    /// The result is plain data. A caller that calls this again after a
-    /// re-plan gets an equal value only when the stack did not change.
+    /// A caller records the confirmed stack before the archive acquisition
+    /// and calls [`ConfirmedStack::verify`] after the re-plan.
     ///
     /// # Errors
     ///
