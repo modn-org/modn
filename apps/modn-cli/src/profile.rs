@@ -10,7 +10,6 @@ mod switch;
 use crate::state_access::{InstallationAccess, ManagerState, SelectedState};
 use anyhow::Result;
 use clap::{ArgGroup, Args, Subcommand};
-use modn_core::error::{coded, ErrorCode};
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::profiles::Profile;
 use serde::Serialize;
@@ -163,6 +162,7 @@ pub(crate) fn run(
     roots: &ManagerRoots,
     game: Option<&str>,
     json: bool,
+    progress: &crate::progress::Progress,
 ) -> Result<()> {
     match command {
         ProfileCommand::List(args) => list::run(args, roots, game, json),
@@ -171,17 +171,9 @@ pub(crate) fn run(
         ProfileCommand::Priority(args) => priority::run(args, roots, game, json),
         ProfileCommand::Enable(args) => enable::enable(args, roots, game, json),
         ProfileCommand::Disable(args) => enable::disable(args, roots, game, json),
-        ProfileCommand::Switch(args) => switch::run(args, roots, game, json),
+        ProfileCommand::Switch(args) => switch::run(args, roots, game, json, progress),
         ProfileCommand::Apply(args) => apply::run(args, roots, game, json),
     }
-}
-
-/// The placeholder error of a profile command that is not implemented yet.
-pub(super) fn not_implemented(command: &str) -> anyhow::Error {
-    coded(
-        ErrorCode::ProfileFailed,
-        format!("not implemented yet: {command}"),
-    )
 }
 
 /// Opens the selected game installation through the shared state access path.
