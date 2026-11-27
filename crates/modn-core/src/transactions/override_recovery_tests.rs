@@ -179,12 +179,7 @@ impl Fixture {
             .ok()
     }
 
-    fn assert_old_owner(&self, relative: &str, package: &ManagedPackage, claims: i64) {
-        assert_eq!(
-            fs::read(self.dest(relative)).expect("bytes"),
-            OLD,
-            "old bytes at {relative}"
-        );
+    fn assert_old_winner(&self, relative: &str, package: &ManagedPackage, claims: i64) {
         let expected = package
             .files
             .iter()
@@ -197,12 +192,21 @@ impl Fixture {
             Some((package.id.clone(), expected)),
             "old owner stays the winner at {relative}"
         );
-        assert_eq!(self.count("SELECT COUNT(*) FROM managed_files"), claims);
         assert_eq!(self.count("SELECT COUNT(*) FROM file_claims"), claims);
         assert_eq!(
             fs::read(self.game.join(UNMANAGED)).expect("unmanaged"),
             b"user-bytes"
         );
+    }
+
+    fn assert_old_owner(&self, relative: &str, package: &ManagedPackage, claims: i64) {
+        assert_eq!(
+            fs::read(self.dest(relative)).expect("bytes"),
+            OLD,
+            "old bytes at {relative}"
+        );
+        self.assert_old_winner(relative, package, claims);
+        assert_eq!(self.count("SELECT COUNT(*) FROM managed_files"), claims);
         assert!(self.store.pending().expect("pending").is_empty());
     }
 
@@ -347,8 +351,7 @@ fn override_recovery_user_edited_destination_is_refused() {
     assert_eq!(fs::read(&dest).expect("bytes"), b"user-edit");
     assert!(temp.exists() && backup.exists(), "witnesses preserved");
     assert_eq!(fixture.store.pending().expect("pending").len(), 1);
-    let expected = first.files[0].blake3.clone();
-    assert_eq!(fixture.winner(ONE), Some((first.id.clone(), expected)));
+    fixture.assert_old_winner(ONE, &first, 1);
 }
 
 #[test]
@@ -441,8 +444,7 @@ fn override_recovery_missing_witness_is_refused() {
     assert_eq!(fs::read(fixture.dest(ONE)).expect("new bytes"), NEW);
     assert!(temp.exists(), "staged bytes preserved");
     assert_eq!(fixture.store.pending().expect("pending").len(), 1);
-    let expected = first.files[0].blake3.clone();
-    assert_eq!(fixture.winner(ONE), Some((first.id.clone(), expected)));
+    fixture.assert_old_winner(ONE, &first, 1);
 }
 
 #[test]
@@ -462,8 +464,7 @@ fn override_recovery_changed_witness_is_refused() {
     assert_eq!(fs::read(fixture.dest(ONE)).expect("new bytes"), NEW);
     assert!(temp.exists() && backup.exists(), "witnesses preserved");
     assert_eq!(fixture.store.pending().expect("pending").len(), 1);
-    let expected = first.files[0].blake3.clone();
-    assert_eq!(fixture.winner(ONE), Some((first.id.clone(), expected)));
+    fixture.assert_old_winner(ONE, &first, 1);
 }
 
 #[test]
