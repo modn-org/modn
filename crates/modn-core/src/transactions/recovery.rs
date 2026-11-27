@@ -122,6 +122,10 @@ impl Store {
             None
         };
         let roots = Roots { game, content };
+        if journal.action == "profile_toggle" {
+            super::profile_toggle_apply::recover_toggle(self, journal, &roots)?;
+            return self.finish_journal(&journal.id);
+        }
         if journal.action == "install" && journal.status == "staging" {
             if !journal.files.is_empty() {
                 bail!("staging journal contains unexpected files");

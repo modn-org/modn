@@ -39,6 +39,13 @@ mod override_recovery_tests;
 mod override_tests;
 #[cfg(test)]
 mod progress_tests;
+mod profile_toggle;
+mod profile_toggle_apply;
+mod profile_toggle_plan;
+#[cfg(test)]
+mod profile_toggle_crash_tests;
+#[cfg(test)]
+mod profile_toggle_tests;
 mod recovery;
 mod restore;
 #[cfg(test)]

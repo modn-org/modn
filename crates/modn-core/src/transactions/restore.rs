@@ -216,7 +216,7 @@ pub(super) fn stage_restores(
     Ok(restores)
 }
 
-fn stage_member(
+pub(super) fn stage_member(
     store: &Store,
     archive: &Path,
     candidate: &RestoreCandidate,
@@ -315,7 +315,7 @@ fn verify_staged(path: &Path, candidate: &RestoreCandidate) -> Result<()> {
     Ok(())
 }
 
-fn missing_archive(candidate: &RestoreCandidate, destination: &str) -> anyhow::Error {
+pub(super) fn missing_archive(candidate: &RestoreCandidate, destination: &str) -> anyhow::Error {
     coded(
         ErrorCode::ProfileArchiveMissing,
         format!(
