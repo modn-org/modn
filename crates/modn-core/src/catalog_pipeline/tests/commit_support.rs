@@ -107,6 +107,22 @@ impl CommitFixture {
         self.zip(name, &format!("package/plugins/{name}.plugin"))
     }
 
+    /// A plugin archive at `file` with fixed `payload`, so two versions of one
+    /// mod differ in bytes while they share the entry name.
+    pub(super) fn versioned_plugin(&self, file: &str, id: &str, payload: &str) -> PathBuf {
+        let path = self.data.path().join(file);
+        let mut writer = zip::ZipWriter::new(File::create(&path).expect("archive"));
+        writer
+            .start_file(
+                format!("package/plugins/{id}.plugin"),
+                SimpleFileOptions::default(),
+            )
+            .expect("archive entry");
+        writer.write_all(payload.as_bytes()).expect("entry bytes");
+        writer.finish().expect("archive");
+        path
+    }
+
     pub(super) fn raw_zip(&self, name: &str) -> PathBuf {
         self.zip(name, &format!("pack/{name}.txt"))
     }

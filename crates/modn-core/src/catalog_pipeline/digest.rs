@@ -110,7 +110,7 @@ pub fn plan_digest(
 }
 
 /// One named group of the canonical encoding.
-struct GroupHasher {
+pub(super) struct GroupHasher {
     hasher: blake3::Hasher,
 }
 
@@ -122,7 +122,7 @@ impl GroupHasher {
         Self { hasher }
     }
 
-    fn text(&mut self, value: &str) {
+    pub(super) fn text(&mut self, value: &str) {
         field(&mut self.hasher, value.as_bytes());
     }
 
@@ -130,15 +130,15 @@ impl GroupHasher {
         self.text(&normalized_path(path));
     }
 
-    fn flag(&mut self, value: bool) {
+    pub(super) fn flag(&mut self, value: bool) {
         self.hasher.update(&[u8::from(value)]);
     }
 
-    fn count(&mut self, value: usize) {
+    pub(super) fn count(&mut self, value: usize) {
         self.number(u64::try_from(value).expect("collection length fits in u64"));
     }
 
-    fn number(&mut self, value: u64) {
+    pub(super) fn number(&mut self, value: u64) {
         self.hasher.update(&value.to_le_bytes());
     }
 
@@ -189,9 +189,13 @@ fn reference_key(reference: &CatalogReference) -> (&str, &str, &str) {
 
 fn target_input(plan: &CatalogPlan) -> String {
     let mut hasher = GroupHasher::new("target");
-    hasher.text(match plan.kind {
-        PlanKind::Install => "install",
-    });
+    match &plan.kind {
+        PlanKind::Install => hasher.text("install"),
+        PlanKind::Update(update) => {
+            hasher.text("update");
+            super::update_digest::update_input(&mut hasher, update);
+        }
+    }
     reference(&mut hasher, &plan.selected);
     hasher.text(&plan.game_id);
     hasher.path(&plan.installation);

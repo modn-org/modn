@@ -68,6 +68,15 @@ Modn recorded requirements falls back to the bucket release with its archive
 digest. If the bucket no longer publishes that release, the requirement is
 unknown: update or reinstall that dependent first.
 
+The update is planned and committed through the same core routines as an
+install. The plan records the installed package, the release it replaces, the
+replaced paths, whether it is current, each dependent with its recorded
+requirement, and every refusal; it holds no consent. The commit acquires
+missing releases through the verified archive cache, re-runs the game policy
+preview under the transaction lock, and compares the reviewed plan digest with
+the current one. A changed plan is refused with `PLAN_STALE` and writes
+nothing. An up-to-date plan commits nothing.
+
 The game policy plans the new release as if the old release were already
 removed, so an exclusive folder is claimed again. Rust then validates the
 proposal again on the real disk. The update runs in one recoverable
