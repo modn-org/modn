@@ -77,7 +77,7 @@ fn planned_entry_point_installs_the_plan_the_closure_returns() {
             &release,
             NativeInjectorPolicy::Refuse,
             &[],
-            |planned_archive| {
+            |_store, planned_archive| {
                 calls += 1;
                 assert_eq!(planned_archive, archive.as_path());
                 assert!(
@@ -119,7 +119,7 @@ fn closure_error_writes_nothing_and_propagates_unchanged() {
             &release,
             NativeInjectorPolicy::Refuse,
             &[],
-            |_| anyhow::bail!("injected re-plan failure"),
+            |_store, _| anyhow::bail!("injected re-plan failure"),
         )
         .unwrap_err();
 
@@ -160,7 +160,7 @@ fn pending_journal_refuses_before_the_closure_runs() {
             &release,
             NativeInjectorPolicy::Refuse,
             &[],
-            |planned_archive| {
+            |_store, planned_archive| {
                 ran = true;
                 Ok(plan(&game, planned_archive))
             },
@@ -196,7 +196,7 @@ fn missing_archive_refuses_before_the_closure_runs() {
             &release,
             NativeInjectorPolicy::Refuse,
             &[],
-            |planned_archive| {
+            |_store, planned_archive| {
                 ran = true;
                 Ok(plan(&game, planned_archive))
             },
@@ -228,7 +228,7 @@ fn native_injector_without_policy_refuses_inside_the_entry_point() {
             &release,
             NativeInjectorPolicy::Refuse,
             &[],
-            |planned_archive| {
+            |_store, planned_archive| {
                 ran = true;
                 Ok(plan(&game, planned_archive))
             },

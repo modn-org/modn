@@ -4,6 +4,7 @@ use super::journal::{
 use crate::state::Store;
 use crate::state::{recorded_root, resolve_root, RootKind};
 use anyhow::{bail, Context, Result};
+use rusqlite::OptionalExtension;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -38,6 +39,7 @@ impl Store {
                             root: RootKind::from_label(&row.get::<_, String>(1)?)
                                 .unwrap_or(RootKind::Game),
                             destination: row.get(2)?,
+                            archive_entry: String::new(),
                             blake3: row.get(3)?,
                             bytes: row.get::<_, i64>(4)? as u64,
                         })
@@ -94,6 +96,11 @@ impl Store {
             "DELETE FROM link_recorded_journals WHERE transaction_id=?1",
             [id],
         )?;
+        tx.execute(
+            "DELETE FROM pending_overrides WHERE transaction_id=?1",
+            [id],
+        )?;
+        tx.execute("DELETE FROM pending_restores WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
@@ -137,6 +144,57 @@ impl Store {
         for f in journal.files.iter().rev() {
             let dest = roots.target(f.root, &f.destination)?;
             let temp = temp_path(&dest, &journal.id, f.ordinal)?;
+            if journal.action == "install" && journal.status == "pending" {
+                let backup = super::journal::backup_path(&dest, &journal.id, f.ordinal)?;
+                let old: Option<(String, u64)> = self
+                    .connection
+                    .query_row(
+                        "SELECT blake3, bytes FROM pending_overrides
+                         WHERE transaction_id=?1 AND ord=?2",
+                        rusqlite::params![journal.id, f.ordinal as i64],
+                        |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as u64)),
+                    )
+                    .optional()?;
+                if let Some((blake3, _)) = old {
+                    let backup_present = fs::symlink_metadata(&backup).is_ok();
+                    if backup_present {
+                        if fs::symlink_metadata(&dest).is_ok() {
+                            if digest(&dest)? != f.blake3 {
+                                bail!(
+                                    "transaction {} target changed during rollback; preserve {}",
+                                    journal.id,
+                                    dest.display()
+                                );
+                            }
+                            fs::remove_file(&dest)?;
+                        }
+                        if fs::symlink_metadata(&temp).is_ok() {
+                            fs::remove_file(&temp)?;
+                        }
+                        fs::hard_link(&backup, &dest)?;
+                        if digest(&dest)? != blake3 {
+                            bail!(
+                                "transaction {} recovered a changed file; run 'modn doctor': {}",
+                                journal.id,
+                                dest.display()
+                            );
+                        }
+                        fs::remove_file(&backup)?;
+                        continue;
+                    }
+                    if !dest.is_file() || digest(&dest)? != blake3 {
+                        bail!(
+                            "transaction {} has no safe override backup for {}; run 'modn recover'",
+                            journal.id,
+                            dest.display()
+                        );
+                    }
+                    if fs::symlink_metadata(&temp).is_ok() {
+                        fs::remove_file(&temp)?;
+                    }
+                    continue;
+                }
+            }
             let present = fs::symlink_metadata(&dest).is_ok();
             let witness = match fs::symlink_metadata(&temp) {
                 Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {

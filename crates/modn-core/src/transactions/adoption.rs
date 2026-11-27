@@ -1,6 +1,7 @@
 use super::journal::{digest, lock_store, JournalFile, ManagedPackage, Roots};
 use super::validation::{validate_ownership, validate_plan, ExistingTargets};
 use crate::archive::inspect;
+use crate::error::coded;
 use crate::planning::preview_adoption_with_appdata;
 use crate::state::Store;
 use anyhow::{bail, Context, Result};
@@ -112,8 +113,21 @@ impl Store {
             game: game.clone(),
             content,
         };
-        validate_plan(&inspection, &roots, &proposal, &[], ExistingTargets::Adopt)?;
-        validate_ownership(self, &game, &proposal, None)?;
+        validate_plan(
+            &inspection,
+            &roots,
+            &proposal,
+            &[],
+            ExistingTargets::Adopt,
+            &[],
+        )?;
+        let overrides = validate_ownership(self, &game, &proposal, None)?;
+        if !overrides.is_empty() {
+            return Err(coded(
+                crate::error::ErrorCode::Conflict,
+                "adopted files are owned by another managed package; uninstall that package first",
+            ));
+        }
         let conflicts = self.conflicting_packages(&game, None, &inspection.blake3)?;
         if !conflicts.is_empty() {
             bail!("adoption conflicts with installed {}", conflicts.join(", "));
@@ -158,6 +172,7 @@ impl Store {
                     root: crate::state::RootKind::from_label(&operation.root)
                         .context("adoption operation has an unknown root")?,
                     destination: operation.destination.clone(),
+                    archive_entry: operation.source.clone(),
                     blake3: digest(&path)?,
                     bytes,
                 });

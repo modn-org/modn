@@ -38,6 +38,7 @@ pub(super) fn validate_execution_plan(
     roots: &Roots,
     proposal: &InstallPlan,
     approved: &[String],
+    overrides: &[PlanOverride],
 ) -> Result<()> {
     validate_plan(
         inspection,
@@ -45,6 +46,7 @@ pub(super) fn validate_execution_plan(
         proposal,
         approved,
         ExistingTargets::Refuse,
+        overrides,
     )
 }
 
@@ -60,6 +62,7 @@ pub(super) fn validate_plan(
     proposal: &InstallPlan,
     approved: &[String],
     existing: ExistingTargets,
+    overrides: &[PlanOverride],
 ) -> Result<()> {
     if !inspection.format.is_installable() {
         bail!("transaction executor supports only ZIP and 7z operations");
@@ -95,8 +98,7 @@ pub(super) fn validate_plan(
         }
         sources.insert(entry.entry.as_str(), entry.bytes);
     }
-    let overridden: BTreeSet<String> = proposal
-        .overrides
+    let overridden: BTreeSet<String> = overrides
         .iter()
         .map(|entry| {
             format!(

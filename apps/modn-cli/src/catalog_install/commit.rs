@@ -87,7 +87,7 @@ pub(super) fn install_release(
     let candidate = if candidate_approvals.is_empty() {
         None
     } else {
-        flow::preview_selected(roots, plan, &candidate_approvals)?
+        flow::preview_selected(state.existing(), roots, plan, &candidate_approvals)?
     };
     let present = candidate.as_ref().map_or_else(BTreeSet::new, |preview| {
         let destinations: Vec<&str> = preview
@@ -107,14 +107,14 @@ pub(super) fn install_release(
     );
     let pending = check.uncovered.executables.clone();
     let mut approved = check.approved_executables();
-    let mut preview = flow::preview_selected(roots, plan, &approved)?
+    let mut preview = flow::preview_selected(state.existing(), roots, plan, &approved)?
         .with_context(|| format!("{reference}: the plan has no archive to install"))?;
     if !check.uncovered.is_empty() && (!interactive || check.uncovered.native_injector) {
         return check.ensure_approved();
     }
     if interactive && !pending.is_empty() {
         approved.extend(pending.iter().cloned());
-        preview = flow::preview_selected(roots, plan, &approved)?
+        preview = flow::preview_selected(state.existing(), roots, plan, &approved)?
             .with_context(|| format!("{reference}: the plan has no archive to install"))?;
     }
     if !preview.reviewable() {
@@ -244,7 +244,7 @@ pub(super) fn install_stack(
         .collect();
     let approvals = stack_approvals(&references, &checks, interactive)?;
     let archives = plan_data::archives(members.iter().copied());
-    let previews = preview_catalog_install(roots, plan, &archives, &approvals)?;
+    let previews = preview_catalog_install(state.existing(), roots, plan, &archives, &approvals)?;
     let digest = plan_digest(plan, &approvals, &previews);
     let consent = Consent::new(
         plan.native_injector == NativeInjectorPolicy::Allow,

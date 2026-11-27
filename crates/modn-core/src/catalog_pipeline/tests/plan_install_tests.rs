@@ -377,6 +377,7 @@ fn a_preview_skips_members_without_an_archive() {
     );
 
     let previews = preview_catalog_install(
+        None,
         &fixture.roots(),
         &plan,
         &std::collections::BTreeMap::new(),
@@ -400,7 +401,7 @@ fn a_selected_preview_does_not_need_the_dependency_archives() {
     let snapshot = fixture.snapshot();
     let plan = fixture.plan(&snapshot, "top", None, std::slice::from_ref(&top));
 
-    let preview = preview_catalog_release(fixture.roots(), &plan, &plan.selected, &top, &[])
+    let preview = preview_catalog_release(None, fixture.roots(), &plan, &plan.selected, &top, &[])
         .expect("selected preview");
 
     assert_eq!(preview.reference, plan.selected);

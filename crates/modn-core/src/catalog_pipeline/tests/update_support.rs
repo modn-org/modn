@@ -69,7 +69,7 @@ pub(super) fn plan(
 
 pub(super) fn consent(fixture: &CommitFixture, plan: &CatalogPlan, archive: &Path) -> Consent {
     let preview =
-        preview_catalog_update(fixture.roots(), plan, archive, &[]).expect("update preview");
+        preview_catalog_update(None, fixture.roots(), plan, archive, &[]).expect("update preview");
     Consent::new(false, Vec::new(), plan_digest(plan, &[], &[preview]))
 }
 

@@ -78,17 +78,22 @@ fn single_component_destination_installs_and_uninstalls() {
     assert_eq!(fs::read(game.join("Mods/b.lua")).unwrap(), b"two");
     let mut collision = plan(&game, &archive);
     collision.operations[0].destination = "a.lua".into();
-    assert!(store
+    let overlap = store
         .install_operations_zip(&game, &archive, &collision)
-        .is_err());
+        .unwrap();
+    assert_eq!(fs::read(game.join("a.lua")).unwrap(), b"one");
+    assert_eq!(store.installed(&game).unwrap().len(), 2);
+    store.uninstall(&game, &package.id).unwrap();
+    store.uninstall(&game, &overlap.id).unwrap();
     #[cfg(windows)]
     {
         collision.operations[0].destination = "A.LUA".into();
-        assert!(store
+        let case_overlap = store
             .install_operations_zip(&game, &archive, &collision)
-            .is_err());
+            .unwrap();
+        assert_eq!(fs::read(game.join("A.LUA")).unwrap(), b"one");
+        store.uninstall(&game, &case_overlap.id).unwrap();
     }
-    store.uninstall(&game, &package.id).unwrap();
     assert_eq!(store.recover().unwrap(), 0);
     assert_eq!(fs::read_dir(&game).unwrap().count(), 0);
 }

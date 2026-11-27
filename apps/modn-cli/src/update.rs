@@ -300,7 +300,8 @@ pub(super) fn run(
     }
     let candidate = match (&archive, update.up_to_date) {
         (Some(archive), false) => {
-            let preview = preview_catalog_update(roots, &plan, archive, &candidate_approvals)?;
+            let preview =
+                preview_catalog_update(Some(store), roots, &plan, archive, &candidate_approvals)?;
             if let Some(expected) = planned.digest.as_str() {
                 if preview.plan.archive_blake3 != expected {
                     bail!("{label}: source changed after catalog verification");

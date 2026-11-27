@@ -214,6 +214,17 @@ impl Store {
             ));
         }
         self.check_pinned_dependents(game, &old, release)?;
+        if let Some(path) = self
+            .shadowed_claim_path(package_id)?
+            .or(self.shadowing_claim_path(package_id)?)
+        {
+            return Err(coded(
+                ErrorCode::Conflict,
+                format!(
+                    "cannot update {package_id}: it shares a file with another managed package; uninstall and reinstall the overlapping package first: {path}"
+                ),
+            ));
+        }
         if old.catalog.as_ref() != Some(&release.reference) {
             bail!(
                 "managed package {package_id} was not installed from {}",
@@ -376,6 +387,7 @@ pub(super) fn vacate(tx: &Transaction<'_>, replaced: Replacement<'_>) -> Result<
         "DELETE FROM managed_files WHERE package_id=?1",
         [package_id],
     )?;
+    tx.execute("DELETE FROM file_claims WHERE package_id=?1", [package_id])?;
     super::catalog::forget(tx, package_id)?;
     tx.execute(
         "DELETE FROM managed_package_releases WHERE package_id=?1",

@@ -193,7 +193,8 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
             ));
         }
     }
-    let previews = preview_catalog_install(roots, plan, &archives, &consent.executables)?;
+    let previews =
+        preview_catalog_install(Some(&*store), roots, plan, &archives, &consent.executables)?;
     for preview in &previews {
         verify_digest(preview, digests.get(&preview.reference.to_string()))?;
     }
@@ -284,10 +285,11 @@ fn install_one(
         &planned.release,
         policy,
         &approved,
-        |archive_path| {
+        |store, archive_path| {
             let preview = ReleasePreview {
                 reference: reference.clone(),
                 plan: preview_release(
+                    Some(store),
                     roots,
                     &plan.game_id,
                     &plan.installation,
@@ -343,13 +345,19 @@ fn install_stack(
         .collect::<Result<Vec<_>>>()?;
     let mut first = true;
     let installed =
-        store.install_catalog_stack(&plan.installation, &members, policy, |member| {
+        store.install_catalog_stack(&plan.installation, &members, policy, |store, member| {
             let reference = member.release.reference.clone();
             let key = reference.to_string();
             let expected = digests.get(&key).cloned();
             let preview = if first {
                 first = false;
-                let locked = preview_catalog_install(roots, plan, archives, &consent.executables)?;
+                let locked = preview_catalog_install(
+                    Some(store),
+                    roots,
+                    plan,
+                    archives,
+                    &consent.executables,
+                )?;
                 for preview in &locked {
                     verify_digest(preview, digests.get(&preview.reference.to_string()))?;
                 }
@@ -364,6 +372,7 @@ fn install_stack(
                 ReleasePreview {
                     reference: reference.clone(),
                     plan: preview_release(
+                        Some(store),
                         roots,
                         &plan.game_id,
                         &plan.installation,

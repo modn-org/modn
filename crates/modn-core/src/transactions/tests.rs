@@ -45,6 +45,7 @@ fn prepared_file(dest: &str, data: &[u8]) -> JournalFile {
         root: crate::state::RootKind::Game,
         ordinal: 0,
         destination: dest.into(),
+        archive_entry: dest.into(),
         blake3: hasher.finalize().to_hex().to_string(),
         bytes: data.len() as u64,
     }

@@ -16,7 +16,9 @@ impl Store {
     /// The archive is inspected before `plan` runs, so a missing or malformed
     /// archive is refused without executing game policy. The plan that `plan`
     /// returns is the one installed; its error propagates unchanged before any
-    /// journal entry or game file is written. Every other check is the one
+    /// journal entry or game file is written. `plan` reads the locked store, so
+    /// it can plan against the files the active profile already owns. Every
+    /// other check is the one
     /// [`Store::install_catalog_release_with_permissions`] performs, including
     /// the native-injector policy and the archive, ownership, conflict and
     /// dependency checks under the lock.
@@ -27,13 +29,13 @@ impl Store {
         release: &CatalogRelease,
         policy: NativeInjectorPolicy,
         approved: &[String],
-        plan: impl FnOnce(&Path) -> Result<InstallPlan>,
+        plan: impl FnOnce(&Store, &Path) -> Result<InstallPlan>,
     ) -> Result<ManagedPackage> {
         release.ensure_native_injector_allowed(policy)?;
         let _guard = lock_store(self)?;
         self.ensure_idle()?;
         let _ = inspect(archive)?;
-        let proposal = plan(archive)?;
+        let proposal = plan(&*self, archive)?;
         self.install_locked(
             game,
             archive,
