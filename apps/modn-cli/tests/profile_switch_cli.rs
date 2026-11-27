@@ -5,92 +5,18 @@
 
 #[path = "support/profile_fixture.rs"]
 mod profile_fixture;
+#[path = "support/profile_switch_fixture.rs"]
+mod profile_switch_fixture;
 
 use profile_fixture::ProfileFixture;
+use profile_switch_fixture::{
+    active_profile, create_second, digest, install, progress_error_code, second_with_beta,
+    snapshot, ALPHA, BETA, USER,
+};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Output, Stdio};
-
-const ALPHA: &str = "archive/pc/mod/alpha.archive";
-const BETA: &str = "archive/pc/mod/beta.archive";
-const USER: &str = "archive/pc/mod/user.cfg";
-
-fn package_id(report: &Value) -> String {
-    report["id"].as_str().expect("package id").to_owned()
-}
-
-fn install(fixture: &ProfileFixture, name: &str) -> String {
-    let report = fixture.install(name);
-    let root = fixture.state().parent().expect("fixture root");
-    let cache = fixture.state().join("cache");
-    fs::create_dir_all(&cache).expect("cache directory");
-    fs::copy(
-        root.join("archives").join(format!("{name}.zip")),
-        cache.join(format!("cyberpunk-2077#{name}#1.0#0000000.zip")),
-    )
-    .expect("cache entry");
-    package_id(&report)
-}
-
-fn create_second(fixture: &ProfileFixture) {
-    fixture.json(&["profile", "create", "second"]);
-}
-
-/// Install `beta` into an inactive `second` profile and return to `default`.
-fn second_with_beta(fixture: &ProfileFixture, alpha: &str) -> String {
-    create_second(fixture);
-    fixture.json(&["profile", "switch", "second", "--yes"]);
-    let beta = install(fixture, "beta");
-    assert_ne!(beta, alpha);
-    fixture.json(&["profile", "switch", "default", "--yes"]);
-    beta
-}
-
-fn progress_error_code(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr)
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter_map(|value| value["error"].as_str().map(str::to_owned))
-        .next_back()
-        .expect("error code")
-}
-
-fn snapshot(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
-    let mut entries = BTreeMap::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(&directory).expect("game directory") {
-            let path = entry.expect("entry").path();
-            let relative = path
-                .strip_prefix(root)
-                .expect("relative path")
-                .to_path_buf();
-            if fs::symlink_metadata(&path).expect("metadata").is_dir() {
-                pending.push(path);
-                entries.insert(relative, None);
-            } else {
-                entries.insert(relative, Some(fs::read(&path).expect("file bytes")));
-            }
-        }
-    }
-    entries
-}
-
-fn active_profile(fixture: &ProfileFixture) -> String {
-    let list = fixture.profile_list();
-    list["profiles"]
-        .as_array()
-        .expect("profiles")
-        .iter()
-        .find(|profile| profile["active"] == true)
-        .expect("active profile")["name"]
-        .as_str()
-        .expect("name")
-        .to_owned()
-}
+use std::process::Stdio;
 
 #[test]
 fn switch_to_an_empty_profile_removes_its_files_and_keeps_unmanaged_files() {
@@ -508,8 +434,4 @@ fn the_active_profile_shows_in_profile_list_json() {
 
     fixture.json(&["profile", "switch", "default", "--yes"]);
     assert_eq!(active_profile(&fixture), "default");
-}
-
-fn digest(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_hex().to_string()
 }
