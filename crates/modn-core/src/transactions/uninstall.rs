@@ -1,12 +1,16 @@
 use super::cleanup::RemovalMode;
 use super::directory::{covers, quarantine, quarantine_path};
 use super::install::Fault;
-use super::journal::{digest, lock_store, target_path, temp_path, JournalFile, Roots};
+use super::journal::{
+    digest, lock_store, restore_path, target_path, temp_path, JournalFile, Roots,
+};
 use crate::error::{coded, ErrorCode};
 use crate::progress::ProgressEvent;
 use crate::state::{resolve_root, RootKind, Store};
 use anyhow::{bail, Context, Result};
-use std::fs;
+use std::collections::BTreeSet;
+use std::fs::{self, File, OpenOptions};
+use std::io;
 use std::path::Path;
 use tempfile::Builder;
 
@@ -14,6 +18,15 @@ use tempfile::Builder;
 enum PendingPolicy {
     RequireIdle,
     Allowed,
+}
+
+/// Whether a withdrawal may replace a shared winner with the next claimant.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum RestorePolicy {
+    /// Refuse a winner that another package claims; undo and update use this.
+    Refuse,
+    /// Restore the next claimant's verified bytes; uninstall uses this.
+    Replace,
 }
 
 impl Store {
@@ -69,6 +82,7 @@ impl Store {
             fault,
             &std::collections::BTreeSet::new(),
             PendingPolicy::RequireIdle,
+            RestorePolicy::Replace,
         )?;
         if let Err(err) = self.commit_uninstall(&id, package_id) {
             if let Err(recovery_error) = self.recover_locked() {
@@ -111,6 +125,7 @@ impl Store {
             None,
             &std::collections::BTreeSet::new(),
             PendingPolicy::RequireIdle,
+            RestorePolicy::Refuse,
         )
     }
 
@@ -140,6 +155,7 @@ impl Store {
             None,
             allowed,
             PendingPolicy::Allowed,
+            RestorePolicy::Refuse,
         )
     }
 
@@ -156,6 +172,7 @@ impl Store {
         fault: Option<Fault>,
         allowed: &std::collections::BTreeSet<String>,
         pending: PendingPolicy,
+        restore: RestorePolicy,
     ) -> Result<String> {
         if matches!(pending, PendingPolicy::RequireIdle) {
             self.ensure_no_pending()?;
@@ -165,13 +182,15 @@ impl Store {
             .into_iter()
             .find(|p| p.id == package_id)
             .with_context(|| format!("managed package {package_id} not found for selected game"))?;
-        if let Some(path) = self.shadowing_claim_path(&package.id)? {
-            return Err(coded(
-                ErrorCode::Conflict,
-                format!(
-                    "managed package {package_id} wins a shared file; uninstall the lower-priority package first: {path}"
-                ),
-            ));
+        if matches!(restore, RestorePolicy::Refuse) {
+            if let Some(path) = self.shadowing_claim_path(&package.id)? {
+                return Err(coded(
+                    ErrorCode::Conflict,
+                    format!(
+                        "CONFLICT: managed package {package_id} wins a shared file; this operation cannot restore the next claimant's bytes: {path}; uninstall it with 'modn uninstall' instead"
+                    ),
+                ));
+            }
         }
         let needed_by = super::catalog::dependents(self, &package.id)?;
         if matches!(dependents, Dependents::Refuse)
@@ -202,6 +221,7 @@ impl Store {
                 bytes: f.bytes,
             })
             .collect();
+        let excluding = BTreeSet::from([package.id.clone()]);
         for f in &mut files {
             let target = roots.target(f.root, &f.destination)?;
             if forced {
@@ -216,13 +236,25 @@ impl Store {
                 f.bytes = metadata.len();
             }
             if !target.is_file() || digest(&target)? != f.blake3 {
-                return Err(coded(
-                    ErrorCode::Conflict,
-                    format!(
-                        "owned file missing or modified; refusing uninstall: {}",
-                        target.display()
-                    ),
-                ));
+                let claimed =
+                    super::restore::next_claim(self, &roots.game, f, &excluding)?.is_some();
+                return Err(if claimed {
+                    coded(
+                        ErrorCode::ProfileDrift,
+                        format!(
+                            "PROFILE_DRIFT: managed winner changed on disk; run 'modn doctor': {}",
+                            target.display()
+                        ),
+                    )
+                } else {
+                    coded(
+                        ErrorCode::Conflict,
+                        format!(
+                            "owned file missing or modified; refusing uninstall: {}",
+                            target.display()
+                        ),
+                    )
+                });
             }
         }
         for (index, root) in package.directories.iter().enumerate() {
@@ -248,7 +280,11 @@ impl Store {
             .context("missing transaction id")?
             .to_string_lossy()
             .to_string();
-        let _ = staging.keep();
+        let restores = if matches!(restore, RestorePolicy::Replace) {
+            super::restore::stage_restores(self, &roots.game, &files, staging.path(), &excluding)?
+        } else {
+            std::collections::BTreeMap::new()
+        };
         self.insert_journal(
             &id,
             if forced { "cleanup" } else { "uninstall" },
@@ -258,6 +294,8 @@ impl Store {
             &files,
             &package.directories,
         )?;
+        super::restore::record_restores(self, &id, &restores)?;
+        let _ = staging.keep();
         let attempt = (|| -> Result<()> {
             if !forced {
                 for (index, root) in package.directories.iter().enumerate() {
@@ -297,6 +335,26 @@ impl Store {
                     ));
                 }
                 fs::remove_file(&target)?;
+                if let Some(restore) = restores.get(&f.ordinal) {
+                    let witness = restore_path(&target, &id, f.ordinal)?;
+                    let mut input = File::open(&restore.staged)?;
+                    let mut output = OpenOptions::new()
+                        .create_new(true)
+                        .write(true)
+                        .open(&witness)?;
+                    if io::copy(&mut input, &mut output)? != restore.candidate.bytes {
+                        bail!("restore staging size mismatch");
+                    }
+                    output.sync_all()?;
+                    drop(output);
+                    if digest(&witness)? != restore.candidate.blake3 {
+                        bail!("restore staging digest mismatch");
+                    }
+                    fs::hard_link(&witness, &target)?;
+                    if digest(&target)? != restore.candidate.blake3 {
+                        bail!("restored file digest mismatch: {}", target.display());
+                    }
+                }
                 if fault.is_some_and(|fault| fault.after_files() == f.ordinal + 1) {
                     bail!("injected cleanup stop");
                 }

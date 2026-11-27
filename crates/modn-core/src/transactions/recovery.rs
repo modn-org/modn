@@ -145,8 +145,23 @@ impl Store {
         } else {
             std::collections::BTreeMap::new()
         };
+        let restores = if matches!(journal.action.as_str(), "uninstall" | "cleanup") {
+            super::restore::pending_restores(self, &journal.id)?
+        } else {
+            std::collections::BTreeMap::new()
+        };
         for f in journal.files.iter().rev() {
             let dest = roots.target(f.root, &f.destination)?;
+            if let Some(restore) = restores.get(&f.ordinal) {
+                super::restore_recovery::recover_restore(
+                    &journal.id,
+                    &journal.status,
+                    f,
+                    restore,
+                    &dest,
+                )?;
+                continue;
+            }
             if let Some(old) = overrides.get(&f.ordinal) {
                 super::override_recovery::recover_override(
                     &journal.id,

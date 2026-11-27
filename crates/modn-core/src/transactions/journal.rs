@@ -161,6 +161,14 @@ pub(super) fn backup_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> 
         .join(format!(".modn-txn-{id}-{n}.old")))
 }
 
+/// Witness that keeps the bytes an uninstall restored, next to the destination.
+pub(super) fn restore_path(target: &Path, id: &str, n: usize) -> Result<PathBuf> {
+    Ok(target
+        .parent()
+        .context("target has no parent")?
+        .join(format!(".modn-txn-{id}-{n}.restore")))
+}
+
 impl Store {
     pub(crate) fn ensure_no_pending(&self) -> Result<()> {
         self.ensure_pending_only(None)
