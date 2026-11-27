@@ -7,6 +7,7 @@ mod manifest;
 mod mirrors;
 mod retire;
 mod rotation;
+mod sequence;
 mod signature;
 mod snapshot;
 mod store;
@@ -26,7 +27,11 @@ pub use known::{KnownBucket, KnownBuckets, KnownSourceKind};
 pub use manifest::{ArchiveFormat, PackageManifest, PackageSource};
 pub use mirrors::{CatalogHost, CatalogSyncTrace, MAX_CATALOG_MIRRORS};
 pub use rotation::{
-    key_statement_bytes, revocation_statement, rotation_statement, CatalogKeyChange, KeyChangeKind,
+    key_statement_bytes, revocation_statement, revocation_statement_with_sequence,
+    rotation_statement, rotation_statement_with_sequence, CatalogKeyChange, KeyChangeKind,
+};
+pub use sequence::{
+    CatalogWarning, CatalogWarningKind, SignedSequence, StoredSequence, SEQUENCE_FILE,
 };
 pub use signature::{
     catalog_statement, verify_catalog, verify_catalog_directory, CatalogKeyId, CatalogPublicKey,

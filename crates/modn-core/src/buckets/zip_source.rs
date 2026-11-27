@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+
+mod publish;
 /// Largest accepted catalog ZIP body.
 pub const MAX_CATALOG_ZIP_BYTES: u64 = 256 * 1024 * 1024;
 /// Largest accepted uncompressed size of one catalog entry.
@@ -97,6 +99,9 @@ pub struct ZipCatalogSync {
     /// Published key statements that added no trust to this pin.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ignored_key_statements: Vec<String>,
+    /// Non-fatal warnings, such as an expired signed catalog.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<super::sequence::CatalogWarning>,
     /// Game module releases imported or ignored during this sync.
     pub modules: CatalogModuleReport,
     /// The primary, the source that served the revision and any failures.
@@ -319,12 +324,15 @@ impl BucketStore {
         };
         let served_by = CatalogHost::from(&served_source);
         let label = format!("ZIP catalog {name} at {}", served_source.label());
+        let stored_sequence = self.stored_sequence(name)?;
         let verification = verify_catalog_tree(
             &catalog,
             name,
             &label,
             previous.as_ref().map(|revision| &revision.signer),
             expected_fingerprint,
+            stored_sequence.as_ref(),
+            self.clock_seconds(),
         )
         .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let trust = match verification.key_change.as_ref().map(|change| change.kind) {
@@ -338,8 +346,10 @@ impl BucketStore {
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         check_mirror_kinds(name, &served_by, &mirrors)
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
-        let relocation = read_relocation(&catalog, &served_by)
-            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let revision_sequence =
+            super::sequence::read_sequence(&catalog)?.map(|sequence| sequence.sequence());
+        let relocation = read_relocation(&catalog, &served_by, revision_sequence)
+            .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let moved_to = relocation.filter(|primary_host| primary_host != &primary);
         let published_source = match &moved_to {
             Some(host) => host
@@ -353,6 +363,8 @@ impl BucketStore {
             signer: verification.signer,
         };
         let key_change = verification.key_change;
+        let accepted = verification.accepted;
+        let warnings = verification.warnings;
         let previous_registration = match &previous {
             Some(_) => Some(self.registration(name)?),
             None => None,
@@ -392,6 +404,7 @@ impl BucketStore {
             revision.clone(),
             mirrors.clone(),
             trust == ModuleTrustState::Trusted,
+            accepted,
         )?;
         let retained = if unchanged && previous_registration.is_some() {
             None
@@ -431,6 +444,7 @@ impl BucketStore {
             pinned,
             key_change,
             ignored_key_statements: verification.ignored_key_statements,
+            warnings,
             modules: CatalogModuleReport { imported, ignored },
             trace: CatalogSyncTrace {
                 primary: primary.clone(),
@@ -440,33 +454,6 @@ impl BucketStore {
                 moved_to,
             },
         })
-    }
-    pub(super) fn publish_zip(
-        &self,
-        name: &str,
-        path: PathBuf,
-        zip: super::ZipCatalogRevision,
-        mirrors: Vec<CatalogHost>,
-        trusted: bool,
-    ) -> Result<()> {
-        let signer_key_id = zip.signer.key_id.clone();
-        let module_trust = trusted.then_some(super::ModuleSourceTrust { signer_key_id });
-        let trust = if module_trust.is_some() {
-            ModuleTrustState::Trusted
-        } else {
-            ModuleTrustState::Untrusted
-        };
-        self.validate_catalog(name, &path, trust)?;
-        self.write_registration(
-            name,
-            &Registration {
-                path,
-                git: None,
-                zip: Some(zip.into()),
-                module_trust,
-                mirrors: Some(mirrors),
-            },
-        )
     }
     pub(super) fn registered_zip(&self, name: &str) -> Result<Option<super::ZipCatalogRevision>> {
         if !self.registrations()?.contains_key(name) {

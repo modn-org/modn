@@ -405,4 +405,17 @@ fn every_failed_source_is_listed_and_state_is_unchanged() {
     assert_eq!(before, state_snapshot(&state));
 }
 
+fn sequence_json(sequence: u64) -> String {
+    serde_json::json!({"schema_version":1,"sequence":sequence,"expires":"2999-01-01T00:00:00Z"})
+        .to_string()
+}
+
+fn stored_accepted(state: &Path) -> serde_json::Value {
+    let registration: serde_json::Value =
+        serde_json::from_slice(&fs::read(registration_file(state)).expect("registration"))
+            .expect("JSON");
+    registration["accepted"].clone()
+}
+
 mod relocation;
+mod sequence;

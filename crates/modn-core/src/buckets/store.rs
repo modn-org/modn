@@ -310,6 +310,7 @@ impl BucketStore {
                 zip: None,
                 module_trust: None,
                 mirrors: None,
+                accepted: None,
             },
         )?;
         temp.as_file().sync_all()?;
@@ -325,6 +326,7 @@ impl BucketStore {
         git: super::GitCatalogRevision,
         mirrors: Vec<super::CatalogHost>,
         trusted: bool,
+        accepted: Option<super::sequence::StoredSequence>,
     ) -> Result<()> {
         let signer_key_id = git.signer.key_id.clone();
         let module_trust = trusted.then_some(super::ModuleSourceTrust { signer_key_id });
@@ -342,6 +344,7 @@ impl BucketStore {
                 zip: None,
                 module_trust,
                 mirrors: Some(mirrors),
+                accepted,
             },
         )
     }

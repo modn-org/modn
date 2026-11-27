@@ -1,7 +1,7 @@
 use super::{
     apply_key_statements, check_revocation_key, key_statement_bytes, revocation_statement,
-    rotation_statement, PinnedKeys, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE, ROTATION_FILE,
-    ROTATION_SIGNATURE_FILE,
+    revocation_statement_with_sequence, rotation_statement, rotation_statement_with_sequence,
+    PinnedKeys, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE, ROTATION_FILE, ROTATION_SIGNATURE_FILE,
 };
 use crate::buckets::signature::CatalogPublicKey;
 use minisign::KeyPair;
@@ -73,6 +73,7 @@ fn accepted(
         CATALOG_NAME,
         &pinned(signer, revocation),
         Some(&revision.public),
+        None,
     )
     .expect("statement evaluation")
 }
@@ -137,6 +138,7 @@ fn rotation_signed_by_an_unrelated_key_is_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
+        None,
     )
     .expect_err("forged rotation")
     .to_string();
@@ -172,6 +174,7 @@ fn rotation_signed_by_the_revocation_key_is_refused() {
         CATALOG_NAME,
         &pinned(&signer, Some(&revocation)),
         Some(&successor.public),
+        None,
     )
     .expect_err("revocation key cannot rotate")
     .to_string();
@@ -204,6 +207,7 @@ fn revocation_signed_by_the_signer_key_is_refused() {
         CATALOG_NAME,
         &pinned(&signer, Some(&revocation)),
         Some(&replacement.public),
+        None,
     )
     .expect_err("signer cannot revoke")
     .to_string();
@@ -236,6 +240,7 @@ fn a_statement_cannot_be_replayed_as_another_kind_or_catalog() {
         CATALOG_NAME,
         &pinned(&signer, Some(&revocation)),
         Some(&replacement.public),
+        None,
     )
     .expect_err("cross-kind replay")
     .to_string();
@@ -256,6 +261,7 @@ fn a_statement_cannot_be_replayed_as_another_kind_or_catalog() {
         CATALOG_NAME,
         &pinned(&signer, Some(&revocation)),
         Some(&replacement.public),
+        None,
     )
     .expect_err("cross-catalog replay")
     .to_string();
@@ -298,6 +304,7 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
+        None,
     )
     .expect_err("both statements")
     .to_string();
@@ -324,6 +331,7 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
+        None,
     )
     .expect("a statement that names another key is history");
     assert!(historical.change.is_none());
@@ -336,6 +344,7 @@ fn both_statements_wrong_from_and_wrong_schema_are_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&successor.public),
+        None,
     )
     .expect_err("unknown version")
     .to_string();
@@ -364,6 +373,7 @@ fn a_to_key_that_does_not_match_catalog_pub_is_refused() {
         CATALOG_NAME,
         &pinned(&signer, None),
         Some(&other.public),
+        None,
     )
     .expect_err("revision key mismatch")
     .to_string();
@@ -392,4 +402,63 @@ fn revocation_key_must_be_pinned_and_cannot_change() {
         .expect_err("changed")
         .to_string();
     assert!(error.contains("Revocation key changed"), "{error}");
+}
+
+#[test]
+fn rotation_statement_sequence_must_equal_the_revision_sequence() {
+    let directory = catalog();
+    let signer = test_key();
+    let successor = test_key();
+    let body =
+        rotation_statement_with_sequence(&signer.public.key_id().to_string(), &successor.text, 2)
+            .expect("rotation body");
+    assert!(String::from_utf8(body.clone())
+        .expect("UTF-8")
+        .contains("\"sequence\":2"));
+    write(directory.path(), ROTATION_FILE, &body);
+    write(
+        directory.path(),
+        ROTATION_SIGNATURE_FILE,
+        sign(
+            &signer,
+            &key_statement_bytes(super::KeyChangeKind::Rotated, CATALOG_NAME, &body),
+        )
+        .as_bytes(),
+    );
+    let error = apply_key_statements(
+        directory.path(),
+        CATALOG_NAME,
+        &pinned(&signer, None),
+        Some(&successor.public),
+        Some(3),
+    )
+    .expect_err("a statement from an older revision is a replay");
+    assert_eq!(
+        crate::error::code_of(&error),
+        Some(crate::error::ErrorCode::CatalogRollback)
+    );
+    let outcome = apply_key_statements(
+        directory.path(),
+        CATALOG_NAME,
+        &pinned(&signer, None),
+        Some(&successor.public),
+        Some(2),
+    )
+    .expect("a statement at the revision sequence applies");
+    assert!(outcome.change.is_some());
+}
+
+#[test]
+fn revocation_statement_with_sequence_builder_round_trips() {
+    let body = revocation_statement_with_sequence("0123456789ABCDEF", "key text", 4)
+        .expect("revocation body");
+    let text = String::from_utf8(body).expect("UTF-8");
+    assert!(text.contains("\"sequence\":4"), "{text}");
+    let plain = revocation_statement("0123456789ABCDEF", "key text").expect("plain body");
+    assert!(
+        !String::from_utf8(plain)
+            .expect("UTF-8")
+            .contains("sequence"),
+        "an unnumbered builder writes no sequence field"
+    );
 }
