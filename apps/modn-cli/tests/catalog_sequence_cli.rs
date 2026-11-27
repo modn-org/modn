@@ -289,7 +289,7 @@ fn verify_prints_the_sequence_and_the_expiry() {
 }
 
 #[test]
-fn rotate_and_revoke_write_the_statement_sequence() {
+fn rotate_and_revoke_write_the_next_statement_sequence() {
     let fixture = Fixture::new();
     let (keys, author) = keys(&fixture);
     let next = fixture.temp.path().join("next-keys");
@@ -307,7 +307,7 @@ fn rotate_and_revoke_write_the_statement_sequence() {
     );
 
     let before = snapshot(&catalog);
-    let mismatched = run(&[
+    let at_the_file = run(&[
         "--json",
         "catalog",
         "rotate",
@@ -317,13 +317,13 @@ fn rotate_and_revoke_write_the_statement_sequence() {
         "--new-public-key",
         path_text(&next.join("author.pub")),
         "--sequence",
-        "4",
+        "3",
     ]);
-    assert!(!mismatched.status.success());
+    assert!(!at_the_file.status.success());
     assert!(
-        stderr(&mismatched).contains("differs from sequence.json sequence 3"),
+        stderr(&at_the_file).contains("is not after sequence.json sequence 3"),
         "{}",
-        stderr(&mismatched)
+        stderr(&at_the_file)
     );
     assert_eq!(before, snapshot(&catalog));
 
@@ -338,7 +338,16 @@ fn rotate_and_revoke_write_the_statement_sequence() {
         path_text(&next.join("author.pub")),
     ]);
     assert!(rotated.status.success(), "{}", stderr(&rotated));
-    assert_eq!(statement_sequence(&catalog, "rotation.json"), Some(3));
+    assert_eq!(statement_sequence(&catalog, "rotation.json"), Some(4));
+    assert_eq!(catalog_json(&catalog, "sequence.json")["sequence"], 3);
+
+    let signed = sign(&catalog, &next.join("author.key"), Some("next"), None);
+    assert!(signed.status.success(), "{}", stderr(&signed));
+    assert_eq!(
+        catalog_json(&catalog, "sequence.json")["sequence"],
+        4,
+        "sign --sequence next must not advance past the statement"
+    );
 
     let revoked = run(&[
         "--json",
@@ -353,7 +362,7 @@ fn rotate_and_revoke_write_the_statement_sequence() {
         path_text(&next.join("author.pub")),
     ]);
     assert!(revoked.status.success(), "{}", stderr(&revoked));
-    assert_eq!(statement_sequence(&catalog, "revocation.json"), Some(3));
+    assert_eq!(statement_sequence(&catalog, "revocation.json"), Some(5));
 }
 
 #[test]

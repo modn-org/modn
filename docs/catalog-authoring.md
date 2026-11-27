@@ -351,12 +351,19 @@ Number a distributed catalog so that users can refuse a rollback:
 modn catalog sign . --key ../author-keys/catalog.key --sequence next
 ```
 
-`--sequence next` writes `sequence.json` with the number in the existing file plus
-one, or 1 when the file is absent. `--sequence <N>` writes a number you choose.
-`--expires <time>` adds a strict UTC expiry in the future and needs `--sequence`
-or an existing `sequence.json`. The file is rewritten completely from the flags,
-so `expires` appears only when you pass it. A number lower than the one already
-in the file is refused and writes nothing. Once a release is numbered, every
+`--sequence next` writes the next release number: the number in the existing
+file plus one, or 1 when the file is absent. When the tree publishes a
+`rotation.json` or `revocation.json` that names a higher number, `sign` uses
+that number instead, because a revision must never be older than a statement
+inside it. `--sequence <N>` writes a number you choose, but not below the
+file's number or a published statement's number.
+`--expires <time>` adds a strict UTC expiry in the future and needs a number
+from `--sequence`, an existing `sequence.json` or a numbered key statement. The
+file is rewritten completely from the flags, so `expires` appears only when you
+pass it, except when `sign` only raises the number to a statement's number: then
+it keeps the existing expiry. A number lower than the one already
+in the file or a published statement is refused and writes nothing. Once a
+release is numbered, every
 later release needs a higher number; an unnumbered or lower release is refused
 as a rollback. Without these flags the catalog is signed as before, and the
 output points out that a numbered catalog protects users against rollback. See
@@ -413,9 +420,15 @@ modn catalog sign . --key ../author-keys/next.key
 ```
 
 `rotate` writes `rotation.json` and `rotation.sig`. `revoke` writes
-`revocation.json` and `revocation.sig`. When `sequence.json` exists, each
-statement copies its number; `--sequence <N>` sets it explicitly and is refused
-when it differs. Both commands refuse a secret key inside the catalog directory.
+`revocation.json` and `revocation.sig`. A numbered catalog writes the statement
+for the revision that will carry it: the number in `sequence.json` plus one, so
+release N+1 carries a statement that names N+1. Neither command changes
+`sequence.json`; the following `modn catalog sign` signs that number and writes
+it to the file, keeping any `expires`. `--sequence <N>` sets the number
+explicitly and must be at least the file's number plus one. On an unnumbered
+catalog a statement carries no number unless you pass `--sequence`, which
+numbers the catalog at the following `sign`. Both commands refuse a secret key
+inside the catalog directory.
 A refusal writes nothing. Both commands read the catalog from a staged copy
 without a root `.git` entry, so they work in a Git checkout. Commit the statement
 files, the new signature, `sequence.json` when it changed, and `catalog.pub`

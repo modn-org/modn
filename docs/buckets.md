@@ -220,10 +220,20 @@ signing new revisions. Modn has no newer document to fetch, so it still syncs
 the expired one. Renew the expiry by signing the catalog again with
 `--sequence next --expires <new time>`.
 
-A `relocation.json` or key statement may carry a `sequence`, which must equal the
-revision's number; a lower number is a replay and is refused as a rollback.
-`modn catalog rotate` and `modn catalog revoke` copy the number from
-`sequence.json` when the file exists.
+A `relocation.json` may carry a `sequence`, which must equal the revision's
+number; a lower number is a replay and is refused as a rollback.
+
+`rotation.json` and `revocation.json` may carry a `sequence` too. A statement
+that applies to the pinned key must name the revision's number; a lower number
+is a replay and is refused as `CATALOG_ROLLBACK`. A statement that stays
+published after its revision is history, keeps its original lower number and
+adds no trust. A statement newer than the revision that carries it is refused,
+so a statement cannot arrive before its release.
+
+`modn catalog rotate` and `modn catalog revoke` name the next revision, the
+file's number plus one, and `modn catalog sign` then signs that number and
+writes it to `sequence.json`. See
+[rotate or revoke a signing key](catalog-authoring.md#rotate-or-revoke-a-signing-key).
 
 To accept a deliberate rollback, remove the stored number. For a community
 catalog run `modn bucket remove <name>` and sync it again; removal deletes the

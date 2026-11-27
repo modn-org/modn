@@ -1,6 +1,7 @@
 use super::keys::{
     fingerprint, load_secret_outside, read_public_key_text, require_directory, write_signature,
 };
+use super::sequence::{REVOCATION_FILE, ROTATION_FILE};
 use super::SIGNATURE_COMMENT;
 use anyhow::{anyhow, bail, Context, Result};
 use minisign::{PublicKey, SecretKey};
@@ -12,9 +13,7 @@ use serde_json::json;
 use std::io::Cursor;
 use std::path::Path;
 
-const REVOCATION_FILE: &str = "revocation.json";
 const REVOCATION_SIGNATURE_FILE: &str = "revocation.sig";
-const ROTATION_FILE: &str = "rotation.json";
 const ROTATION_SIGNATURE_FILE: &str = "rotation.sig";
 
 pub(super) fn rotate(
@@ -67,6 +66,11 @@ pub(super) fn rotate(
             "Next, run `modn catalog sign {} --key <new-secret-key>` to sign the revision with the new key.",
             root.display()
         );
+        if let Some(sequence) = sequence {
+            println!(
+                "The statement names sequence {sequence}; `modn catalog sign` signs that number and writes sequence.json."
+            );
+        }
     }
     Ok(())
 }
@@ -130,6 +134,11 @@ pub(super) fn revoke(
             "Next, run `modn catalog sign {} --key <replacement-secret-key>` to sign the revision with the replacement key.",
             root.display()
         );
+        if let Some(sequence) = sequence {
+            println!(
+                "The statement names sequence {sequence}; `modn catalog sign` signs that number and writes sequence.json."
+            );
+        }
     }
     Ok(())
 }

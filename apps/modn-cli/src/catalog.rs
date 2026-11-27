@@ -157,7 +157,8 @@ fn sign(
 ) -> Result<()> {
     require_directory(root, "catalog directory")?;
     let existing = sequence::read(root)?;
-    let plan = sequence::plan(existing.as_ref(), sequence_flag, expires)?;
+    let statement = sequence::published_statement_sequence(root)?;
+    let plan = sequence::plan(existing.as_ref(), statement, sequence_flag, expires)?;
     let secret = load_secret_outside(root, key_path, password_env)?;
     let public = PublicKey::from_secret_key(&secret)
         .map_err(|_| anyhow!("secret key does not contain its public key"))?;
