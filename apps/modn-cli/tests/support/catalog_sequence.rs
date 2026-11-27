@@ -60,6 +60,20 @@ pub fn sign(catalog: &Path, key: &Path, sequence: Option<&str>, expires: Option<
     run(&borrowed)
 }
 
+/// Build and pack one numbered catalog with no extra root files.
+pub fn numbered_zip(fixture: &Fixture, keys: &Path, name: &str, sequence: &str) -> PathBuf {
+    let catalog = numbered_catalog(
+        fixture.temp.path(),
+        name,
+        keys,
+        "author",
+        sequence,
+        None,
+        &[],
+    );
+    crate::catalog_mirrors::pack_catalog(&catalog, &fixture.temp.path().join("community.zip"))
+}
+
 /// Write a raw `sequence.json`, usually to build an expired or malformed case.
 pub fn write_sequence(catalog: &Path, body: &str) {
     fs::write(catalog.join("sequence.json"), body).expect("sequence file");

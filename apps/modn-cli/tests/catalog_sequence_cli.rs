@@ -19,8 +19,8 @@ mod zip_catalog_fixture;
 use catalog_authoring::{path_text, prepare_catalog, run};
 use catalog_mirrors::{keygen, pack_catalog};
 use catalog_sequence::{
-    catalog_json, error_code, numbered_catalog, sign, state_snapshot, statement_sequence,
-    stderr_text as stderr, stdout, sync, write_sequence,
+    catalog_json, error_code, numbered_catalog, numbered_zip, sign, state_snapshot,
+    statement_sequence, stderr_text as stderr, stdout, sync, write_sequence,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -37,19 +37,35 @@ fn keys(fixture: &Fixture) -> (PathBuf, String) {
 }
 
 #[test]
+fn update_refresh_reports_the_accepted_sequence() {
+    let fixture = Fixture::new();
+    let (keys, _) = keys(&fixture);
+    let zip = numbered_zip(&fixture, &keys, "community", "5");
+    assert!(sync(&fixture, &zip, false).status.success());
+
+    let output = fixture.run(&["update"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("sequence 5 accepted"),
+        "{}",
+        stdout(&output)
+    );
+    let json = fixture.run(&["--json", "update"]);
+    let value: Value = serde_json::from_slice(&json.stdout).expect("update JSON");
+    let community = value["buckets"]
+        .as_array()
+        .expect("bucket array")
+        .iter()
+        .find(|entry| entry["name"] == "community")
+        .expect("community refresh");
+    assert_eq!(community["sequence"], 5, "{community}");
+}
+
+#[test]
 fn first_sync_of_a_numbered_catalog_reports_the_accepted_sequence() {
     let fixture = Fixture::new();
     let (keys, _) = keys(&fixture);
-    let catalog = numbered_catalog(
-        fixture.temp.path(),
-        "community",
-        &keys,
-        "author",
-        "3",
-        None,
-        &[],
-    );
-    let zip = pack_catalog(&catalog, &fixture.temp.path().join("community.zip"));
+    let zip = numbered_zip(&fixture, &keys, "community", "3");
     let output = sync(&fixture, &zip, false);
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(
@@ -69,30 +85,11 @@ fn first_sync_of_a_numbered_catalog_reports_the_accepted_sequence() {
 fn a_stale_signed_catalog_is_refused_and_changes_nothing() {
     let fixture = Fixture::new();
     let (keys, _) = keys(&fixture);
-    let zip = fixture.temp.path().join("community.zip");
-    let fresh = numbered_catalog(
-        fixture.temp.path(),
-        "community",
-        &keys,
-        "author",
-        "2",
-        None,
-        &[],
-    );
-    pack_catalog(&fresh, &zip);
+    let zip = numbered_zip(&fixture, &keys, "community", "2");
     assert!(sync(&fixture, &zip, false).status.success());
     let before = state_snapshot(&fixture);
 
-    let stale = numbered_catalog(
-        fixture.temp.path(),
-        "community-stale",
-        &keys,
-        "author",
-        "1",
-        None,
-        &[],
-    );
-    pack_catalog(&stale, &zip);
+    let _ = numbered_zip(&fixture, &keys, "community-stale", "1");
     let refused = sync(&fixture, &zip, true);
     assert!(
         !refused.status.success(),
