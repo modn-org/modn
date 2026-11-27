@@ -26,6 +26,8 @@ mod release_digest;
 mod sources;
 use digest::{copy_blake3, file_blake3, file_has_blake3};
 use entry_name::{component, extension, parse_entry_name, parse_retired_entry_name};
+#[cfg(test)]
+pub(crate) use git::tree::ForcedUnconfirmed;
 pub use git::{GitAcquired, GitCacheKey, GitSource};
 use index::{ArchiveIndex, ArchivePin};
 pub use nexus::{
