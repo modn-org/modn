@@ -189,6 +189,57 @@ fn without_checkver(value: &mut Value) {
 }
 
 #[test]
+fn invalid_checkver_names_the_package_and_field() {
+    let fixture = Fixture::new();
+    let proxy = Proxy::new();
+    let (_, pin) = fixture.archive();
+    let bucket = fixture.temp.path().join("community");
+    write_bucket(&bucket, &pin, false);
+    let register = run_state(
+        &fixture,
+        &proxy,
+        &["game", "add", "test-game", "--path"],
+        &[&fixture.game],
+    );
+    assert!(register.status.success(), "{}", error(&register));
+    let add = run_state(
+        &fixture,
+        &proxy,
+        &["bucket", "add", "community"],
+        &[&bucket],
+    );
+    assert!(add.status.success(), "{}", error(&add));
+
+    let invalid = manifest(
+        "alpha",
+        &pin,
+        Some(json!({
+            "kind": "github-release",
+            "repository": "owner",
+            "asset_pattern": "Alpha-*.zip"
+        })),
+    );
+    fs::write(
+        bucket.join("mods/test-game/alpha.json"),
+        serde_json::to_vec(&invalid).expect("manifest JSON"),
+    )
+    .expect("invalid manifest");
+
+    let search = search(&fixture, &proxy, false);
+    assert!(!search.status.success());
+    let message = error(&search);
+    assert!(
+        message.contains("package test-game/alpha"),
+        "package not named: {message}"
+    );
+    assert!(
+        message.contains("checkver.repository"),
+        "field not named: {message}"
+    );
+    assert_eq!(proxy.accepted(), 0);
+}
+
+#[test]
 fn checkver_blocks_are_ignored_by_user_commands_and_authoring_commands() {
     let fixture = Fixture::new();
     let proxy = Proxy::new();
