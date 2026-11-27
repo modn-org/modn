@@ -67,7 +67,8 @@ impl Fixture {
             skipped_generated_files: Vec::new(),
             content_base: None,
             content_root: None,
-        }
+        overrides: Vec::new(),
+}
     }
 
     pub(super) fn install(

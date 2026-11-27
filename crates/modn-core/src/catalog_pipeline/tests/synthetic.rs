@@ -83,7 +83,8 @@ pub(super) fn install_plan(pin_prefix: char) -> InstallPlan {
         skipped_generated_files: Vec::new(),
         content_base: None,
         content_root: None,
-    }
+    overrides: Vec::new(),
+}
 }
 
 pub(super) fn preview(id: &str, pin_prefix: char) -> ReleasePreview {
