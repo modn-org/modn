@@ -39,7 +39,7 @@ impl Tree {
                 child.id()
             )))
         })?;
-        let group = getpgid(Some(pid)).map_err(TreeError::Io)?;
+        let group = getpgid(Some(pid)).map_err(|error| TreeError::Io(error.into()))?;
         if group != pid {
             return Err(TreeError::Io(io::Error::other(format!(
                 "the Git child {} leads process group {group}, not its own group",
@@ -63,7 +63,7 @@ impl Tree {
             // group. This is the only signal Modn sends after the leader was
             // reaped.
             Ok(()) => self.kill_group()?,
-            Err(Errno::ESRCH) => {}
+            Err(Errno::SRCH) => {}
             Err(error) => return Err(TreeError::Io(error.into())),
         }
         self.confirm_empty()
@@ -79,7 +79,7 @@ impl Tree {
     fn kill_group(&self) -> Result<(), TreeError> {
         match kill_process_group(self.group, Signal::KILL) {
             // The leader exited between the wait poll and this call.
-            Err(Errno::ESRCH) => Ok(()),
+            Err(Errno::SRCH) => Ok(()),
             result => result.map_err(|error| TreeError::Io(error.into())),
         }
     }
@@ -87,7 +87,7 @@ impl Tree {
     fn confirm_empty(&self) -> Result<(), TreeError> {
         wait_until_empty(|| match test_kill_process_group(self.group) {
             Ok(()) => Ok(false),
-            Err(Errno::ESRCH) => Ok(true),
+            Err(Errno::SRCH) => Ok(true),
             Err(error) => Err(error.into()),
         })
     }
