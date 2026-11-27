@@ -7,7 +7,7 @@
 //! through the supplied [`OperationControl`]. It never prompts and never
 //! prints.
 
-use super::plan::CatalogPlan;
+use super::plan::{CatalogPlan, ServedArchive, ServedOrigin};
 use crate::acquisition::{
     ArchiveCache, CacheUse, ReleaseDigest, ReleaseResolver, SourceAttempt, SourcePolicy,
     SourceTransport,
@@ -16,7 +16,7 @@ use crate::buckets::PackageSource;
 use crate::error::{coded, ErrorCode};
 use crate::progress::OperationControl;
 use crate::transactions::CatalogReference;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -44,6 +44,30 @@ pub struct AcquiredArchives {
     pub archives: BTreeMap<String, AcquiredArchive>,
     /// Every attempt of every release, in acquisition order.
     pub attempts: Vec<SourceAttempt>,
+}
+
+impl AcquiredArchives {
+    /// Record every acquired archive as the served archive of its release.
+    ///
+    /// A fresh plan of the same catalog state names a cache entry and a
+    /// manifest source, but only the acquisition knows which source served the
+    /// archive. Applying the acquisition preserves that source, the archive
+    /// path and the verified digest.
+    pub fn apply_to(&self, plan: &mut CatalogPlan) {
+        for planned in &mut plan.order {
+            let key = planned.package.reference().to_string();
+            let Some(entry) = self.archives.get(&key) else {
+                continue;
+            };
+            planned.served = Some(ServedArchive {
+                path: entry.archive.clone(),
+                source: entry.source.clone(),
+                digest: entry.digest.clone(),
+                origin: ServedOrigin::Cache,
+            });
+            planned.digest = entry.digest.clone();
+        }
+    }
 }
 
 /// The archive of every release that has one, keyed by reference.
@@ -103,19 +127,20 @@ pub(crate) fn sources_of(
     sources
 }
 
-/// Acquire every release in [`CatalogPlan::pending`].
+/// Acquire every pending release that [`CatalogPlan::members`] would place.
 ///
 /// Each release is fetched through [`ArchiveCache::acquire_release`] with the
 /// supplied transport, resolver, source policy and cache use. A cancellation
 /// propagates as `CANCELLED` unchanged and keeps no partial cache entry. The
 /// plan is not modified; the returned map fixes each acquired release's archive
-/// path, digest and serving source.
+/// path, digest and serving source. A release that shares another release's
+/// archive is not acquired twice.
 ///
 /// # Errors
 ///
 /// Returns the acquisition error of the first release that cannot be acquired,
-/// including [`crate::error::ErrorCode::Cancelled`] when the control is
-/// cancelled.
+/// the refusal of a shared archive that cannot be merged, or
+/// [`crate::error::ErrorCode::Cancelled`] when the control is cancelled.
 pub fn acquire_pending(
     plan: &CatalogPlan,
     cache: &ArchiveCache,
@@ -125,19 +150,16 @@ pub fn acquire_pending(
     resolver: &dyn ReleaseResolver,
     control: &OperationControl,
 ) -> Result<AcquiredArchives> {
+    let members = plan.members()?;
     let mut archives = BTreeMap::new();
     let mut attempts = Vec::new();
     for pending in &plan.pending {
-        let planned = plan
-            .order
+        let Some(planned) = members
             .iter()
             .find(|planned| planned.package.reference() == pending.reference)
-            .with_context(|| {
-                format!(
-                    "the plan does not name the pending release {}",
-                    pending.reference
-                )
-            })?;
+        else {
+            continue;
+        };
         let acquired = cache.acquire_release(
             &planned.package,
             cache_use,

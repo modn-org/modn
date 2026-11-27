@@ -29,7 +29,6 @@ mod progress;
 #[cfg(test)]
 mod provider_fixture_tests;
 mod selection;
-mod stack_install;
 mod state_access;
 mod themes;
 mod undo;

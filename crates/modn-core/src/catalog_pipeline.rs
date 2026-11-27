@@ -46,7 +46,7 @@ pub use plan::{
     CatalogPlan, PendingDownload, PlanConflict, PlanKind, PlanRefusal, PlannedRelease,
     ServedArchive, ServedOrigin,
 };
-pub use preview::preview_catalog_install;
+pub use preview::{preview_catalog_install, preview_catalog_release};
 
 use archives::ResolvedArchives;
 use order::OrderedRelease;

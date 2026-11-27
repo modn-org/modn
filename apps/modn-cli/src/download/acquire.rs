@@ -93,6 +93,19 @@ pub(super) fn download_into(
     Ok(attempts)
 }
 
+/// The provider steps of one release acquisition, in the command's report sink.
+pub(crate) fn resolver<'a>(
+    links: &'a [NxmLink],
+    text: bool,
+    report: &'a mut dyn Write,
+) -> impl ReleaseResolver + 'a {
+    CliResolver {
+        links,
+        text,
+        report: RefCell::new(report),
+    }
+}
+
 /// The CLI steps that release acquisition keeps outside core.
 struct CliResolver<'a> {
     links: &'a [NxmLink],
