@@ -383,7 +383,7 @@ fn a_cancel_during_a_slow_fetch_stops_the_git_child_and_keeps_the_cache() {
         }
     });
     let error = source
-        .acquire_url(&SLOW_REMOTE, &cache, &key, CacheUse::Reuse, &control)
+        .acquire_url(SLOW_REMOTE, &cache, &key, CacheUse::Reuse, &control)
         .expect_err("a cancelled fetch must fail");
     let elapsed = clock.elapsed();
     let started_on_time = watcher.join().expect("watcher thread");
@@ -409,8 +409,13 @@ fn a_cancel_during_a_slow_fetch_stops_the_git_child_and_keeps_the_cache() {
 #[test]
 fn a_cancel_before_the_spawn_starts_no_git_child() {
     let root = tempfile::tempdir().expect("temp directory");
-    let stub = BlockingStub::install(root.path(), "example.invalid");
-    let _program = Program::install(&stub.program);
+    // A program that cannot be spawned proves that no child started: a spawn
+    // attempt fails with the missing-program error, not with CANCELLED.
+    let absent = root
+        .path()
+        .join("absent-git")
+        .join(if cfg!(windows) { "git.bat" } else { "git" });
+    let _program = Program::install(&absent);
     let (cache, commit) = cached_fixture(root.path());
     let key = GitCacheKey::new("test-game", "fixture", "1.0", &commit);
     let before = cache_snapshot(&cache);
@@ -419,18 +424,10 @@ fn a_cancel_before_the_spawn_starts_no_git_child() {
     token.cancel();
     let control = OperationControl::new(token, |_event| {});
     let error = source
-        .acquire_url(&SLOW_REMOTE, &cache, &key, CacheUse::Reuse, &control)
+        .acquire_url(SLOW_REMOTE, &cache, &key, CacheUse::Reuse, &control)
         .expect_err("a cancelled operation must fail before it spawns Git");
     let text = format!("{error:#}");
     assert!(is_cancelled(&error), "{text}");
-    assert!(
-        !stub.started.exists(),
-        "the stub Git started after the cancel"
-    );
-    assert!(
-        !stub.still_running(),
-        "the stub Git still runs after the cancel"
-    );
     assert_eq!(
         cache_snapshot(&cache),
         before,
