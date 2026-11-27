@@ -10,7 +10,7 @@ use super::consent::ExecutableApproval;
 use super::digest::ReleasePreview;
 use super::plan::CatalogPlan;
 use crate::content_root::appdata_directory;
-use crate::game_modules::content_root_spec;
+use crate::game_modules::{content_root_spec, ModuleSelection};
 use crate::manager_roots::ManagerRoots;
 use crate::planning::{
     preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions, InstallPlan,
@@ -85,7 +85,8 @@ pub(crate) fn preview_release(
     archive: &Path,
     approved: &[String],
 ) -> Result<InstallPlan> {
-    match content_root_spec(roots, game_id)? {
+    let selection = ModuleSelection::resolve(roots, game_id)?;
+    match content_root_spec(&selection)? {
         Some(_) => {
             let appdata = appdata_directory()?;
             preview_install_zip_with_appdata_permissions(
