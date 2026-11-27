@@ -46,7 +46,7 @@ pub(super) fn commit_update(
         .get(&key)
         .with_context(|| format!("{key}: the plan has no archive to update from"))?;
     let approved = approved_for(&reference, &consent.executables);
-    let preview = preview_catalog_update(roots, plan, archive, &approved)?;
+    let preview = preview_catalog_update(Some(&*store), roots, plan, archive, &approved)?;
     verify_digest(&preview, digests.get(&key))?;
     verify_reviewable(&preview)?;
     consent.check(plan, std::slice::from_ref(&preview))?;

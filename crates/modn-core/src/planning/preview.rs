@@ -16,6 +16,32 @@ pub fn preview_install_zip_with_claims(
     approved: &[String],
     appdata: Option<&Path>,
 ) -> anyhow::Result<InstallPlan> {
+    preview_update_with_claims(
+        store, roots, game_id, game, archive, approved, &[], None, appdata,
+    )
+}
+
+/// Preview `archive` as an update against the active profile's file claims.
+///
+/// `replaced` names the game-relative files and exclusive folders of the
+/// installed release, as [`preview_update_with_permissions`] does.
+/// `replaced_package` names the package they belong to, so its own claims stay
+/// owned by it and never appear as overrides.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the store-aware update preview names the store and the replaced package beside the update inputs"
+)]
+pub fn preview_update_with_claims(
+    store: &Store,
+    roots: &ManagerRoots,
+    game_id: &str,
+    game: &Path,
+    archive: &Path,
+    approved: &[String],
+    replaced: &[String],
+    replaced_package: Option<&str>,
+    appdata: Option<&Path>,
+) -> anyhow::Result<InstallPlan> {
     let inspection = crate::archive::inspect(archive)?;
     let mut proposal = resolve_with_claims(
         store,
@@ -24,8 +50,8 @@ pub fn preview_install_zip_with_claims(
         &inspection,
         game,
         approved,
-        &[],
-        None,
+        replaced,
+        replaced_package,
         appdata,
     )?;
     if !inspection.format.is_installable() {

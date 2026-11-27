@@ -156,6 +156,13 @@ fn report_text(
         "Dry run for {}: {}",
         report.reference, preview.preview.plan.status
     );
+    for entry in &preview.preview.plan.overrides {
+        let _ = writeln!(
+            out,
+            "replaces {} at {}",
+            entry.replaced_package, entry.destination
+        );
+    }
     for operation in &preview.preview.plan.operations {
         let _ = writeln!(out, "{} => {}", operation.source, operation.destination);
     }

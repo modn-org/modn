@@ -10,7 +10,7 @@ pub use preview::{
     preview_install_zip, preview_install_zip_with_appdata,
     preview_install_zip_with_appdata_permissions, preview_install_zip_with_claims,
     preview_install_zip_with_permissions, preview_update_with_appdata,
-    preview_update_with_permissions,
+    preview_update_with_claims, preview_update_with_permissions,
 };
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};

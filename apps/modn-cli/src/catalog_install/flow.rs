@@ -128,6 +128,7 @@ pub(super) fn install_mod(
             attempts = acquired.attempts;
         }
         return dry_run_report(
+            state.existing(),
             roots,
             &plan,
             &reference_key,
@@ -140,10 +141,13 @@ pub(super) fn install_mod(
 
     let conflicts = install_report::conflict_lines(&plan);
     if !conflicts.is_empty() {
-        bail!(
-            "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
-            conflicts.join("\n  ")
-        );
+        return Err(coded(
+            ErrorCode::Conflict,
+            format!(
+                "installation blocked by declared conflicts; uninstall the installed packages first:\n  {}",
+                conflicts.join("\n  ")
+            ),
+        ));
     }
     let members = plan.members()?;
     let stack = members.len() > 1;
@@ -259,6 +263,7 @@ pub(super) fn acquire_and_replan(
 
 /// Preview the selected release when its archive is already available.
 pub(super) fn preview_selected(
+    store: Option<&Store>,
     roots: &ManagerRoots,
     plan: &CatalogPlan,
     approved: &[String],
@@ -266,7 +271,8 @@ pub(super) fn preview_selected(
     let Some(served) = &plan_data::selected(plan).served else {
         return Ok(None);
     };
-    let preview = preview_catalog_release(roots, plan, &plan.selected, &served.path, approved)?;
+    let preview =
+        preview_catalog_release(store, roots, plan, &plan.selected, &served.path, approved)?;
     Ok(Some(preview))
 }
 
@@ -309,7 +315,12 @@ fn missing_dependency_archives(plan: &CatalogPlan, members: &[&PlannedRelease]) 
 }
 
 /// Print the dry-run report of `plan`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the dry-run report keeps the state view, plan, approval and download evidence explicit"
+)]
 fn dry_run_report(
+    store: Option<&Store>,
     roots: &ManagerRoots,
     plan: &CatalogPlan,
     reference_key: &CatalogReference,
@@ -328,7 +339,7 @@ fn dry_run_report(
     let candidate = if candidate_approvals.is_empty() {
         None
     } else {
-        preview_selected(roots, plan, &candidate_approvals)?
+        preview_selected(store, roots, plan, &candidate_approvals)?
     };
     let present = candidate.as_ref().map_or_else(BTreeSet::new, |preview| {
         let destinations: Vec<&str> = preview
@@ -348,7 +359,7 @@ fn dry_run_report(
     );
     let pending = check.uncovered.executables.clone();
     let approved = check.approved_executables();
-    let preview = preview_selected(roots, plan, &approved)?;
+    let preview = preview_selected(store, roots, plan, &approved)?;
     let archive = preview.as_ref().map(|preview| ArchivePreview {
         preview,
         unapproved_declared_executables: &pending,

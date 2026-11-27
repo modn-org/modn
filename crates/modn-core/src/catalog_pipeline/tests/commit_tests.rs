@@ -448,3 +448,70 @@ fn a_module_change_after_the_pre_lock_check_makes_a_stack_stale() {
     assert_eq!(fixture.count("pending_transactions"), 0);
     assert_eq!(fixture.count("pending_stacks"), 0);
 }
+
+#[test]
+fn override_catalog_install_replaces_a_managed_file_and_records_the_claim() {
+    let fixture = CommitFixture::new();
+    let base = fixture.versioned_plugin("base.zip", "shared", "first-bytes");
+    let top = fixture.versioned_plugin("top.zip", "shared", "second-bytes");
+    fixture.add(&manifest("base", Some(&digest(&base))));
+    fixture.add(&manifest("top", Some(&digest(&top))));
+    let snapshot = fixture.snapshot();
+    let mut store = fixture.open_store();
+    let transport = FakeTransport::default();
+    let control = OperationControl::default();
+    let path = fixture.game().join("addons/shared.plugin");
+
+    let base_plan = fixture.plan(&snapshot, "base", None, std::slice::from_ref(&base));
+    let base_previews = fixture.preview(&base_plan, &fixture.local_archives(&[("base", &base)]));
+    let base_consent = fixture.consent(&base_plan, &base_previews);
+    let first = commit(
+        &fixture,
+        &mut store,
+        &base_plan,
+        &base_consent,
+        &transport,
+        &control,
+    )
+    .expect("base install");
+    assert_eq!(fs::read(&path).expect("bytes"), b"first-bytes");
+
+    let top_plan = fixture.plan(&snapshot, "top", Some(&store), std::slice::from_ref(&top));
+    let top_previews = fixture.preview_with(
+        Some(&store),
+        &top_plan,
+        &fixture.local_archives(&[("top", &top)]),
+    );
+    assert_eq!(top_previews.len(), 1);
+    assert_eq!(top_previews[0].plan.overrides.len(), 1, "{top_previews:?}");
+    assert_eq!(
+        top_previews[0].plan.overrides[0].destination,
+        "addons/shared.plugin"
+    );
+    assert_eq!(
+        top_previews[0].plan.overrides[0].replaced_package,
+        first.packages[0].id
+    );
+    let top_consent = fixture.consent(&top_plan, &top_previews);
+    let second = commit(
+        &fixture,
+        &mut store,
+        &top_plan,
+        &top_consent,
+        &transport,
+        &control,
+    )
+    .expect("override install");
+
+    assert_eq!(fs::read(&path).expect("bytes"), b"second-bytes");
+    assert_eq!(fixture.count("file_claims"), 2);
+    let winner: String = store
+        .connection
+        .query_row(
+            "SELECT package_id FROM managed_files WHERE relative_path='addons/shared.plugin'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("winner row");
+    assert_eq!(winner, second.packages[0].id);
+}

@@ -347,7 +347,7 @@ impl Fixture {
                 &game,
                 members,
                 NativeInjectorPolicy::Refuse,
-                |member| {
+                |_store, member| {
                     if fail_on == Some(member.release.reference.mod_id.as_str()) {
                         fail_on = None;
                         anyhow::bail!("injected plan failure");
@@ -378,7 +378,7 @@ fn stack_installs_members_in_order_as_separate_packages() {
             &game,
             &members,
             NativeInjectorPolicy::Refuse,
-            |member| {
+            |_store, member| {
                 if member.release.reference.mod_id == "top" {
                     assert!(game.join("addons/base.plugin").is_file());
                 }

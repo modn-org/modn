@@ -13,9 +13,11 @@ use crate::content_root::appdata_directory;
 use crate::game_modules::{content_root_spec, ModuleSelection};
 use crate::manager_roots::ManagerRoots;
 use crate::planning::{
-    preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
-    preview_update_with_appdata, preview_update_with_permissions, InstallPlan,
+    preview_install_zip_with_appdata_permissions, preview_install_zip_with_claims,
+    preview_install_zip_with_permissions, preview_update_with_appdata,
+    preview_update_with_claims, preview_update_with_permissions, InstallPlan,
 };
+use crate::state::Store;
 use crate::transactions::CatalogReference;
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
@@ -28,13 +30,16 @@ use std::path::{Path, PathBuf};
 /// this installation would place, dependencies first and the selected release
 /// last. A member without an archive is skipped; the caller refuses it
 /// separately. The game module's `plan(files)` and declared `content_root` run
-/// through the existing `planning` functions.
+/// through the existing `planning` functions. A store names the files the
+/// active profile already owns, so a destination those files hold becomes a
+/// planned override instead of a blocker.
 ///
 /// # Errors
 ///
 /// Returns the refusal of a shared archive that cannot be merged, the error of
 /// the game module, or the error of an archive inspection.
 pub fn preview_catalog_install(
+    store: Option<&Store>,
     roots: &ManagerRoots,
     plan: &CatalogPlan,
     archives: &BTreeMap<String, PathBuf>,
@@ -50,7 +55,14 @@ pub fn preview_catalog_install(
         let approved = approved_for(&reference, approvals);
         previews.push(ReleasePreview {
             reference,
-            plan: preview_release(roots, &plan.game_id, &plan.installation, archive, &approved)?,
+            plan: preview_release(
+                store,
+                roots,
+                &plan.game_id,
+                &plan.installation,
+                archive,
+                &approved,
+            )?,
         });
     }
     Ok(previews)
@@ -66,6 +78,7 @@ pub fn preview_catalog_install(
 ///
 /// Returns the error of the game module or of the archive inspection.
 pub fn preview_catalog_release(
+    store: Option<&Store>,
     roots: &ManagerRoots,
     plan: &CatalogPlan,
     reference: &CatalogReference,
@@ -74,12 +87,20 @@ pub fn preview_catalog_release(
 ) -> Result<ReleasePreview> {
     Ok(ReleasePreview {
         reference: reference.clone(),
-        plan: preview_release(roots, &plan.game_id, &plan.installation, archive, approved)?,
+        plan: preview_release(
+            store,
+            roots,
+            &plan.game_id,
+            &plan.installation,
+            archive,
+            approved,
+        )?,
     })
 }
 
 /// Preview one release's archive with the selected game module.
 pub(crate) fn preview_release(
+    store: Option<&Store>,
     roots: &ManagerRoots,
     game_id: &str,
     installation: &Path,
@@ -87,21 +108,31 @@ pub(crate) fn preview_release(
     approved: &[String],
 ) -> Result<InstallPlan> {
     let selection = ModuleSelection::resolve(roots, game_id)?;
-    match content_root_spec(&selection)? {
-        Some(_) => {
-            let appdata = appdata_directory()?;
-            preview_install_zip_with_appdata_permissions(
-                roots,
-                game_id,
-                installation,
-                archive,
-                approved,
-                &appdata,
-            )
-        }
-        None => {
-            preview_install_zip_with_permissions(roots, game_id, installation, archive, approved)
-        }
+    let appdata = match content_root_spec(&selection)? {
+        Some(_) => Some(appdata_directory()?),
+        None => None,
+    };
+    if let Some(store) = store {
+        return preview_install_zip_with_claims(
+            store,
+            roots,
+            game_id,
+            installation,
+            archive,
+            approved,
+            appdata.as_deref(),
+        );
+    }
+    match &appdata {
+        Some(appdata) => preview_install_zip_with_appdata_permissions(
+            roots,
+            game_id,
+            installation,
+            archive,
+            approved,
+            appdata,
+        ),
+        None => preview_install_zip_with_permissions(roots, game_id, installation, archive, approved),
     }
 }
 
@@ -109,13 +140,16 @@ pub(crate) fn preview_release(
 ///
 /// The game module plans as if `UpdatePlan::replaced` were already gone, so an
 /// exclusive folder is claimed again. Installation revalidates the proposal
-/// against the real disk after it removes them.
+/// against the real disk after it removes them. A store names the files the
+/// active profile already owns; the claims of the package the update replaces
+/// stay its own.
 ///
 /// # Errors
 ///
 /// Returns an error for a plan that is not an update, the error of the game
 /// module, or the error of the archive inspection.
 pub fn preview_catalog_update(
+    store: Option<&Store>,
     roots: &ManagerRoots,
     plan: &CatalogPlan,
     archive: &Path,
@@ -127,39 +161,57 @@ pub fn preview_catalog_update(
     Ok(ReleasePreview {
         reference: plan.selected.clone(),
         plan: preview_update(
+            store,
             roots,
             &plan.game_id,
             &plan.installation,
             archive,
             approved,
             &update.replaced,
+            Some(&update.installed.id),
         )?,
     })
 }
 
 /// Preview one archive as an update that replaces `replaced`.
 pub(crate) fn preview_update(
+    store: Option<&Store>,
     roots: &ManagerRoots,
     game_id: &str,
     installation: &Path,
     archive: &Path,
     approved: &[String],
     replaced: &[String],
+    replaced_package: Option<&str>,
 ) -> Result<InstallPlan> {
     let selection = ModuleSelection::resolve(roots, game_id)?;
-    match content_root_spec(&selection)? {
-        Some(_) => {
-            let appdata = appdata_directory()?;
-            preview_update_with_appdata(
-                roots,
-                game_id,
-                installation,
-                archive,
-                approved,
-                replaced,
-                &appdata,
-            )
-        }
+    let appdata = match content_root_spec(&selection)? {
+        Some(_) => Some(appdata_directory()?),
+        None => None,
+    };
+    if let Some(store) = store {
+        return preview_update_with_claims(
+            store,
+            roots,
+            game_id,
+            installation,
+            archive,
+            approved,
+            replaced,
+            replaced_package,
+            appdata.as_deref(),
+        );
+    }
+    match &appdata {
+        Some(appdata) => preview_update_with_appdata(
+            roots,
+            game_id,
+            installation,
+            archive,
+            approved,
+            replaced,
+            appdata,
+        ),
         None => preview_update_with_permissions(
             roots,
             game_id,

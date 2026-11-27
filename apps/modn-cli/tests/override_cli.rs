@@ -225,3 +225,198 @@ fn override_uninstall_in_install_order_restores_the_game() {
     assert!(world.uninstall(&second_id).status.success());
     assert_eq!(snapshot(&world.game), start);
 }
+
+const CATALOG_SHARED: &str = "archive/pc/mod/override.archive";
+
+/// A catalog of legacy archives that all claim one game file.
+struct Catalog {
+    temp: TempDir,
+    game: PathBuf,
+    state: PathBuf,
+}
+
+impl Catalog {
+    fn new() -> Self {
+        let temp = tempdir().expect("temp");
+        let game = temp.path().join("game");
+        fs::create_dir_all(game.join("bin/x64")).expect("bin");
+        fs::write(game.join("bin/x64/Cyberpunk2077.exe"), b"game").expect("exe");
+        let state = temp.path().join("state");
+        main_bucket::seed_state(&state);
+        let catalog = Self { temp, game, state };
+        let added = catalog.cli(&[
+            "game",
+            "add",
+            "cyberpunk-2077",
+            "--path",
+            catalog.game.to_str().expect("game"),
+        ]);
+        assert!(added.status.success(), "{added:?}");
+        catalog
+    }
+
+    fn cli(&self, args: &[&str]) -> Output {
+        main_bucket::command(env!("CARGO_BIN_EXE_modn"))
+            .args(["--game", "cyberpunk-2077", "--json", "--state-dir"])
+            .arg(&self.state)
+            .args(args)
+            .output()
+            .expect("modn")
+    }
+
+    fn zip(&self, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = self.temp.path().join(name);
+        let mut zip = zip::ZipWriter::new(File::create(&path).expect("zip"));
+        zip.start_file(CATALOG_SHARED, SimpleFileOptions::default())
+            .expect("entry");
+        zip.write_all(bytes).expect("bytes");
+        zip.finish().expect("finish");
+        path
+    }
+
+    fn digest(&self, archive: &Path) -> String {
+        blake3::hash(&fs::read(archive).expect("bytes"))
+            .to_hex()
+            .to_string()
+    }
+
+    fn register(&self, packages: &[Value]) {
+        let root = self.temp.path().join("community");
+        let games = root.join("mods/cyberpunk-2077");
+        fs::create_dir_all(&games).expect("dirs");
+        fs::write(
+            root.join("bucket.json"),
+            r#"{"schema_version":2,"name":"community","title":"Community"}"#,
+        )
+        .expect("metadata");
+        for package in packages {
+            let id = package["id"].as_str().expect("id");
+            fs::write(
+                games.join(format!("{id}.json")),
+                serde_json::to_vec(package).expect("manifest"),
+            )
+            .expect("manifest");
+        }
+        let added = self.cli(&["bucket", "add", "community", root.to_str().expect("root")]);
+        assert!(added.status.success(), "{added:?}");
+    }
+
+    fn install(&self, id: &str, archive: &Path, yes: bool) -> Output {
+        let reference = format!("community/cyberpunk-2077/{id}");
+        let mut args = vec![
+            "install",
+            &reference,
+            "--file",
+            archive.to_str().expect("archive"),
+            "--path",
+            self.game.to_str().expect("game"),
+        ];
+        if yes {
+            args.push("--yes");
+        } else {
+            args.push("--dry-run");
+        }
+        self.cli(&args)
+    }
+
+    fn path(&self) -> PathBuf {
+        self.game.join(CATALOG_SHARED)
+    }
+
+    fn state_bytes(&self) -> Vec<u8> {
+        fs::read(self.state.join("state.sqlite")).expect("state")
+    }
+}
+
+fn catalog_manifest(id: &str, pin: &str, conflicts: &[&str]) -> Value {
+    serde_json::json!({
+        "schema_version": 2, "id": id, "game": "cyberpunk-2077", "name": id,
+        "version": "1.0", "archive_format": "zip", "blake3": pin,
+        "sources": [{"kind": "manual", "filename": format!("{id}.zip")}],
+        "conflicts": conflicts,
+    })
+}
+
+#[test]
+fn override_catalog_install_replaces_a_managed_file() {
+    let catalog = Catalog::new();
+    let first = catalog.zip("first.zip", b"first-bytes");
+    let second = catalog.zip("second.zip", b"second-bytes");
+    catalog.register(&[
+        catalog_manifest("first", &catalog.digest(&first), &[]),
+        catalog_manifest("second", &catalog.digest(&second), &[]),
+    ]);
+    let installed = catalog.install("first", &first, true);
+    assert!(installed.status.success(), "{installed:?}");
+    let game_before = snapshot(&catalog.game);
+    let state_before = catalog.state_bytes();
+
+    let dry = catalog.install("second", &second, false);
+    assert!(dry.status.success(), "{dry:?}");
+    let preview = json(&dry);
+    assert_eq!(preview["plan"]["status"], "reviewable", "{preview}");
+    let overrides = preview["plan"]["overrides"]
+        .as_array()
+        .expect("overrides");
+    assert_eq!(overrides.len(), 1, "{preview}");
+    assert_eq!(overrides[0]["destination"], CATALOG_SHARED);
+    assert!(overrides[0]["replaced_package"].is_string(), "{preview}");
+    assert_eq!(snapshot(&catalog.game), game_before);
+    assert_eq!(catalog.state_bytes(), state_before);
+
+    let replaced = catalog.install("second", &second, true);
+    assert!(replaced.status.success(), "{replaced:?}");
+    assert_eq!(fs::read(catalog.path()).expect("bytes"), b"second-bytes");
+    let first_id = json(&installed)["installed"]["id"]
+        .as_str()
+        .expect("first id")
+        .to_owned();
+    let second_id = json(&replaced)["installed"]["id"]
+        .as_str()
+        .expect("second id")
+        .to_owned();
+    let database = rusqlite::Connection::open(catalog.state.join("state.sqlite")).expect("state");
+    let claims: i64 = database
+        .query_row("SELECT COUNT(*) FROM file_claims", [], |row| row.get(0))
+        .expect("claims");
+    assert_eq!(claims, 2);
+    let winner: String = database
+        .query_row(
+            "SELECT package_id FROM managed_files WHERE relative_path=?1",
+            [CATALOG_SHARED],
+            |row| row.get(0),
+        )
+        .expect("winner");
+    assert_eq!(winner, second_id);
+    let shadowed: String = database
+        .query_row(
+            "SELECT package_id FROM file_claims WHERE package_id=?1",
+            [&first_id],
+            |row| row.get(0),
+        )
+        .expect("shadowed claim");
+    assert_eq!(shadowed, first_id);
+}
+
+#[test]
+fn override_declared_conflict_is_refused_without_change() {
+    let catalog = Catalog::new();
+    let first = catalog.zip("first.zip", b"first-bytes");
+    let second = catalog.zip("second.zip", b"second-bytes");
+    catalog.register(&[
+        catalog_manifest("first", &catalog.digest(&first), &[]),
+        catalog_manifest("second", &catalog.digest(&second), &["first"]),
+    ]);
+    let installed = catalog.install("first", &first, true);
+    assert!(installed.status.success(), "{installed:?}");
+    let game_before = snapshot(&catalog.game);
+    let state_before = catalog.state_bytes();
+
+    let refused = catalog.install("second", &second, true);
+    assert!(!refused.status.success());
+    let error: Value = serde_json::from_slice(&refused.stderr).expect("error json");
+    assert_eq!(error["error"], "CONFLICT", "{error}");
+    assert_eq!(fs::read(catalog.path()).expect("bytes"), b"first-bytes");
+    assert_eq!(snapshot(&catalog.game), game_before);
+    assert_eq!(catalog.state_bytes(), state_before);
+}

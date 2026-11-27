@@ -256,7 +256,7 @@ pub(super) fn refresh_update(
         dependents,
     }));
     let approved = super::preview::approved_for(&plan.selected, approvals);
-    let preview = super::preview_catalog_update(roots, &refreshed, archive, &approved)?;
+    let preview = super::preview_catalog_update(Some(store), roots, &refreshed, archive, &approved)?;
     Ok((refreshed, preview))
 }
 

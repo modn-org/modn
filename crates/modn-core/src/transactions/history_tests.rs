@@ -304,7 +304,7 @@ fn a_successful_stack_records_one_operation_with_every_package() {
     let game = fixture.game.clone();
     let installed = fixture
         .store
-        .install_catalog_stack(&game, &members, NativeInjectorPolicy::Refuse, |member| {
+        .install_catalog_stack(&game, &members, NativeInjectorPolicy::Refuse, |_store, member| {
             Ok(plan(&game, &member.archive))
         })
         .expect("stack");
@@ -357,7 +357,7 @@ fn a_failed_stack_rollback_writes_no_history() {
         &game,
         &members,
         NativeInjectorPolicy::Refuse,
-        |member| {
+        |_store, member| {
             if member.release.reference.mod_id == "first" {
                 Ok(plan(&game, &member.archive))
             } else {
