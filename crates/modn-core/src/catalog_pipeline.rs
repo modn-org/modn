@@ -41,7 +41,7 @@ mod update_digest;
 
 pub use acquire::{acquire_pending, AcquiredArchive, AcquiredArchives};
 pub use commit::{commit_plan, CommitRequest};
-pub use consent::{Consent, ExecutableApproval, StalePlan};
+pub use consent::{ConfirmedMember, ConfirmedStack, Consent, ExecutableApproval, StalePlan};
 pub use digest::{plan_digest, PlanDigest, ReleasePreview};
 pub use input::{ConsentInputs, InstallInput, InstallTarget};
 pub use outcome::CommitOutcome;

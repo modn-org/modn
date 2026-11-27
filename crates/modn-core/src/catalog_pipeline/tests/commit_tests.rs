@@ -5,6 +5,7 @@ use super::commit_support::{
 };
 use super::fixtures::{self, tree};
 use crate::acquisition::{CacheUse, SourcePolicy};
+use crate::catalog_pipeline::commit::{clear_before_transaction_hook, set_before_transaction_hook};
 use crate::catalog_pipeline::{
     commit_plan, plan_digest, CatalogPlan, CommitOutcome, CommitRequest, Consent, StalePlan,
 };
@@ -12,8 +13,10 @@ use crate::error::{code_of, ErrorCode};
 use crate::progress::{CancellationToken, OperationControl};
 use crate::state::Store;
 use crate::transactions::{CatalogReference, CatalogRelease, NativeInjectorPolicy};
+use std::cell::Cell;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 fn commit(
     fixture: &CommitFixture,
@@ -351,4 +354,97 @@ fn a_consent_for_another_plan_is_refused_without_a_write() {
     assert_eq!(code_of(&error), Some(ErrorCode::PlanStale));
     assert_eq!(fixture.count("managed_packages"), 0);
     assert_eq!(fixture.count("pending_transactions"), 0);
+}
+
+/// Point the test module at `stale/` instead of `addons/`.
+fn rewrite_module_output(module: &Path) {
+    let script = fs::read_to_string(module.join("main.lua")).expect("module script");
+    fs::write(
+        module.join("main.lua"),
+        script.replace("\"addons/\"", "\"stale/\""),
+    )
+    .expect("changed module");
+}
+
+#[test]
+fn a_module_change_after_the_pre_lock_check_makes_the_plan_stale() {
+    let fixture = CommitFixture::new();
+    let archive = fixture.plugin_zip("top");
+    fixture.add(&manifest("top", Some(&digest(&archive))));
+    let snapshot = fixture.snapshot();
+    let plan = fixture.plan(&snapshot, "top", None, std::slice::from_ref(&archive));
+    let consent = reviewed_consent(&fixture, &plan, &[("top", &archive)]);
+    let mut store = fixture.open_store();
+    let tree_before = tree(fixture.game());
+    let fired = Rc::new(Cell::new(false));
+    let hook = Rc::clone(&fired);
+    let module = fixture.module().to_path_buf();
+    set_before_transaction_hook(move || {
+        hook.set(true);
+        rewrite_module_output(&module);
+    });
+
+    let error = commit(
+        &fixture,
+        &mut store,
+        &plan,
+        &consent,
+        &FakeTransport::default(),
+        &OperationControl::default(),
+    )
+    .expect_err("stale plan refused");
+    clear_before_transaction_hook();
+
+    assert!(fired.get(), "the hook ran after the pre-lock check");
+    assert_eq!(code_of(&error), Some(ErrorCode::PlanStale));
+    let stale = error.downcast_ref::<StalePlan>().expect("typed refusal");
+    assert_eq!(stale.code(), ErrorCode::PlanStale);
+    assert_eq!(tree(fixture.game()), tree_before);
+    assert_eq!(fixture.count("managed_packages"), 0);
+    assert_eq!(fixture.count("managed_files"), 0);
+    assert_eq!(fixture.count("pending_transactions"), 0);
+}
+
+#[test]
+fn a_module_change_after_the_pre_lock_check_makes_a_stack_stale() {
+    let fixture = CommitFixture::new();
+    let base = fixture.plugin_zip("base");
+    let top = fixture.plugin_zip("top");
+    let mut top_manifest = manifest("top", Some(&digest(&top)));
+    top_manifest.dependencies = vec!["base".to_owned()];
+    fixture.add(&manifest("base", Some(&digest(&base))));
+    fixture.add(&top_manifest);
+    let snapshot = fixture.snapshot();
+    let plan = fixture.plan(&snapshot, "top", None, &[base.clone(), top.clone()]);
+    let consent = reviewed_consent(&fixture, &plan, &[("base", &base), ("top", &top)]);
+    let mut store = fixture.open_store();
+    let tree_before = tree(fixture.game());
+    let fired = Rc::new(Cell::new(false));
+    let hook = Rc::clone(&fired);
+    let module = fixture.module().to_path_buf();
+    set_before_transaction_hook(move || {
+        hook.set(true);
+        rewrite_module_output(&module);
+    });
+
+    let error = commit(
+        &fixture,
+        &mut store,
+        &plan,
+        &consent,
+        &FakeTransport::default(),
+        &OperationControl::default(),
+    )
+    .expect_err("stale stack refused");
+    clear_before_transaction_hook();
+
+    assert!(fired.get(), "the hook ran after the pre-lock check");
+    assert_eq!(code_of(&error), Some(ErrorCode::PlanStale));
+    let stale = error.downcast_ref::<StalePlan>().expect("typed refusal");
+    assert_eq!(stale.code(), ErrorCode::PlanStale);
+    assert_eq!(tree(fixture.game()), tree_before);
+    assert_eq!(fixture.count("managed_packages"), 0);
+    assert_eq!(fixture.count("managed_files"), 0);
+    assert_eq!(fixture.count("pending_transactions"), 0);
+    assert_eq!(fixture.count("pending_stacks"), 0);
 }

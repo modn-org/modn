@@ -35,6 +35,35 @@ use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+#[cfg(test)]
+thread_local! {
+    static BEFORE_TRANSACTION: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Set the test-only hook that runs between the pre-lock checks and the
+/// transaction call, so a test can change the game module output in between.
+#[cfg(test)]
+pub(crate) fn set_before_transaction_hook(hook: impl FnMut() + 'static) {
+    BEFORE_TRANSACTION.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+}
+
+/// Clear the test-only hook of the current thread.
+#[cfg(test)]
+pub(crate) fn clear_before_transaction_hook() {
+    BEFORE_TRANSACTION.with(|slot| *slot.borrow_mut() = None);
+}
+
+/// Run the test-only hook of the current thread, when one is set.
+#[cfg(test)]
+fn run_before_transaction_hook() {
+    BEFORE_TRANSACTION.with(|slot| {
+        if let Some(hook) = slot.borrow_mut().as_mut() {
+            hook();
+        }
+    });
+}
+
 /// Everything one catalog commit needs.
 ///
 /// The caller opens and validates the writable [`Store`]; moving state-location
@@ -187,6 +216,8 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
     store.set_control(control.clone());
     store.set_history_context(history);
     let mut destinations: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    #[cfg(test)]
+    run_before_transaction_hook();
     let packages = if installing.len() == 1 {
         install_one(
             store,
