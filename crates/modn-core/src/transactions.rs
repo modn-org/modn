@@ -10,6 +10,7 @@ mod conflicts;
 #[cfg(test)]
 mod conflicts_tests;
 mod content;
+mod controlled_io;
 mod created_dirs;
 #[cfg(test)]
 mod created_dirs_tests;

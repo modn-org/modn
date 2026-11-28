@@ -734,7 +734,7 @@ otherwise the command's default code is used. No command reports a generic
 
 | Code | Meaning |
 |---|---|
-| `ALREADY_INSTALLED` | The installation already holds that archive or release. |
+| `ALREADY_INSTALLED` | The installation already holds that archive or release, or the update target already uses the selected archive. |
 | `AMBIGUOUS_TARGET` | A mod name matches several catalog mods. |
 | `APPROVAL_REQUIRED` | A write needs `--yes` or an interactive confirmation, or a release adds an executable path the stored approval does not cover. |
 | `ARCHIVE_INVALID` | An archive cannot be read or changed during the operation. |

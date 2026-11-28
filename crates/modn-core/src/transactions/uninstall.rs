@@ -1,4 +1,5 @@
 use super::cleanup::RemovalMode;
+use super::controlled_io::digest_file;
 use super::directory::{covers, quarantine, quarantine_path};
 use super::install::Fault;
 use super::journal::{
@@ -38,16 +39,20 @@ impl Store {
         self.uninstall_locked(game, package_id)
     }
 
-    pub(crate) fn begin_removal(&self, game: &Path, package_id: &str) -> Result<()> {
+    /// Arm the commit point of a removal.
+    ///
+    /// The next withdrawal reports the `commit` event after its preflight
+    /// hashes, just before it journals and quarantines the first owned file.
+    /// A cancellation during the preflight therefore stops the removal.
+    pub(crate) fn begin_removal(&mut self, game: &Path, package_id: &str) -> Result<()> {
         let catalog = self
             .installed(game)
             .ok()
             .and_then(|packages| packages.into_iter().find(|p| p.id == package_id))
             .and_then(|package| package.catalog);
         let package = catalog.map_or_else(|| package_id.to_owned(), |c| c.to_string());
-        self.control.advance(ProgressEvent::Commit {
-            package: Some(package),
-        })?;
+        self.control.checkpoint()?;
+        self.removal_commit = Some(package);
         Ok(())
     }
 
@@ -174,6 +179,7 @@ impl Store {
         pending: PendingPolicy,
         restore: RestorePolicy,
     ) -> Result<String> {
+        let commit = self.removal_commit.take();
         if matches!(pending, PendingPolicy::RequireIdle) {
             self.ensure_no_pending()?;
         }
@@ -181,7 +187,12 @@ impl Store {
             .installed(&roots.game)?
             .into_iter()
             .find(|p| p.id == package_id)
-            .with_context(|| format!("managed package {package_id} not found for selected game"))?;
+            .ok_or_else(|| {
+                coded(
+                    ErrorCode::PackageNotFound,
+                    format!("managed package {package_id} not found for selected game"),
+                )
+            })?;
         if matches!(restore, RestorePolicy::Refuse) {
             if let Some(path) = self.shadowing_claim_path(&package.id)? {
                 return Err(coded(
@@ -232,10 +243,10 @@ impl Store {
                         format!("unsafe owned target: {}", target.display()),
                     ));
                 }
-                f.blake3 = digest(&target)?;
+                f.blake3 = digest_file(&target, &self.control)?;
                 f.bytes = metadata.len();
             }
-            if !target.is_file() || digest(&target)? != f.blake3 {
+            if !target.is_file() || digest_file(&target, &self.control)? != f.blake3 {
                 let claimed =
                     super::restore::next_claim(self, &roots.game, f, &excluding)?.is_some();
                 return Err(if claimed {
@@ -285,6 +296,11 @@ impl Store {
         } else {
             std::collections::BTreeMap::new()
         };
+        if let Some(package) = commit {
+            self.control.advance(ProgressEvent::Commit {
+                package: Some(package),
+            })?;
+        }
         self.insert_journal(
             &id,
             if forced { "cleanup" } else { "uninstall" },
@@ -314,7 +330,7 @@ impl Store {
                     }
                 }
                 let target = roots.target(f.root, &f.destination)?;
-                if !target.is_file() || digest(&target)? != f.blake3 {
+                if !target.is_file() || digest_file(&target, &self.control)? != f.blake3 {
                     return Err(coded(
                         ErrorCode::Conflict,
                         format!("owned file modified during uninstall: {}", target.display()),

@@ -158,7 +158,10 @@ pub(super) fn install_mod(
         .iter()
         .find(|refusal| matches!(refusal, PlanRefusal::DependencyNotReady { .. }))
     {
-        bail!("dependency not installed or intact: {reference}; install or restore it first");
+        return Err(coded(
+            ErrorCode::DependencyMissing,
+            format!("dependency not installed or intact: {reference}; install or restore it first"),
+        ));
     }
 
     if stack {

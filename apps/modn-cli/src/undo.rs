@@ -91,12 +91,22 @@ fn approval(
     ))
 }
 
+/// Who checks the restored archive members against the history record.
+#[derive(Clone, Copy)]
+enum RestoreCheck {
+    /// The dry run hashes the members here, because no core write runs.
+    Here,
+    /// The core preflight of the real undo hashes them once (#177).
+    InCore,
+}
+
 fn restores(
     store: &modn_core::state::Store,
     roots: &ManagerRoots,
     target: &HistoryOperation,
     args: &UndoArgs,
     progress: &Progress,
+    check: RestoreCheck,
 ) -> Result<Vec<UndoRestore>> {
     let cache = roots.archive_cache();
     let mut restores = Vec::new();
@@ -240,7 +250,14 @@ fn restores(
                 ),
             ));
         }
-        store.verify_restored_bytes_with_control(&archive, &plan, &expected, progress.control())?;
+        if matches!(check, RestoreCheck::Here) {
+            store.verify_restored_bytes_with_control(
+                &archive,
+                &plan,
+                &expected,
+                progress.control(),
+            )?;
+        }
         restores.push(UndoRestore::new(
             archive, plan, expected, rebuilt, approved, policy,
         ));
@@ -375,7 +392,7 @@ pub(super) fn run(
     }
     if args.dry_run {
         let plan = if restore {
-            restores(read, roots, &target, args, progress)?
+            restores(read, roots, &target, args, progress, RestoreCheck::Here)?
         } else {
             Vec::new()
         };
@@ -408,7 +425,8 @@ pub(super) fn run(
             removed = store.uninstall_for_undo(&target.installation, &target)?;
         }
         HistoryKind::Update => {
-            let mut restored = restores(&store, roots, &target, args, progress)?;
+            let mut restored =
+                restores(&store, roots, &target, args, progress, RestoreCheck::InCore)?;
             for (package, restore) in target.packages.iter().zip(restored.drain(..)) {
                 let release = restore
                     .release
@@ -438,7 +456,7 @@ pub(super) fn run(
             }
         }
         HistoryKind::Uninstall => {
-            let archives = restores(&store, roots, &target, args, progress)?;
+            let archives = restores(&store, roots, &target, args, progress, RestoreCheck::InCore)?;
             installed = store.restore_for_undo(&target.installation, &target, &archives)?;
         }
         _ => bail!("unknown history kind"),

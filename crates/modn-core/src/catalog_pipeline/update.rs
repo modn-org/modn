@@ -15,6 +15,7 @@ use super::requirements;
 use super::{archive_required, archives, conflicts};
 use crate::acquisition::{ArchiveCache, CacheUse};
 use crate::buckets::{BucketPackage, BucketSnapshot, PackageManifest, PackageSource, VersionReq};
+use crate::error::{coded, ErrorCode};
 use crate::manager_roots::ManagerRoots;
 use crate::state::Store;
 use crate::transactions::{CatalogReference, DependencyState, ManagedPackage, RecordedDependency};
@@ -271,7 +272,10 @@ fn installed_package(
         .filter(|package| package.catalog.as_ref() == Some(reference))
         .collect();
     match matches.len() {
-        0 => bail!("{reference} is not a managed package here; install it with modn install"),
+        0 => Err(coded(
+            ErrorCode::PackageNotFound,
+            format!("{reference} is not a managed package here; install it with modn install"),
+        )),
         1 => Ok(matches.remove(0)),
         _ => bail!(
             "several managed packages come from {reference}: {}; uninstall the extra ones first",

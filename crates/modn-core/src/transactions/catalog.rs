@@ -1,8 +1,9 @@
 use super::NativeInjectorPolicy;
 use crate::acquisition::ReleaseDigest;
+use crate::error::{coded, ErrorCode};
 use crate::integrity::package_intact;
 use crate::state::Store;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -249,10 +250,13 @@ impl Store {
             .zip(self.dependency_states(game, dependencies)?)
         {
             let DependencyState::Ready { package_ids } = state else {
-                bail!(
-                    "dependency not installed or intact: {}; install or restore it first",
-                    dependency.reference
-                );
+                return Err(coded(
+                    ErrorCode::DependencyMissing,
+                    format!(
+                        "dependency not installed or intact: {}; install or restore it first",
+                        dependency.reference
+                    ),
+                ));
             };
             satisfied.extend(package_ids);
         }

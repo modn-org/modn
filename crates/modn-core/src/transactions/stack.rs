@@ -157,9 +157,15 @@ impl Store {
             }
             _ => None,
         };
+        let approvals = self.approvals.take_stack();
         let tx = self.connection.transaction()?;
         if let Some(record) = &record {
             crate::history::insert(&tx, record)?;
+        }
+        if installed.is_some() {
+            for approval in &approvals {
+                crate::approval::write_staged(&tx, approval)?;
+            }
         }
         tx.execute("DELETE FROM pending_stack_packages WHERE stack_id=?1", [id])?;
         tx.execute("DELETE FROM pending_stacks WHERE id=?1", [id])?;

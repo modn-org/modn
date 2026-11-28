@@ -115,7 +115,9 @@ installation. An install or update whose release capabilities the stored
 approval covers proceeds without a flag. Uninstall keeps the approval, so a
 reinstall of the same release needs no flag.
 
-Modn stores an approval only when the operation commits. A cancelled, refused,
+Modn stores an approval in the same SQLite transaction as the install or update
+that needs it, so an installed mod always has its approval. A stack install
+stores its approvals when the whole stack commits. A cancelled, refused,
 dry-run or rolled-back operation stores nothing. A release that drops a native
 injector or an executable does not shrink the approval.
 
