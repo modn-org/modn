@@ -94,6 +94,16 @@ impl Store {
                     ));
                 }
             }
+            if self.installed_archive(&game, &inspection.blake3)? {
+                return Err(coded(
+                    ErrorCode::AlreadyInstalled,
+                    format!(
+                        "the archive {} is already installed; uninstall it before \
+                         installing it again",
+                        inspection.blake3
+                    ),
+                ));
+            }
         }
         let mut conflicts = self.conflicting_packages(&game, release, &inspection.blake3)?;
         if let Some(replaced) = replaced_package {

@@ -124,34 +124,22 @@ fn browser_extension_7z_installs_uninstalls_and_preserves_unmanaged_files() {
     for &(path, bytes) in BROWSER {
         assert_eq!(fs::read(game.join(path)).expect("payload"), bytes, "{path}");
     }
-    let duplicate = success(&state, &["install", source, "--yes", "--path", root]);
-    let duplicate_id = duplicate["id"].as_str().expect("duplicate package ID");
+    assert!(
+        !cli(&state, &["install", source, "--yes", "--path", root])
+            .status
+            .success(),
+        "duplicate installation must reject owned files"
+    );
     let modified = game.join(BROWSER[0].0);
     fs::write(&modified, b"user edit").expect("edit");
     assert!(
-        !cli(
-            &state,
-            &["uninstall", duplicate_id, "--yes", "--path", root]
-        )
-        .status
-        .success(),
+        !cli(&state, &["uninstall", id, "--yes", "--path", root])
+            .status
+            .success(),
         "modified managed file must block uninstall"
     );
     fs::write(&modified, BROWSER[0].1).expect("restore");
-    assert!(
-        !cli(
-            &state,
-            &["uninstall", duplicate_id, "--yes", "--path", root]
-        )
-        .status
-        .success(),
-        "the winner with a shadowed claim must refuse until the shadowed package is removed"
-    );
     success(&state, &["uninstall", id, "--yes", "--path", root]);
-    success(
-        &state,
-        &["uninstall", duplicate_id, "--yes", "--path", root],
-    );
     for &(path, _) in BROWSER {
         assert!(!game.join(path).exists(), "managed member survived: {path}");
     }

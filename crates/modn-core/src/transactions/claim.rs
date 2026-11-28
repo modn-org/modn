@@ -186,6 +186,20 @@ impl Store {
         )?)
     }
 
+    /// Whether `game` holds a managed package installed from that archive.
+    ///
+    /// A standalone archive has no catalog reference, so its BLAKE3 digest is
+    /// the only identity that a second install can match.
+    pub(crate) fn installed_archive(&self, game: &Path, archive_blake3: &str) -> Result<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM managed_packages
+                 WHERE game_path=?1 AND archive_blake3=?2)",
+            params![game.to_string_lossy().as_ref(), archive_blake3],
+            |row| row.get(0),
+        )?)
+    }
+
     /// Whether `package_id` belongs to the active profile of `game`.
     pub(crate) fn claims_in_active_profile(&self, game: &Path, package_id: &str) -> Result<bool> {
         Ok(self

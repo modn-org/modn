@@ -30,7 +30,9 @@ creates it when it is missing. An install may claim a path that another managed
 package already owns. The new package wins the shared path by priority, and the
 previous owner keeps a shadowed claim. The preview lists the overridden paths.
 Modn never overwrites an unmanaged file, and manifest-declared `conflicts`
-remain hard refusals. See [profiles.md](profiles.md).
+remain hard refusals. A second install of an archive that the installation
+already holds is refused with `ALREADY_INSTALLED`; uninstall that package
+first. See [profiles.md](profiles.md).
 
 ## Plan, consent and commit
 
