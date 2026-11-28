@@ -59,6 +59,8 @@ mod restore;
 mod restore_crash_tests;
 mod restore_recovery;
 #[cfg(test)]
+mod restore_sevenz_tests;
+#[cfg(test)]
 mod restore_tests;
 #[cfg(test)]
 mod roots_tests;

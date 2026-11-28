@@ -226,7 +226,9 @@ pub(super) fn stage_member(
     let inspection = crate::archive::inspect(archive)?;
     match inspection.format {
         ArchiveFormat::Zip => stage_zip(archive, &inspection, candidate, staging, ordinal),
-        ArchiveFormat::SevenZ => stage_sevenz(store, archive, &inspection, candidate, staging),
+        ArchiveFormat::SevenZ => {
+            stage_sevenz(store, archive, &inspection, candidate, staging, ordinal)
+        }
         _ => Err(missing_entry(
             candidate,
             "archive format cannot be installed",
@@ -276,7 +278,39 @@ fn stage_sevenz(
     inspection: &Inspection,
     candidate: &RestoreCandidate,
     staging: &Path,
+    ordinal: usize,
 ) -> Result<PathBuf> {
+    // `stage_7z` always names its single member `0.bin`, so every member gets a
+    // private scratch directory and then moves to the ordinal name that the
+    // placement step reads.
+    let scratch = staging.join(format!("7z-{ordinal}"));
+    let staged = staging.join(format!("{ordinal}.bin"));
+    fs::create_dir_all(&scratch)?;
+    let outcome =
+        stage_sevenz_member(store, archive, inspection, candidate, &scratch).and_then(|()| {
+            fs::rename(scratch.join("0.bin"), &staged)?;
+            Ok(())
+        });
+    let removed = fs::remove_dir_all(&scratch);
+    match outcome {
+        Ok(()) => {
+            removed?;
+            Ok(staged)
+        }
+        Err(error) => {
+            let _ = removed;
+            Err(error)
+        }
+    }
+}
+
+fn stage_sevenz_member(
+    store: &Store,
+    archive: &Path,
+    inspection: &Inspection,
+    candidate: &RestoreCandidate,
+    scratch: &Path,
+) -> Result<()> {
     let plan = InstallPlan {
         archive_blake3: inspection.blake3.clone(),
         game_installation: PathBuf::new(),
@@ -296,7 +330,7 @@ fn stage_sevenz(
         content_root: None,
         overrides: Vec::new(),
     };
-    let files = super::staging::stage_7z(archive, inspection, &plan, staging, &store.control)?;
+    let files = super::staging::stage_7z(archive, inspection, &plan, scratch, &store.control)?;
     let file = files
         .into_iter()
         .next()
@@ -304,7 +338,7 @@ fn stage_sevenz(
     if file.blake3 != candidate.blake3 || file.bytes != candidate.bytes {
         return Err(missing_entry(candidate, "archive entry changed"));
     }
-    Ok(staging.join("0.bin"))
+    Ok(())
 }
 
 fn verify_staged(path: &Path, candidate: &RestoreCandidate) -> Result<()> {
