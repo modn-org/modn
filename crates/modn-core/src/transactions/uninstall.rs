@@ -181,7 +181,12 @@ impl Store {
             .installed(&roots.game)?
             .into_iter()
             .find(|p| p.id == package_id)
-            .with_context(|| format!("managed package {package_id} not found for selected game"))?;
+            .ok_or_else(|| {
+                coded(
+                    ErrorCode::PackageNotFound,
+                    format!("managed package {package_id} not found for selected game"),
+                )
+            })?;
         if matches!(restore, RestorePolicy::Refuse) {
             if let Some(path) = self.shadowing_claim_path(&package.id)? {
                 return Err(coded(

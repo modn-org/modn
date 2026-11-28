@@ -232,10 +232,13 @@ impl Store {
             );
         }
         if old.archive_blake3 == proposal.archive_blake3 {
-            bail!(
-                "{} is already installed from this archive",
-                release.reference
-            );
+            return Err(coded(
+                ErrorCode::AlreadyInstalled,
+                format!(
+                    "{} is already installed from this archive",
+                    release.reference
+                ),
+            ));
         }
         let needs = self.ready_dependencies(game, &release.dependencies)?;
         let needs_old = self.linked(vec![package_id.to_owned()], Link::Dependents)?;
@@ -296,7 +299,12 @@ impl Store {
         self.installed(game)?
             .into_iter()
             .find(|package| package.id == package_id)
-            .with_context(|| format!("managed package {package_id} not found for selected game"))
+            .ok_or_else(|| {
+                coded(
+                    ErrorCode::PackageNotFound,
+                    format!("managed package {package_id} not found for selected game"),
+                )
+            })
     }
 
     fn linked(&self, start: Vec<String>, link: Link) -> Result<BTreeSet<String>> {

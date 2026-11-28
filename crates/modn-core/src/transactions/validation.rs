@@ -1,6 +1,7 @@
 use super::claim::{ClaimedPath, PlanOverride};
 use super::journal::Roots;
 use crate::archive::{validated_name, Inspection};
+use crate::error::{coded, ErrorCode};
 use crate::planning::{
     approved_tool_executable, existing_destination_issue, insert_destination, prohibited_payload,
     InstallPlan,
@@ -71,7 +72,10 @@ pub(super) fn validate_plan(
         || !proposal.blockers.is_empty()
         || !proposal.metadata_only
     {
-        bail!("blocked or invalid installation proposal cannot be executed");
+        return Err(coded(
+            ErrorCode::PlanBlocked,
+            "blocked or invalid installation proposal cannot be executed",
+        ));
     }
     if proposal.archive_blake3 != inspection.blake3 {
         bail!("archive changed since the proposed installation was reviewed");

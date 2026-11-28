@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use modn_core::detection::detect_installations;
 use modn_core::discovery::{validate_installation_for, Candidate};
+use modn_core::error::{coded, ErrorCode};
 use modn_core::game_modules::ModuleSelection;
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::state::Store;
@@ -52,12 +53,22 @@ pub(crate) fn selected_installation(
             .collect();
         let id = match (selected, ids.as_slice()) {
             (Some(id), ids) if !ids.is_empty() && !ids.contains(&id) => {
-                bail!("installation is registered to a different game; use its registered ID");
+                return Err(not_selected(
+                    "installation is registered to a different game; use its registered ID",
+                ));
             }
             (Some(id), _) => id,
             (None, [id]) => id,
-            (None, []) => bail!("unregistered installation; specify --game <game-id>"),
-            (None, _) => bail!("installation is registered for multiple games; specify --game"),
+            (None, []) => {
+                return Err(not_selected(
+                    "unregistered installation; specify --game <game-id>",
+                ))
+            }
+            (None, _) => {
+                return Err(not_selected(
+                    "installation is registered for multiple games; specify --game",
+                ))
+            }
         };
         let selection = ModuleSelection::resolve(roots, id)?;
         return Ok((
@@ -65,7 +76,7 @@ pub(crate) fn selected_installation(
             validate_installation_for(&selection, &canonical)?,
         ));
     }
-    let store = store.ok_or_else(|| anyhow::anyhow!("no registered game database for preview"))?;
+    let store = store.ok_or_else(|| not_selected("no registered game database for preview"))?;
     let registrations = store.list()?;
     let matches: Vec<_> = registrations
         .into_iter()
@@ -79,9 +90,15 @@ pub(crate) fn selected_installation(
                 validate_installation_for(&selection, &entry.path)?,
             ))
         }
-        [] => {
-            bail!("no matching game registered; run 'modn game add <game-id> --path <directory>'")
-        }
-        _ => bail!("multiple installations match; specify --path or --game"),
+        [] => Err(not_selected(
+            "no matching game registered; run 'modn game add <game-id> --path <directory>'",
+        )),
+        _ => Err(not_selected(
+            "multiple installations match; specify --path or --game",
+        )),
     }
+}
+
+fn not_selected(message: &str) -> anyhow::Error {
+    coded(ErrorCode::GameNotSelected, message)
 }

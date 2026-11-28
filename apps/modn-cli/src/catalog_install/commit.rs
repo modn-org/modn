@@ -15,6 +15,7 @@ use modn_core::catalog_pipeline::{
     commit_plan, plan_digest, preview_catalog_install, CatalogPlan, CommitRequest, ConfirmedStack,
     Consent, ExecutableApproval, PlannedRelease,
 };
+use modn_core::error::{coded, ErrorCode};
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::transactions::{CatalogReference, ManagedPackage, NativeInjectorPolicy};
 use std::collections::BTreeSet;
@@ -118,7 +119,10 @@ pub(super) fn install_release(
             .with_context(|| format!("{reference}: the plan has no archive to install"))?;
     }
     if !preview.reviewable() {
-        bail!("{reference}: installation blocked; inspect with --dry-run first");
+        return Err(coded(
+            ErrorCode::PlanBlocked,
+            format!("{reference}: installation blocked; inspect with --dry-run first"),
+        ));
     }
     if interactive {
         let request = Request {

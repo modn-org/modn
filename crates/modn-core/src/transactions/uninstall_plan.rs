@@ -288,7 +288,10 @@ fn resolve(packages: &[ManagedPackage], selector: &str) -> Result<String> {
         .filter(|p| p.catalog.as_ref().is_some_and(|c| names(c, selector)))
         .collect();
     match matches.as_slice() {
-        [] => bail!("no managed package matches {selector}; run 'modn list'"),
+        [] => Err(coded(
+            ErrorCode::PackageNotFound,
+            format!("no managed package matches {selector}; run 'modn list'"),
+        )),
         [package] => Ok(package.id.clone()),
         several => bail!(
             "{selector} matches several managed packages: {}; use an ID or a qualified name",
