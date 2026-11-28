@@ -314,3 +314,31 @@ fn uninstall_cancellation_during_the_commit_is_ignored() {
     assert!(!fixture.game.join("addons/mod.plugin").exists());
     assert!(fixture.store.installed(&fixture.game).unwrap().is_empty());
 }
+
+#[test]
+fn uninstall_cancellation_during_the_preflight_changes_nothing() {
+    let mut fixture = Fixture::new();
+    let archive = fixture.archive("mod");
+    install(&mut fixture, &archive).expect("install");
+    let id = fixture.store.installed(&fixture.game).unwrap()[0]
+        .id
+        .clone();
+    let before = snapshot(&fixture.game);
+    let token = CancellationToken::new();
+    let (control, events) = recording(token.clone());
+    fixture.store.set_control(control);
+    let game = fixture.game.clone();
+    fixture.store.begin_removal(&game, &id).expect("armed");
+
+    token.cancel();
+    let error = fixture
+        .store
+        .uninstall_locked(&game, &id)
+        .expect_err("a cancel during the preflight hashes stops the removal");
+
+    assert_eq!(code_of(&error), Some(ErrorCode::Cancelled));
+    assert!(!events.lock().expect("event log").iter().any(is_commit));
+    assert_eq!(snapshot(&fixture.game), before);
+    assert_eq!(fixture.store.installed(&fixture.game).unwrap().len(), 1);
+    assert!(fixture.store.pending().expect("pending").is_empty());
+}

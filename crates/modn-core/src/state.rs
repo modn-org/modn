@@ -26,6 +26,8 @@ pub struct Store {
     /// The record that the last completed write committed, if any.
     pub(crate) committed_operation: Option<String>,
     pub(crate) approvals: crate::approval::ApprovalStage,
+    /// The package that the next withdrawal reports at its commit point.
+    pub(crate) removal_commit: Option<String>,
 }
 
 impl Store {
@@ -249,6 +251,7 @@ impl Store {
             history: None,
             committed_operation: None,
             approvals: crate::approval::ApprovalStage::default(),
+            removal_commit: None,
         })
     }
 
@@ -274,6 +277,7 @@ impl Store {
             history: None,
             committed_operation: None,
             approvals: crate::approval::ApprovalStage::default(),
+            removal_commit: None,
         })
     }
 

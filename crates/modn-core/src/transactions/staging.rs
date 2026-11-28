@@ -1,11 +1,12 @@
+use super::controlled_io::copy;
 use super::journal::{digest, JournalFile};
 use crate::archive::Inspection;
 use crate::planning::InstallPlan;
 use crate::progress::{Cancelled, OperationControl};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 
 fn decoder_order(mut archive: sevenz_rust2::Archive) -> Result<sevenz_rust2::Archive> {
@@ -92,7 +93,10 @@ pub(super) fn stage_7z(
         let Some(&ordinal) = selected.get(entry.name.as_str()) else {
             // Solid 7z blocks are sequential: even ignored files must be drained
             // before the decoder can reach the next selected member.
-            let copied = io::copy(&mut input.take(entry.size + 1), &mut io::sink())?;
+            let copied = match copy(input, &mut io::sink(), entry.size + 1, control) {
+                Ok(copied) => copied,
+                Err(error) => return stop(error, &mut cancelled),
+            };
             if copied != entry.size {
                 return Err(sevenz_rust2::Error::Other(
                     format!("truncated unselected 7z entry: {}", entry.name).into(),
@@ -106,34 +110,32 @@ pub(super) fn stage_7z(
                 format!("duplicate or changed archive entry: {}", entry.name).into(),
             ));
         }
-        let copy = (|| -> io::Result<JournalFile> {
+        let staged_file = (|| -> Result<JournalFile> {
             let stage = staging.join(format!("{ordinal}.bin"));
             let mut output = OpenOptions::new()
                 .create_new(true)
                 .write(true)
                 .open(&stage)?;
-            let copied = io::copy(&mut input.take(op.bytes + 1), &mut output)?;
+            let copied = copy(input, &mut output, op.bytes + 1, control)?;
             output.flush()?;
             output.sync_all()?;
             if copied != op.bytes {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("7z extraction size mismatch: {}", op.source),
-                ));
+                bail!("7z extraction size mismatch: {}", op.source);
             }
-            let blake3 = digest(&stage).map_err(io::Error::other)?;
             Ok(JournalFile {
                 ordinal,
                 root: crate::state::RootKind::from_label(&op.root)
                     .unwrap_or(crate::state::RootKind::Game),
                 destination: op.destination.clone(),
                 archive_entry: op.source.clone(),
-                blake3,
+                blake3: digest(&stage)?,
                 bytes: copied,
             })
-        })()
-        .map_err(sevenz_rust2::Error::from)?;
-        staged[ordinal] = Some(copy);
+        })();
+        match staged_file {
+            Ok(file) => staged[ordinal] = Some(file),
+            Err(error) => return stop(error, &mut cancelled),
+        }
         Ok(true)
     })?;
     if cancelled {
@@ -151,6 +153,18 @@ pub(super) fn stage_7z(
             })
         })
         .collect()
+}
+
+/// End a 7z entry callback with `error`, remembering a cancellation.
+///
+/// The decoder callback can only return a `sevenz_rust2::Error`, so a
+/// cancellation stops the walk and `stage_7z` reports it after the walk.
+fn stop(error: anyhow::Error, cancelled: &mut bool) -> Result<bool, sevenz_rust2::Error> {
+    if error.downcast_ref::<Cancelled>().is_some() {
+        *cancelled = true;
+        return Ok(false);
+    }
+    Err(sevenz_rust2::Error::Other(format!("{error:#}").into()))
 }
 
 #[cfg(test)]

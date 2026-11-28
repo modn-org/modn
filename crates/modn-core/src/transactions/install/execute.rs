@@ -17,7 +17,7 @@ use crate::state::Store;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 use tempfile::Builder;
 
@@ -184,7 +184,12 @@ impl Store {
                     .create_new(true)
                     .write(true)
                     .open(&stage)?;
-                let copied = io::copy(&mut input.by_ref().take(op.bytes + 1), &mut output)?;
+                let copied = super::super::controlled_io::copy(
+                    &mut input,
+                    &mut output,
+                    op.bytes + 1,
+                    &control,
+                )?;
                 output.flush()?;
                 output.sync_all()?;
                 if copied != op.bytes {

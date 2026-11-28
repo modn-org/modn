@@ -56,6 +56,10 @@ the transaction starts to change game files or the records that own them.
   complete partial file into the verified cache entry. A cancelled download
   removes the partial file and keeps no entry.
 
+Modn checks for cancellation between chunks of one large ZIP or 7z member and
+while it hashes owned files in the update withdrawal and the uninstall
+preflight, so a cancellation does not wait for one large file to finish.
+
 Before the commit point, a cancellation stops the operation with
 `CANCELLED`, rolls back staging or a withdrawn release, and leaves the game
 files, manager state and ownership records as they were. From the commit
