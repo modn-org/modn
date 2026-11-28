@@ -55,6 +55,8 @@ pub enum ErrorCode {
     GameModuleError,
     /// Modn cannot select one registered game installation.
     GameNotSelected,
+    /// A Git process tree could not be confined or confirmed stopped.
+    GitProcessTreeNotStopped,
     /// A Git source resolved to another commit.
     GitSourceCommitMismatch,
     /// A Git source could not be fetched or read.
@@ -175,6 +177,7 @@ impl ErrorCode {
         Self::DownloadFailed,
         Self::GameModuleError,
         Self::GameNotSelected,
+        Self::GitProcessTreeNotStopped,
         Self::GitSourceCommitMismatch,
         Self::GitSourceFetchFailed,
         Self::GitSourceUnsupportedEntry,
@@ -248,6 +251,7 @@ impl ErrorCode {
             Self::DownloadFailed => "DOWNLOAD_FAILED",
             Self::GameModuleError => "GAME_MODULE_ERROR",
             Self::GameNotSelected => "GAME_NOT_SELECTED",
+            Self::GitProcessTreeNotStopped => "GIT_PROCESS_TREE_NOT_STOPPED",
             Self::GitSourceCommitMismatch => "GIT_SOURCE_COMMIT_MISMATCH",
             Self::GitSourceFetchFailed => "GIT_SOURCE_FETCH_FAILED",
             Self::GitSourceUnsupportedEntry => "GIT_SOURCE_UNSUPPORTED_ENTRY",

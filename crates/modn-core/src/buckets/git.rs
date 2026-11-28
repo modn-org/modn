@@ -7,6 +7,7 @@ use super::rotation::{CatalogKeyChange, KeyChangeKind};
 use super::signature::CatalogKeyId;
 use super::store::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use super::trust::ModuleTrustState;
+use crate::error::ErrorCode;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -308,6 +309,20 @@ impl BucketStore {
                     break;
                 }
                 Err(error) => {
+                    let code = crate::error::code_of(&error);
+                    if code == Some(ErrorCode::Cancelled) {
+                        // An interrupt cancels every later clone before it
+                        // starts, so fallback cannot succeed. End the sync
+                        // with the cancelled code instead of a mirror error.
+                        return Err(error);
+                    }
+                    if code == Some(ErrorCode::GitProcessTreeNotStopped) {
+                        // A descendant may still write here. Keep the staging
+                        // tree and end the sync instead of trying another
+                        // mirror; the error says why.
+                        let _ = stage.keep();
+                        return Err(error);
+                    }
                     let _ = fs::remove_dir_all(&attempt);
                     failed_sources.push(format!(
                         "{}: {error:#}",
@@ -467,6 +482,8 @@ mod replay_tests;
 mod snapshot_tests;
 #[cfg(test)]
 mod statement_tests;
+#[cfg(test)]
+mod tree_tests;
 
 #[cfg(test)]
 pub(crate) mod tests;

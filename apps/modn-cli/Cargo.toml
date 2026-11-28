@@ -16,6 +16,7 @@ anyhow = "1"
 base64 = "0.23"
 blake3 = "1"
 clap = { version = "4.5", features = ["derive"] }
+ctrlc = { version = "3.5", features = ["termination"] }
 keyring = { version = "4.2", default-features = false, features = ["v1", "windows-native-keyring-store"] }
 minisign = "0.10"
 modn-core = { path = "../../crates/modn-core" }

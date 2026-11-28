@@ -6,7 +6,7 @@ pub use error::SourcesError;
 
 use super::digest::copy_blake3;
 use super::index::{ArchiveIndex, ArchivePin};
-use super::{Acquired, ArchiveCache, CacheKey, CacheUse, Origin, MAX_DOWNLOAD_BYTES};
+use super::{cancelled, Acquired, ArchiveCache, CacheKey, CacheUse, Origin, MAX_DOWNLOAD_BYTES};
 use crate::error::{coded, ErrorCode};
 use crate::progress::{DownloadReader, OperationControl};
 use anyhow::Result;
@@ -447,13 +447,6 @@ fn classify_read_error(err: anyhow::Error) -> SourceFailure {
         Some(io) if io.kind() == io::ErrorKind::TimedOut => SourceFailure::Timeout,
         _ => SourceFailure::Network(format!("{err:#}")),
     }
-}
-
-fn cancelled() -> anyhow::Error {
-    coded(
-        ErrorCode::Cancelled,
-        "operation cancelled before the commit point",
-    )
 }
 
 #[cfg(test)]
