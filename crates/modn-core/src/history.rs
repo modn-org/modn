@@ -1,9 +1,12 @@
-//! Durable history of committed install, update and uninstall operations.
+//! Durable history of committed install, update, uninstall and profile
+//! switch operations.
 //!
 //! A record is written in the same SQLite transaction as the ownership
 //! change it describes. It captures every package release and owned file the
 //! operation touched, with the before and after content digests, so a later
-//! undo needs no other state.
+//! undo needs no other state. A profile switch records the profile names and
+//! the files it changed; undoing it is refused, because switching back is a
+//! new switch.
 
 use crate::buckets::PackageSource;
 use crate::state::Store;
@@ -34,6 +37,8 @@ pub enum HistoryKind {
     Update,
     /// An installed package was removed.
     Uninstall,
+    /// The game follows another profile of the same installation.
+    ProfileSwitch,
 }
 
 impl HistoryKind {
@@ -44,6 +49,7 @@ impl HistoryKind {
             Self::Install => "install",
             Self::Update => "update",
             Self::Uninstall => "uninstall",
+            Self::ProfileSwitch => "profile_switch",
         }
     }
 
@@ -52,6 +58,7 @@ impl HistoryKind {
             "install" => Some(Self::Install),
             "update" => Some(Self::Update),
             "uninstall" => Some(Self::Uninstall),
+            "profile_switch" => Some(Self::ProfileSwitch),
             _ => None,
         }
     }

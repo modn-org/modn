@@ -42,6 +42,17 @@ pub struct PlannedRemoval {
     /// Catalog identity, when the package was installed from a bucket.
     pub catalog: Option<CatalogReference>,
     pub files: usize,
+    /// Shared files that the next claimant takes over instead of removal.
+    pub restores: Vec<PlannedRestore>,
+}
+
+/// One shared file that survives a removal with another package's bytes.
+#[expect(missing_docs, reason = "Field names state their meaning")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct PlannedRestore {
+    pub destination: String,
+    pub package_id: String,
 }
 
 struct Links {
@@ -186,15 +197,42 @@ impl Store {
             removal.remove(&next);
             order.push(next);
         }
-        Ok(order
-            .into_iter()
-            .filter_map(|id| packages.iter().find(|p| p.id == id))
-            .map(|p| PlannedRemoval {
-                id: p.id.clone(),
-                catalog: p.catalog.clone(),
-                files: p.files.len(),
-            })
-            .collect())
+        let mut planned = Vec::new();
+        let mut removing = BTreeSet::new();
+        for id in order {
+            let package = packages
+                .iter()
+                .find(|p| p.id == id)
+                .context("removal plan names an unknown package")?;
+            removing.insert(package.id.clone());
+            let mut restores = Vec::new();
+            for file in &package.files {
+                let journal_file = super::journal::JournalFile {
+                    ordinal: restores.len(),
+                    root: crate::state::RootKind::from_label(&file.root)
+                        .unwrap_or(crate::state::RootKind::Game),
+                    destination: file.destination.clone(),
+                    archive_entry: String::new(),
+                    blake3: file.blake3.clone(),
+                    bytes: file.bytes,
+                };
+                if let Some(candidate) =
+                    super::restore::next_claim(self, game, &journal_file, &removing)?
+                {
+                    restores.push(PlannedRestore {
+                        destination: file.destination.clone(),
+                        package_id: candidate.package_id,
+                    });
+                }
+            }
+            planned.push(PlannedRemoval {
+                id: package.id.clone(),
+                catalog: package.catalog.clone(),
+                files: package.files.len(),
+                restores,
+            });
+        }
+        Ok(planned)
     }
 
     /// Uninstall the packages `plan_uninstall` lists, one verified removal at

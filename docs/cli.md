@@ -78,10 +78,11 @@ global `--game`.
 
 ## Progress events and cancellation
 
-`--progress json` streams machine-readable events for `install`, `update` and
-`uninstall`. Each event is one JSON object on one line on **stderr**. The
-command's normal output on stdout is unchanged, including under `--json`.
-Progress mode never prompts, so pass `--yes`, or use `--dry-run` to preview.
+`--progress json` streams machine-readable events for `install`, `update`,
+`uninstall` and `profile switch`. Each event is one JSON object on one line on
+**stderr**. The command's normal output on stdout is unchanged, including under
+`--json`. Progress mode never prompts, so pass `--yes`, or use `--dry-run` to
+preview.
 It also reports failures as the JSON error object described under
 [Error codes](#error-codes), without the human `error:` prefix.
 
@@ -99,8 +100,9 @@ Every operation reports these phases in order:
 `package` is the catalog reference, or the managed-package ID when the package
 has none. A stack install reports one download, extract, stage and commit
 group per package. A `git` source reports one download phase for its fetch and
-pack; a verified cache hit reports none. [transactions.md](transactions.md)
-defines the commit point.
+pack; a verified cache hit reports none. A profile switch reports `resolve`,
+`extract`, `stage`, `commit` and `result`, without a download or `package`
+value. [transactions.md](transactions.md) defines the commit point.
 
 Write one line `cancel` to stdin to ask the operation to stop. Modn checks the
 request at the start and between phases. Before the commit point, the command
@@ -484,24 +486,113 @@ its own, once nothing else needs it. Review the dry run first. `--yes` and
 removal under one lock. If one fails, the earlier removals stay done, the rest
 stay installed, and the error names both.
 
+## modn profile
+
+`modn profile` manages named profiles for one game installation. Registering an
+installation creates an active `default` profile. An install also creates it
+when it is missing. Exactly one profile is active, and its priority order
+decides the files on disk. Installs join the active profile at the next
+priority. See [profiles.md](profiles.md).
+
+```sh
+modn profile list [--path DIR]
+modn profile create <name> [--clone <name>] [--path DIR]
+modn profile delete <name> --yes [--path DIR]
+modn profile priority <package> (--before <package> | --after <package> | --rank N) \
+  [--profile NAME] [--apply] [--dry-run] [--yes] [--path DIR]
+modn profile enable <package> [--profile NAME] [--dry-run] [--yes] [--path DIR]
+modn profile disable <package> [--profile NAME] [--dry-run] [--yes] [--path DIR]
+modn profile switch <name> [--dry-run] [--yes] [--path DIR]
+modn profile apply [--profile NAME] [--dry-run] [--yes] [--path DIR]
+```
+
+Every subcommand accepts the global `--json` flag. `profile switch` also
+accepts `--progress json`. A successful command exits 0; a refusal exits 1 and
+`--json` names its code.
+
+- `profile list` prints every profile, the active marker and the packages in
+  rank order. JSON has `game`, `path` and `profiles`. Each profile has `name`,
+  `active`, `created_at` and `packages`. Each package has `package`, `rank`,
+  `priority`, `enabled` and `shadowed_files`.
+- `profile create` makes an inactive profile. `--clone` copies memberships,
+  priorities and enabled flags. JSON is one profile object. A duplicate name is
+  `PROFILE_EXISTS`; an unknown clone source is `PROFILE_NOT_FOUND`.
+- `profile delete` needs `--yes` (`APPROVAL_REQUIRED`). It deletes an inactive
+  profile, its memberships and any package that no other profile contains. It
+  changes no game files. The active profile is `PROFILE_ACTIVE`; the only
+  profile is `PROFILE_LAST`. The active check comes first, so the only profile
+  normally reports `PROFILE_ACTIVE`. JSON is `{"deleted":"<name>"}`.
+- `profile priority` places one package with exactly one of `--before`,
+  `--after` or `--rank`. Rank 1 is the winner. Without `--apply` it changes
+  ranks only. `--apply` also writes the winners and needs `--yes` when files
+  change. On an inactive profile, `--apply` changes the ranks and then fails
+  with `PROFILE_FAILED`. `--dry-run` writes nothing. JSON has `profile`,
+  `package`, `rank`, `applied`, `changes` and `dry_run`. Each change has
+  `path`, `action`, `from` and `to`.
+- `profile enable` and `profile disable` change one membership. On the active
+  profile the files follow; a file change needs `--yes`. On an inactive profile
+  only the flag changes. `--dry-run` writes nothing. JSON has `profile`,
+  `package`, `enabled`, `active`, `changes` and `dry_run`. A missing package is
+  `PACKAGE_NOT_FOUND`.
+- `profile switch` activates another profile. `--dry-run` prints the plan and
+  writes nothing; JSON has `game`, `path`, `from`, `to`, `remove`, `write`,
+  `unchanged`, `unchanged_paths`, `entering`, `leaving`, `bytes_to_write` and
+  `dry_run: true`. A real run needs `--yes` and reports `removed`, `written`,
+  `unchanged`, `entering`, `leaving` and `operation_id`. Refusals come in this
+  order: `PENDING_TRANSACTION`, `PROFILE_NOT_FOUND`, `PROFILE_ACTIVE`,
+  `PROFILE_DRIFT`, `PROFILE_ARCHIVE_MISSING`, then `CONFLICT` for an unmanaged
+  file. With `--progress json`, a stdin `cancel` before the commit point reports
+  `CANCELLED` and changes nothing. `modn undo` of a switch is `UNDO_CONFLICT`.
+- `profile apply` writes the priority winners of the active profile. An
+  inactive profile is `PROFILE_FAILED`, also with `--dry-run`. JSON has
+  `profile`, `changes` and `dry_run`.
+
+`modn list` prints `Profile: <name>`, a `#N` marker for each enabled member, and
+`disabled` for a disabled member. `modn list --json` stays one array and adds
+`profile`, `rank`, `enabled`, `shadowed_files` and `priority` to each package.
+`rank` is null for a disabled package. `modn doctor` prints one profile line
+and each issue. Its `profile` object has `name`, `active`, `packages`,
+`overlapping_files`, `consistent` and `issues`. Each issue has `kind`, `path`,
+`package`, `detail` and `advice`. The kinds are `winner_mismatch`,
+`shadowed_claim_unrecoverable` and `other_profile_archive_missing`. Doctor never
+repairs. See [inventory.md](inventory.md#profile-health).
+
+## modn conflicts
+
+`modn conflicts [--profile NAME] [--path DIR]` lists each path that two or more
+enabled packages of the profile claim. It is read-only, and it exits 0 when no
+path overlaps. Claims appear in priority order, and the winner is marked. The
+default profile is the active one. An unknown profile is `PROFILE_NOT_FOUND`;
+state errors use `CONFLICTS_FAILED`.
+
+`--json` prints `game`, `path`, `profile`, `active` and `conflicts`. Each
+conflict has `root`, `path`, `winner`, `consistent` and `claims`. Each claim has
+`package`, `rank`, `priority`, `winner`, `blake3` and `bytes`. An inactive
+profile has a null `winner` and `consistent: true`. For the active profile,
+`consistent: false` means the stored winner is not the priority winner; run
+`modn profile apply --yes`. See
+[profiles.md](profiles.md#conflict-priority).
+
 ## Operation history
 
-`modn history` lists committed install, update and uninstall operations,
-newest first. `--json` prints one array; the default prints a short table of
-ID, kind, game, packages and time. `--game <game-id>` keeps one game.
+`modn history` lists committed install, update, uninstall and profile switch
+operations, newest first. `--json` prints one array; the default prints a short
+table of ID, kind, game, packages and time. `--game <game-id>` keeps one game.
 `--state-dir` selects the manager profile, including its history.
 
 Each record holds the operation ID and kind, game ID, installation root, UTC
 time, and for every package the mod ID, package IDs before and after, release
 versions and source descriptors, the archive BLAKE3 pin, and the owned files
-with content digests before and after. A record is written in the
+with content digests before and after. A profile switch record holds only the
+files it changed and has no release data. A record is written in the
 same SQLite transaction as the ownership change. A cancelled, refused,
 dry-run or rolled-back operation writes none. See
 [operation history](history.md) for the JSON shape and storage tables.
 
-Each successful `install`, `update`, `uninstall` and `undo` under `--json`
-adds a top-level `operation_id` field to its result. It names the history
-record that the write committed, so a caller can undo exactly that operation.
+Each successful `install`, `update`, `uninstall`, `undo` and `profile switch`
+under `--json` adds a top-level `operation_id` field to its result. It names the
+history record that the write committed, so a caller can undo exactly that
+operation.
 The committing write reports the ID, so a concurrent write on the same game
 cannot change it. A write that commits several records, such as a
 multi-package uninstall or a multi-package update undo, reports the newest
@@ -518,8 +609,10 @@ are registered, a missing `--path` is refused instead of guessing. An explicit
 ID from another installation or game is refused with `UNDO_NOT_FOUND`, and the
 message names the installation that owns the record. The inverse follows the
 recorded kind: an install is removed, an update installs the earlier release
-again, and an uninstall installs the recorded release again. The command
-writes one new history record whose `undoes` field names the target.
+again, and an uninstall installs the recorded release again. A
+`profile_switch` record is refused with `UNDO_CONFLICT`; switch profiles
+instead. The command writes one new history record whose `undoes` field names
+the target.
 
 Undo refuses before any change to game files, manager state, ownership or
 history when a later operation on the same installation
@@ -641,7 +734,7 @@ otherwise the command's default code is used. No command reports a generic
 
 | Code | Meaning |
 |---|---|
-| `ALREADY_INSTALLED` | The update target already uses the selected archive. |
+| `ALREADY_INSTALLED` | The installation already holds that archive or release. |
 | `AMBIGUOUS_TARGET` | A mod name matches several catalog mods. |
 | `APPROVAL_REQUIRED` | A write needs `--yes` or an interactive confirmation, or a release adds an executable path the stored approval does not cover. |
 | `ARCHIVE_INVALID` | An archive cannot be read or changed during the operation. |
@@ -686,6 +779,12 @@ otherwise the command's default code is used. No command reports a generic
 | `PENDING_TRANSACTION` | An interrupted transaction must be recovered first. |
 | `PLAN_BLOCKED` | The installation plan has blockers. |
 | `PLAN_STALE` | The plan changed since it was made; run the command again. |
+| `PROFILE_ACTIVE` | The profile is active and cannot be deleted or switched to. |
+| `PROFILE_ARCHIVE_MISSING` | A needed verified archive is not in the cache; the message names the package and `modn cache show`. |
+| `PROFILE_DRIFT` | A managed winner changed on disk; run `modn doctor`. |
+| `PROFILE_EXISTS` | `profile create` names an existing profile. |
+| `PROFILE_LAST` | The only profile of an installation cannot be deleted. |
+| `PROFILE_NOT_FOUND` | The named profile does not exist. |
 | `STATE_ERROR` | Manager state cannot be read or written. |
 | `UNDO_CONFLICT` | A later operation changed a package or file that the undo target owns. |
 | `UNDO_FAILED` | Default code of `modn undo`. |
@@ -696,6 +795,7 @@ otherwise the command's default code is used. No command reports a generic
 | `AUTH_FAILED` | Default code of `modn auth`. |
 | `BUCKET_FAILED` | Default code of `modn bucket`. |
 | `CACHE_FAILED` | Default code of `modn cache`. |
+| `CONFLICTS_FAILED` | Default code of `modn conflicts`. |
 | `DOCTOR_FAILED` | Default code of `modn doctor`. |
 | `GAME_FAILED` | Default code of `modn game`. |
 | `INSPECT_FAILED` | Default code of `modn inspect`. |
@@ -704,6 +804,7 @@ otherwise the command's default code is used. No command reports a generic
 | `MODULE_FAILED` | Default code of `modn module`. |
 | `PIN_FAILED` | Default code of `modn pin` and `modn unpin`. |
 | `PLAY_FAILED` | Default code of `modn play`. |
+| `PROFILE_FAILED` | Default code of `modn profile`. |
 | `RECOVER_FAILED` | Default code of `modn recover`. |
 | `SCAN_FAILED` | Default code of `modn scan`. |
 | `SEARCH_FAILED` | Default code of `modn search`. |

@@ -1,4 +1,4 @@
-use super::roots;
+use super::{profiles, roots};
 use anyhow::Result;
 use rusqlite::Connection;
 use std::path::Path;
@@ -40,13 +40,37 @@ pub(super) fn validate_package_schema(connection: &Connection, path: &Path) -> R
         || pending_digest != Some(1)
         || retired_digest
     {
-        return Err(schema_refusal(
-            path,
-            version,
-            "It does not use the table layout this build writes.",
-        ));
+        return Err(layout_refusal(path, version));
+    }
+    for table in profiles::TABLES {
+        let present: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+            [table],
+            |row| row.get(0),
+        )?;
+        if !present {
+            return Err(layout_refusal(path, version));
+        }
+    }
+    let (profile_column, archive_entry_column): (Option<i64>, Option<i64>) = connection.query_row(
+        r#"SELECT
+            (SELECT "notnull" FROM pragma_table_info('managed_files') WHERE name='profile_id'),
+            (SELECT "notnull" FROM pragma_table_info('managed_files') WHERE name='archive_entry')"#,
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if profile_column != Some(1) || archive_entry_column != Some(1) {
+        return Err(layout_refusal(path, version));
     }
     Ok(())
+}
+
+fn layout_refusal(path: &Path, version: i64) -> anyhow::Error {
+    schema_refusal(
+        path,
+        version,
+        "It does not use the table layout this build writes.",
+    )
 }
 
 fn required_schema_version() -> i64 {

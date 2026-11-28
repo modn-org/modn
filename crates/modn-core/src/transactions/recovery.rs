@@ -38,6 +38,7 @@ impl Store {
                             root: RootKind::from_label(&row.get::<_, String>(1)?)
                                 .unwrap_or(RootKind::Game),
                             destination: row.get(2)?,
+                            archive_entry: String::new(),
                             blake3: row.get(3)?,
                             bytes: row.get::<_, i64>(4)? as u64,
                         })
@@ -94,6 +95,15 @@ impl Store {
             "DELETE FROM link_recorded_journals WHERE transaction_id=?1",
             [id],
         )?;
+        tx.execute(
+            "DELETE FROM pending_overrides WHERE transaction_id=?1",
+            [id],
+        )?;
+        tx.execute("DELETE FROM pending_restores WHERE transaction_id=?1", [id])?;
+        tx.execute(
+            "DELETE FROM pending_profile_switches WHERE transaction_id=?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM pending_files WHERE transaction_id=?1", [id])?;
         tx.execute("DELETE FROM pending_transactions WHERE id=?1", [id])?;
         tx.commit()?;
@@ -116,6 +126,14 @@ impl Store {
             None
         };
         let roots = Roots { game, content };
+        if matches!(journal.action.as_str(), "profile_toggle" | "profile_apply") {
+            super::profile_toggle_apply::recover_toggle(self, journal, &roots)?;
+            return self.finish_journal(&journal.id);
+        }
+        if journal.action == "profile-switch" {
+            super::profile_switch::recover_switch(self, journal, &roots)?;
+            return self.finish_journal(&journal.id);
+        }
         if journal.action == "install" && journal.status == "staging" {
             if !journal.files.is_empty() {
                 bail!("staging journal contains unexpected files");
@@ -134,8 +152,38 @@ impl Store {
                 )?;
             }
         }
+        let overrides = if journal.action == "install" {
+            self.pending_overrides(&journal.id)?
+        } else {
+            std::collections::BTreeMap::new()
+        };
+        let restores = if matches!(journal.action.as_str(), "uninstall" | "cleanup") {
+            super::restore::pending_restores(self, &journal.id)?
+        } else {
+            std::collections::BTreeMap::new()
+        };
         for f in journal.files.iter().rev() {
             let dest = roots.target(f.root, &f.destination)?;
+            if let Some(restore) = restores.get(&f.ordinal) {
+                super::restore_recovery::recover_restore(
+                    &journal.id,
+                    &journal.status,
+                    f,
+                    restore,
+                    &dest,
+                )?;
+                continue;
+            }
+            if let Some(old) = overrides.get(&f.ordinal) {
+                super::override_recovery::recover_override(
+                    &journal.id,
+                    &journal.status,
+                    f,
+                    old,
+                    &dest,
+                )?;
+                continue;
+            }
             let temp = temp_path(&dest, &journal.id, f.ordinal)?;
             let present = fs::symlink_metadata(&dest).is_ok();
             let witness = match fs::symlink_metadata(&temp) {

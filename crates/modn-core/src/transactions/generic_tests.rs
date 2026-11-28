@@ -49,6 +49,7 @@ pub(super) fn plan(game: &Path, archive: &Path) -> InstallPlan {
         skipped_generated_files: Vec::new(),
         content_base: None,
         content_root: None,
+        overrides: Vec::new(),
     }
 }
 #[test]
@@ -66,7 +67,7 @@ fn non_cyberpunk_root_install_list_uninstall_and_recover() {
 }
 #[test]
 fn single_component_destination_installs_and_uninstalls() {
-    let (_dir, mut store, game, archive) = fixture();
+    let (dir, mut store, game, archive) = fixture();
     let mut proposal = plan(&game, &archive);
     proposal.operations[0].destination = "a.lua".into();
     proposal.operations[1].destination = "Mods/b.lua".into();
@@ -75,19 +76,29 @@ fn single_component_destination_installs_and_uninstalls() {
         .unwrap();
     assert_eq!(fs::read(game.join("a.lua")).unwrap(), b"one");
     assert_eq!(fs::read(game.join("Mods/b.lua")).unwrap(), b"two");
-    let mut collision = plan(&game, &archive);
+    let second = dir.path().join("second.zip");
+    make_zip(
+        &second,
+        &[("pack/a.bin", b"other"), ("pack/b.bin", b"second")],
+    );
+    let mut collision = plan(&game, &second);
     collision.operations[0].destination = "a.lua".into();
-    assert!(store
-        .install_operations_zip(&game, &archive, &collision)
-        .is_err());
+    let overlap = store
+        .install_operations_zip(&game, &second, &collision)
+        .unwrap();
+    assert_eq!(fs::read(game.join("a.lua")).unwrap(), b"other");
+    assert_eq!(store.installed(&game).unwrap().len(), 2);
+    store.uninstall(&game, &package.id).unwrap();
+    store.uninstall(&game, &overlap.id).unwrap();
     #[cfg(windows)]
     {
         collision.operations[0].destination = "A.LUA".into();
-        assert!(store
-            .install_operations_zip(&game, &archive, &collision)
-            .is_err());
+        let case_overlap = store
+            .install_operations_zip(&game, &second, &collision)
+            .unwrap();
+        assert_eq!(fs::read(game.join("A.LUA")).unwrap(), b"other");
+        store.uninstall(&game, &case_overlap.id).unwrap();
     }
-    store.uninstall(&game, &package.id).unwrap();
     assert_eq!(store.recover().unwrap(), 0);
     assert_eq!(fs::read_dir(&game).unwrap().count(), 0);
 }
@@ -441,6 +452,7 @@ fn forged_compiler_kind_cannot_bypass_default_executable_denial() {
         skipped_generated_files: Vec::new(),
         content_base: None,
         content_root: None,
+        overrides: Vec::new(),
     };
     assert!(store
         .install_operations_zip(&game, &archive, &proposal)

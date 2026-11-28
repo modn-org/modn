@@ -8,7 +8,8 @@ use modn_core::buckets::PackageSource;
 use modn_core::history::{HistoryContext, StandalonePackage};
 use modn_core::manager_roots::ManagerRoots;
 use modn_core::planning::{
-    preview_install_zip_with_appdata_permissions, preview_install_zip_with_permissions,
+    preview_install_zip_with_appdata_permissions, preview_install_zip_with_claims,
+    preview_install_zip_with_permissions,
 };
 use std::path::{Path, PathBuf};
 
@@ -70,28 +71,47 @@ fn install_archive(
     let game_id = selected.game_id;
     let game = selected.root;
     let archive = PathBuf::from(&args.target);
-    let report = match content_root_appdata(roots, &game_id)? {
-        Some(appdata) => preview_install_zip_with_appdata_permissions(
+    let appdata = content_root_appdata(roots, &game_id)?;
+    let report = if let Some(store) = store.as_ref() {
+        preview_install_zip_with_claims(
+            store,
             roots,
             &game_id,
             &game,
             &archive,
             &args.allow_executable,
-            &appdata,
-        )?,
-        None => preview_install_zip_with_permissions(
-            roots,
-            &game_id,
-            &game,
-            &archive,
-            &args.allow_executable,
-        )?,
+            appdata.as_deref(),
+        )?
+    } else {
+        match appdata {
+            Some(appdata) => preview_install_zip_with_appdata_permissions(
+                roots,
+                &game_id,
+                &game,
+                &archive,
+                &args.allow_executable,
+                &appdata,
+            )?,
+            None => preview_install_zip_with_permissions(
+                roots,
+                &game_id,
+                &game,
+                &archive,
+                &args.allow_executable,
+            )?,
+        }
     };
     if args.dry_run {
         if json {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {
             println!("Dry run: {} (metadata only)", report.status);
+            for entry in &report.overrides {
+                println!(
+                    "replaces {} at {}",
+                    entry.replaced_package, entry.destination
+                );
+            }
             for file in report.operations {
                 println!("{} => {}", file.source, file.destination);
             }

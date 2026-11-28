@@ -53,6 +53,9 @@ framework as a side effect. The update is blocked in these cases:
 - the target release fails the checks of an install: a dependency that the
   bucket does not publish, a `dependency_versions` requirement that the
   bucket's dependency release misses, a cycle or a conflict
+- the package shares a path with another managed package, as a winner or as a
+  shadowed claim; uninstall and reinstall the overlapping package first. The
+  error is `CONFLICT`
 - a dependency of the target release is not ready; update or install it first
 - a dependent's installed release has a `dependency_versions` requirement
   that the target version does not meet

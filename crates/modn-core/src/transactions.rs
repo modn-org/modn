@@ -3,6 +3,9 @@ mod adoption;
 mod catalog;
 #[cfg(test)]
 mod catalog_tests;
+pub mod claim;
+#[cfg(test)]
+mod claim_tests;
 mod conflicts;
 #[cfg(test)]
 mod conflicts_tests;
@@ -14,9 +17,12 @@ mod directory;
 pub(crate) use directory::case_key as directory_candidate_key;
 pub(crate) use directory::ownership_key;
 mod cleanup;
+mod commit;
 mod directory_ledger;
 #[cfg(test)]
 mod generic_tests;
+#[cfg(test)]
+mod hash_tests;
 #[cfg(test)]
 mod history_release_tests;
 #[cfg(test)]
@@ -26,9 +32,36 @@ mod journal;
 #[cfg(test)]
 mod lifecycle_tests;
 mod native_injector;
+mod override_recovery;
+#[cfg(test)]
+mod override_recovery_tests;
+#[cfg(test)]
+mod override_tests;
+mod profile_apply;
+#[cfg(test)]
+mod profile_apply_crash_tests;
+mod profile_apply_plan;
+#[cfg(test)]
+mod profile_apply_tests;
+mod profile_switch;
+mod profile_toggle;
+mod profile_toggle_apply;
+#[cfg(test)]
+mod profile_toggle_crash_tests;
+mod profile_toggle_plan;
+#[cfg(test)]
+mod profile_toggle_tests;
 #[cfg(test)]
 mod progress_tests;
 mod recovery;
+mod restore;
+#[cfg(test)]
+mod restore_crash_tests;
+mod restore_recovery;
+#[cfg(test)]
+mod restore_sevenz_tests;
+#[cfg(test)]
+mod restore_tests;
 #[cfg(test)]
 mod roots_tests;
 mod stack;
@@ -59,8 +92,14 @@ pub use native_injector::{
     NativeInjectorNotAllowed, NativeInjectorPolicy, NATIVE_INJECTOR_FLAG,
     NATIVE_INJECTOR_NOT_ALLOWED,
 };
+pub use profile_apply::{PriorityReport, ProfileApply};
+pub use profile_switch::{
+    plan_profile_switch, profile_switch, PathAction, PlannedPath, ProfileSwitchOptions,
+    ProfileSwitchOutcome, ProfileSwitchPlan, UnchangedPath,
+};
+pub use profile_toggle::{ProfileToggle, ToggleAction, ToggleChange};
 pub use stack::StackMember;
-pub use uninstall_plan::{PlannedRemoval, UninstallScope};
+pub use uninstall_plan::{PlannedRemoval, PlannedRestore, UninstallScope};
 pub(crate) use validation::validate_transaction_root;
 
 pub mod undo;

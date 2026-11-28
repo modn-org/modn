@@ -4,6 +4,7 @@ use std::fs;
 use tempfile::tempdir;
 
 mod pins;
+mod profiles;
 mod schema;
 
 #[cfg(windows)]

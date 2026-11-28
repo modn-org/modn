@@ -107,6 +107,18 @@ pub enum ErrorCode {
     PlanBlocked,
     /// The plan changed since it was made.
     PlanStale,
+    /// The profile is active and cannot be deleted or switched to.
+    ProfileActive,
+    /// A needed verified archive is not in the cache.
+    ProfileArchiveMissing,
+    /// A managed winner changed on disk; run `modn doctor`.
+    ProfileDrift,
+    /// `profile create` names an existing profile.
+    ProfileExists,
+    /// The only profile of an installation cannot be deleted.
+    ProfileLast,
+    /// The named profile does not exist.
+    ProfileNotFound,
     /// Manager state cannot be read or written.
     StateError,
     /// Default code of `modn adopt`.
@@ -119,6 +131,8 @@ pub enum ErrorCode {
     BucketFailed,
     /// Default code of `modn cache`.
     CacheFailed,
+    /// Default code of `modn conflicts`.
+    ConflictsFailed,
     /// Default code of `modn doctor`.
     DoctorFailed,
     /// Default code of `modn game`.
@@ -135,6 +149,8 @@ pub enum ErrorCode {
     PinFailed,
     /// Default code of `modn play`.
     PlayFailed,
+    /// Default code of `modn profile`.
+    ProfileFailed,
     /// Default code of `modn recover`.
     RecoverFailed,
     /// Default code of `modn scan`.
@@ -203,12 +219,19 @@ impl ErrorCode {
         Self::PendingTransaction,
         Self::PlanBlocked,
         Self::PlanStale,
+        Self::ProfileActive,
+        Self::ProfileArchiveMissing,
+        Self::ProfileDrift,
+        Self::ProfileExists,
+        Self::ProfileLast,
+        Self::ProfileNotFound,
         Self::StateError,
         Self::AdoptFailed,
         Self::AssetFailed,
         Self::AuthFailed,
         Self::BucketFailed,
         Self::CacheFailed,
+        Self::ConflictsFailed,
         Self::DoctorFailed,
         Self::GameFailed,
         Self::InspectFailed,
@@ -217,6 +240,7 @@ impl ErrorCode {
         Self::ModuleFailed,
         Self::PinFailed,
         Self::PlayFailed,
+        Self::ProfileFailed,
         Self::RecoverFailed,
         Self::ScanFailed,
         Self::SearchFailed,
@@ -277,12 +301,19 @@ impl ErrorCode {
             Self::PendingTransaction => "PENDING_TRANSACTION",
             Self::PlanBlocked => "PLAN_BLOCKED",
             Self::PlanStale => "PLAN_STALE",
+            Self::ProfileActive => "PROFILE_ACTIVE",
+            Self::ProfileArchiveMissing => "PROFILE_ARCHIVE_MISSING",
+            Self::ProfileDrift => "PROFILE_DRIFT",
+            Self::ProfileExists => "PROFILE_EXISTS",
+            Self::ProfileLast => "PROFILE_LAST",
+            Self::ProfileNotFound => "PROFILE_NOT_FOUND",
             Self::StateError => "STATE_ERROR",
             Self::AdoptFailed => "ADOPT_FAILED",
             Self::AssetFailed => "ASSET_FAILED",
             Self::AuthFailed => "AUTH_FAILED",
             Self::BucketFailed => "BUCKET_FAILED",
             Self::CacheFailed => "CACHE_FAILED",
+            Self::ConflictsFailed => "CONFLICTS_FAILED",
             Self::DoctorFailed => "DOCTOR_FAILED",
             Self::GameFailed => "GAME_FAILED",
             Self::InspectFailed => "INSPECT_FAILED",
@@ -291,6 +322,7 @@ impl ErrorCode {
             Self::ModuleFailed => "MODULE_FAILED",
             Self::PinFailed => "PIN_FAILED",
             Self::PlayFailed => "PLAY_FAILED",
+            Self::ProfileFailed => "PROFILE_FAILED",
             Self::RecoverFailed => "RECOVER_FAILED",
             Self::ScanFailed => "SCAN_FAILED",
             Self::SearchFailed => "SEARCH_FAILED",

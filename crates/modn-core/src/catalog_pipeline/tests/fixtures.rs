@@ -145,6 +145,7 @@ pub(super) fn install_plan(game: &Path, archive_path: &Path) -> InstallPlan {
         skipped_generated_files: Vec::new(),
         content_base: None,
         content_root: None,
+        overrides: Vec::new(),
     }
 }
 

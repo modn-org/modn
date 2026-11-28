@@ -38,6 +38,31 @@ fn archive(root: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
     path
 }
 
+/// A reviewable plan for one file of `archive`, placed at `destination`.
+fn reviewable_plan(game: &Path, archive: &Path, destination: &str) -> crate::planning::InstallPlan {
+    let checked = crate::archive::inspect(archive).unwrap();
+    let entry = checked.files.first().expect("one archive file");
+    crate::planning::InstallPlan {
+        archive_blake3: checked.blake3,
+        game_installation: game.canonicalize().unwrap(),
+        status: crate::planning::PlanStatus::Reviewable,
+        metadata_only: true,
+        operations: vec![crate::planning::PlannedFile {
+            root: "game".into(),
+            destination: destination.into(),
+            source: entry.entry.clone(),
+            bytes: entry.bytes,
+            kind: "file-copy".into(),
+            owned_directory: None,
+        }],
+        blockers: Vec::new(),
+        skipped_generated_files: Vec::new(),
+        content_base: None,
+        content_root: None,
+        overrides: Vec::new(),
+    }
+}
+
 fn prepared_file(dest: &str, data: &[u8]) -> JournalFile {
     let mut hasher = blake3::Hasher::new();
     hasher.update(data);
@@ -45,6 +70,7 @@ fn prepared_file(dest: &str, data: &[u8]) -> JournalFile {
         root: crate::state::RootKind::Game,
         ordinal: 0,
         destination: dest.into(),
+        archive_entry: dest.into(),
         blake3: hasher.finalize().to_hex().to_string(),
         bytes: data.len() as u64,
     }
@@ -89,6 +115,25 @@ fn existing_file_blocks_install_without_changing_it() {
         assert!(install_zip(roots, &mut store, &game, &path).is_err());
         assert_eq!(fs::read(dest).unwrap(), b"unmanaged");
         assert!(store.installed(&game).unwrap().is_empty());
+    });
+}
+
+#[test]
+fn a_second_install_of_the_same_archive_is_refused() {
+    crate::test_support::seeded_roots(|_roots| {
+        let (dir, mut store, game) = fixture();
+        let path = archive(dir.path(), &[("pack/x.plugin", b"payload")]);
+        let plan = reviewable_plan(&game, &path, "addons/x.plugin");
+        store.install_operations_zip(&game, &path, &plan).unwrap();
+        let error = store
+            .install_operations_zip(&game, &path, &plan)
+            .expect_err("a second install of the same archive must be refused");
+        assert_eq!(
+            crate::error::code_of(&error),
+            Some(crate::error::ErrorCode::AlreadyInstalled)
+        );
+        assert_eq!(store.installed(&game).unwrap().len(), 1);
+        assert_eq!(fs::read(game.join("addons/x.plugin")).unwrap(), b"payload");
     });
 }
 

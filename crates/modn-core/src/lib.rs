@@ -18,6 +18,8 @@ pub mod buckets;
 pub mod catalog_pipeline;
 /// Stateless upstream release checks for catalog authoring tools.
 pub mod checkver;
+/// Report overlapping file claims between managed packages of a profile.
+pub mod conflicts;
 /// Resolve module-declared content roots below a known folder.
 pub mod content_root;
 /// Find installed games by matching store libraries with module store identities.
@@ -37,6 +39,8 @@ pub mod launch;
 /// Resolve every manager-owned location once per command.
 pub mod manager_roots;
 pub mod planning;
+/// Named per-game profiles and their package priority order.
+pub mod profiles;
 pub mod progress;
 /// Inventory detected game files and produce diagnostic findings.
 pub mod scan;

@@ -187,7 +187,16 @@ impl CommitFixture {
         plan: &CatalogPlan,
         archives: &BTreeMap<String, PathBuf>,
     ) -> Vec<crate::catalog_pipeline::ReleasePreview> {
-        preview_catalog_install(&self.roots, plan, archives, &[]).expect("preview")
+        self.preview_with(None, plan, archives)
+    }
+
+    pub(super) fn preview_with(
+        &self,
+        store: Option<&Store>,
+        plan: &CatalogPlan,
+        archives: &BTreeMap<String, PathBuf>,
+    ) -> Vec<crate::catalog_pipeline::ReleasePreview> {
+        preview_catalog_install(store, &self.roots, plan, archives, &[]).expect("preview")
     }
 
     pub(super) fn consent(

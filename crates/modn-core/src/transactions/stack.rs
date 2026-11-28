@@ -50,7 +50,7 @@ impl Store {
         game: &Path,
         members: &[StackMember],
         policy: NativeInjectorPolicy,
-        mut plan: impl FnMut(&StackMember) -> Result<InstallPlan>,
+        mut plan: impl FnMut(&Store, &StackMember) -> Result<InstallPlan>,
     ) -> Result<Vec<ManagedPackage>> {
         for member in members {
             member.release.ensure_native_injector_allowed(policy)?;
@@ -66,7 +66,7 @@ impl Store {
         let mut installed = Vec::new();
         for member in members {
             let reference = &member.release.reference;
-            let result = plan(member).and_then(|proposal| {
+            let result = plan(&*self, member).and_then(|proposal| {
                 self.install_locked(
                     &game,
                     &member.archive,
