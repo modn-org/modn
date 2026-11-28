@@ -7,9 +7,7 @@
 //! and the commit is a [`StalePlan`](super::StalePlan) with no write.
 
 use super::acquire::{archives_of, digests_of, sources_of};
-use super::commit::{
-    destinations_of, native_policy, record_approvals, verify_digest, verify_reviewable,
-};
+use super::commit::{native_policy, staged_approvals, verify_digest, verify_reviewable};
 use super::consent::Consent;
 use super::outcome::CommitOutcome;
 use super::plan::{CatalogPlan, UpdatePlan};
@@ -21,7 +19,6 @@ use crate::manager_roots::ManagerRoots;
 use crate::progress::OperationControl;
 use crate::state::Store;
 use anyhow::{Context, Result};
-use std::collections::BTreeMap;
 
 /// Commit one update plan through its re-planning entry point.
 pub(super) fn commit_update(
@@ -58,8 +55,8 @@ pub(super) fn commit_update(
         .with_source(&reference, source.clone());
     store.set_control(control.clone());
     store.set_history_context(history);
-    let mut destinations = BTreeMap::new();
-    let package = store.update_catalog_release_planned(
+    store.stage_approvals(staged_approvals(plan, &[planned]));
+    let result = store.update_catalog_release_planned(
         &plan.installation,
         &update.installed.id,
         archive,
@@ -72,12 +69,12 @@ pub(super) fn commit_update(
             verify_digest(&preview, digests.get(&key))?;
             consent.check(&refreshed, std::slice::from_ref(&preview))?;
             verify_reviewable(&preview)?;
-            destinations.insert(key.clone(), destinations_of(&preview.plan));
             Ok(preview.plan)
         },
-    )?;
+    );
+    store.clear_staged_approvals();
+    let package = result?;
     let operation_id = store.committed_operation_id().map(str::to_owned);
-    record_approvals(store, plan, &[planned], &destinations)?;
     Ok(CommitOutcome {
         packages: vec![package],
         operation_id,

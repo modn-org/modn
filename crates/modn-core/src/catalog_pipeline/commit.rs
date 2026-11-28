@@ -23,16 +23,16 @@ use super::preview::{approved_for, preview_catalog_install, preview_release};
 use crate::acquisition::{
     ArchiveCache, CacheUse, ReleaseDigest, ReleaseResolver, SourcePolicy, SourceTransport,
 };
-use crate::approval::Capabilities;
+use crate::approval::{Capabilities, StagedApproval};
 use crate::error::{coded, ErrorCode};
 use crate::history::HistoryContext;
 use crate::manager_roots::ManagerRoots;
-use crate::planning::InstallPlan;
+
 use crate::progress::OperationControl;
 use crate::state::Store;
 use crate::transactions::{ManagedPackage, NativeInjectorPolicy, StackMember};
 use anyhow::{Context, Result};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[cfg(test)]
@@ -216,10 +216,10 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
     }
     store.set_control(control.clone());
     store.set_history_context(history);
-    let mut destinations: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    store.stage_approvals(staged_approvals(plan, &installing));
     #[cfg(test)]
     run_before_transaction_hook();
-    let packages = if installing.len() == 1 {
+    let result = if installing.len() == 1 {
         install_one(
             store,
             plan,
@@ -229,8 +229,7 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
             &archives,
             &digests,
             policy,
-            &mut destinations,
-        )?
+        )
     } else {
         install_stack(
             store,
@@ -241,11 +240,11 @@ pub fn commit_plan(request: CommitRequest<'_>) -> Result<CommitOutcome> {
             &archives,
             &digests,
             policy,
-            &mut destinations,
-        )?
+        )
     };
+    store.clear_staged_approvals();
+    let packages = result?;
     let operation_id = store.committed_operation_id().map(str::to_owned);
-    record_approvals(store, plan, &installing, &destinations)?;
     Ok(CommitOutcome {
         packages,
         operation_id,
@@ -269,7 +268,6 @@ fn install_one(
     archives: &BTreeMap<String, PathBuf>,
     digests: &BTreeMap<String, ReleaseDigest>,
     policy: NativeInjectorPolicy,
-    destinations: &mut BTreeMap<String, BTreeSet<String>>,
 ) -> Result<Vec<ManagedPackage>> {
     let planned = installing[0];
     let reference = planned.package.reference();
@@ -299,7 +297,6 @@ fn install_one(
             };
             verify_preview(&preview, expected.as_ref())?;
             consent.check(plan, std::slice::from_ref(&preview))?;
-            destinations.insert(key.clone(), destinations_of(&preview.plan));
             Ok(preview.plan)
         },
     )?;
@@ -326,7 +323,6 @@ fn install_stack(
     archives: &BTreeMap<String, PathBuf>,
     digests: &BTreeMap<String, ReleaseDigest>,
     policy: NativeInjectorPolicy,
-    destinations: &mut BTreeMap<String, BTreeSet<String>>,
 ) -> Result<Vec<ManagedPackage>> {
     let members = installing
         .iter()
@@ -382,44 +378,30 @@ fn install_stack(
                 }
             };
             verify_preview(&preview, expected.as_ref())?;
-            destinations.insert(key, destinations_of(&preview.plan));
             Ok(preview.plan)
         })?;
     Ok(installed)
 }
 
-/// Record the capabilities of each installed release after the commit.
-pub(super) fn record_approvals(
-    store: &mut Store,
+/// Stage the capabilities that each installing release needs.
+///
+/// The transaction that commits a release's ownership change stores its
+/// approval, limited to the executables that the release places (#173).
+pub(super) fn staged_approvals(
     plan: &CatalogPlan,
     installing: &[&PlannedRelease],
-    destinations: &BTreeMap<String, BTreeSet<String>>,
-) -> Result<()> {
-    for planned in installing {
-        let reference = planned.package.reference();
-        let key = reference.to_string();
-        let present = destinations.get(&key).cloned().unwrap_or_default();
-        let needed = Capabilities::new(
-            planned.needed.native_injector,
-            planned
-                .needed
-                .executables
-                .iter()
-                .filter(|path| present.contains(path.as_str()))
-                .cloned(),
-        );
-        store
-            .record_approval(
-                &plan.installation,
-                &reference.bucket,
-                &reference.mod_id,
-                &needed,
-            )
-            .with_context(|| {
-                format!("{reference} is installed, but its approval could not be stored")
-            })?;
-    }
-    Ok(())
+) -> Vec<StagedApproval> {
+    installing
+        .iter()
+        .map(|planned| StagedApproval {
+            game: plan.installation.clone(),
+            reference: planned.package.reference(),
+            capabilities: Capabilities::new(
+                planned.needed.native_injector,
+                planned.needed.executables.iter(),
+            ),
+        })
+        .collect()
 }
 
 /// Whether every installing native injector is covered by the consent.
@@ -480,12 +462,4 @@ pub(super) fn verify_reviewable(preview: &ReleasePreview) -> Result<()> {
         ));
     }
     Ok(())
-}
-
-/// The destinations of one preview, for the capability record.
-pub(super) fn destinations_of(plan: &InstallPlan) -> BTreeSet<String> {
-    plan.operations
-        .iter()
-        .map(|operation| operation.destination.clone())
-        .collect()
 }

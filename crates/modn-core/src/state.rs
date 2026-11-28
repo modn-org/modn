@@ -25,6 +25,7 @@ pub struct Store {
     pub(crate) history: Option<crate::history::HistoryContext>,
     /// The record that the last completed write committed, if any.
     pub(crate) committed_operation: Option<String>,
+    pub(crate) approvals: crate::approval::ApprovalStage,
 }
 
 impl Store {
@@ -247,6 +248,7 @@ impl Store {
             control: OperationControl::default(),
             history: None,
             committed_operation: None,
+            approvals: crate::approval::ApprovalStage::default(),
         })
     }
 
@@ -271,6 +273,7 @@ impl Store {
             control: OperationControl::default(),
             history: None,
             committed_operation: None,
+            approvals: crate::approval::ApprovalStage::default(),
         })
     }
 

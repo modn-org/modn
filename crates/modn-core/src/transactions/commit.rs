@@ -26,6 +26,11 @@ impl Store {
     ) -> Result<()> {
         let context = self.history.clone();
         self.committed_operation = None;
+        let approval = catalog.and_then(|catalog| {
+            self.approvals.take(&catalog.release.reference, |path| {
+                files.iter().any(|file| file.destination == path)
+            })
+        });
         let tx = self.connection.transaction()?;
         let replaced = catalog.and_then(|catalog| catalog.replacing);
         let metadata = context.as_ref().map(|context| {
@@ -151,12 +156,22 @@ impl Store {
         if let Some(record) = &record {
             crate::history::insert(&tx, record)?;
         }
+        let deferred = match (approval, stack_id) {
+            (Some(approval), None) => {
+                crate::approval::write_staged(&tx, &approval)?;
+                None
+            }
+            (approval, _) => approval,
+        };
         tx.execute(
             "UPDATE pending_transactions SET status='committed' WHERE id=?1",
             [id],
         )?;
         tx.commit()?;
         self.committed_operation = record.map(|record| record.id);
+        if let Some(approval) = deferred {
+            self.approvals.defer_to_stack(approval);
+        }
         Ok(())
     }
 

@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::Serialize;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(crate) const SCHEMA_VERSION: i64 = 5;
 
@@ -223,28 +223,14 @@ impl Store {
         bucket: &str,
         mod_id: &str,
     ) -> Result<Option<Capabilities>> {
-        let row = self
-            .connection
-            .query_row(
-                "SELECT native_injector, executables FROM mod_approvals
-                 WHERE game_path=?1 AND bucket=?2 AND mod_id=?3",
-                params![game.to_string_lossy().as_ref(), bucket, mod_id],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-            )
-            .optional()?;
-        row.map(|(native_injector, executables)| {
-            let executables: Vec<String> = serde_json::from_str(&executables)
-                .context("stored mod approval has invalid executable paths")?;
-            Ok(Capabilities::new(native_injector != 0, executables))
-        })
-        .transpose()
+        read_approval(&self.connection, game, bucket, mod_id)
     }
 
     /// Widen the stored approval of one mod of one bucket to `capabilities`.
     ///
     /// The update never shrinks a recorded native-injector or executable
-    /// capability. Callers record an approval only after their operation
-    /// commits.
+    /// capability. A catalog install, update or stack install stores its
+    /// approval in the transaction that commits the ownership change.
     pub fn record_approval(
         &mut self,
         game: &Path,
@@ -255,32 +241,137 @@ impl Store {
         if mod_id.is_empty() {
             bail!("mod id must not be empty");
         }
-        let widened = match self.approval(game, bucket, mod_id)? {
-            Some(stored) => stored.union(capabilities),
-            None => capabilities.clone(),
-        };
-        let executables =
-            serde_json::to_string(&widened.executables).context("cannot serialize approval")?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
-            "INSERT INTO mod_approvals(game_path, bucket, mod_id, native_injector, executables)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(game_path, bucket, mod_id) DO UPDATE SET
-                 native_injector=excluded.native_injector,
-                 executables=excluded.executables",
-            params![
-                game.to_string_lossy().as_ref(),
-                bucket,
-                mod_id,
-                i64::from(widened.native_injector),
-                executables
-            ],
-        )?;
+        write_approval(&tx, game, bucket, mod_id, capabilities)?;
         tx.commit()?;
         Ok(())
     }
+
+    /// Stage approvals that later install and update commits store in their
+    /// own SQLite transaction.
+    pub(crate) fn stage_approvals(&mut self, staged: Vec<StagedApproval>) {
+        self.approvals = ApprovalStage {
+            staged,
+            stack: Vec::new(),
+        };
+    }
+
+    /// Drop every staged approval that no commit stored.
+    pub(crate) fn clear_staged_approvals(&mut self) {
+        self.approvals = ApprovalStage::default();
+    }
+}
+
+/// The capabilities that one catalog release needs, staged for its commit.
+#[derive(Clone, Debug)]
+pub(crate) struct StagedApproval {
+    pub(crate) game: PathBuf,
+    pub(crate) reference: CatalogReference,
+    pub(crate) capabilities: Capabilities,
+}
+
+/// Approvals waiting for the commit of their install, update or stack.
+#[derive(Debug, Default)]
+pub(crate) struct ApprovalStage {
+    staged: Vec<StagedApproval>,
+    stack: Vec<StagedApproval>,
+}
+
+impl ApprovalStage {
+    /// Take the staged approval of `reference`, keeping only the executables
+    /// that the commit places.
+    pub(crate) fn take(
+        &mut self,
+        reference: &CatalogReference,
+        placed: impl Fn(&str) -> bool,
+    ) -> Option<StagedApproval> {
+        let index = self.staged.iter().position(|staged| {
+            staged.reference.bucket == reference.bucket
+                && staged.reference.mod_id == reference.mod_id
+        })?;
+        let mut approval = self.staged.remove(index);
+        approval
+            .capabilities
+            .executables
+            .retain(|path| placed(path));
+        Some(approval)
+    }
+
+    /// Keep a stack member's approval until the stack itself commits.
+    pub(crate) fn defer_to_stack(&mut self, approval: StagedApproval) {
+        self.stack.push(approval);
+    }
+
+    /// Take the approvals of every committed stack member.
+    pub(crate) fn take_stack(&mut self) -> Vec<StagedApproval> {
+        std::mem::take(&mut self.stack)
+    }
+}
+
+/// Widen the stored approval of `approval` inside the caller's transaction.
+pub(crate) fn write_staged(connection: &Connection, approval: &StagedApproval) -> Result<()> {
+    write_approval(
+        connection,
+        &approval.game,
+        &approval.reference.bucket,
+        &approval.reference.mod_id,
+        &approval.capabilities,
+    )
+    .with_context(|| format!("cannot store the approval of {}", approval.reference))
+}
+
+fn read_approval(
+    connection: &Connection,
+    game: &Path,
+    bucket: &str,
+    mod_id: &str,
+) -> Result<Option<Capabilities>> {
+    let row = connection
+        .query_row(
+            "SELECT native_injector, executables FROM mod_approvals
+             WHERE game_path=?1 AND bucket=?2 AND mod_id=?3",
+            params![game.to_string_lossy().as_ref(), bucket, mod_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    row.map(|(native_injector, executables)| {
+        let executables: Vec<String> = serde_json::from_str(&executables)
+            .context("stored mod approval has invalid executable paths")?;
+        Ok(Capabilities::new(native_injector != 0, executables))
+    })
+    .transpose()
+}
+
+fn write_approval(
+    connection: &Connection,
+    game: &Path,
+    bucket: &str,
+    mod_id: &str,
+    capabilities: &Capabilities,
+) -> Result<()> {
+    let widened = match read_approval(connection, game, bucket, mod_id)? {
+        Some(stored) => stored.union(capabilities),
+        None => capabilities.clone(),
+    };
+    let executables =
+        serde_json::to_string(&widened.executables).context("cannot serialize approval")?;
+    connection.execute(
+        "INSERT INTO mod_approvals(game_path, bucket, mod_id, native_injector, executables)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(game_path, bucket, mod_id) DO UPDATE SET
+             native_injector=excluded.native_injector,
+             executables=excluded.executables",
+        params![
+            game.to_string_lossy().as_ref(),
+            bucket,
+            mod_id,
+            i64::from(widened.native_injector),
+            executables
+        ],
+    )?;
+    Ok(())
 }
 
 pub(crate) fn ensure_schema(connection: &Connection) -> Result<()> {

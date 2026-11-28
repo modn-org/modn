@@ -1,5 +1,6 @@
 //! Catalog pipeline tests.
 
+mod approval_commit_tests;
 mod archives_tests;
 mod commit_support;
 mod commit_tests;
