@@ -112,6 +112,13 @@ or Git fetch removes its partial file and keeps no new cache entry. From the
 commit point on, Modn ignores the request and finishes, or rolls back, the
 operation as it does without one. Close stdin when no cancellation is wanted.
 
+Ctrl-C (`SIGINT`), `SIGTERM` and `SIGHUP` on Unix and a Ctrl-Break console event
+on Windows use the same cancel path. The handler cancels one process-wide token and does
+nothing else. A running Git fetch or clone stops its whole process tree, and
+the command ends with `CANCELLED` before its commit point. A second interrupt
+changes nothing. When no Git runs, the handler ends the process 5 seconds
+after the interrupt, with status 130 on Unix and 1 on Windows.
+
 ## Catalog refresh
 
 `modn update` without a target refreshes every catalog and changes no game
@@ -123,8 +130,13 @@ buckets are skipped because they have nothing to fetch.
 
 Each catalog is independent. A failing catalog is reported, the remaining
 catalogs still refresh, and the command exits with a nonzero status. Human
-output prints one line per bucket. `--json` prints one value with a `buckets`
-array; each entry has `name`, `kind`, and `changed`, `skipped` or `error`.
+output prints one line per bucket, then `sequence <N> accepted` for a numbered
+catalog. An expired catalog adds the warning from
+[signed sequence numbers](buckets.md#signed-sequence-numbers) and does not fail
+the run. A refused rollback or sequence conflict names the stable code in its
+line. `--json` prints one value with a `buckets` array; each entry has `name`,
+`kind`, and `changed`, `skipped` or `error`, plus `sequence` and `warnings`.
+A refused entry also has `code`.
 
 The options for one installed mod need a target and are refused without one:
 `--version`, `--file`, `--path`, `--game`, `--nxm`, `--dry-run`, `--no-cache`,
@@ -139,13 +151,30 @@ that an author distributes. It needs no manager state and registers nothing.
 [catalog-authoring.md](catalog-authoring.md) shows the full publishing workflow.
 
 ```sh
+modn catalog init <dir> --name <name> --title <title>
 modn catalog keygen [--out <dir>] [--name <name>] [--password-env <VAR>]
-modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>] [--revocation-public-key <file>]
-modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--password-env <VAR>]
-modn catalog revoke <dir> --revocation-key <secret-key-file> --revoked <key-id> --replacement-public-key <file> [--password-env <VAR>]
+modn catalog sign <dir> --key <secret-key-file> [--password-env <VAR>] [--revocation-public-key <file>] [--sequence <N|next>] [--expires <time>]
+modn catalog rotate <dir> --key <secret-key-file> --new-public-key <file> [--password-env <VAR>] [--sequence <N>]
+modn catalog revoke <dir> --revocation-key <secret-key-file> --revoked <key-id> --replacement-public-key <file> [--password-env <VAR>] [--sequence <N>]
 modn catalog verify <dir> --key <public-key-file>
 modn catalog hash <archive> [--json]
+modn catalog checkver <dir> [<mod-id>] [--update] [--keep-previous] [--json]
 ```
+
+`init <dir>` writes a ready-to-sign bucket repository and exits 0. The target
+must be missing or empty; a directory with any entry, including a hidden one,
+is refused and nothing is written. Parent directories are created. `--name`
+accepts lowercase letters, digits and dashes, at most 64 characters, and not
+the reserved name `main`. `--title` must be non-empty, at most 128 bytes and
+free of control characters. Both values follow the same rules that a registered
+bucket applies to `bucket.json`, and a refusal writes nothing.
+
+The scaffold holds `bucket.json` with `schema_version` 2, an empty `mods/`
+directory, `PROVENANCE.md`, `templates/package.example.json`, `.gitignore`,
+`.github/workflows/validate.yml` and `.github/workflows/autoupdate.yml`. The
+command prints the created entries and the next steps. See
+[catalog authoring](catalog-authoring.md#start-a-new-bucket) for the workflow
+contents and the sample manifest.
 
 `keygen` writes `<name>.key` and `<name>.pub` and prints the 16-digit key
 fingerprint. It refuses to overwrite either file and never prints secret
@@ -160,22 +189,92 @@ keeps the previous signature. It refuses a secret key inside the catalog, a path
 that is not a directory, an encrypted key without `--password-env`, and a wrong
 password. A refusal writes nothing. `--revocation-public-key` copies the named
 public key to `revocation.pub` before signing, so the digest covers it.
+
+`--sequence <N>` writes `sequence.json` with a number of at least 1 before the
+digest is computed. `--sequence next` writes the next release number: the
+number in the existing `sequence.json` plus one, or 1 when the file is absent.
+A published `rotation.json` or `revocation.json` that names a higher number is
+a floor: `sign` uses that number, because a revision must never be older than a
+statement inside it. The file is rewritten
+completely from the flags, so `expires` appears only with `--expires`, except
+when `sign` only raises the number to a statement's number: then it keeps the
+existing expiry. A number
+lower than the one already in the file or a published statement is refused and
+writes nothing; an equal number is allowed. `--expires <time>` takes a strict
+UTC timestamp such as
+`2027-12-31T00:00:00Z` in the future, and needs `--sequence`, an existing
+`sequence.json` or a numbered key statement. Without both flags the directory
+is signed as before and
+`sequence.json` stays untouched, unless a published statement names a higher
+number. Text output then ends with a one-line hint that
+a numbered catalog protects users against rollback. `--json` adds `sequence`
+and, when set, `expires`.
 `rotate` writes `rotation.json` and `rotation.sig` with the current signing key.
 `revoke` writes `revocation.json` and `revocation.sig` with the offline
 revocation key. Both refuse a secret key inside the catalog and write nothing on
-refusal. After either command, run `modn catalog sign` with the successor key.
+refusal. Each statement describes the revision that will carry it: the number
+in `sequence.json` plus one. `--sequence <N>` sets it explicitly and must be at
+least that next number. Neither command writes `sequence.json`; after either
+command, run `modn catalog sign` with the successor key. It signs the statement's
+number and writes it to `sequence.json`.
 Sync prints both fingerprints and explains how trust changes. See
 [catalog authoring](catalog-authoring.md#rotate-or-revoke-a-signing-key).
 
 `verify` checks a catalog against a public key and registers nothing. It exits 0
-and prints the fingerprint on success. A wrong key names the signature key and
-the expected key. A missing signature, a changed file, an added file and a
-deleted file each exit nonzero.
+and prints the fingerprint on success. A numbered catalog also prints
+`sequence: <N>` and `expires: <time>`; an unnumbered catalog prints
+`sequence: unnumbered`. `--json` adds `sequence` and `expires`. A malformed
+`sequence.json` is refused with `BUCKET_FAILED`. A wrong key names the signature
+key and the expected key. A missing signature, a changed file, an added file and
+a deleted file each exit nonzero.
 
 `hash` prints the 64 lowercase hexadecimal characters of the archive's BLAKE3
 digest, which is the value of the `blake3` field in a package record. `--json`
 prints `{"blake3":"<hex>"}`. It streams the file and refuses a missing file or a
 directory.
+
+`checkver <dir>` reads every `mods/<game-id>/<mod-id>.json` record in a catalog
+directory and reports whether the upstream selected by its
+[`checkver` block](catalog-authoring.md#check-for-and-update-a-newer-upstream-release)
+has a newer release. It is stateless: it creates no manager state and writes no
+file in the catalog. It checks every package even when one fails, and exits
+nonzero when any package reports `error`. The statuses are `up_to_date`,
+`update_available`, `skipped` (no `checkver` block) and `error`. Human output
+prints one line per package and a summary. `--json` prints exactly one object
+with `packages` and `summary`; each package has `game`, `id`, `status`, `kind`
+(null when skipped), `current_version`, `latest_version` (null when unknown) and
+`error` (null unless the status is `error`).
+
+`--update` rewrites each `update_available` record, or the one package you name.
+For a `github-release` package it downloads the selected asset, computes the
+BLAKE3 pin and writes the new `version`, source `tag` and `asset`,
+`archive_format` and `blake3`. It removes `upstream_sha256`, which described the
+old artifact, and warns when the record lists other sources that were not
+updated. For a `git` package it writes the new commit and the `git.<commit>`
+version; a git record has no `blake3`. A Nexus package with an available update
+reports `error` under `--update`, because a Nexus download needs your own
+authorization; check-only still works. Modn validates the new record, writes it
+through a temporary file in the same directory, renames it over the old record
+and re-validates it. The rewrite is minimal: key order, indentation and the
+trailing newline stay as they were. A failed package leaves its record
+byte-identical and does not stop the others. `--update` never reads or writes
+`catalog.sig`, `catalog.pub` or any key, and prints
+`Run 'modn catalog sign' and 'modn catalog verify' before you publish; checkver never changes catalog.sig.`
+after it writes a record.
+
+`--keep-previous` requires `--update`. Before replacing a record, Modn writes its
+exact old bytes to `mods/<game-id>/<mod-id>@<old-version>.json`. A different file
+at that path is an `error` and nothing is written for the package; identical
+bytes are accepted. With `--update`, `--json` adds `updated` and `kept_previous`
+to each package, `updated` to the summary, and the top-level `reminder` only when
+a record was written. Without `--update`, the JSON object is unchanged.
+
+A `github-release` check reads the GitHub releases API. Set `GITHUB_TOKEN` to
+raise the rate limit; Modn sends it only to `api.github.com`. A `nexus` check
+reads the Nexus file list and needs an API key from `modn auth nexus set`, from
+the OS credential store or from `MODN_NEXUS_API_KEY`; a missing key is an
+`error` for that package. Give `<mod-id>` or `<game-id>/<mod-id>` to check one
+package; an ID that exists in several games needs the qualified form.
 
 `sign` and `verify` ignore a root `.git` entry, so both run in a Git checkout.
 Under `--json` a failure carries the `BUCKET_FAILED` error code.
@@ -227,8 +326,13 @@ only future plans; it never changes installed files or game files. It refuses
 while the module is pinned.
 
 `bucket sync <name>` reports the modules it found. Text output prints each
-imported release and each ignored module. `--json` adds a `modules` value with
-two arrays:
+imported release and each ignored module. It also prints `sequence <N> accepted`
+for a numbered catalog and the expiry warning when the signed expiry passed; both
+exit 0. A lower or dropped number is refused with `CATALOG_ROLLBACK`, and a reuse
+of an accepted number with another digest with `CATALOG_SEQUENCE_CONFLICT`. Both
+refusals change nothing on disk. `--json` adds `sequence` when the catalog is
+numbered and `warnings` when a warning was raised, and keeps the existing keys.
+`--json` adds a `modules` value with two arrays:
 
 - `imported`: each entry has `game_id`, `version`, `blake3` and `outcome`.
 - `ignored`: each entry has `game_id` and `reason`, either `untrusted_source` or
@@ -635,7 +739,10 @@ otherwise the command's default code is used. No command reports a generic
 | `APPROVAL_REQUIRED` | A write needs `--yes` or an interactive confirmation, or a release adds an executable path the stored approval does not cover. |
 | `ARCHIVE_INVALID` | An archive cannot be read or changed during the operation. |
 | `ARCHIVE_REQUIRED` | A mod has no downloadable source and needs `--file`. |
-| `CANCELLED` | The operation was cancelled before its commit point. |
+| `BUCKET_FINGERPRINT_MISMATCH` | A known bucket's `catalog.pub` key ID differs from the fingerprint in the official main list. |
+| `CANCELLED` | The operation was cancelled before its commit point by a `cancel` line or an interrupt. |
+| `CATALOG_ROLLBACK` | A signed catalog, relocation or key statement goes back to an older or dropped sequence number. |
+| `CATALOG_SEQUENCE_CONFLICT` | A signed catalog reuses an accepted sequence number with a different digest. |
 | `CONFLICT` | A declared or ownership conflict blocks the operation. |
 | `DEPENDENCY_MISSING` | A dependency is not installed or not intact. |
 | `DETECT_FOLDER_UNCONFIRMED` | The game module did not confirm a folder that matched its store identity. |
@@ -646,6 +753,7 @@ otherwise the command's default code is used. No command reports a generic
 | `DOWNLOAD_FAILED` | A download did not complete. |
 | `GAME_MODULE_ERROR` | A game module failed to load or run. |
 | `GAME_NOT_SELECTED` | Modn cannot select one registered game installation. |
+| `GIT_PROCESS_TREE_NOT_STOPPED` | A Git process tree could not be confined or confirmed stopped; acquisition ended. |
 | `GIT_SOURCE_COMMIT_MISMATCH` | A Git source resolved to another commit. |
 | `GIT_SOURCE_FETCH_FAILED` | A Git source could not be fetched or read. |
 | `GIT_SOURCE_UNSUPPORTED_ENTRY` | A Git source contains an entry Modn does not install. |
@@ -706,6 +814,8 @@ otherwise the command's default code is used. No command reports a generic
 ## Additional commands
 
 - `modn scan --path <game>` and `modn doctor --path <game>` read the game root and a module's content root. Content-root entries are labelled `content`. See [inventory.md](inventory.md).
+- `modn bucket known [--json]` prints the community buckets that the installed official `main` copy lists, in name order, without network access. Human output prints one line per bucket with its name, kind, fingerprint and source, then the description; `--json` prints a `buckets` array whose entries have `name`, `kind`, `source`, `revision` (null when absent), `description` and `fingerprint`. An empty or missing list exits 0.
+- `modn bucket sync <name>` without `--source` resolves an unregistered name from the `main` list and performs the usual signed sync. The listed `fingerprint` must equal the fetched `catalog.pub` key ID, checked before signature verification and before any write; a mismatch reports `BUCKET_FINGERPRINT_MISMATCH` and writes nothing. `--revision` needs `--source`. A known sync registers an ordinary community bucket and grants no module trust; run `modn bucket trust-modules <name> --yes` to trust its modules. A name that is neither registered nor listed is refused with a hint to run `modn bucket known`. See [buckets.md](buckets.md#known-community-buckets).
 - `modn bucket sync <name> --source <remote> --revision <reference>` registers a Git catalog. The first sync pins the signer key and the optional revocation key. A later sync refuses an unrelated key change and follows a signed rotation or revocation. See [sources.md](sources.md) and [buckets.md](buckets.md#catalog-key-rotation-and-revocation).
 - `modn bucket sync <name> --source <url>.zip` registers a signed ZIP catalog. Modn verifies it in staging before publication, and `--revision` is refused. The source must be `https://`, or an absolute local ZIP path for offline testing. See [buckets.md](buckets.md#community-catalog-sources).
 - `modn bucket sync` and `modn update` try the registered primary and then the mirrors that the latest verified revision lists. A signed `relocation.json` moves the registered primary. See [buckets.md](buckets.md#mirrors-and-relocation).

@@ -27,8 +27,14 @@ pub enum ErrorCode {
     ArchiveInvalid,
     /// A mod has no downloadable source and needs `--file`.
     ArchiveRequired,
+    /// A known bucket publishes another catalog key than the official list names.
+    BucketFingerprintMismatch,
     /// The operation was cancelled before its commit point.
     Cancelled,
+    /// A signed catalog, relocation or key statement goes back to an older or dropped sequence number.
+    CatalogRollback,
+    /// A signed catalog reuses an accepted sequence number with a different digest.
+    CatalogSequenceConflict,
     /// A declared or ownership conflict blocks the operation.
     Conflict,
     /// A dependency is not installed or not intact.
@@ -49,6 +55,8 @@ pub enum ErrorCode {
     GameModuleError,
     /// Modn cannot select one registered game installation.
     GameNotSelected,
+    /// A Git process tree could not be confined or confirmed stopped.
+    GitProcessTreeNotStopped,
     /// A Git source resolved to another commit.
     GitSourceCommitMismatch,
     /// A Git source could not be fetched or read.
@@ -171,7 +179,10 @@ impl ErrorCode {
         Self::ApprovalRequired,
         Self::ArchiveInvalid,
         Self::ArchiveRequired,
+        Self::BucketFingerprintMismatch,
         Self::Cancelled,
+        Self::CatalogRollback,
+        Self::CatalogSequenceConflict,
         Self::Conflict,
         Self::DependencyMissing,
         Self::DetectFolderUnconfirmed,
@@ -182,6 +193,7 @@ impl ErrorCode {
         Self::DownloadFailed,
         Self::GameModuleError,
         Self::GameNotSelected,
+        Self::GitProcessTreeNotStopped,
         Self::GitSourceCommitMismatch,
         Self::GitSourceFetchFailed,
         Self::GitSourceUnsupportedEntry,
@@ -249,7 +261,10 @@ impl ErrorCode {
             Self::ApprovalRequired => "APPROVAL_REQUIRED",
             Self::ArchiveInvalid => "ARCHIVE_INVALID",
             Self::ArchiveRequired => "ARCHIVE_REQUIRED",
+            Self::BucketFingerprintMismatch => "BUCKET_FINGERPRINT_MISMATCH",
             Self::Cancelled => "CANCELLED",
+            Self::CatalogRollback => "CATALOG_ROLLBACK",
+            Self::CatalogSequenceConflict => "CATALOG_SEQUENCE_CONFLICT",
             Self::Conflict => "CONFLICT",
             Self::DependencyMissing => "DEPENDENCY_MISSING",
             Self::DetectFolderUnconfirmed => "DETECT_FOLDER_UNCONFIRMED",
@@ -260,6 +275,7 @@ impl ErrorCode {
             Self::DownloadFailed => "DOWNLOAD_FAILED",
             Self::GameModuleError => "GAME_MODULE_ERROR",
             Self::GameNotSelected => "GAME_NOT_SELECTED",
+            Self::GitProcessTreeNotStopped => "GIT_PROCESS_TREE_NOT_STOPPED",
             Self::GitSourceCommitMismatch => "GIT_SOURCE_COMMIT_MISMATCH",
             Self::GitSourceFetchFailed => "GIT_SOURCE_FETCH_FAILED",
             Self::GitSourceUnsupportedEntry => "GIT_SOURCE_UNSUPPORTED_ENTRY",

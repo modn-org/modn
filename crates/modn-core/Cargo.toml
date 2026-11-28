@@ -4,11 +4,27 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[lints]
-workspace = true
+[lints.rust]
+# `deny` rather than the workspace `forbid`: the Windows job-object and
+# Toolhelp bindings in `acquisition/git/tree/windows.rs` need FFI. That module
+# opts in with `#![expect(unsafe_code, ...)]`; every other module stays safe.
+unsafe_code = "deny"
+unstable_features = "deny"
+
+[lints.clippy]
+ref_option = "deny"
+disallowed_methods = "deny"
+unwrap_used = "deny"
+wildcard_imports = "deny"
+needless_for_each = "deny"
+undocumented_unsafe_blocks = "deny"
+derive_partial_eq_without_eq = "allow"
+missing_const_for_fn = "allow"
 
 [features]
+test-checkver-endpoints = []
 test-instruction-budget = []
+test-known-source-redirect = []
 test-main-bucket-releases = []
 test-main-key = []
 
@@ -38,6 +54,13 @@ sevenz-rust2 = { version = "0.24", default-features = false, features = ["compre
 [target.'cfg(windows)'.dependencies]
 winapi-util = "0.1"
 windows-registry = "0.6"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1", features = ["fs"] }
+rustix = { version = "1.1", features = ["fs", "process"] }

@@ -1,9 +1,14 @@
 use super::{ArchiveCache, CacheUse, GitCacheKey, GitSource, Origin};
 use crate::git::{self, GitEnvironment};
+use crate::progress::OperationControl;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+fn control() -> OperationControl {
+    OperationControl::default()
+}
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let hooks = git::empty_hooks().unwrap();
@@ -91,7 +96,7 @@ fn pinned_commit_is_fetched_packed_and_cached() {
 
     let url = file_url(&bare);
     let first = source
-        .acquire_url(&url, &cache, &key, CacheUse::Reuse)
+        .acquire_url(&url, &cache, &key, CacheUse::Reuse, &control())
         .unwrap();
     assert_eq!(first.origin, Origin::Download);
     assert_eq!(first.blake3.len(), 64);
@@ -120,24 +125,28 @@ fn pinned_commit_is_fetched_packed_and_cached() {
     assert_eq!(entries[1].1, b"return 'one'", "the pinned commit, not HEAD");
 
     let second = source
-        .acquire_url(&url, &cache, &key, CacheUse::Reuse)
+        .acquire_url(&url, &cache, &key, CacheUse::Reuse, &control())
         .unwrap();
     assert_eq!(second.origin, Origin::Cache);
     assert_eq!(second.path, first.path);
     assert_eq!(second.blake3, first.blake3);
 
     let refreshed = source
-        .acquire_url(&url, &cache, &key, CacheUse::Refresh)
+        .acquire_url(&url, &cache, &key, CacheUse::Refresh, &control())
         .unwrap();
     assert_eq!(refreshed.origin, Origin::Download);
     assert_eq!(refreshed.blake3, first.blake3);
 
     let staging = root.path().join("staging-one");
     fs::create_dir_all(&staging).unwrap();
-    let one = source.pack_url(&file_url(&bare), &staging).unwrap();
+    let one = source
+        .pack_url(&file_url(&bare), &staging, &control())
+        .unwrap();
     let staging = root.path().join("staging-two");
     fs::create_dir_all(&staging).unwrap();
-    let two = source.pack_url(&file_url(&bare), &staging).unwrap();
+    let two = source
+        .pack_url(&file_url(&bare), &staging, &control())
+        .unwrap();
     assert_eq!(fs::read(&one.path).unwrap(), fs::read(&two.path).unwrap());
     assert_eq!(one.blake3, two.blake3);
 }
@@ -151,7 +160,7 @@ fn an_unknown_commit_fails_before_a_cache_entry_exists() {
     let cache = ArchiveCache::new(root.path().join("cache"));
     let key = GitCacheKey::new("test-game", "fixture", "1.0", &missing);
     let error = source
-        .acquire_url(&file_url(&bare), &cache, &key, CacheUse::Reuse)
+        .acquire_url(&file_url(&bare), &cache, &key, CacheUse::Reuse, &control())
         .unwrap_err();
     let message = format!("{error:#}");
     assert!(message.contains("GIT_SOURCE_FETCH_FAILED"), "{message}");
@@ -225,7 +234,9 @@ fn a_tree_with_a_symlink_or_submodule_is_rejected() {
         let source = GitSource::new("fixture/project".into(), pinned);
         let staging = root.path().join("staging");
         fs::create_dir_all(&staging).unwrap();
-        let error = source.pack_url(&file_url(&bare), &staging).unwrap_err();
+        let error = source
+            .pack_url(&file_url(&bare), &staging, &control())
+            .unwrap_err();
         let message = format!("{error:#}");
         assert!(
             message.contains("GIT_SOURCE_UNSUPPORTED_ENTRY"),

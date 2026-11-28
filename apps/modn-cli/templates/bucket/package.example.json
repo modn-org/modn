@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "id": "<package-id>",
+  "game": "<game-id>",
+  "name": "<Package title>",
+  "version": "<version>",
+  "archive_format": "zip",
+  "blake3": "<64 lowercase hex characters from modn catalog hash>",
+  "sources": [
+    {
+      "kind": "github-release",
+      "repository": "<owner>/<repository>",
+      "tag": "v<version>",
+      "asset": "<asset-name>.zip"
+    }
+  ],
+  "dependencies": [],
+  "checkver": {
+    "kind": "github-release",
+    "repository": "<owner>/<repository>",
+    "asset_pattern": "*<asset-name>*.zip"
+  }
+}

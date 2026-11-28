@@ -1,20 +1,19 @@
 use super::keys::{
     fingerprint, load_secret_outside, read_public_key_text, require_directory, write_signature,
 };
+use super::sequence::{REVOCATION_FILE, ROTATION_FILE};
 use super::SIGNATURE_COMMENT;
 use anyhow::{anyhow, bail, Context, Result};
 use minisign::{PublicKey, SecretKey};
 use modn_core::buckets::{
-    catalog_statement, key_statement_bytes, revocation_statement, rotation_statement,
-    CatalogPublicKey, KeyChangeKind,
+    catalog_statement, key_statement_bytes, revocation_statement_with_sequence,
+    rotation_statement_with_sequence, CatalogPublicKey, KeyChangeKind,
 };
 use serde_json::json;
 use std::io::Cursor;
 use std::path::Path;
 
-const REVOCATION_FILE: &str = "revocation.json";
 const REVOCATION_SIGNATURE_FILE: &str = "revocation.sig";
-const ROTATION_FILE: &str = "rotation.json";
 const ROTATION_SIGNATURE_FILE: &str = "rotation.sig";
 
 pub(super) fn rotate(
@@ -22,9 +21,11 @@ pub(super) fn rotate(
     key_path: &Path,
     new_public_key_path: &Path,
     password_env: Option<&str>,
+    sequence: Option<u64>,
     json_output: bool,
 ) -> Result<()> {
     require_directory(root, "catalog directory")?;
+    let sequence = super::sequence::statement_sequence(root, sequence)?;
     let secret = load_secret_outside(root, key_path, password_env)?;
     let old_public = PublicKey::from_secret_key(&secret)
         .map_err(|_| anyhow!("secret key does not contain its public key"))?;
@@ -42,7 +43,7 @@ pub(super) fn rotate(
         .context("cannot read the catalog")?
         .name()
         .to_owned();
-    let body = rotation_statement(&from, &new_text)?;
+    let body = rotation_statement_with_sequence(&from, &new_text, sequence)?;
     let bytes = key_statement_bytes(KeyChangeKind::Rotated, &name, &body);
     let signature = sign_statement(&old_public, &secret, &bytes, "rotation")?;
     write_signature(&root.join(ROTATION_FILE), &body)?;
@@ -54,6 +55,7 @@ pub(super) fn rotate(
                 "catalog": name,
                 "from": from,
                 "to": to,
+                "sequence": sequence,
                 "rotation": root.join(ROTATION_FILE),
                 "signature": root.join(ROTATION_SIGNATURE_FILE),
             })
@@ -64,6 +66,11 @@ pub(super) fn rotate(
             "Next, run `modn catalog sign {} --key <new-secret-key>` to sign the revision with the new key.",
             root.display()
         );
+        if let Some(sequence) = sequence {
+            println!(
+                "The statement names sequence {sequence}; `modn catalog sign` signs that number and writes sequence.json."
+            );
+        }
     }
     Ok(())
 }
@@ -74,9 +81,11 @@ pub(super) fn revoke(
     revoked: &str,
     replacement_public_key_path: &Path,
     password_env: Option<&str>,
+    sequence: Option<u64>,
     json_output: bool,
 ) -> Result<()> {
     require_directory(root, "catalog directory")?;
+    let sequence = super::sequence::statement_sequence(root, sequence)?;
     let revoked = normalize_key_id(revoked)?;
     let secret = load_secret_outside(root, revocation_key_path, password_env)?;
     let revocation_public = PublicKey::from_secret_key(&secret)
@@ -98,7 +107,7 @@ pub(super) fn revoke(
         .context("cannot read the catalog")?
         .name()
         .to_owned();
-    let body = revocation_statement(&revoked, &replacement_text)?;
+    let body = revocation_statement_with_sequence(&revoked, &replacement_text, sequence)?;
     let bytes = key_statement_bytes(KeyChangeKind::Revoked, &name, &body);
     let signature = sign_statement(&revocation_public, &secret, &bytes, "revocation")?;
     write_signature(&root.join(REVOCATION_FILE), &body)?;
@@ -112,6 +121,7 @@ pub(super) fn revoke(
                 "revocation_key_id": revocation_fingerprint,
                 "revoked": revoked,
                 "replacement": replacement_fingerprint,
+                "sequence": sequence,
                 "revocation": root.join(REVOCATION_FILE),
                 "signature": root.join(REVOCATION_SIGNATURE_FILE),
             })
@@ -124,6 +134,11 @@ pub(super) fn revoke(
             "Next, run `modn catalog sign {} --key <replacement-secret-key>` to sign the revision with the replacement key.",
             root.display()
         );
+        if let Some(sequence) = sequence {
+            println!(
+                "The statement names sequence {sequence}; `modn catalog sign` signs that number and writes sequence.json."
+            );
+        }
     }
     Ok(())
 }

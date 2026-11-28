@@ -259,6 +259,7 @@ pub(super) fn manifest(id: &str, pin: Option<&str>) -> PackageManifest {
         dependency_versions: BTreeMap::new(),
         conflicts: Vec::new(),
         native_injector: false,
+        checkver: None,
     }
 }
 

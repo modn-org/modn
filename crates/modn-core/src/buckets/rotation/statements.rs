@@ -15,6 +15,7 @@ struct Statement {
     old_key_id: String,
     new_key: CatalogPublicKey,
     new_key_text: String,
+    sequence: Option<u64>,
     body: Vec<u8>,
     signature: String,
 }
@@ -30,6 +31,7 @@ pub(in crate::buckets) fn apply_key_statements(
     catalog_name: &str,
     pinned: &PinnedKeys<'_>,
     revision_public: Option<&CatalogPublicKey>,
+    revision_sequence: Option<u64>,
 ) -> Result<KeyStatementOutcome> {
     let mut statements = Vec::new();
     if let Some((body, signature)) = read_statement(root, ROTATION_FILE, ROTATION_SIGNATURE_FILE)? {
@@ -39,6 +41,9 @@ pub(in crate::buckets) fn apply_key_statements(
         read_statement(root, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE)?
     {
         statements.push(parse_revocation(catalog_name, body, signature)?);
+    }
+    for statement in &statements {
+        check_statement_not_newer(catalog_name, statement.sequence, revision_sequence)?;
     }
     let pinned_id = pinned.signer.key_id().to_string();
     let applied: Vec<usize> = statements
@@ -91,6 +96,7 @@ pub(in crate::buckets) fn apply_key_statements(
         )
     };
     let statement = &statements[*index];
+    check_statement_is_current(catalog_name, statement.sequence, revision_sequence)?;
     verify_statement_signature(catalog_name, pinned, statement)?;
     if let Some(revision_public) = revision_public {
         if *revision_public != statement.new_key {
@@ -132,10 +138,12 @@ pub(in crate::buckets) fn apply_key_statements(
 pub(in crate::buckets) fn validate_historical_statements(
     root: &Path,
     catalog_name: &str,
+    revision_sequence: Option<u64>,
 ) -> Result<Vec<String>> {
     let mut ignored = Vec::new();
     if let Some((body, signature)) = read_statement(root, ROTATION_FILE, ROTATION_SIGNATURE_FILE)? {
         let statement = parse_rotation(catalog_name, body, signature)?;
+        check_statement_not_newer(catalog_name, statement.sequence, revision_sequence)?;
         let signer = signature_key_id(&statement.signature, "rotation")?;
         if signer.to_string() != statement.old_key_id {
             bail!(
@@ -149,6 +157,7 @@ pub(in crate::buckets) fn validate_historical_statements(
         read_statement(root, REVOCATION_FILE, REVOCATION_SIGNATURE_FILE)?
     {
         let statement = parse_revocation(catalog_name, body, signature)?;
+        check_statement_not_newer(catalog_name, statement.sequence, revision_sequence)?;
         let Some((revocation_key, _)) = read_revocation_public_key(root)? else {
             bail!(
                 "catalog {catalog_name} has a revocation statement, but no revocation.pub; the statement is invalid"
@@ -164,6 +173,58 @@ pub(in crate::buckets) fn validate_historical_statements(
         ignored.push(kind_name(statement.kind).to_owned());
     }
     Ok(ignored)
+}
+
+/// Refuse a statement that names a number newer than the revision that carries it.
+///
+/// A statement can describe only the revision it was published in or an earlier
+/// one. A higher number has no revision that could have carried it, so a
+/// publisher who writes one has made a mistake.
+fn check_statement_not_newer(
+    catalog_name: &str,
+    statement: Option<u64>,
+    revision: Option<u64>,
+) -> Result<()> {
+    let Some(statement) = statement else {
+        return Ok(());
+    };
+    match revision {
+        Some(revision) if statement <= revision => Ok(()),
+        Some(revision) => bail!(
+            "a key statement in catalog {catalog_name} names sequence {statement}, which is newer than the catalog revision's sequence {revision}"
+        ),
+        None => Err(crate::error::coded(
+            crate::error::ErrorCode::CatalogRollback,
+            format!(
+                "A key statement in catalog {catalog_name} names sequence {statement}, but the catalog revision is unnumbered. A numbered statement cannot appear in an unnumbered revision; the rollback refused the sync and nothing was written."
+            ),
+        )),
+    }
+}
+
+/// Require the statement that applies to the pinned key to name this revision.
+///
+/// A statement that would move the pin and names an older number is a replay:
+/// the revision it was published in is already superseded. Every other published
+/// statement is history from an earlier revision. It adds no trust, and it keeps
+/// the number it was signed with, so a lower number is normal there.
+fn check_statement_is_current(
+    catalog_name: &str,
+    statement: Option<u64>,
+    revision: Option<u64>,
+) -> Result<()> {
+    let (Some(statement), Some(revision)) = (statement, revision) else {
+        return Ok(());
+    };
+    if statement < revision {
+        return Err(crate::error::coded(
+            crate::error::ErrorCode::CatalogRollback,
+            format!(
+                "A key statement in catalog {catalog_name} names sequence {statement}, but the catalog revision is sequence {revision}. A statement that applies to the pinned key must be published in the revision it names; a statement from an older revision is a replay, so the rollback refused the sync and nothing was written."
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn kind_name(kind: KeyChangeKind) -> &'static str {
@@ -230,6 +291,7 @@ fn parse_rotation(catalog_name: &str, body: Vec<u8>, signature: String) -> Resul
         old_key_id,
         new_key,
         new_key_text: statement.to,
+        sequence: statement.sequence,
         body,
         signature,
     })
@@ -258,6 +320,7 @@ fn parse_revocation(catalog_name: &str, body: Vec<u8>, signature: String) -> Res
         old_key_id,
         new_key,
         new_key_text: statement.replacement,
+        sequence: statement.sequence,
         body,
         signature,
     })

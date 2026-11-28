@@ -4,8 +4,10 @@ use super::mirrors::{
     check_mirror_kinds, read_mirrors, read_relocation, CatalogHost, CatalogSyncTrace,
 };
 use super::rotation::{CatalogKeyChange, KeyChangeKind};
+use super::signature::CatalogKeyId;
 use super::store::{BucketStore, MODULE_MANIFEST, MODULE_SCRIPT};
 use super::trust::ModuleTrustState;
+use crate::error::ErrorCode;
 use crate::game_modules::{ignored_catalog_modules, stage_catalog_modules_at, CatalogModuleReport};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -14,13 +16,14 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 mod fetch;
+mod sequence_glue;
 mod verify;
 
 use self::fetch::clone_catalog;
+pub(super) use self::sequence_glue::catalog_source_error;
+use self::sequence_glue::verify_revision;
 pub(super) use verify::verify_catalog_tree;
 pub use verify::CatalogSigner;
-
-use self::verify::CatalogVerification;
 
 /// An explicitly selected community catalog remote and branch, tag or commit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +64,9 @@ pub struct GitCatalogSync {
     /// Published key statements that added no trust to this pin.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ignored_key_statements: Vec<String>,
+    /// Non-fatal warnings, such as an expired signed catalog.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<super::sequence::CatalogWarning>,
     /// Game module releases imported or ignored during this sync.
     pub modules: CatalogModuleReport,
     /// The primary, the source that served the revision and any failures.
@@ -158,20 +164,6 @@ pub(super) fn validate_tree(root: &Path, directory: &Path, trust: ModuleTrustSta
     Ok(())
 }
 
-fn verify_revision(
-    root: &Path,
-    name: &str,
-    reference: &str,
-    previous: Option<&GitCatalogRevision>,
-) -> Result<CatalogVerification> {
-    verify_catalog_tree(
-        root,
-        name,
-        &format!("Git catalog {name} at {reference}"),
-        previous.map(|revision| &revision.signer),
-    )
-}
-
 impl GitCatalogSource {
     /// Construct a source. Sync validates it before running Git.
     #[must_use]
@@ -231,13 +223,33 @@ impl BucketStore {
         name: &str,
         source: Option<GitCatalogSource>,
     ) -> Result<GitCatalogSync> {
-        self.sync_git_bounded(name, source)
+        self.sync_git_bounded(name, source, None)
+    }
+
+    /// Same as [`Self::sync_git_with_signer`], and refuses a catalog whose
+    /// `catalog.pub` key ID differs from `expected_fingerprint`.
+    ///
+    /// The check runs before signature verification and before any
+    /// registration, snapshot, cache or retired-key file is written.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::ErrorCode::BucketFingerprintMismatch`] when the
+    /// key ID differs.
+    pub fn sync_git_with_expected_fingerprint(
+        &self,
+        name: &str,
+        source: Option<GitCatalogSource>,
+        expected_fingerprint: Option<&CatalogKeyId>,
+    ) -> Result<GitCatalogSync> {
+        self.sync_git_bounded(name, source, expected_fingerprint)
     }
 
     fn sync_git_bounded(
         &self,
         name: &str,
         source: Option<GitCatalogSource>,
+        expected_fingerprint: Option<&CatalogKeyId>,
     ) -> Result<GitCatalogSync> {
         Self::check_registry_root(&self.root)?;
         if !valid_id(name) || name == "main" {
@@ -264,6 +276,11 @@ impl BucketStore {
                 bail!("provide a source for registration; changing a registered source is refused")
             }
         };
+        let source = expected_fingerprint
+            .and_then(|_| super::test_hooks::known_source_redirect(&source.remote))
+            .map_or(source.clone(), |remote| {
+                GitCatalogSource::new(remote, source.reference.clone())
+            });
         source.validate()?;
         let primary = CatalogHost::from(&source);
         let mut candidates = vec![source.clone()];
@@ -292,6 +309,20 @@ impl BucketStore {
                     break;
                 }
                 Err(error) => {
+                    let code = crate::error::code_of(&error);
+                    if code == Some(ErrorCode::Cancelled) {
+                        // An interrupt cancels every later clone before it
+                        // starts, so fallback cannot succeed. End the sync
+                        // with the cancelled code instead of a mirror error.
+                        return Err(error);
+                    }
+                    if code == Some(ErrorCode::GitProcessTreeNotStopped) {
+                        // A descendant may still write here. Keep the staging
+                        // tree and end the sync instead of trying another
+                        // mirror; the error says why.
+                        let _ = stage.keep();
+                        return Err(error);
+                    }
                     let _ = fs::remove_dir_all(&attempt);
                     failed_sources.push(format!(
                         "{}: {error:#}",
@@ -307,10 +338,17 @@ impl BucketStore {
             );
         };
         let served_by = CatalogHost::from(&served_source);
-        let verification =
-            verify_revision(&catalog, name, &served_source.reference, previous.as_ref()).map_err(
-                |error| anyhow!("catalog source {} failed: {error:#}", served_by.label()),
-            )?;
+        let stored_sequence = self.stored_sequence(name)?;
+        let verification = verify_revision(
+            &catalog,
+            name,
+            &served_source.reference,
+            previous.as_ref(),
+            expected_fingerprint,
+            stored_sequence.as_ref(),
+            self.clock_seconds(),
+        )
+        .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let trust = match verification.key_change.as_ref().map(|change| change.kind) {
             Some(KeyChangeKind::Revoked) => ModuleTrustState::Untrusted,
             _ => trust,
@@ -322,8 +360,10 @@ impl BucketStore {
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
         check_mirror_kinds(name, &served_by, &mirrors)
             .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
-        let relocation = read_relocation(&catalog, &served_by)
-            .map_err(|error| anyhow!("catalog source {} failed: {error:#}", served_by.label()))?;
+        let revision_sequence =
+            super::sequence::read_sequence(&catalog)?.map(|sequence| sequence.sequence());
+        let relocation = read_relocation(&catalog, &served_by, revision_sequence)
+            .map_err(|error| catalog_source_error(&served_by.label(), error))?;
         let moved_to = relocation.filter(|primary_host| primary_host != &primary);
         let published_source = match &moved_to {
             Some(host) => host
@@ -337,6 +377,8 @@ impl BucketStore {
             signer: verification.signer,
         };
         let key_change = verification.key_change;
+        let accepted = verification.accepted;
+        let warnings = verification.warnings;
         let previous_registration = match &previous {
             Some(_) => Some(self.registration(name)?),
             None => None,
@@ -387,6 +429,7 @@ impl BucketStore {
             revision.clone(),
             mirrors.clone(),
             trust == ModuleTrustState::Trusted,
+            accepted,
         )?;
         if !(unchanged && previous_registration.is_some()) {
             let _ = stage.keep();
@@ -402,6 +445,7 @@ impl BucketStore {
             pinned,
             key_change,
             ignored_key_statements: verification.ignored_key_statements,
+            warnings,
             modules: CatalogModuleReport { imported, ignored },
             trace: CatalogSyncTrace {
                 primary: primary.clone(),
@@ -429,6 +473,8 @@ pub(super) fn same_signing_files(published: &Path, staged: &Path) -> bool {
 }
 
 #[cfg(test)]
+mod expected_fingerprint_tests;
+#[cfg(test)]
 mod publish_order_tests;
 #[cfg(test)]
 mod replay_tests;
@@ -436,6 +482,8 @@ mod replay_tests;
 mod snapshot_tests;
 #[cfg(test)]
 mod statement_tests;
+#[cfg(test)]
+mod tree_tests;
 
 #[cfg(test)]
 pub(crate) mod tests;

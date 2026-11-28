@@ -198,7 +198,7 @@ impl ArchiveCache {
                                 attempts,
                             });
                         }
-                        Err(error) if is_cancelled(&error) => return Err(error),
+                        Err(error) if ends_acquisition(&error) => return Err(error),
                         Err(error) => {
                             observed(
                                 resolver,
@@ -219,7 +219,7 @@ impl ArchiveCache {
                     let label = nexus_label(&game_domain, mod_id, file_id, &file_name);
                     match resolver.nexus(release, source) {
                         Err(error) => {
-                            if is_cancelled(&error) {
+                            if ends_acquisition(&error) {
                                 return Err(error);
                             }
                             observed(
@@ -262,7 +262,7 @@ impl ArchiveCache {
                                         attempts,
                                     });
                                 }
-                                Err(error) if is_cancelled(&error) => return Err(error),
+                                Err(error) if ends_acquisition(&error) => return Err(error),
                                 Err(error) => {
                                     observed(
                                         resolver,
@@ -300,7 +300,7 @@ impl ArchiveCache {
                                 attempts,
                             });
                         }
-                        Err(error) if is_cancelled(&error) => return Err(error),
+                        Err(error) if ends_acquisition(&error) => return Err(error),
                         Err(error) => match attempts_of(&error) {
                             Some(failed) => {
                                 for attempt in failed {
@@ -368,6 +368,7 @@ pub fn recorded_release(
             dependency_versions: BTreeMap::new(),
             conflicts: Vec::new(),
             native_injector: false,
+            checkver: None,
         },
     })
 }
@@ -417,8 +418,16 @@ fn candidate_url(candidate: &SourceCandidate) -> &str {
     }
 }
 
-fn is_cancelled(error: &anyhow::Error) -> bool {
-    code_of(error) == Some(ErrorCode::Cancelled)
+/// Whether `error` ends the acquisition instead of trying the next source.
+///
+/// A cancelled operation and a Git process tree that Modn could not confirm
+/// stopped both end the loop. A descendant of the tree may still write to the
+/// staging directory, so no other source may start.
+fn ends_acquisition(error: &anyhow::Error) -> bool {
+    matches!(
+        code_of(error),
+        Some(ErrorCode::Cancelled | ErrorCode::GitProcessTreeNotStopped)
+    )
 }
 
 fn classify(error: &anyhow::Error) -> SourceFailure {

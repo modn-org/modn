@@ -40,9 +40,13 @@ main release v2026.12.01 needs Modn 0.8.0; keeping v2026.11.24. Update Modn to g
 ```
 
 JSON output adds `release` and `newer_release_needs_modn`. The latter is null
-when no newer release was skipped. If no release is supported, the command
-names the required Modn version, fails and leaves the installed bucket
-unchanged.
+when no newer release was skipped. It also adds `sequence` and `warnings`.
+If no release is supported, the command names the required Modn version, fails
+and leaves the installed bucket unchanged. A numbered release prints
+`sequence <N> accepted`, and an expired one prints the warning from
+[signed sequence numbers](#signed-sequence-numbers) and still exits 0. A rollback
+or sequence conflict reports `CATALOG_ROLLBACK` or `CATALOG_SEQUENCE_CONFLICT`
+and keeps the installed copy.
 
 `modn update` with no target refreshes the official bucket and every registered
 Git or ZIP catalog in one run. It uses the same signed-release path as
@@ -178,6 +182,68 @@ registration's primary in one atomic registration write. The output says
 `catalog <name> moved from <old> to <new>`. Sync follows at most one relocation,
 and a relocation to the same primary is ignored. The next sync contacts the new
 primary first.
+
+### Signed sequence numbers
+
+A signed catalog may publish a root `sequence.json`:
+
+```json
+{"schema_version":1,"sequence":7,"expires":"2026-12-31T00:00:00Z"}
+```
+
+The catalog digest covers the file, so `catalog.sig` binds the number and the
+optional expiry. `sequence` is at least 1, `expires` is an optional UTC
+timestamp in `YYYY-MM-DDTHH:MM:SSZ` form, and unknown fields are refused.
+A catalog without the file is unnumbered. Publish the file with
+`modn catalog sign --sequence next`; see [signing a catalog](#signing-a-catalog).
+
+Modn stores the highest accepted `{sequence, digest}` per bucket in
+`<profile>/buckets/registrations/<bucket>.json`. The official `main` bucket has
+no registration, so it uses `<profile>/buckets/main.json`. A sync accepts a
+higher number and stores it, and accepts the same number with the same digest as
+an idempotent re-sync. A lower number, a dropped number or an unnumbered
+revision after a numbered one is refused with `CATALOG_ROLLBACK`. The same
+number with a different digest is refused with `CATALOG_SEQUENCE_CONFLICT`.
+Both refusals leave the previous registration, catalog files and stored number
+unchanged. A first sync, numbered or unnumbered, always works, so a publisher
+can adopt numbering at any release. `modn bucket update` records the accepted
+number for `main` before it swaps in the new copy. An interrupted update can
+leave the record ahead of the installed copy, which only refuses older catalogs.
+
+An expiry in the past never refuses a sync. It prints this warning and the
+command exits 0:
+
+```text
+warning: catalog <name> expired on <time>; its publisher asks users not to rely on it. The sync completed.
+```
+
+The expiry is freeze protection: it tells users that the publisher stopped
+signing new revisions. Modn has no newer document to fetch, so it still syncs
+the expired one. Renew the expiry by signing the catalog again with
+`--sequence next --expires <new time>`.
+
+A `relocation.json` may carry a `sequence`, which must equal the revision's
+number; a lower number is a replay and is refused as a rollback.
+
+`rotation.json` and `revocation.json` may carry a `sequence` too. A statement
+that applies to the pinned key must name the revision's number; a lower number
+is a replay and is refused as `CATALOG_ROLLBACK`. A statement that stays
+published after its revision is history, keeps its original lower number and
+adds no trust. A statement newer than the revision that carries it is refused,
+so a statement cannot arrive before its release.
+
+`modn catalog rotate` and `modn catalog revoke` name the next revision, the
+file's number plus one, and `modn catalog sign` then signs that number and
+writes it to `sequence.json`. See
+[rotate or revoke a signing key](catalog-authoring.md#rotate-or-revoke-a-signing-key).
+
+To accept a deliberate rollback, remove the stored number. For a community
+catalog run `modn bucket remove <name>` and sync it again; removal deletes the
+registration and with it the stored number. `main` cannot be removed, so delete
+`<profile>/buckets/main.json` by hand and run `modn bucket update`. Both actions
+are explicit trust resets, so the next sync is a genuine first sync. Do not
+delete the record to work around a suspected attack; report the publisher
+instead.
 
 ### Main catalog signature
 
@@ -342,16 +408,24 @@ the catalog path.
 
 ```powershell
 modn catalog keygen --out ../author-keys
-modn catalog sign . --key ../author-keys/catalog.key
+modn catalog sign . --key ../author-keys/catalog.key --sequence next
 modn catalog verify . --key catalog.pub
 ```
 
 `modn catalog sign` writes `catalog.sig` and the matching `catalog.pub` at the
-catalog root. `modn catalog hash` prints the BLAKE3 pin of an archive for a
-package record. `modn catalog rotate` and `modn catalog revoke` write the signed
-key statements described above. A password-protected key takes
-`--password-env <VAR>`. Every command needs no manager state and registers
-nothing. See [catalog authoring](catalog-authoring.md) for the full workflow.
+catalog root. `--sequence next` also writes `sequence.json` with the next number,
+and `--sequence <N>` writes a number you choose. `--expires <time>` adds a UTC
+expiry and needs a number from the flag or from an existing `sequence.json`.
+A number lower than the one already signed is refused and writes nothing.
+Without those flags the directory is signed as before; the output then points
+out that a numbered catalog protects users against rollback. `modn catalog hash`
+prints the BLAKE3 pin of an archive for a package record. `modn catalog rotate`
+and `modn catalog revoke` write the signed key statements described above and
+copy the catalog number into each statement. `modn catalog verify` prints
+`sequence: <N>` and `expires: <time>`, or `sequence: unnumbered`.
+A password-protected key takes `--password-env <VAR>`. Every command needs no
+manager state and registers nothing. See
+[catalog authoring](catalog-authoring.md) for the full workflow.
 
 Sign the tree that you ship. Any change to a catalog file changes the digest and
 invalidates the signature. A Git catalog publishes `catalog.sig` and `catalog.pub`
@@ -359,6 +433,73 @@ at its root. A `main` release also uploads the same signature as
 `main-bucket.zip.minisig`. That file comes from the main bucket release pipeline,
 which uses the stock `minisign` CLI with `-S`, never `-l`, and produces the same
 statement format. See [releasing](releasing.md).
+
+## Known community buckets
+
+The official `main` bucket may hold an optional `known-buckets.json` at its
+root. The file lists community buckets that Modn can offer by short name.
+`modn bucket known` prints the list from the installed `main` copy, in name
+order, without network access.
+
+The `main` catalog signature covers the file, because the
+[catalog digest](#catalog-digest) covers every root file except `catalog.sig`
+and `catalog.pub`. Any change to the list changes the digest and invalidates
+the signature.
+
+```json
+{
+  "schema_version": 1,
+  "buckets": {
+    "example": {
+      "kind": "git",
+      "source": "https://github.com/owner/bucket",
+      "revision": "main",
+      "fingerprint": "0E250AD52A3BA2AA",
+      "description": "One line about the bucket."
+    }
+  }
+}
+```
+
+The file is UTF-8 JSON, at most 256 KiB, and lists at most 256 entries.
+`buckets` maps a short name to one entry. Unknown fields, an unknown
+`schema_version` and a duplicate name are refused. Each refusal names the
+entry and the field. Entries are read in name order.
+
+- A name follows the bucket-name rule of a registered bucket: lowercase ASCII
+  letters, digits and dashes, at most 64 characters, starting with a letter,
+  and not the reserved name `main`.
+- `kind` is `git` or `zip`.
+- `source` is an `https://` URL of at most 2048 characters. Modn refuses
+  `http://`, `file:`, `ssh:`, scp-style remotes, local paths, credentials in
+  the URL, an empty host, whitespace and control characters.
+- `revision` is optional and allowed only for `kind: git`. It is 1 to 255
+  characters without whitespace or control characters and does not start
+  with `-`.
+- `fingerprint` is the 16-hexadecimal-digit minisign key ID of the bucket's
+  `catalog.pub`. Modn accepts either letter case and reports the uppercase
+  form.
+- `description` is 1 to 200 characters without control characters.
+
+Listing a bucket is metadata only. It does not register the bucket, fetch it or
+trust its game modules. Registering and syncing a listed bucket stays an
+explicit step. Modn parses the file only in the official `main` copy; a
+`known-buckets.json` in another bucket is never read, and a malformed file
+refuses a `main` update without changing the installed copy.
+
+`modn bucket sync <name>` without `--source` reads the installed list. An
+already registered `<name>` keeps its usual sync. Otherwise Modn uses the
+listed `kind`, `source` and `revision` exactly as a manual `--source` sync
+would, and refuses `--revision` because the list supplies it. A `git` entry
+without `revision` fetches the remote's default branch. The fetched
+`catalog.pub` key ID must equal the listed `fingerprint`. Modn checks the key
+ID before it verifies the signature against it and before it writes a
+registration, a catalog snapshot, a cache entry or a retired-key file. A
+mismatch reports `BUCKET_FINGERPRINT_MISMATCH` and writes nothing. The sync
+registers an ordinary community bucket and never grants module trust; run
+`modn bucket trust-modules <name> --yes` to trust its game modules. A name
+that is neither registered nor listed is refused with a hint to run
+`modn bucket known`.
 
 ## Module sources and trust
 
@@ -453,7 +594,7 @@ has schema_version: 2, id, game, name, version, sources (`manual` with filename,
 `https` with URL, `github-release`, `git` with repository and commit, or `nexus`
 with game_domain, mod_id, file_id and file_name), optional redistributable,
 upstream_sha256, dependencies (same-game IDs), dependency_versions, conflicts,
-executables, native_injector and homepage.
+executables, native_injector, homepage and checkver.
 `sources` is an ordered, non-empty list. Modn tries each fetchable source in
 order and uses the first one whose bytes match the `blake3` pin. It moves on
 after a timeout, a network or HTTP failure, or a digest mismatch. A `manual`
@@ -495,6 +636,69 @@ Bucket registration, listing, searching and manifest inspection are
 installed from a supplied, BLAKE3-verified ZIP/7z with an explicit approval;
 standalone local archives use the same managed transaction engine. A checksum
 proves the bytes match a catalog record, not publisher trust.
+
+## checkver metadata
+
+A contract v2 package manifest may carry an optional `checkver` object. The
+object names the upstream release that catalog authoring tools check. User
+commands (`search`, `install`, `update` and `bucket sync`) never read it to
+choose a source, plan an install or make a network call. They do parse and
+validate the block, so a malformed block is still refused. The block is part of
+the signed catalog content, because the catalog digest covers every file.
+
+The object has one `kind` and exactly the fields for that kind. Unknown kinds,
+unknown fields, missing fields, wrong JSON types and empty strings are refused.
+Every refusal names the package and the offending field, such as
+`checkver.repository`.
+
+`github-release` selects an asset of a GitHub release:
+
+```json
+{
+  "kind": "github-release",
+  "repository": "owner/repo",
+  "asset_pattern": "Mod-*.zip",
+  "prerelease": false
+}
+```
+
+`prerelease` is optional and defaults to `false`. When it is `false`, a
+prerelease does not satisfy the check.
+
+`git` selects a branch of a Git repository:
+
+```json
+{"kind": "git", "repository": "owner/repo", "branch": "main"}
+```
+
+`nexus` selects a file in a Nexus Mods game domain. It uses the same game
+domain and mod ID rules as a `nexus` package source:
+
+```json
+{
+  "kind": "nexus",
+  "game_domain": "cyberpunk2077",
+  "mod_id": 6945,
+  "file_pattern": "Mod-*.7z"
+}
+```
+
+The fields follow these rules:
+
+- `repository` is exactly `owner/repo`: two non-empty segments of ASCII
+  letters, digits, `.`, `_` and `-`. Neither segment may be `.` or `..`.
+- `asset_pattern` and `file_pattern` are 1 to 200 characters with no `/`, `\`,
+  control characters or NUL. Only `*` and `?` are glob metacharacters. A value
+  with neither wildcard is an exact file name.
+- `branch` is 1 to 255 characters. It holds no whitespace, control characters,
+  `~`, `^`, `:`, `?`, `*`, `[` or `\`, no `..` and no `@{`. It does not start
+  with `-` or `/`, and it does not end with `/`, `.` or `.lock`.
+- `game_domain` follows the Nexus game domain rule, and `mod_id` is a Nexus
+  mod ID from 1 to 9999999999.
+
+A manifest without `checkver` is valid and behaves exactly as before. The
+block records metadata only: it does not change the selected source, the
+archive pin or any user command.
 
 ## Themes in buckets
 

@@ -15,6 +15,7 @@ mod history;
 mod install;
 mod install_consent;
 mod install_report;
+mod interrupt;
 mod inventory;
 mod main_key;
 mod main_release;
@@ -193,6 +194,10 @@ fn reports_progress(command: &Command) -> bool {
 }
 
 fn main() {
+    if let Err(error) = interrupt::install() {
+        eprintln!("error: {error:#}");
+        std::process::exit(1);
+    }
     let cli = Cli::parse();
     let json = cli.json;
     let fallback = default_code(&cli.command);

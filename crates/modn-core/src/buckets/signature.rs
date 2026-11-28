@@ -23,6 +23,19 @@ const NO_MAIN_KEY: &str = "This Modn build has no main bucket signer key.";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CatalogKeyId(u64);
 
+impl CatalogKeyId {
+    /// Parse a 16-digit hexadecimal key identifier in either letter case.
+    ///
+    /// The identifier is stored as the canonical uppercase form that minisign
+    /// and the `modn catalog` commands print.
+    pub fn parse_hex(text: &str) -> Result<Self> {
+        if text.len() != 16 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            bail!("a minisign key ID is 16 hexadecimal digits");
+        }
+        Ok(Self(u64::from_str_radix(text, 16)?))
+    }
+}
+
 impl fmt::Display for CatalogKeyId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{:016X}", self.0)

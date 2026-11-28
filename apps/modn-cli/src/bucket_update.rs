@@ -10,6 +10,7 @@ pub(super) struct MainRefresh {
     pub(super) key_id: CatalogKeyId,
     pub(super) release: Option<String>,
     pub(super) newer: Option<main_release::UnsupportedRelease>,
+    pub(super) report: crate::buckets::CatalogReport,
 }
 
 pub(super) fn source_reader(source: &str) -> Result<Box<dyn Read>> {
@@ -60,11 +61,13 @@ pub(super) fn refresh(roots: &modn_core::manager_roots::ManagerRoots) -> Result<
         }
     };
     let store = BucketStore::new(roots);
-    let (digest, changed, key_id) = store.update_main(
+    let updated = store.update_main(
         crate::main_key::MAIN_BUCKET_PUBLIC_KEY,
         || source_reader(&source),
         || signature_reader(&source, &signature),
     )?;
+    let (digest, changed, key_id) = (updated.digest, updated.changed, updated.key_id);
+    let report = crate::buckets::catalog_report(roots, "main", &updated.warnings);
     let (release, newer) = match selection {
         Some(selection) => (Some(selection.tag), selection.newer),
         None => (None, None),
@@ -75,6 +78,7 @@ pub(super) fn refresh(roots: &modn_core::manager_roots::ManagerRoots) -> Result<
         key_id,
         release,
         newer,
+        report,
     })
 }
 
@@ -96,6 +100,8 @@ pub(super) fn run(
                 "digest":refreshed.digest,
                 "changed":refreshed.changed,
                 "signed_by":refreshed.key_id.to_string(),
+                "sequence":refreshed.report.sequence,
+                "warnings":refreshed.report.warnings,
                 "newer_release_needs_modn":refreshed.newer.as_ref().map(|newer| &newer.min_modn_version),
             })
         );
@@ -105,6 +111,9 @@ pub(super) fn run(
             "Installed main {}; changed: {}",
             refreshed.digest, refreshed.changed
         );
+        for line in &refreshed.report.lines {
+            println!("{line}");
+        }
         if let (Some(release), Some(newer)) = (&refreshed.release, &refreshed.newer) {
             eprintln!("{}", newer.notice(release));
         }

@@ -1,4 +1,5 @@
 use super::lock::{acquire_lock, LOCK_WAIT};
+use super::sequence::{accept_sequence, read_sequence, CatalogWarning};
 use super::signature::{main_bucket_public_key, verify_catalog, CatalogKeyId};
 use super::BucketStore;
 use crate::acquisition::MAX_DOWNLOAD_BYTES;
@@ -9,6 +10,20 @@ use std::io::{self, Read};
 use std::path::Path;
 
 const MAX_SIGNATURE_BYTES: u64 = 4 * 1024;
+
+/// Result of one signed official `main` bucket update.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct MainCatalogUpdate {
+    /// Installed tree digest.
+    pub digest: String,
+    /// True when the installed tree differs from the previous copy.
+    pub changed: bool,
+    /// Key that signed the accepted release.
+    pub key_id: CatalogKeyId,
+    /// Non-fatal warnings, such as an expired signed catalog.
+    pub warnings: Vec<CatalogWarning>,
+}
 
 fn directory_exists(path: &Path) -> Result<bool> {
     match fs::symlink_metadata(path) {
@@ -132,13 +147,17 @@ fn extract(path: &Path, stage: &Path) -> Result<()> {
 impl BucketStore {
     /// Verify and install a signed main bucket ZIP into the profile's official
     /// bucket root. Recover an interrupted swap before updating.
-    /// Return the installed tree digest, whether its contents changed, and the signer key.
+    ///
+    /// A signed `sequence.json` is checked against the record beside the
+    /// installed copy before the swap. A lower number or a dropped number is a
+    /// rollback and writes nothing. An accepted number is recorded before the
+    /// swap, so an interrupted update never lowers the recorded number.
     pub fn update_main<R: Read, S: Read>(
         &self,
         embedded_key: &str,
         source: impl FnOnce() -> Result<R>,
         signature: impl FnOnce() -> Result<S>,
-    ) -> Result<(String, bool, CatalogKeyId)> {
+    ) -> Result<MainCatalogUpdate> {
         let key = main_bucket_public_key(embedded_key)?;
         let root = self.roots.official_bucket_root();
         Self::check_registry_root(&root)?;
@@ -151,6 +170,7 @@ impl BucketStore {
             LOCK_WAIT,
         )?;
         recover(&root)?;
+        let stored_sequence = self.main_sequence()?;
         let signature_text = read_signature(signature()?)?;
         let mut source = source()?;
         let mut zip = tempfile::Builder::new().suffix(".zip").tempfile_in(&root)?;
@@ -171,17 +191,40 @@ impl BucketStore {
                 );
             }
             self.validate_main(&stage)?;
+            let signed_sequence = read_sequence(&stage)?;
+            let accepted_digest = bucket_digest::catalog_digest(&stage)?;
+            let (accepted, warnings) = accept_sequence(
+                "main",
+                stored_sequence.as_ref(),
+                signed_sequence.as_ref(),
+                accepted_digest.as_str(),
+                self.clock_seconds(),
+            )?;
             let digest = bucket_digest::directory_digest(&stage)?;
             let had_main = directory_exists(&main)?;
             let changed = !had_main || bucket_digest::directory_digest(&main)? != digest;
+            // Record the accepted number before the swap. A crash or a failed
+            // swap then leaves the record ahead of the installed copy, which
+            // refuses only older catalogs. A record written after the swap
+            // would leave a window in which an older catalog is accepted.
+            if let Some(accepted) = &accepted {
+                self.write_main_sequence(accepted)?;
+            }
+            #[cfg(test)]
+            sequence_tests::fail_point(&root)?;
             swap(&root, had_main, remove_directory)?;
-            Ok((digest, changed, verified.key_id))
+            Ok((digest, changed, verified.key_id, warnings))
         })();
         let cleanup = remove_directory(&stage);
         match result {
-            Ok(value) => {
+            Ok((digest, changed, key_id, warnings)) => {
                 cleanup?;
-                Ok(value)
+                Ok(MainCatalogUpdate {
+                    digest,
+                    changed,
+                    key_id,
+                    warnings,
+                })
             }
             Err(error) => {
                 cleanup.context("clean failed main bucket update")?;
@@ -190,6 +233,10 @@ impl BucketStore {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "update_sequence_tests.rs"]
+mod sequence_tests;
 
 #[cfg(test)]
 mod tests {

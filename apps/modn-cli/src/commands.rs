@@ -244,6 +244,8 @@ pub(super) enum BucketCommand {
         #[arg(long)]
         revision: Option<String>,
     },
+    /// List community buckets that the official main bucket lists by name.
+    Known,
     /// Download, verify and replace the official main bucket.
     Update { name: Option<String> },
     /// Register a local bucket directory after validating its complete contents.

@@ -1,3 +1,4 @@
+use super::checkver::Checkver;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -55,6 +56,14 @@ pub struct PackageManifest {
     /// loads, such as `winmm.dll` beside the game executable.
     #[serde(default)]
     pub native_injector: bool,
+    /// Optional upstream selector for catalog authoring tools. User commands
+    /// validate it but never fetch anything from it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::checkver::deserialize"
+    )]
+    pub checkver: Option<Checkver>,
 }
 
 /// Format of the original, unextracted download.

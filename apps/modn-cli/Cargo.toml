@@ -16,6 +16,7 @@ anyhow = "1"
 base64 = "0.23"
 blake3 = "1"
 clap = { version = "4.5", features = ["derive"] }
+ctrlc = { version = "3.5", features = ["termination"] }
 keyring = { version = "4.2", default-features = false, features = ["v1", "windows-native-keyring-store"] }
 minisign = "0.10"
 modn-core = { path = "../../crates/modn-core" }
@@ -26,7 +27,7 @@ tempfile = "3"
 ureq = "3"
 
 [dev-dependencies]
-modn-core = { path = "../../crates/modn-core", features = ["test-instruction-budget", "test-main-bucket-releases", "test-main-key"] }
+modn-core = { path = "../../crates/modn-core", features = ["test-checkver-endpoints", "test-instruction-budget", "test-known-source-redirect", "test-main-bucket-releases", "test-main-key"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }

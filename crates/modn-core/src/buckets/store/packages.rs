@@ -148,7 +148,8 @@ fn read_releases(root: &Path, canonical: &Path) -> Result<Releases> {
             if count > MAX_PACKAGES {
                 bail!("bucket package limit exceeded");
             }
-            let manifest: PackageManifest = bounded_json(&path)?;
+            let manifest: PackageManifest =
+                bounded_json(&path).with_context(|| format!("package {game_id}/{id}"))?;
             manifest.validate(&game_id, id)?;
             match version {
                 None => releases.current.push(manifest),

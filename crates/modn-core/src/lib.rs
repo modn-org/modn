@@ -16,6 +16,8 @@ pub mod bucket_digest;
 /// Versioned bucket metadata, validation and local registration.
 pub mod buckets;
 pub mod catalog_pipeline;
+/// Stateless upstream release checks for catalog authoring tools.
+pub mod checkver;
 /// Report overlapping file claims between managed packages of a profile.
 pub mod conflicts;
 /// Resolve module-declared content roots below a known folder.
