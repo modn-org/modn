@@ -136,7 +136,7 @@ impl Fixture {
         let mut writer = ArchiveWriter::create(&path).expect("7z writer");
         for (entry, bytes) in files {
             writer
-                .push_archive_entry(ArchiveEntry::new_file(*entry), Some(Cursor::new(*bytes)))
+                .push_archive_entry(ArchiveEntry::new_file(entry), Some(Cursor::new(*bytes)))
                 .expect("7z member");
         }
         writer.finish().expect("complete 7z");

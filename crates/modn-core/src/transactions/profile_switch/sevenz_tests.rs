@@ -43,7 +43,7 @@ fn sevenz_cache(fixture: &Fixture, name: &str, files: &[(&str, &[u8])]) {
     let mut writer = ArchiveWriter::create(&target).expect("7z writer");
     for (entry, bytes) in files {
         writer
-            .push_archive_entry(ArchiveEntry::new_file(*entry), Some(Cursor::new(*bytes)))
+            .push_archive_entry(ArchiveEntry::new_file(entry), Some(Cursor::new(*bytes)))
             .expect("7z member");
     }
     writer.finish().expect("complete 7z");
